@@ -1,0 +1,20 @@
+[package]
+name = "readline"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Pure Rust GNU Readline-compatible line editing foundation for sush"
+
+[dependencies]
+history = { path = "../history" }
+crossterm = "0.28"
+libc = "0.2"
+unicode-width = "0.1"
+
+[dev-dependencies]
+portable-pty = "0.8"
+tempfile = "3"
+
+[[bin]]
+name = "sushline-harness"
+path = "src/bin/sushline-harness.rs"

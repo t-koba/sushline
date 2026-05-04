@@ -55,6 +55,10 @@ application-owned functions are dispatched through hooks.
 The embedder supplies:
 
 - Expanding prompts before passing them to `Editor::read_line`.
+- Initializing process locale state when locale-aware completion ordering is
+  desired. sushline uses the current libc `LC_COLLATE` state for completion
+  sorting, but does not call `setlocale`; without embedder initialization, the
+  default C locale applies.
 - Supplying and persisting history according to the embedding program's policy.
 - Programmable completion state and candidate generation.
 - Executing application commands for `bind -x`.

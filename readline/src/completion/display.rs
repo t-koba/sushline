@@ -1,4 +1,6 @@
 use crate::completion::{CompletionCandidate, CompletionResponse};
+use std::cmp::Ordering;
+use std::ffi::CString;
 
 pub(crate) fn common_prefix_bytes(candidates: &[CompletionCandidate]) -> Option<Vec<u8>> {
     let first = candidates.first()?.replacement_bytes().to_vec();
@@ -32,14 +34,27 @@ pub(crate) fn sort_completion_response(response: &mut CompletionResponse) {
     response
         .candidates
         .sort_by(|a, b| match (a.display.as_deref(), b.display.as_deref()) {
-            (Some(a), Some(b)) => a.cmp(b),
-            (Some(a), None) => a.as_bytes().cmp(b.replacement_bytes()),
-            (None, Some(b)) => a.replacement_bytes().cmp(b.as_bytes()),
-            (None, None) => a.replacement_bytes().cmp(b.replacement_bytes()),
+            (Some(a), Some(b)) => compare_with_current_locale(a.as_bytes(), b.as_bytes()),
+            (Some(a), None) => compare_with_current_locale(a.as_bytes(), b.replacement_bytes()),
+            (None, Some(b)) => compare_with_current_locale(a.replacement_bytes(), b.as_bytes()),
+            (None, None) => {
+                compare_with_current_locale(a.replacement_bytes(), b.replacement_bytes())
+            }
         });
     response
         .candidates
         .dedup_by(|a, b| a.replacement_bytes() == b.replacement_bytes());
+}
+
+fn compare_with_current_locale(a: &[u8], b: &[u8]) -> Ordering {
+    let ordering = match (CString::new(a), CString::new(b)) {
+        (Ok(a), Ok(b)) => {
+            let result = unsafe { libc::strcoll(a.as_ptr(), b.as_ptr()) };
+            result.cmp(&0)
+        }
+        _ => return a.cmp(b),
+    };
+    ordering.then_with(|| a.cmp(b))
 }
 
 pub(crate) fn merge_extended_completion_options(

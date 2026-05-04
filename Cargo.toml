@@ -12,3 +12,9 @@ resolver = "3"
 [dependencies]
 history = { path = "history" }
 readline = { path = "readline" }
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+lto = true
+panic = "abort"

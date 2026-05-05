@@ -129,6 +129,37 @@ fn insert_completions_replaces_word_and_separates_candidates() {
 }
 
 #[test]
+fn insert_completions_does_not_mark_directories() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("alpha-dir")).unwrap();
+    std::fs::write(dir.path().join("alpha-file"), "").unwrap();
+    let word = format!("{}/alp", dir.path().display());
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(word.as_bytes().to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": insert-completions")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    let ReadlineResult::Line(line) = result else {
+        panic!("expected line");
+    };
+    assert!(
+        line.windows(format!("{}/alpha-dir ", dir.path().display()).len())
+            .any(|window| window == format!("{}/alpha-dir ", dir.path().display()).as_bytes()),
+        "{line:?}"
+    );
+    assert!(
+        !line
+            .windows(format!("{}/alpha-dir/ ", dir.path().display()).len())
+            .any(|window| window == format!("{}/alpha-dir/ ", dir.path().display()).as_bytes()),
+        "{line:?}"
+    );
+}
+
+#[test]
 fn completion_dequotes_and_requotes_current_word() {
     struct OneCompletion;
     impl Hooks for OneCompletion {
@@ -181,6 +212,145 @@ fn completion_dequotes_and_requotes_current_word() {
     assert_eq!(
         result,
         ReadlineResult::Line("cat foo\\ bar\\ baz ".as_bytes().to_vec())
+    );
+}
+
+#[test]
+fn filename_hook_candidates_honor_directory_marking() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("alpha-dir")).unwrap();
+    let replacement = format!("{}/alpha-dir", dir.path().display()).into_bytes();
+    let word = format!("{}/alp", dir.path().display());
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(word.as_bytes().to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = OptionCompletion {
+        options: CompletionOptions {
+            filenames: true,
+            ..Default::default()
+        },
+        candidates: vec![CompletionCandidate {
+            replacement: replacement.clone(),
+            display: None,
+        }],
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": complete").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(
+        result,
+        ReadlineResult::Line(format!("{}/alpha-dir/", dir.path().display()).into_bytes())
+    );
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(word.as_bytes().to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = OptionCompletion {
+        options: CompletionOptions {
+            filenames: true,
+            ..Default::default()
+        },
+        candidates: vec![CompletionCandidate {
+            replacement,
+            display: None,
+        }],
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": complete\nset mark-directories off")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(
+        result,
+        ReadlineResult::Line(format!("{}/alpha-dir", dir.path().display()).into_bytes())
+    );
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(word.as_bytes().to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = OptionCompletion {
+        options: CompletionOptions {
+            filenames: true,
+            suppress_append: true,
+            ..Default::default()
+        },
+        candidates: vec![CompletionCandidate {
+            replacement: format!("{}/alpha-dir", dir.path().display()).into_bytes(),
+            display: None,
+        }],
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": complete").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(
+        result,
+        ReadlineResult::Line(format!("{}/alpha-dir/", dir.path().display()).into_bytes())
+    );
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(word.as_bytes().to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = OptionCompletion {
+        options: CompletionOptions {
+            filenames: true,
+            append_character: Some(':'),
+            ..Default::default()
+        },
+        candidates: vec![CompletionCandidate {
+            replacement: format!("{}/alpha-dir", dir.path().display()).into_bytes(),
+            display: None,
+        }],
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": complete\nset mark-directories off")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(
+        result,
+        ReadlineResult::Line(format!("{}/alpha-dir", dir.path().display()).into_bytes())
+    );
+}
+
+#[test]
+fn glob_complete_marks_directories_but_glob_expand_does_not() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("alpha-dir")).unwrap();
+    let word = format!("{}/al*", dir.path().display());
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(word.as_bytes().to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": glob-complete-word")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(
+        result,
+        ReadlineResult::Line(format!("{}/alpha-dir/", dir.path().display()).into_bytes())
+    );
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(word.as_bytes().to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": glob-expand-word")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(
+        result,
+        ReadlineResult::Line(format!("{}/alpha-dir", dir.path().display()).into_bytes())
     );
 }
 

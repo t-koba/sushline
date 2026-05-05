@@ -1,7 +1,7 @@
 mod render;
 mod word;
 pub use render::RenderOptions;
-pub(crate) use render::rendered_string_to_bytes;
+pub(crate) use render::{append_bytes_lossless, rendered_string_to_bytes};
 use word::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

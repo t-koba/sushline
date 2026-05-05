@@ -1,7 +1,8 @@
 use crate::completion::builtin::*;
 use crate::completion::display::*;
 use crate::completion::filename::{
-    FilenameOptions, complete_directories_bytes, complete_filenames_bytes,
+    DirectoryCompletion, FilenameOptions, complete_directories_bytes, complete_filenames_bytes,
+    filename_directory_completion,
 };
 use crate::completion::quoting::*;
 use crate::completion::{
@@ -89,7 +90,7 @@ where
             | CompletionType::PossibleUsernameCompletions
             | CompletionType::PossibleVariableCompletions
             | CompletionType::GlobListExpansions => {
-                self.display_completions(&response)?;
+                self.display_completions_for_word(&response, &edit.word_bytes)?;
                 state.completion.last_completion = Some(response);
             }
             CompletionType::MenuComplete | CompletionType::MenuCompleteBackward => {
@@ -104,17 +105,11 @@ where
             CompletionType::InsertCompletions => {
                 state.buffer.delete_range_bytes(edit.start, edit.end);
                 for candidate in &response.candidates {
-                    let quoted = self.requote_completion(
-                        &candidate.replacement_string(),
+                    let replacement_bytes = self.requote_completion_bytes(
+                        candidate.replacement_bytes(),
                         &edit,
                         response.options.quote_filename(),
                         hooks,
-                    );
-                    let replacement_bytes = completion_replacement_bytes(
-                        candidate,
-                        quoted.as_bytes(),
-                        &edit,
-                        response.options.quote_filename(),
                     );
                     state.buffer.insert_bytes(&replacement_bytes);
                     state.buffer.insert_char(' ');
@@ -129,6 +124,9 @@ where
                             expanded.push(b' ');
                         }
                         expanded.extend_from_slice(candidate.replacement_bytes());
+                    }
+                    if response.candidates.len() > 1 {
+                        expanded.push(b' ');
                     }
                     state
                         .buffer
@@ -210,23 +208,27 @@ where
             return Ok(());
         }
         if response.options.action == Some(CompletionAction::DisplayOnly) {
-            self.display_completions(&response)?;
+            self.display_completions_for_word(&response, &edit.word_bytes)?;
             return Ok(());
         }
         let skip_completed_text = self.variable_is_on("skip-completed-text");
         if response.candidates.len() == 1 {
-            let replacement = self.requote_completion(
-                &response.candidates[0].replacement_string(),
+            let candidate = &response.candidates[0];
+            let filename_directory =
+                self.filename_directory_completion_for_candidate(&response, edit, candidate);
+            let append_filename_slash = append_filename_slash_for_candidate(
+                candidate,
+                filename_directory.as_ref(),
+                completion_suffix_bytes(edit, state).first().copied(),
+            );
+            let replacement_bytes = self.completion_candidate_replacement_bytes(
+                candidate,
                 edit,
                 response.options.quote_filename(),
                 hooks,
+                append_filename_slash,
             );
-            let mut replacement_bytes = completion_replacement_bytes(
-                &response.candidates[0],
-                replacement.as_bytes(),
-                edit,
-                response.options.quote_filename(),
-            );
+            let mut replacement_bytes = replacement_bytes;
             let skipped_completed_text =
                 skip_completed_text && !completion_suffix_bytes(edit, state).is_empty();
             if skip_completed_text {
@@ -235,7 +237,12 @@ where
             state
                 .buffer
                 .replace_range_bytes(edit.start, edit.end, &replacement_bytes);
-            if !response.options.nospace && !skipped_completed_text {
+            let suppress_append_for_directory =
+                filename_directory.is_some() || candidate.replacement_bytes().ends_with(b"/");
+            if !suppress_append_for_directory
+                && !response.options.nospace
+                && !skipped_completed_text
+            {
                 if let Some(ch) = response.options.append_character {
                     state.buffer.insert_char(ch);
                 } else if !response.options.suppress_append {
@@ -277,7 +284,7 @@ where
                 || (repeated_unmodified_completion
                     && state.buffer.as_bytes() == before_line.as_slice())
             {
-                self.display_completions(&response)?;
+                self.display_completions_for_word(&response, &edit.word_bytes)?;
             }
             state.completion.last_attempt = Some(CompletionAttemptState {
                 completion_type,
@@ -309,7 +316,8 @@ where
         else {
             return Ok(());
         };
-        let replacement_bytes = self.menu_complete_replacement(&response, edit, next_index, hooks);
+        let replacement_bytes =
+            self.menu_complete_replacement(&response, edit, next_index, hooks, context.end, state);
         self.menu_complete_display(state, &response, context.previous_index)?;
         state
             .buffer
@@ -375,18 +383,23 @@ where
         edit: &CompletionEdit,
         next_index: usize,
         hooks: &impl Hooks,
+        replaced_end: usize,
+        state: &EditorState,
     ) -> Vec<u8> {
-        let replacement = self.requote_completion(
-            &response.candidates[next_index].replacement_string(),
+        let candidate = &response.candidates[next_index];
+        let filename_directory =
+            self.filename_directory_completion_for_candidate(response, edit, candidate);
+        let append_filename_slash = append_filename_slash_for_candidate(
+            candidate,
+            filename_directory.as_ref(),
+            state.buffer.as_bytes().get(replaced_end).copied(),
+        );
+        self.completion_candidate_replacement_bytes(
+            candidate,
             edit,
             response.options.quote_filename(),
             hooks,
-        );
-        completion_replacement_bytes(
-            &response.candidates[next_index],
-            replacement.as_bytes(),
-            edit,
-            response.options.quote_filename(),
+            append_filename_slash,
         )
     }
 
@@ -401,8 +414,11 @@ where
             && let Some(prefix) = common_prefix_bytes(&response.candidates)
         {
             self.terminal.write("\r\n")?;
-            let prefix = String::from_utf8_lossy(&prefix);
-            self.terminal.write(prefix.as_ref())?;
+            let rendered = crate::buffer::LineBuffer::from_bytes(prefix)
+                .render_text(None, self.render_options())
+                .0;
+            self.terminal
+                .write_bytes(&crate::buffer::rendered_string_to_bytes(&rendered))?;
             self.terminal.write("\r\n")?;
         }
         Ok(())
@@ -423,17 +439,11 @@ where
                 if idx > 0 {
                     joined.push(b',');
                 }
-                let quoted = self.requote_completion(
-                    &candidate.replacement_string(),
+                joined.extend(self.requote_completion_bytes(
+                    candidate.replacement_bytes(),
                     &edit,
                     response.options.quote_filename(),
                     hooks,
-                );
-                joined.extend(completion_replacement_bytes(
-                    candidate,
-                    quoted.as_bytes(),
-                    &edit,
-                    response.options.quote_filename(),
                 ));
             }
             joined.push(b'}');
@@ -444,22 +454,55 @@ where
         Ok(())
     }
 
-    fn requote_completion(
+    fn requote_completion_bytes(
         &self,
-        value: &str,
+        value: &[u8],
         edit: &CompletionEdit,
         quote_filename: bool,
         hooks: &impl Hooks,
-    ) -> String {
+    ) -> Vec<u8> {
         match edit.quote {
-            Some('\'') => quote_single_quoted(value),
-            Some('"') => quote_double_quoted(value),
+            Some('\'') => quote_single_quoted_bytes(value),
+            Some('"') => quote_double_quoted_bytes(value),
             _ if quote_filename => hooks
-                .quote(value.as_bytes())
-                .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
-                .unwrap_or_else(|| quote_unquoted_filename(value)),
-            _ => value.to_string(),
+                .quote(value)
+                .unwrap_or_else(|| quote_filename_bytes(value)),
+            _ => value.to_vec(),
         }
+    }
+
+    fn filename_directory_completion_for_candidate(
+        &self,
+        response: &CompletionResponse,
+        edit: &CompletionEdit,
+        candidate: &crate::completion::CompletionCandidate,
+    ) -> Option<DirectoryCompletion> {
+        response
+            .options
+            .filenames
+            .then(|| {
+                filename_directory_completion(
+                    &edit.word_bytes,
+                    candidate.replacement_bytes(),
+                    &self.filename_options(),
+                )
+            })
+            .flatten()
+    }
+
+    fn completion_candidate_replacement_bytes(
+        &self,
+        candidate: &crate::completion::CompletionCandidate,
+        edit: &CompletionEdit,
+        quote_filename: bool,
+        hooks: &impl Hooks,
+        append_filename_slash: bool,
+    ) -> Vec<u8> {
+        let mut replacement = candidate.replacement_bytes().to_vec();
+        if append_filename_slash {
+            replacement.push(b'/');
+        }
+        self.requote_completion_bytes(&replacement, edit, quote_filename, hooks)
     }
 
     pub(super) fn completion_edit(
@@ -529,4 +572,16 @@ where
         sort_completion_response(&mut response);
         response
     }
+}
+
+fn append_filename_slash_for_candidate(
+    candidate: &crate::completion::CompletionCandidate,
+    directory: Option<&DirectoryCompletion>,
+    next_byte: Option<u8>,
+) -> bool {
+    directory.is_some_and(|directory| {
+        directory.append_slash
+            && !candidate.replacement_bytes().ends_with(b"/")
+            && next_byte != Some(b'/')
+    })
 }

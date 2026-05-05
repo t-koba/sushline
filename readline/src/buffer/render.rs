@@ -76,7 +76,7 @@ pub(super) fn display_char(
     }
 }
 
-pub(super) fn append_bytes_lossless(out: &mut String, bytes: &[u8]) {
+pub(crate) fn append_bytes_lossless(out: &mut String, bytes: &[u8]) {
     for byte in bytes {
         if byte.is_ascii() {
             out.push(*byte as char);

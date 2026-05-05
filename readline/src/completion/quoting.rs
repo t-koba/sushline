@@ -1,4 +1,3 @@
-use crate::completion::CompletionCandidate;
 use crate::state::EditorState;
 
 pub(super) struct CompletionEdit {
@@ -65,53 +64,6 @@ pub(super) fn dequote_completion_word_bytes(raw: &[u8]) -> (Vec<u8>, Option<char
     }
     (out, quote)
 }
-pub(super) fn quote_unquoted_filename(value: &str) -> String {
-    let mut out = String::new();
-    for ch in value.chars() {
-        if ch.is_whitespace()
-            || matches!(
-                ch,
-                '\'' | '"'
-                    | '\\'
-                    | '$'
-                    | '`'
-                    | '!'
-                    | '&'
-                    | ';'
-                    | '|'
-                    | '<'
-                    | '>'
-                    | '('
-                    | ')'
-                    | '['
-                    | ']'
-                    | '{'
-                    | '}'
-                    | '*'
-                    | '?'
-                    | '#'
-            )
-        {
-            out.push('\\');
-        }
-        out.push(ch);
-    }
-    out
-}
-
-pub(super) fn completion_replacement_bytes(
-    candidate: &CompletionCandidate,
-    formatted: &[u8],
-    edit: &CompletionEdit,
-    quote_filename: bool,
-) -> Vec<u8> {
-    let bytes = candidate.replacement_bytes();
-    if quote_filename && edit.quote.is_none() && std::str::from_utf8(bytes).is_err() {
-        return quote_filename_bytes(bytes);
-    }
-    formatted.to_vec()
-}
-
 pub(super) fn quote_filename_bytes(bytes: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(bytes.len());
     for byte in bytes {
@@ -193,27 +145,29 @@ pub(super) fn insert_disabled_completion_key(state: &mut EditorState, key: &[u8]
     inserted
 }
 
-pub(super) fn quote_single_quoted(value: &str) -> String {
-    let mut out = String::from("'");
-    for ch in value.chars() {
-        if ch == '\'' {
-            out.push_str("'\\''");
+pub(super) fn quote_single_quoted_bytes(value: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(value.len() + 2);
+    out.push(b'\'');
+    for byte in value {
+        if *byte == b'\'' {
+            out.extend_from_slice(b"'\\''");
         } else {
-            out.push(ch);
+            out.push(*byte);
         }
     }
-    out.push('\'');
+    out.push(b'\'');
     out
 }
 
-pub(super) fn quote_double_quoted(value: &str) -> String {
-    let mut out = String::from("\"");
-    for ch in value.chars() {
-        if matches!(ch, '"' | '\\' | '$' | '`') {
-            out.push('\\');
+pub(super) fn quote_double_quoted_bytes(value: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(value.len() + 2);
+    out.push(b'"');
+    for byte in value {
+        if matches!(*byte, b'"' | b'\\' | b'$' | b'`') {
+            out.push(b'\\');
         }
-        out.push(ch);
+        out.push(*byte);
     }
-    out.push('"');
+    out.push(b'"');
     out
 }

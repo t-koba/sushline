@@ -4,7 +4,8 @@ use crate::completion::display::{
     color_completion_prefix, common_prefix_bytes, format_completion_items_with_trailing,
 };
 use crate::completion::filename::{
-    FilenameOptions, complete_filenames_bytes, glob_match, ls_color_code_from_spec,
+    FilenameOptions, complete_directories_bytes, complete_filenames_bytes, glob_match,
+    ls_color_code_from_spec,
 };
 use crate::completion::{CompletionContext, CompletionRequest, CompletionResponse, CompletionType};
 use crate::terminal::{TerminalEvent, TerminalSize};
@@ -467,6 +468,102 @@ fn filename_completion_honors_mark_directories_and_map_case() {
     assert!(response.candidates[0].replacement.ends_with(b"alpha-dir"));
     assert!(!response.candidates[0].replacement.ends_with(b"/"));
     assert_eq!(response.candidates[0].display.as_deref(), Some("alpha-dir"));
+}
+
+#[cfg(unix)]
+#[test]
+fn filename_completion_marks_symlinked_directories_like_readline() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("target-dir")).unwrap();
+    symlink(dir.path().join("target-dir"), dir.path().join("alpha-link")).unwrap();
+    let word = format!("{}/alp", dir.path().display());
+
+    let mut line = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
+    let response = complete_filenames_bytes(
+        word.as_bytes(),
+        &FilenameOptions::from_variables(&line.variables),
+    );
+    assert_eq!(response.candidates.len(), 1);
+    assert!(response.options.nospace);
+    assert!(response.candidates[0].replacement.ends_with(b"alpha-link"));
+    assert!(!response.candidates[0].replacement.ends_with(b"/"));
+    assert_eq!(
+        response.candidates[0].display.as_deref(),
+        Some("alpha-link/")
+    );
+
+    line.load_inputrc_str("set mark-symlinked-directories on")
+        .unwrap();
+    let response = complete_filenames_bytes(
+        word.as_bytes(),
+        &FilenameOptions::from_variables(&line.variables),
+    );
+    assert_eq!(response.candidates.len(), 1);
+    assert!(response.options.nospace);
+    assert!(response.candidates[0].replacement.ends_with(b"alpha-link"));
+    assert!(!response.candidates[0].replacement.ends_with(b"/"));
+
+    line.load_inputrc_str("set mark-directories off").unwrap();
+    let response = complete_filenames_bytes(
+        word.as_bytes(),
+        &FilenameOptions::from_variables(&line.variables),
+    );
+    assert_eq!(response.candidates.len(), 1);
+    assert!(response.options.nospace);
+    assert!(response.candidates[0].replacement.ends_with(b"alpha-link"));
+    assert!(!response.candidates[0].replacement.ends_with(b"/"));
+    assert_eq!(
+        response.candidates[0].display.as_deref(),
+        Some("alpha-link")
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn raw_filename_completion_does_not_append_space_after_marked_directory() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+    let dir = tempfile::tempdir().unwrap();
+    let name = OsString::from_vec(vec![b'a', 0xff]);
+    std::fs::create_dir(dir.path().join(&name)).unwrap();
+    let mut word = dir.path().as_os_str().as_bytes().to_vec();
+    word.push(b'/');
+    word.push(b'a');
+
+    let line = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
+    let response =
+        complete_filenames_bytes(&word, &FilenameOptions::from_variables(&line.variables));
+    assert_eq!(response.candidates.len(), 1);
+    assert!(response.options.nospace);
+    assert!(response.candidates[0].replacement.ends_with(&[b'a', 0xff]));
+    assert!(!response.candidates[0].replacement.ends_with(b"/"));
+
+    let response =
+        complete_directories_bytes(&word, &FilenameOptions::from_variables(&line.variables));
+    assert_eq!(response.candidates.len(), 1);
+    assert!(response.options.nospace);
+    assert!(response.candidates[0].replacement.ends_with(&[b'a', 0xff]));
+    assert!(!response.candidates[0].replacement.ends_with(b"/"));
+}
+
+#[test]
+fn directory_completion_recomputes_nospace_after_filtering() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("alpha-dir")).unwrap();
+    std::fs::write(dir.path().join("alpha-file"), "").unwrap();
+    let word = format!("{}/alp", dir.path().display());
+
+    let line = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
+    let response = complete_directories_bytes(
+        word.as_bytes(),
+        &FilenameOptions::from_variables(&line.variables),
+    );
+    assert_eq!(response.candidates.len(), 1);
+    assert!(response.options.nospace);
+    assert!(response.candidates[0].replacement.ends_with(b"alpha-dir"));
 }
 
 #[test]

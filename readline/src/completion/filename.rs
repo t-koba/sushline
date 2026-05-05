@@ -4,6 +4,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+pub(super) struct DirectoryCompletion {
+    pub(super) append_slash: bool,
+    pub(super) display_slash: bool,
+}
+
 pub(crate) struct FilenameOptions {
     pub(crate) ignore_case: bool,
     pub(crate) map_case: bool,
@@ -29,105 +34,58 @@ impl FilenameOptions {
 }
 
 pub(crate) fn complete_filenames_bytes(word: &[u8], opts: &FilenameOptions) -> CompletionResponse {
-    if let Ok(word) = std::str::from_utf8(word) {
-        return complete_filenames_utf8(word, opts);
-    }
-    complete_filenames_raw_bytes(word, opts)
-}
-
-fn complete_filenames_utf8(word: &str, opts: &FilenameOptions) -> CompletionResponse {
-    let expanded = expand_tilde(word);
-    let path = Path::new(&expanded);
-    let (dir, prefix, _) = split_word_path(&expanded);
-    let (_, _, display_dir) = split_word_path(word);
-
+    let completion_word = if opts.expand_tilde {
+        expand_tilde_bytes(word)
+    } else {
+        word.to_vec()
+    };
+    let (dir_bytes, prefix, completion_display_dir) = split_word_path_bytes(&completion_word);
+    let display_dir = if opts.expand_tilde {
+        completion_display_dir
+    } else {
+        split_word_path_bytes(word).2
+    };
+    let Some(dir) = path_from_bytes(&dir_bytes) else {
+        return filename_response(Vec::new(), 0);
+    };
     let mut candidates = Vec::new();
     let mut directory_candidate_count = 0;
     if let Ok(entries) = fs::read_dir(&dir) {
         for entry in entries.flatten() {
             let os_name = entry.file_name();
-            let name = os_string_to_display(&os_name);
-            let byte_prefix_match = os_name_starts_with(&os_name, prefix);
-            if !opts.match_hidden_files && os_name_is_hidden(&os_name) && !prefix.starts_with('.') {
+            let Some(name_bytes) = os_str_to_completion_bytes(&os_name) else {
+                continue;
+            };
+            if !opts.match_hidden_files
+                && name_bytes.first() == Some(&b'.')
+                && prefix.first() != Some(&b'.')
+            {
                 continue;
             }
-            if byte_prefix_match
-                || completion_eq_prefix(&name, prefix, opts.ignore_case, opts.map_case)
-            {
-                let Some((completion_name, completion_bytes)) = os_string_to_completion(os_name)
-                else {
-                    continue;
-                };
-                let mut replacement_bytes = completion_bytes.clone();
-                let mut replacement = if opts.expand_tilde {
-                    format!(
-                        "{}{completion_name}",
-                        path.parent()
-                            .filter(|parent| !parent.as_os_str().is_empty())
-                            .map(|parent| format!("{}/", parent.display()))
-                            .unwrap_or_default()
-                    )
-                } else {
-                    format!("{display_dir}{completion_name}")
-                };
-                if let Some(bytes) = replacement_bytes.as_mut() {
-                    let mut prefix_bytes = if opts.expand_tilde {
-                        path.parent()
-                            .filter(|parent| !parent.as_os_str().is_empty())
-                            .map(|parent| format!("{}/", parent.display()).into_bytes())
-                            .unwrap_or_default()
-                    } else {
-                        display_dir.as_bytes().to_vec()
-                    };
-                    prefix_bytes.extend_from_slice(bytes);
-                    *bytes = prefix_bytes;
-                }
-                let mut display = (!display_dir.is_empty()).then(|| name.to_string());
-                if let Ok(file_type) = entry.file_type()
-                    && file_type.is_dir()
-                {
-                    directory_candidate_count += 1;
-                    if opts.mark_directories
-                        || (opts.mark_symlinked_directories
-                            && is_symlinked_directory(&entry.path()))
-                    {
-                        replacement.push('/');
-                        if let Some(bytes) = replacement_bytes.as_mut() {
-                            bytes.push(b'/');
-                        }
-                    }
-                    display = Some(if opts.colored_stats {
-                        format!(
-                            "\x1b[{}m{name}/\x1b[0m",
-                            ls_color_code_for_candidate(&name, &entry.path(), "di")
-                                .unwrap_or_else(|| "34".to_string())
-                        )
-                    } else if opts.mark_directories {
-                        format!("{name}/")
-                    } else {
-                        name.to_string()
-                    });
-                } else if opts.colored_stats && is_executable_file(&entry.path()) {
-                    display = Some(format!(
-                        "\x1b[{}m{name}\x1b[0m",
-                        ls_color_code_for_candidate(&name, &entry.path(), "ex")
-                            .unwrap_or_else(|| "32".to_string())
-                    ));
-                } else if opts.colored_stats
-                    && let Some(code) = ls_color_code_for_candidate(&name, &entry.path(), "fi")
-                {
-                    display = Some(format!("\x1b[{code}m{name}\x1b[0m"));
-                }
-                let replacement =
-                    replacement_bytes.unwrap_or_else(|| replacement.as_bytes().to_vec());
-                candidates.push(crate::completion::CompletionCandidate {
-                    replacement,
-                    display,
-                });
+            if !completion_prefix_matches_bytes(&name_bytes, prefix, opts) {
+                continue;
             }
+            let name = filename_display_name(&name_bytes);
+            let mut replacement_bytes = display_dir.clone();
+            replacement_bytes.extend_from_slice(&name_bytes);
+            let mut display = (!display_dir.is_empty()).then(|| name.clone());
+            if let Some(directory) = directory_completion(&entry.path(), opts) {
+                directory_candidate_count += 1;
+                display = Some(directory_display(&name, &entry.path(), opts, &directory));
+            }
+            candidates.push(crate::completion::CompletionCandidate {
+                replacement: replacement_bytes,
+                display,
+            });
         }
     }
+    filename_response(candidates, directory_candidate_count)
+}
 
+fn filename_response(
+    candidates: Vec<crate::completion::CompletionCandidate>,
+    directory_candidate_count: usize,
+) -> CompletionResponse {
     let single_directory = candidates.len() == 1 && directory_candidate_count == 1;
     CompletionResponse {
         candidates,
@@ -137,75 +95,6 @@ fn complete_filenames_utf8(word: &str, opts: &FilenameOptions) -> CompletionResp
             ..Default::default()
         },
     }
-}
-
-#[cfg(unix)]
-fn complete_filenames_raw_bytes(word: &[u8], opts: &FilenameOptions) -> CompletionResponse {
-    use std::ffi::OsString;
-    use std::os::unix::ffi::{OsStrExt, OsStringExt};
-    let (dir_bytes, prefix, display_dir) = split_word_path_bytes(word);
-    let dir = PathBuf::from(OsString::from_vec(dir_bytes.clone()));
-    let mut candidates = Vec::new();
-    let mut directory_candidate_count = 0;
-    if let Ok(entries) = fs::read_dir(&dir) {
-        for entry in entries.flatten() {
-            let os_name = entry.file_name();
-            let name_bytes = os_name.as_os_str().as_bytes();
-            if !opts.match_hidden_files
-                && name_bytes.first() == Some(&b'.')
-                && prefix.first() != Some(&b'.')
-            {
-                continue;
-            }
-            if !name_bytes.starts_with(prefix) {
-                continue;
-            }
-            let name = String::from_utf8_lossy(name_bytes).into_owned();
-            let mut replacement_bytes = display_dir.clone();
-            replacement_bytes.extend_from_slice(name_bytes);
-            let mut display = (!display_dir.is_empty()).then(|| name.clone());
-            if let Ok(file_type) = entry.file_type()
-                && file_type.is_dir()
-            {
-                directory_candidate_count += 1;
-                if opts.mark_directories
-                    || (opts.mark_symlinked_directories && is_symlinked_directory(&entry.path()))
-                {
-                    replacement_bytes.push(b'/');
-                }
-                display = Some(if opts.colored_stats {
-                    format!(
-                        "\x1b[{}m{name}/\x1b[0m",
-                        ls_color_code_for_candidate(&name, &entry.path(), "di")
-                            .unwrap_or_else(|| "34".to_string())
-                    )
-                } else if opts.mark_directories {
-                    format!("{name}/")
-                } else {
-                    name
-                });
-            }
-            candidates.push(crate::completion::CompletionCandidate {
-                replacement: replacement_bytes,
-                display,
-            });
-        }
-    }
-    let single_unmarked_directory =
-        candidates.len() == 1 && directory_candidate_count == 1 && !opts.mark_directories;
-    CompletionResponse {
-        candidates,
-        options: crate::completion::CompletionOptions {
-            filenames: true,
-            nospace: single_unmarked_directory,
-            ..Default::default()
-        },
-    }
-}
-
-#[cfg(not(unix))]
-fn complete_filenames_raw_bytes(word: &[u8], opts: &FilenameOptions) -> CompletionResponse {
-    complete_filenames_utf8(&String::from_utf8_lossy(word), opts)
 }
 
 pub(super) fn split_word_path(word: &str) -> (PathBuf, &str, String) {
@@ -230,12 +119,14 @@ pub(super) fn split_word_path(word: &str) -> (PathBuf, &str, String) {
     (parent, prefix, display_dir)
 }
 
-#[cfg(unix)]
 fn split_word_path_bytes(word: &[u8]) -> (Vec<u8>, &[u8], Vec<u8>) {
     if word.ends_with(b"/") {
         return (word.to_vec(), &b""[..], word.to_vec());
     }
     if let Some(pos) = word.iter().rposition(|byte| *byte == b'/') {
+        if pos == 0 {
+            return (b"/".to_vec(), &word[1..], b"/".to_vec());
+        }
         return (
             word[..pos].to_vec(),
             &word[pos + 1..],
@@ -250,39 +141,12 @@ pub(crate) fn complete_directories_bytes(
     opts: &FilenameOptions,
 ) -> CompletionResponse {
     let mut response = complete_filenames_bytes(word, opts);
+    response.candidates.retain(|candidate| {
+        candidate.replacement_bytes().ends_with(b"/")
+            || filename_directory_completion(word, candidate.replacement_bytes(), opts).is_some()
+    });
+    response.options.nospace = response.candidates.len() == 1;
     response
-        .candidates
-        .retain(|candidate| is_directory_completion_bytes(word, candidate));
-    response
-}
-
-fn is_directory_completion_bytes(
-    word: &[u8],
-    candidate: &crate::completion::CompletionCandidate,
-) -> bool {
-    if candidate.replacement_bytes().ends_with(b"/") {
-        return true;
-    }
-    if let Ok(word) = std::str::from_utf8(word) {
-        return is_directory_completion(word, &candidate.replacement_string());
-    }
-    false
-}
-
-fn is_directory_completion(word: &str, replacement: &str) -> bool {
-    if replacement.ends_with('/') {
-        return true;
-    }
-    let expanded = expand_tilde(replacement);
-    if Path::new(&expanded).is_dir() {
-        return true;
-    }
-    if !replacement.contains('/')
-        && let Some((dir, _)) = word.rsplit_once('/')
-    {
-        return Path::new(&expand_tilde(dir)).join(replacement).is_dir();
-    }
-    false
 }
 
 pub(crate) fn is_executable_file(path: &Path) -> bool {
@@ -305,7 +169,7 @@ pub(crate) fn os_string_to_completion(
     match value.into_string() {
         Ok(value) => Some((value, None)),
         Err(value) => {
-            let bytes = os_string_to_bytes(&value)?;
+            let bytes = os_str_to_completion_bytes(&value)?;
             Some((String::from_utf8_lossy(&bytes).into_owned(), Some(bytes)))
         }
     }
@@ -325,19 +189,19 @@ fn os_string_lossy(value: std::ffi::OsString) -> String {
 }
 
 #[cfg(unix)]
-fn os_string_to_bytes(value: &std::ffi::OsString) -> Option<Vec<u8>> {
+fn os_str_to_completion_bytes(value: &std::ffi::OsStr) -> Option<Vec<u8>> {
     use std::os::unix::ffi::OsStrExt;
-    Some(value.as_os_str().as_bytes().to_vec())
+    Some(value.as_bytes().to_vec())
+}
+
+#[cfg(not(unix))]
+fn os_str_to_completion_bytes(value: &std::ffi::OsStr) -> Option<Vec<u8>> {
+    value.to_str().map(|value| value.as_bytes().to_vec())
 }
 
 #[cfg(not(unix))]
 fn os_string_lossy(value: std::ffi::OsString) -> String {
     value.to_string_lossy().into_owned()
-}
-
-#[cfg(not(unix))]
-fn os_string_to_bytes(_value: &std::ffi::OsString) -> Option<Vec<u8>> {
-    None
 }
 
 fn ls_color_code_for_candidate(name: &str, path: &Path, fallback_kind: &str) -> Option<String> {
@@ -411,48 +275,141 @@ fn ls_color_kind_for_platform(_file_type: &fs::FileType) -> Option<&'static str>
     None
 }
 
-fn is_symlinked_directory(path: &Path) -> bool {
-    path.symlink_metadata()
-        .map(|metadata| metadata.file_type().is_symlink())
-        .unwrap_or(false)
-        && path.is_dir()
+pub(super) fn directory_completion(
+    path: &Path,
+    opts: &FilenameOptions,
+) -> Option<DirectoryCompletion> {
+    let metadata = path.symlink_metadata().ok()?;
+    let file_type = metadata.file_type();
+    let is_symlinked_directory = file_type.is_symlink() && path.is_dir();
+    if !file_type.is_dir() && !is_symlinked_directory {
+        return None;
+    }
+    Some(DirectoryCompletion {
+        append_slash: opts.mark_directories
+            && (!is_symlinked_directory || opts.mark_symlinked_directories),
+        display_slash: opts.mark_directories,
+    })
+}
+
+pub(super) fn filename_directory_completion(
+    word: &[u8],
+    replacement: &[u8],
+    opts: &FilenameOptions,
+) -> Option<DirectoryCompletion> {
+    let path = completion_replacement_path(word, replacement)?;
+    directory_completion(&path, opts)
+}
+
+pub(super) fn filename_display_name(replacement: &[u8]) -> String {
+    let without_trailing_slashes = replacement
+        .iter()
+        .rposition(|byte| *byte != b'/')
+        .map(|idx| &replacement[..=idx])
+        .unwrap_or(replacement);
+    let name = without_trailing_slashes
+        .iter()
+        .rposition(|byte| *byte == b'/')
+        .map(|idx| &without_trailing_slashes[idx + 1..])
+        .unwrap_or(without_trailing_slashes);
+    let mut out = String::new();
+    crate::buffer::append_bytes_lossless(&mut out, name);
+    out
+}
+
+fn completion_replacement_path(word: &[u8], replacement: &[u8]) -> Option<PathBuf> {
+    let replacement = expand_tilde_bytes(replacement);
+    let path = path_from_bytes(&replacement)?;
+    if path.is_dir() || replacement.contains(&b'/') {
+        return Some(path);
+    }
+    if let Some(pos) = word.iter().rposition(|byte| *byte == b'/') {
+        let mut joined = expand_tilde_bytes(&word[..=pos]);
+        joined.extend_from_slice(&replacement);
+        return path_from_bytes(&joined);
+    }
+    Some(path)
+}
+
+#[cfg(unix)]
+fn path_from_bytes(bytes: &[u8]) -> Option<PathBuf> {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+    Some(PathBuf::from(OsString::from_vec(bytes.to_vec())))
+}
+
+#[cfg(not(unix))]
+fn path_from_bytes(bytes: &[u8]) -> Option<PathBuf> {
+    std::str::from_utf8(bytes).ok().map(PathBuf::from)
+}
+
+fn directory_display(
+    name: &str,
+    path: &Path,
+    opts: &FilenameOptions,
+    directory: &DirectoryCompletion,
+) -> String {
+    let suffix = if directory.display_slash { "/" } else { "" };
+    if opts.colored_stats {
+        format!(
+            "\x1b[{}m{name}{suffix}\x1b[0m",
+            ls_color_code_for_candidate(name, path, "di").unwrap_or_else(|| "34".to_string())
+        )
+    } else {
+        format!("{name}{suffix}")
+    }
 }
 
 fn ls_colors_glob_match(pattern: &str, value: &str) -> bool {
     glob_match(pattern, value)
 }
 
-fn completion_eq_prefix(candidate: &str, prefix: &str, ignore_case: bool, map_case: bool) -> bool {
-    let normalize = |value: &str| {
-        let mapped = if ignore_case && map_case {
-            value.replace('-', "_")
-        } else {
-            value.to_string()
-        };
-        if ignore_case {
-            mapped.to_lowercase()
-        } else {
-            mapped
-        }
-    };
-    normalize(candidate).starts_with(&normalize(prefix))
+fn completion_prefix_matches_bytes(
+    candidate: &[u8],
+    prefix: &[u8],
+    opts: &FilenameOptions,
+) -> bool {
+    if candidate.starts_with(prefix) {
+        return true;
+    }
+    if !opts.ignore_case || candidate.len() < prefix.len() {
+        return false;
+    }
+    candidate
+        .iter()
+        .zip(prefix.iter())
+        .all(|(candidate, prefix)| completion_byte_eq(*candidate, *prefix, opts.map_case))
+}
+
+fn completion_byte_eq(candidate: u8, prefix: u8, map_case: bool) -> bool {
+    let candidate = map_completion_case_byte(candidate, map_case);
+    let prefix = map_completion_case_byte(prefix, map_case);
+    completion_tolower_byte(candidate) == completion_tolower_byte(prefix)
+}
+
+fn map_completion_case_byte(byte: u8, map_case: bool) -> u8 {
+    if map_case && byte == b'-' { b'_' } else { byte }
 }
 
 #[cfg(unix)]
-fn os_name_starts_with(name: &std::ffi::OsStr, prefix: &str) -> bool {
-    use std::os::unix::ffi::OsStrExt;
-    name.as_bytes().starts_with(prefix.as_bytes())
+fn completion_tolower_byte(byte: u8) -> u8 {
+    let lowered = unsafe { libc::tolower(byte as libc::c_uchar as libc::c_int) };
+    if (0..=u8::MAX as libc::c_int).contains(&lowered) {
+        lowered as u8
+    } else {
+        byte
+    }
+}
+
+#[cfg(not(unix))]
+fn completion_tolower_byte(byte: u8) -> u8 {
+    byte.to_ascii_lowercase()
 }
 
 #[cfg(unix)]
 pub(crate) fn os_name_is_hidden(name: &std::ffi::OsStr) -> bool {
     use std::os::unix::ffi::OsStrExt;
     name.as_bytes().first().is_some_and(|byte| *byte == b'.')
-}
-
-#[cfg(not(unix))]
-fn os_name_starts_with(name: &std::ffi::OsStr, prefix: &str) -> bool {
-    name.to_string_lossy().starts_with(prefix)
 }
 
 #[cfg(not(unix))]
@@ -631,6 +588,72 @@ fn match_posix_character_class(chars: &[char], idx: usize, value: char) -> Optio
         }
         end += 1;
     }
+    None
+}
+
+fn expand_tilde_bytes(line: &[u8]) -> Vec<u8> {
+    expand_tilde_word_bytes(line).unwrap_or_else(|| line.to_vec())
+}
+
+fn expand_tilde_word_bytes(word: &[u8]) -> Option<Vec<u8>> {
+    if word == b"~" {
+        return std::env::var_os("HOME").and_then(|home| os_str_to_completion_bytes(&home));
+    }
+    if let Some(rest) = word.strip_prefix(b"~/") {
+        let mut home =
+            std::env::var_os("HOME").and_then(|home| os_str_to_completion_bytes(&home))?;
+        home.push(b'/');
+        home.extend_from_slice(rest);
+        return Some(home);
+    }
+    let rest = word.strip_prefix(b"~")?;
+    let (user, suffix) = if let Some(pos) = rest.iter().position(|byte| *byte == b'/') {
+        (&rest[..pos], &rest[pos + 1..])
+    } else {
+        (rest, &b""[..])
+    };
+    if user.is_empty() {
+        return None;
+    }
+    let mut home = user_home_dir_bytes(user)?;
+    if !suffix.is_empty() {
+        home.push(b'/');
+        home.extend_from_slice(suffix);
+    }
+    Some(home)
+}
+
+#[cfg(unix)]
+fn user_home_dir_bytes(user: &[u8]) -> Option<Vec<u8>> {
+    if let Ok(passwd) = fs::read("/etc/passwd") {
+        for line in passwd.split(|byte| *byte == b'\n') {
+            let mut fields = line.split(|byte| *byte == b':');
+            if fields.next() == Some(user) {
+                return fields.nth(4).map(|field| field.to_vec());
+            }
+        }
+    }
+
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+    let output = Command::new("getent")
+        .arg("passwd")
+        .arg(OsString::from_vec(user.to_vec()))
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    output
+        .stdout
+        .split(|byte| *byte == b'\n')
+        .next()
+        .and_then(|line| line.split(|byte| *byte == b':').nth(5))
+        .map(|field| field.to_vec())
+}
+
+#[cfg(not(unix))]
+fn user_home_dir_bytes(_user: &[u8]) -> Option<Vec<u8>> {
     None
 }
 

@@ -271,6 +271,9 @@ pub(crate) fn terminal_visible_chars(output: &str) -> Vec<char> {
 }
 
 use crate::completion::builtin::visible_stats_marker;
+use crate::completion::filename::{
+    FilenameOptions, filename_directory_completion, filename_display_name,
+};
 use crate::editor::{Editor, ReadlineError};
 use crate::terminal::{TerminalEvent, TerminalIo};
 
@@ -278,9 +281,18 @@ impl<T> Editor<T>
 where
     T: TerminalIo,
 {
+    #[cfg(test)]
     pub(crate) fn display_completions(
         &mut self,
         response: &CompletionResponse,
+    ) -> Result<(), ReadlineError> {
+        self.display_completions_for_word(response, b"")
+    }
+
+    pub(crate) fn display_completions_for_word(
+        &mut self,
+        response: &CompletionResponse,
+        word: &[u8],
     ) -> Result<(), ReadlineError> {
         if response.candidates.is_empty() {
             self.ding()?;
@@ -324,7 +336,25 @@ where
                     .display
                     .as_deref()
                     .map(str::to_owned)
-                    .unwrap_or_else(|| self.render_completion_bytes(candidate.replacement_bytes()));
+                    .unwrap_or_else(|| {
+                        if response.options.filenames {
+                            filename_display_name(candidate.replacement_bytes())
+                        } else {
+                            self.render_completion_bytes(candidate.replacement_bytes())
+                        }
+                    });
+                if response.options.filenames
+                    && !item.contains("\x1b[")
+                    && let Some(directory) = filename_directory_completion(
+                        word,
+                        candidate.replacement_bytes(),
+                        &FilenameOptions::from_variables(&self.variables),
+                    )
+                    && directory.display_slash
+                    && !item.ends_with('/')
+                {
+                    item.push('/');
+                }
                 if self.variable_is_on("visible-stats")
                     && response.options.filenames
                     && !item.contains("\x1b[")
@@ -337,7 +367,7 @@ where
             })
             .collect::<Vec<_>>();
         let common_prefix = common_prefix_bytes(&response.candidates)
-            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
+            .map(|bytes| self.render_completion_bytes(&bytes));
         if let Some(prefix) = common_prefix.as_deref() {
             let limit = self
                 .variables
@@ -401,7 +431,8 @@ where
                 }
                 self.terminal.write("\r        \r")?;
             }
-            self.terminal.write(&lines[idx])?;
+            let line_bytes = crate::buffer::rendered_string_to_bytes(&lines[idx]);
+            self.terminal.write_bytes(&line_bytes)?;
             self.terminal.write("\r\n")?;
             idx += 1;
             page_remaining = page_remaining.saturating_sub(1);
@@ -410,9 +441,8 @@ where
     }
 
     fn render_completion_bytes(&self, bytes: &[u8]) -> String {
-        let rendered = crate::buffer::LineBuffer::from_bytes(bytes.to_vec())
+        crate::buffer::LineBuffer::from_bytes(bytes.to_vec())
             .render_text(None, self.render_options())
-            .0;
-        String::from_utf8_lossy(&crate::buffer::rendered_string_to_bytes(&rendered)).into_owned()
+            .0
     }
 }

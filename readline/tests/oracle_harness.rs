@@ -684,6 +684,67 @@ fn bash_readline_and_sushline_complete_same_mapped_case_directory_without_marker
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn bash_readline_and_sushline_complete_same_symlinked_directory_markers() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::create_dir(dir.path().join("target-dir")).expect("mkdir fixture");
+    symlink(dir.path().join("target-dir"), dir.path().join("alpha-link")).expect("symlink fixture");
+    let typed = format!("{}/alp\t\r", dir.path().display());
+
+    for inputrc in [
+        "",
+        "set mark-symlinked-directories on",
+        "set mark-directories off\nset mark-symlinked-directories on",
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(typed.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(typed.as_bytes(), inputrc);
+
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "inputrc={inputrc:?}\nbash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_mark_directories_for_glob_completion_only() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::create_dir(dir.path().join("alpha-dir")).expect("mkdir fixture");
+    fs::write(dir.path().join("alpha-file"), "").expect("write fixture");
+
+    for (binding, typed) in [
+        (
+            "\"\\C-o\": glob-complete-word",
+            format!("{}/al*\x0f\r", dir.path().display()),
+        ),
+        (
+            "\"\\C-o\": glob-expand-word",
+            format!("{}/al*\x0f\r", dir.path().display()),
+        ),
+        (
+            "\"\\C-o\": glob-list-expansions\nset completion-query-items 999",
+            format!("{}/al*\x0f\r", dir.path().display()),
+        ),
+        (
+            "\"\\C-o\": insert-completions",
+            format!("{}/al\x0f\r", dir.path().display()),
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(typed.as_bytes(), binding);
+        let sushline = run_sushline_harness_with_inputrc(typed.as_bytes(), binding);
+
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "binding={binding:?}\nbash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
 #[test]
 fn bash_readline_and_sushline_quote_same_completed_filename_with_space() {
     let dir = tempfile::tempdir().expect("tempdir");

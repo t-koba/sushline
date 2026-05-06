@@ -1,13 +1,14 @@
-# sushline
+# Sushline
 
-`sushline` is a pure Rust line-editing and history foundation for interactive
-command interpreters. It started as the line editor for
+Sushline is a pure Rust line-editing and history foundation aiming for
+Readline-style behavioral compatibility for interactive command interpreters.
+It started as the line editor for
 [Sushi shell, a.k.a. Sush](https://github.com/shellgei/rusty_bash), and its
-public API is designed for general embedders.
+public API is designed for Rust embedders.
 
-The initial compatibility baseline is Bash 5.3 with Readline 8.3. `sushline`
-is an independent Rust implementation and does not include GNU Readline source
-code.
+The initial compatibility baseline is GNU Bash 5.3 with GNU Readline 8.3.
+Sushline is an independent Rust implementation and does not include Readline
+source code.
 
 ## Crate Layout
 

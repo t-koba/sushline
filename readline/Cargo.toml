@@ -3,7 +3,7 @@ name = "readline"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-description = "Pure Rust GNU Readline-compatible line editing foundation for sush"
+description = "Pure Rust Readline-style line editing foundation for Sush"
 
 [dependencies]
 history = { path = "../history" }

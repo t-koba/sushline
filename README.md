@@ -9,6 +9,8 @@ public API is designed for Rust embedders.
 The initial compatibility baseline is GNU Bash 5.3 with GNU Readline 8.3.
 Sushline is an independent Rust implementation and does not include Readline
 source code.
+It is not a C ABI-compatible replacement for Readline; compatibility is
+documented at the Rust API and observable editor/history behavior level.
 
 ## Crate Layout
 

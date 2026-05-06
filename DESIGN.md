@@ -88,6 +88,10 @@ resize events, byte input, signal events, visible bell, keypad/meta-key mode,
 and display clearing. Tests can provide an in-memory `TerminalIo`
 implementation, which keeps editor behavior testable without a real TTY.
 
+During an active `read_line`, Sushline may translate terminal and signal events
+into editor behavior; process-wide policy and post-read control flow remain the
+embedder's responsibility.
+
 ## Keymaps, Variables, and Inputrc
 
 Key bindings and Readline variables live in editor-owned `KeyMap` and

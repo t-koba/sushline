@@ -3,7 +3,7 @@ name = "history"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-description = "GNU Readline-compatible history library for sushline"
+description = "History library for sushline"
 
 [dependencies]
 libc = "0.2"

@@ -3,7 +3,7 @@ name = "sushline"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-description = "Pure Rust GNU Readline and History compatible libraries for sush"
+description = "Pure Rust Readline-style line editing and history for Sush"
 
 [workspace]
 members = ["history", "readline"]
@@ -17,4 +17,3 @@ readline = { path = "readline" }
 opt-level = 3
 codegen-units = 1
 lto = true
-panic = "abort"

@@ -90,7 +90,7 @@ where
             | CompletionType::PossibleUsernameCompletions
             | CompletionType::PossibleVariableCompletions
             | CompletionType::GlobListExpansions => {
-                self.display_completions_for_word(&response, &edit.word_bytes)?;
+                self.display_completions_for_word(state, &response, &edit.word_bytes)?;
                 state.completion.last_completion = Some(response);
             }
             CompletionType::MenuComplete | CompletionType::MenuCompleteBackward => {
@@ -208,7 +208,7 @@ where
             return Ok(());
         }
         if response.options.action == Some(CompletionAction::DisplayOnly) {
-            self.display_completions_for_word(&response, &edit.word_bytes)?;
+            self.display_completions_for_word(state, &response, &edit.word_bytes)?;
             return Ok(());
         }
         let skip_completed_text = self.variable_is_on("skip-completed-text");
@@ -284,7 +284,7 @@ where
                 || (repeated_unmodified_completion
                     && state.buffer.as_bytes() == before_line.as_slice())
             {
-                self.display_completions_for_word(&response, &edit.word_bytes)?;
+                self.display_completions_for_word(state, &response, &edit.word_bytes)?;
             }
             state.completion.last_attempt = Some(CompletionAttemptState {
                 completion_type,
@@ -405,7 +405,7 @@ where
 
     fn menu_complete_display(
         &mut self,
-        _state: &mut EditorState,
+        state: &mut EditorState,
         response: &CompletionResponse,
         previous_index: Option<usize>,
     ) -> Result<(), ReadlineError> {
@@ -413,13 +413,13 @@ where
             && self.variable_is_on("menu-complete-display-prefix")
             && let Some(prefix) = common_prefix_bytes(&response.candidates)
         {
-            self.terminal.write("\r\n")?;
+            self.move_below_rendered_line(state)?;
             let rendered = crate::buffer::LineBuffer::from_bytes(prefix)
                 .render_text(None, self.render_options())
                 .0;
             self.terminal
                 .write_bytes(&crate::buffer::rendered_string_to_bytes(&rendered))?;
-            self.terminal.write("\r\n")?;
+            self.write_tracked_newline(state)?;
         }
         Ok(())
     }

@@ -92,7 +92,9 @@ where
 
     pub(super) fn render(&mut self, state: &mut EditorState) -> io::Result<()> {
         if state.display.rendered_rows > 0 {
-            self.terminal.move_up(state.display.rendered_rows)?;
+            if state.display.rendered_cursor_row > 0 {
+                self.terminal.move_up(state.display.rendered_cursor_row)?;
+            }
             self.terminal.move_to_column(0)?;
             self.terminal.clear_to_screen_end()?;
         }
@@ -129,6 +131,7 @@ where
             };
             state.display.rendered_rows =
                 rendered_rows_for_output(&format!("{prompt}{buffer}"), columns);
+            state.display.rendered_cursor_row = state.display.rendered_rows;
             self.terminal.move_to_column(column as u16)?;
         } else {
             let (last_row, point_row, point_col) =
@@ -137,12 +140,85 @@ where
                     .rendered_rows_and_point(prompt_width, columns, self.render_options());
             state.display.rendered_rows =
                 rendered_rows_for_output(&format!("{prompt}{buffer}"), columns);
-            if last_row > point_row {
-                self.terminal.move_up((last_row - point_row) as u16)?;
+            let rows_back = last_row.saturating_sub(point_row) as u16;
+            if rows_back > 0 {
+                self.terminal.move_up(rows_back)?;
             }
+            state.display.rendered_cursor_row =
+                state.display.rendered_rows.saturating_sub(rows_back);
             self.terminal.move_to_column(point_col as u16)?;
         }
         self.terminal.flush()
+    }
+
+    pub(crate) fn write_tracked_newline(&mut self, state: &mut EditorState) -> io::Result<()> {
+        self.terminal.write("\r\n")?;
+        state.display.rendered_cursor_row = state.display.rendered_cursor_row.saturating_add(1);
+        Ok(())
+    }
+
+    pub(crate) fn write_tracked(&mut self, state: &mut EditorState, text: &str) -> io::Result<()> {
+        self.terminal.write(text)?;
+        let columns = state
+            .display
+            .last_terminal_size
+            .or_else(|| self.terminal.size().ok())
+            .map(|size| size.columns as usize)
+            .unwrap_or(80);
+        state.display.rendered_cursor_row = state
+            .display
+            .rendered_cursor_row
+            .saturating_add(rendered_rows_for_output(text, columns));
+        Ok(())
+    }
+
+    pub(crate) fn write_tracked_bytes(
+        &mut self,
+        state: &mut EditorState,
+        bytes: &[u8],
+    ) -> io::Result<()> {
+        self.terminal.write_bytes(bytes)?;
+        let columns = state
+            .display
+            .last_terminal_size
+            .or_else(|| self.terminal.size().ok())
+            .map(|size| size.columns as usize)
+            .unwrap_or(80);
+        let text = String::from_utf8_lossy(bytes);
+        state.display.rendered_cursor_row = state
+            .display
+            .rendered_cursor_row
+            .saturating_add(rendered_rows_for_output(&text, columns));
+        Ok(())
+    }
+
+    pub(crate) fn write_below_rendered_line(
+        &mut self,
+        state: &mut EditorState,
+        text: &str,
+    ) -> io::Result<()> {
+        self.move_below_rendered_line(state)?;
+        self.write_tracked(state, text)
+    }
+
+    pub(crate) fn move_below_rendered_line(&mut self, state: &mut EditorState) -> io::Result<()> {
+        let rows_down = state
+            .display
+            .rendered_rows
+            .saturating_sub(state.display.rendered_cursor_row)
+            .saturating_add(1);
+        for _ in 0..rows_down {
+            self.terminal.write("\r\n")?;
+        }
+        state.display.rendered_cursor_row = state.display.rendered_rows.saturating_add(1);
+        Ok(())
+    }
+
+    pub(crate) fn clear_display_and_reset(&mut self, state: &mut EditorState) -> io::Result<()> {
+        self.terminal.clear_display()?;
+        state.display.rendered_rows = 0;
+        state.display.rendered_cursor_row = 0;
+        Ok(())
     }
 
     pub(super) fn mode_prompt_prefix(&self) -> String {

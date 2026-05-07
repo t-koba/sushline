@@ -275,6 +275,9 @@ use crate::completion::filename::{
     FilenameOptions, filename_directory_completion, filename_display_name,
 };
 use crate::editor::{Editor, ReadlineError};
+#[cfg(test)]
+use crate::prompt::Prompt;
+use crate::state::EditorState;
 use crate::terminal::{TerminalEvent, TerminalIo};
 
 impl<T> Editor<T>
@@ -286,11 +289,13 @@ where
         &mut self,
         response: &CompletionResponse,
     ) -> Result<(), ReadlineError> {
-        self.display_completions_for_word(response, b"")
+        let mut state = EditorState::new(Prompt::new(""), None);
+        self.display_completions_for_word(&mut state, response, b"")
     }
 
     pub(crate) fn display_completions_for_word(
         &mut self,
+        state: &mut EditorState,
         response: &CompletionResponse,
         word: &[u8],
     ) -> Result<(), ReadlineError> {
@@ -303,26 +308,30 @@ where
             .get("completion-query-items")
             .and_then(|value| value.parse::<isize>().ok())
             .unwrap_or(100);
-        if self.variable_is_on("page-completions")
+        let displayed_query = self.variable_is_on("page-completions")
             && query_items > 0
-            && response.candidates.len() >= query_items as usize
-        {
-            self.terminal.write(&format!(
-                "\r\nDisplay all {} possibilities? (y or n)",
-                response.candidates.len()
-            ))?;
+            && response.candidates.len() >= query_items as usize;
+        if displayed_query {
+            self.move_below_rendered_line(state)?;
+            self.write_tracked(
+                state,
+                &format!(
+                    "Display all {} possibilities? (y or n)",
+                    response.candidates.len()
+                ),
+            )?;
             self.terminal.flush()?;
             match self.terminal.read_event(None)? {
                 TerminalEvent::Bytes(bytes)
                     if matches!(bytes.as_slice(), b"y" | b"Y" | b" " | b"\t" | b"\r" | b"\n") => {}
                 TerminalEvent::Bytes(_) => {
-                    self.terminal.write("\r\n")?;
+                    self.write_tracked_newline(state)?;
                     return Ok(());
                 }
                 TerminalEvent::Resize(_) | TerminalEvent::Timeout => {}
                 TerminalEvent::Signal(signal) => {
-                    let _ = self.handle_terminal_signal(signal)?;
-                    self.terminal.write("\r\n")?;
+                    let _ = self.handle_terminal_signal(state, signal)?;
+                    self.write_tracked_newline(state)?;
                     return Ok(());
                 }
             }
@@ -395,7 +404,11 @@ where
             }
         }
 
-        self.terminal.write("\r\n")?;
+        if displayed_query {
+            self.write_tracked_newline(state)?;
+        } else {
+            self.move_below_rendered_line(state)?;
+        }
         let lines = format_completion_items_with_trailing(
             &items,
             self.completion_display_width(),
@@ -407,11 +420,12 @@ where
         let mut page_remaining = page_rows;
         while idx < lines.len() {
             if self.variable_is_on("page-completions") && idx > 0 && page_remaining == 0 {
-                self.terminal.write("--More--")?;
+                let more_prompt = "--More--";
+                self.terminal.write(more_prompt)?;
                 self.terminal.flush()?;
                 match self.terminal.read_event(None)? {
                     TerminalEvent::Bytes(bytes) if matches!(bytes.as_slice(), b"q" | b"Q") => {
-                        self.terminal.write("\r\n")?;
+                        self.write_tracked_newline(state)?;
                         return Ok(());
                     }
                     TerminalEvent::Bytes(bytes) if matches!(bytes.as_slice(), b"\r" | b"\n") => {
@@ -424,16 +438,27 @@ where
                         page_remaining = page_rows;
                     }
                     TerminalEvent::Signal(signal) => {
-                        let _ = self.handle_terminal_signal(signal)?;
-                        self.terminal.write("\r\n")?;
+                        let _ = self.handle_terminal_signal(state, signal)?;
+                        self.write_tracked_newline(state)?;
                         return Ok(());
                     }
                 }
-                self.terminal.write("\r        \r")?;
+                let columns = state
+                    .display
+                    .last_terminal_size
+                    .or_else(|| self.terminal.size().ok())
+                    .map(|size| size.columns as usize)
+                    .unwrap_or(80);
+                let more_rows = rendered_rows_for_output(more_prompt, columns);
+                if more_rows > 0 {
+                    self.terminal.move_up(more_rows)?;
+                }
+                self.terminal.move_to_column(0)?;
+                self.terminal.clear_to_screen_end()?;
             }
             let line_bytes = crate::buffer::rendered_string_to_bytes(&lines[idx]);
-            self.terminal.write_bytes(&line_bytes)?;
-            self.terminal.write("\r\n")?;
+            self.write_tracked_bytes(state, &line_bytes)?;
+            self.write_tracked_newline(state)?;
             idx += 1;
             page_remaining = page_remaining.saturating_sub(1);
         }

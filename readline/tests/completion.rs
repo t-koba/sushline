@@ -728,6 +728,29 @@ fn completion_prefix_display_length_abbreviates_common_prefix() {
 }
 
 #[test]
+fn possible_completions_after_point_moves_to_previous_visual_row_redraws_from_origin() {
+    let mut terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abcdef".to_vec()),
+        TerminalEvent::Bytes(b"\x02".to_vec()),
+        TerminalEvent::Bytes(b"\x02".to_vec()),
+        TerminalEvent::Bytes(b"\x0f".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    terminal.columns = 8;
+    let mut hooks = StaticCompletion {
+        expected_type: Some(CompletionType::PossibleCompletions),
+        ..Default::default()
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": possible-completions")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+
+    assert_eq!(result, ReadlineResult::Line(b"abcdef".to_vec()));
+    assert!(line.terminal().moved_up.contains(&4));
+}
+
+#[test]
 fn export_completions_writes_machine_readable_records() {
     struct Hook;
     impl Hooks for Hook {

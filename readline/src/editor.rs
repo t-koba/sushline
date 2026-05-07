@@ -177,7 +177,7 @@ where
 
         loop {
             if let Some(signal) = hooks.check_signals() {
-                if let Some(result) = self.handle_checked_signal(signal)? {
+                if let Some(result) = self.handle_checked_signal(&mut state, signal)? {
                     return Ok(result);
                 }
                 self.render(&mut state)?;
@@ -192,7 +192,7 @@ where
                         let pending = std::mem::take(&mut state.input.pending_key);
                         let outcome = self.handle_unbound(&mut state, &pending)?;
                         if !matches!(outcome, EditorOutcome::Continue) {
-                            return self.finish_outcome(outcome);
+                            return self.finish_outcome(&mut state, outcome);
                         }
                         self.render(&mut state)?;
                     }
@@ -204,7 +204,7 @@ where
                     continue;
                 }
                 TerminalEvent::Signal(signal) => {
-                    if let Some(result) = self.handle_terminal_signal(signal)? {
+                    if let Some(result) = self.handle_terminal_signal(&mut state, signal)? {
                         return Ok(result);
                     }
                     self.render(&mut state)?;
@@ -222,7 +222,7 @@ where
                     if matches!(outcome, EditorOutcome::Continue) {
                         self.render(&mut state)?;
                     } else {
-                        return self.finish_outcome(outcome);
+                        return self.finish_outcome(&mut state, outcome);
                     }
                 }
             }
@@ -231,30 +231,38 @@ where
 
     fn handle_checked_signal(
         &mut self,
+        state: &mut EditorState,
         signal: i32,
     ) -> Result<Option<ReadlineResult>, ReadlineError> {
         #[cfg(unix)]
         if signal == libc::SIGINT {
-            self.echo_signal_interrupt()?;
+            self.echo_signal_interrupt(state)?;
             return Ok(Some(ReadlineResult::Interrupted));
         }
         let _ = signal;
         Ok(None)
     }
 
-    pub(crate) fn echo_signal_interrupt(&mut self) -> Result<(), ReadlineError> {
-        self.terminal.write("^C\r\n")?;
+    pub(crate) fn echo_signal_interrupt(
+        &mut self,
+        state: &mut EditorState,
+    ) -> Result<(), ReadlineError> {
+        self.write_below_rendered_line(state, "^C\r\n")?;
         self.terminal.flush()?;
         Ok(())
     }
 
-    fn finish_outcome(&mut self, outcome: EditorOutcome) -> Result<ReadlineResult, ReadlineError> {
+    fn finish_outcome(
+        &mut self,
+        state: &mut EditorState,
+        outcome: EditorOutcome,
+    ) -> Result<ReadlineResult, ReadlineError> {
         match outcome {
             EditorOutcome::Continue => {
                 unreachable!("continue outcomes are handled in the read loop")
             }
             EditorOutcome::Accepted(bytes) => {
-                self.terminal.write("\r\n")?;
+                self.move_below_rendered_line(state)?;
                 self.terminal.flush()?;
                 if self.variable_is_on("revert-all-at-newline") {
                     self.history.revert_current_edit();
@@ -266,7 +274,7 @@ where
                 Ok(ReadlineResult::Line(bytes))
             }
             EditorOutcome::Eof => {
-                self.terminal.write("\r\n")?;
+                self.move_below_rendered_line(state)?;
                 self.terminal.flush()?;
                 Ok(ReadlineResult::Eof)
             }
@@ -379,7 +387,7 @@ where
         match self.expand_history_line(line, hooks) {
             Ok(expanded) => Ok(Some(expanded)),
             Err(message) => {
-                self.report_history_expansion_message(&message)?;
+                self.report_history_expansion_message(state, &message)?;
                 state.after_non_kill_command();
                 Ok(None)
             }
@@ -388,11 +396,12 @@ where
 
     pub(crate) fn report_history_expansion_message(
         &mut self,
+        state: &mut EditorState,
         message: &str,
     ) -> Result<(), ReadlineError> {
-        self.terminal.write("\r\n")?;
-        self.terminal.write(message)?;
-        self.terminal.write("\r\n")?;
+        self.move_below_rendered_line(state)?;
+        self.write_tracked(state, message)?;
+        self.write_tracked_newline(state)?;
         self.terminal.flush()?;
         Ok(())
     }

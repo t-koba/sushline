@@ -12,6 +12,7 @@ where
 {
     pub(crate) fn handle_terminal_signal(
         &mut self,
+        state: &mut EditorState,
         signal: i32,
     ) -> Result<Option<ReadlineResult>, ReadlineError> {
         self.terminal.restore_mode()?;
@@ -21,7 +22,7 @@ where
         }
         #[cfg(unix)]
         if signal == libc::SIGINT {
-            self.echo_signal_interrupt()?;
+            self.echo_signal_interrupt(state)?;
             return Ok(Some(ReadlineResult::Interrupted));
         }
         #[cfg(not(unix))]

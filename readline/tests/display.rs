@@ -52,6 +52,38 @@ fn redisplay_accounts_for_multiline_prompt_and_wrap_column() {
 }
 
 #[test]
+fn redisplay_after_point_moves_to_previous_visual_row_does_not_overshoot_origin() {
+    let mut terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abcdef".to_vec()),
+        TerminalEvent::Bytes(b"\x02".to_vec()),
+        TerminalEvent::Bytes(b"\x02".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    terminal.columns = 8;
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+
+    assert_eq!(result, ReadlineResult::Line(b"abcdef".to_vec()));
+    assert_eq!(line.terminal().moved_up, vec![1, 1, 1]);
+}
+
+#[test]
+fn accept_line_from_previous_visual_row_moves_below_rendered_input() {
+    let mut terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abcdef".to_vec()),
+        TerminalEvent::Bytes(b"\x02".to_vec()),
+        TerminalEvent::Bytes(b"\x02".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    terminal.columns = 8;
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+
+    assert_eq!(result, ReadlineResult::Line(b"abcdef".to_vec()));
+    assert!(line.terminal().out.contains("\r\n\r\n"));
+}
+
+#[test]
 fn resize_event_recomputes_wrap_using_new_terminal_size() {
     let mut terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"abcdef".to_vec()),

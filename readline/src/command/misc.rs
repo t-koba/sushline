@@ -33,7 +33,7 @@ where
             }
             EditCommand::ClearScreen => {
                 if state.numeric_arg.take().is_none() {
-                    self.terminal.clear_display()?;
+                    self.clear_display_and_reset(state)?;
                 }
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
@@ -55,8 +55,8 @@ where
                 if let Some(macro_bytes) = &state.macro_state.last_keyboard_macro {
                     let display =
                         crate::keymap::KeySequence::new(macro_bytes.clone()).display_inputrc();
-                    self.terminal.write(&display)?;
-                    self.terminal.write("\r\n")?;
+                    self.write_below_rendered_line(state, &display)?;
+                    self.write_tracked_newline(state)?;
                 }
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
@@ -97,14 +97,13 @@ where
                 state.after_non_kill_command();
             }
             "clear-display" | "redraw-current-line" => {
-                self.terminal.clear_display()?;
+                self.clear_display_and_reset(state)?;
                 state.after_non_kill_command();
             }
             "display-shell-version" => {
                 if let Some(version) = hooks.version() {
-                    self.terminal.write("\r\n")?;
-                    self.terminal.write(&version)?;
-                    self.terminal.write("\r\n")?;
+                    self.write_below_rendered_line(state, &version)?;
+                    self.write_tracked_newline(state)?;
                 } else {
                     self.ding()?;
                 }
@@ -124,7 +123,7 @@ where
                     crate::bind::BindQuery::PrintFunctions
                 };
                 let output = self.bind_api().print(query);
-                self.terminal.write(&output)?;
+                self.write_below_rendered_line(state, &output)?;
                 state.after_non_kill_command();
             }
             "dump-macros" => {
@@ -134,7 +133,7 @@ where
                     crate::bind::BindQuery::PrintMacros
                 };
                 let output = self.bind_api().print(query);
-                self.terminal.write(&output)?;
+                self.write_below_rendered_line(state, &output)?;
                 state.after_non_kill_command();
             }
             "dump-variables" => {
@@ -144,7 +143,7 @@ where
                     crate::bind::BindQuery::PrintVariables
                 };
                 let output = self.bind_api().print(query);
-                self.terminal.write(&output)?;
+                self.write_below_rendered_line(state, &output)?;
                 state.after_non_kill_command();
             }
             "emacs-editing-mode" => {
@@ -164,9 +163,8 @@ where
             }
             "tty-status" => {
                 if let Some(status) = hooks.tty_status() {
-                    self.terminal.write("\r\n")?;
-                    self.terminal.write(&status)?;
-                    self.terminal.write("\r\n")?;
+                    self.write_below_rendered_line(state, &status)?;
+                    self.write_tracked_newline(state)?;
                 } else {
                     self.ding()?;
                 }

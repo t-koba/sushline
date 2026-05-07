@@ -29,18 +29,16 @@ where
                 .iter()
                 .map(|candidate| candidate.replacement_bytes().to_vec()),
         );
-        self.terminal.write_bytes(b"\r\n")?;
-        self.terminal
-            .write_bytes(format!("{}\n", matches.len()).as_bytes())?;
-        self.terminal.write_bytes(&edit.word_bytes)?;
-        self.terminal.write_bytes(b"\n")?;
+        self.move_below_rendered_line(state)?;
+        self.write_tracked_bytes(state, format!("{}\n", matches.len()).as_bytes())?;
+        self.write_tracked_bytes(state, &edit.word_bytes)?;
+        self.write_tracked_bytes(state, b"\n")?;
         let start = state.buffer.byte_index_for_char_index(edit.start);
         let end = state.buffer.byte_index_for_char_index(edit.end);
-        self.terminal
-            .write_bytes(format!("{start}:{end}\n").as_bytes())?;
+        self.write_tracked_bytes(state, format!("{start}:{end}\n").as_bytes())?;
         for candidate in matches {
-            self.terminal.write_bytes(&candidate)?;
-            self.terminal.write_bytes(b"\n")?;
+            self.write_tracked_bytes(state, &candidate)?;
+            self.write_tracked_bytes(state, b"\n")?;
         }
         state.completion.last_completion = Some(response);
         Ok(())

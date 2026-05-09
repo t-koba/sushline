@@ -17,7 +17,7 @@ use crate::terminal::TerminalIo;
 struct MenuCompleteContext {
     start: usize,
     end: usize,
-    previous_index: Option<usize>,
+    previous_match_index: Option<usize>,
     original: Vec<u8>,
     word_bytes: Vec<u8>,
     quote: Option<char>,
@@ -312,11 +312,21 @@ where
             state.completion.last_completion = Some(response);
             return Ok(());
         }
+        if response.candidates.len() == 1 {
+            self.insert_completion_response(
+                state,
+                response,
+                edit,
+                CompletionType::MenuComplete,
+                hooks,
+            )?;
+            return Ok(());
+        }
 
         let context = MenuCompleteContext {
             start: edit.start,
             end: edit.end,
-            previous_index: None,
+            previous_match_index: None,
             original: state.buffer.range_bytes(edit.start, edit.end),
             word_bytes: edit.word_bytes.clone(),
             quote: edit.quote,
@@ -335,7 +345,7 @@ where
         let context = MenuCompleteContext {
             start: previous.start,
             end: previous.end,
-            previous_index: Some(previous.index),
+            previous_match_index: Some(previous.index),
             original: previous.original,
             word_bytes: previous.word_bytes,
             quote: previous.quote,
@@ -351,14 +361,21 @@ where
         hooks: &impl Hooks,
         context: MenuCompleteContext,
     ) -> Result<(), ReadlineError> {
-        let Some(next_index) =
-            self.menu_complete_cycle(state, response.candidates.len(), backward, &context)?
-        else {
-            return Ok(());
-        };
+        let next_index = self.menu_complete_cycle(
+            state,
+            response.candidates.len(),
+            backward,
+            context.previous_match_index,
+        );
         let replacement_bytes =
             self.menu_complete_replacement(&response, &context, next_index, hooks, state);
-        self.menu_complete_display(state, &response, context.previous_index)?;
+        self.menu_complete_display(
+            state,
+            &response,
+            &context.word_bytes,
+            context.previous_match_index,
+            next_index,
+        )?;
         state
             .buffer
             .replace_range_bytes(context.start, context.end, &replacement_bytes);
@@ -376,50 +393,45 @@ where
     }
 
     fn menu_complete_cycle(
-        &mut self,
+        &self,
         state: &mut EditorState,
         candidate_count: usize,
         backward: bool,
-        context: &MenuCompleteContext,
-    ) -> Result<Option<usize>, ReadlineError> {
+        previous_match_index: Option<usize>,
+    ) -> usize {
         let arg = state.numeric_arg.take().unwrap_or(1);
         let backward = if arg < 0 { !backward } else { backward };
         let steps = arg.unsigned_abs().max(1) as usize;
-        let next_index = match (context.previous_index, backward) {
-            (Some(index), true) => {
-                if steps > index {
-                    self.restore_menu_completion(state, context)?;
-                    return Ok(None);
-                }
-                index - steps
+        let match_count = candidate_count + 1;
+        if previous_match_index.is_none() && self.variable_is_on("menu-complete-display-prefix") {
+            return 0;
+        }
+        let current = previous_match_index.unwrap_or(0);
+        match (backward, current) {
+            (true, current) => {
+                let offset = steps % match_count;
+                (current + match_count - offset) % match_count
             }
-            (Some(index), false) => {
-                let Some(next) = index.checked_add(steps) else {
-                    self.restore_menu_completion(state, context)?;
-                    return Ok(None);
-                };
-                if next >= candidate_count {
-                    self.restore_menu_completion(state, context)?;
-                    return Ok(None);
-                }
-                next
-            }
-            (None, true) => candidate_count.saturating_sub(steps),
-            (None, false) => steps.saturating_sub(1).min(candidate_count - 1),
-        };
-        Ok(Some(next_index))
+            (false, current) => (current + steps) % match_count,
+        }
     }
 
-    fn restore_menu_completion(
-        &mut self,
-        state: &mut EditorState,
+    fn menu_complete_prefix_replacement(
+        &self,
+        response: &CompletionResponse,
         context: &MenuCompleteContext,
-    ) -> Result<(), ReadlineError> {
-        self.ding()?;
-        state
-            .buffer
-            .replace_range_bytes(context.start, context.end, &context.original);
-        Ok(())
+        hooks: &impl Hooks,
+    ) -> Vec<u8> {
+        let Some(prefix) = common_prefix_bytes(&response.candidates) else {
+            return Vec::new();
+        };
+        let edit = CompletionEdit {
+            start: context.start,
+            end: context.start + context.original.len(),
+            word_bytes: context.word_bytes.clone(),
+            quote: context.quote,
+        };
+        self.requote_completion_bytes(&prefix, &edit, response.options.quote_filename(), hooks)
     }
 
     fn menu_complete_replacement(
@@ -430,13 +442,16 @@ where
         hooks: &impl Hooks,
         state: &EditorState,
     ) -> Vec<u8> {
+        if next_index == 0 {
+            return self.menu_complete_prefix_replacement(response, context, hooks);
+        }
         let edit = CompletionEdit {
             start: context.start,
             end: context.start + context.original.len(),
             word_bytes: context.word_bytes.clone(),
             quote: context.quote,
         };
-        let candidate = &response.candidates[next_index];
+        let candidate = &response.candidates[next_index - 1];
         let filename_directory =
             self.filename_directory_completion_for_candidate(response, &edit, candidate);
         let append_filename_slash = append_filename_slash_for_candidate(
@@ -469,19 +484,19 @@ where
         &mut self,
         state: &mut EditorState,
         response: &CompletionResponse,
-        previous_index: Option<usize>,
+        word_bytes: &[u8],
+        previous_match_index: Option<usize>,
+        next_index: usize,
     ) -> Result<(), ReadlineError> {
-        if previous_index.is_none()
-            && self.variable_is_on("menu-complete-display-prefix")
-            && let Some(prefix) = common_prefix_bytes(&response.candidates)
-        {
-            self.move_below_rendered_line(state)?;
-            let rendered = crate::buffer::LineBuffer::from_bytes(prefix)
-                .render_text(None, self.render_options())
-                .0;
-            self.terminal
-                .write_bytes(&crate::buffer::rendered_string_to_bytes(&rendered))?;
-            self.write_tracked_newline(state)?;
+        if previous_match_index.is_none() {
+            if self.variable_is_on("show-all-if-ambiguous") {
+                self.display_completions_for_word(state, response, word_bytes)?;
+            }
+            if self.variable_is_on("menu-complete-display-prefix") && next_index == 0 {
+                self.ding()?;
+            }
+        } else if next_index == 0 {
+            self.ding()?;
         }
         Ok(())
     }

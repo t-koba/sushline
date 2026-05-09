@@ -233,6 +233,25 @@ fn menu_complete_backward_and_old_menu_complete_share_cycle_behavior() {
 }
 
 #[test]
+fn shift_tab_sequence_can_bind_to_menu_complete_backward() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\x1b[Z".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = ThreeCompletion {
+        options: CompletionOptions {
+            nospace: true,
+            ..Default::default()
+        },
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\e[Z\": menu-complete-backward")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Line("gamma".as_bytes().to_vec()));
+}
+
+#[test]
 fn menu_complete_numeric_argument_moves_within_saved_candidates() {
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"\x1b2".to_vec()),

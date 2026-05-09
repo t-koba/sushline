@@ -241,6 +241,31 @@ pub(crate) fn rendered_rows_for_output(output: &str, columns: usize) -> u16 {
     row as u16
 }
 
+pub(crate) fn output_ends_at_wrap_boundary(output: &str, columns: usize) -> bool {
+    let columns = columns.max(1);
+    let mut col = 0usize;
+    let mut saw_visible_cell = false;
+    let mut ended_with_newline = false;
+    for ch in terminal_visible_chars(output) {
+        if ch == '\n' {
+            col = 0;
+            ended_with_newline = true;
+            continue;
+        }
+        ended_with_newline = false;
+        let width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if width > 0 && col + width > columns {
+            col = 0;
+        }
+        col += width;
+        if col >= columns {
+            col %= columns;
+        }
+        saw_visible_cell |= width > 0;
+    }
+    saw_visible_cell && !ended_with_newline && col == 0
+}
+
 pub(crate) fn terminal_visible_chars(output: &str) -> Vec<char> {
     let mut chars = output.chars().peekable();
     let mut visible = Vec::new();

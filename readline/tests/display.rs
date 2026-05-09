@@ -84,6 +84,36 @@ fn accept_line_from_previous_visual_row_moves_below_rendered_input() {
 }
 
 #[test]
+fn redisplay_forces_newline_when_point_lands_on_wrap_boundary() {
+    let mut terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"ab".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    terminal.columns = 4;
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+
+    assert_eq!(result, ReadlineResult::Line(b"ab".to_vec()));
+    assert!(line.terminal().out.contains("> ab\r\n\r\n"));
+}
+
+#[test]
+fn redisplay_normalizes_wrap_boundary_before_returning_to_previous_visual_row() {
+    let mut terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"ab".to_vec()),
+        TerminalEvent::Bytes(b"\x02".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    terminal.columns = 4;
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+
+    assert_eq!(result, ReadlineResult::Line(b"ab".to_vec()));
+    assert!(line.terminal().out.contains("> ab\r\n"));
+    assert!(line.terminal().moved_up.iter().any(|rows| *rows == 1));
+}
+
+#[test]
 fn resize_event_recomputes_wrap_using_new_terminal_size() {
     let mut terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"abcdef".to_vec()),

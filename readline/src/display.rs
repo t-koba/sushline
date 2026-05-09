@@ -1,5 +1,7 @@
 use crate::buffer::{RenderOptions, rendered_string_to_bytes};
-use crate::completion::display::{rendered_rows_for_output, visible_width};
+use crate::completion::display::{
+    output_ends_at_wrap_boundary, rendered_rows_for_output, visible_width,
+};
 use crate::editor::{Editor, ReadlineError};
 use crate::keymap::KeyMapName;
 use crate::prompt::Prompt;
@@ -123,14 +125,19 @@ where
         self.terminal
             .write_bytes(&rendered_string_to_bytes(&buffer))?;
         self.terminal.clear_after_cursor()?;
+        let rendered_output = format!("{prompt}{buffer}");
+        let ends_at_wrap_boundary = output_ends_at_wrap_boundary(&rendered_output, columns);
+        let rendered_rows = rendered_rows_for_output(&rendered_output, columns);
+        if ends_at_wrap_boundary {
+            self.terminal.write("\r\n")?;
+        }
         if self.variable_is_on("horizontal-scroll-mode") {
             let column = if columns > 0 {
                 (prompt_width + point_width) % columns
             } else {
                 prompt_width + point_width
             };
-            state.display.rendered_rows =
-                rendered_rows_for_output(&format!("{prompt}{buffer}"), columns);
+            state.display.rendered_rows = rendered_rows;
             state.display.rendered_cursor_row = state.display.rendered_rows;
             self.terminal.move_to_column(column as u16)?;
         } else {
@@ -138,8 +145,7 @@ where
                 state
                     .buffer
                     .rendered_rows_and_point(prompt_width, columns, self.render_options());
-            state.display.rendered_rows =
-                rendered_rows_for_output(&format!("{prompt}{buffer}"), columns);
+            state.display.rendered_rows = rendered_rows;
             let rows_back = last_row.saturating_sub(point_row) as u16;
             if rows_back > 0 {
                 self.terminal.move_up(rows_back)?;

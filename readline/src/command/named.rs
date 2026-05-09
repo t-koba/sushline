@@ -102,6 +102,12 @@ where
         if let Some(command) = EditCommand::parse(command) {
             return self.apply_command(state, command, key, hooks);
         }
+        if !matches!(
+            command,
+            "menu-complete" | "menu-complete-backward" | "old-menu-complete"
+        ) {
+            state.completion.menu_completion = None;
+        }
 
         if !matches!(
             command,

@@ -126,7 +126,7 @@ sections.
 | `complete-hostname`, `possible-hostname-completions` | Known deviation | Uses hooks plus `/etc/hosts`, `getent hosts`, and OpenSSH `known_hosts` where available. |
 | `complete-username`, `possible-username-completions` | Known deviation | Uses hooks plus `/etc/passwd` and `getent passwd` where available. |
 | `complete-variable`, `possible-variable-completions` | Hook-required | Baseline variable completion uses the shell's variable namespace. Sushline uses `Hooks::variable_names`; it has no shell variable table of its own. |
-| `menu-complete`, `menu-complete-backward`, `old-menu-complete` | Implementation-specific | Numeric arguments and backward cycling are implemented. Cycling past either end rings the bell and restores the original text. Candidate construction, quoting, and suffix behavior follow Sushline completion state. |
+| `menu-complete`, `menu-complete-backward`, `old-menu-complete` | Implemented | Menu completion keeps the initial candidate response while cycling, supports numeric arguments and backward cycling, and restores the original text after cycling past either end. Candidate construction, quoting, and suffix behavior follow Sushline completion state. |
 | `complete-into-braces` | Implemented | Implemented for completion candidates returned by the completion engine. |
 | `dabbrev-expand`, `dynamic-complete-history` | Known deviation | Expands from history words using Sushline command-word tokenization. |
 | `glob-complete-word`, `glob-expand-word`, `glob-list-expansions` | Known deviation | Uses Sushline's glob matching and expansion implementation. |

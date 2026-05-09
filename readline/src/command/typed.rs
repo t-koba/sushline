@@ -103,6 +103,12 @@ where
         key: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
+        if !matches!(
+            command,
+            EditCommand::DigitArgument | EditCommand::UniversalArgument
+        ) {
+            state.completion.menu_completion = None;
+        }
         match typed_command_group(command) {
             TypedCommandGroup::Movement => self.apply_movement_command(state, command, key, hooks),
             TypedCommandGroup::Editing => self.apply_editing_command(state, command, key, hooks),

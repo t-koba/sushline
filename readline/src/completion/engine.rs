@@ -19,24 +19,8 @@ struct MenuCompleteContext {
     end: usize,
     previous_index: Option<usize>,
     original: Vec<u8>,
-}
-
-fn menu_complete_context(state: &mut EditorState, edit: &CompletionEdit) -> MenuCompleteContext {
-    if let Some(previous) = state.completion.menu_completion.take() {
-        MenuCompleteContext {
-            start: previous.start,
-            end: previous.end,
-            previous_index: Some(previous.index),
-            original: previous.original,
-        }
-    } else {
-        MenuCompleteContext {
-            start: edit.start,
-            end: edit.end,
-            previous_index: None,
-            original: state.buffer.range_bytes(edit.start, edit.end),
-        }
-    }
+    word_bytes: Vec<u8>,
+    quote: Option<char>,
 }
 
 fn merge_completion_options(target: &mut CompletionOptions, source: CompletionOptions) {
@@ -80,6 +64,20 @@ where
                 _ => CompletionType::Complete,
             };
         }
+        if matches!(
+            completion_type,
+            CompletionType::MenuComplete | CompletionType::MenuCompleteBackward
+        ) && let Some(previous) = state.completion.menu_completion.take()
+        {
+            self.menu_complete_from_previous(
+                state,
+                previous,
+                completion_type == CompletionType::MenuCompleteBackward,
+                hooks,
+            )?;
+            return Ok(());
+        }
+
         let edit = self.completion_edit(state, hooks);
         let response = self.completion_response(state, key, completion_type, &edit, hooks);
         match completion_type {
@@ -309,15 +307,57 @@ where
             self.ding()?;
             return Ok(());
         }
+        if response.options.action == Some(CompletionAction::DisplayOnly) {
+            self.display_completions_for_word(state, &response, &edit.word_bytes)?;
+            state.completion.last_completion = Some(response);
+            return Ok(());
+        }
 
-        let context = menu_complete_context(state, edit);
+        let context = MenuCompleteContext {
+            start: edit.start,
+            end: edit.end,
+            previous_index: None,
+            original: state.buffer.range_bytes(edit.start, edit.end),
+            word_bytes: edit.word_bytes.clone(),
+            quote: edit.quote,
+        };
+        self.menu_complete_with_context(state, response, backward, hooks, context)
+    }
+
+    fn menu_complete_from_previous(
+        &mut self,
+        state: &mut EditorState,
+        previous: MenuCompletionState,
+        backward: bool,
+        hooks: &impl Hooks,
+    ) -> Result<(), ReadlineError> {
+        let response = previous.response;
+        let context = MenuCompleteContext {
+            start: previous.start,
+            end: previous.end,
+            previous_index: Some(previous.index),
+            original: previous.original,
+            word_bytes: previous.word_bytes,
+            quote: previous.quote,
+        };
+        self.menu_complete_with_context(state, response, backward, hooks, context)
+    }
+
+    fn menu_complete_with_context(
+        &mut self,
+        state: &mut EditorState,
+        response: CompletionResponse,
+        backward: bool,
+        hooks: &impl Hooks,
+        context: MenuCompleteContext,
+    ) -> Result<(), ReadlineError> {
         let Some(next_index) =
             self.menu_complete_cycle(state, response.candidates.len(), backward, &context)?
         else {
             return Ok(());
         };
         let replacement_bytes =
-            self.menu_complete_replacement(&response, edit, next_index, hooks, context.end, state);
+            self.menu_complete_replacement(&response, &context, next_index, hooks, state);
         self.menu_complete_display(state, &response, context.previous_index)?;
         state
             .buffer
@@ -327,6 +367,9 @@ where
             start: context.start,
             end: context.start + replacement_bytes.len(),
             original: context.original,
+            word_bytes: context.word_bytes,
+            quote: context.quote,
+            response: response.clone(),
         });
         state.completion.last_completion = Some(response);
         Ok(())
@@ -339,7 +382,9 @@ where
         backward: bool,
         context: &MenuCompleteContext,
     ) -> Result<Option<usize>, ReadlineError> {
-        let steps = state.numeric_arg.take().unwrap_or(1).unsigned_abs().max(1) as usize;
+        let arg = state.numeric_arg.take().unwrap_or(1);
+        let backward = if arg < 0 { !backward } else { backward };
+        let steps = arg.unsigned_abs().max(1) as usize;
         let next_index = match (context.previous_index, backward) {
             (Some(index), true) => {
                 if steps > index {
@@ -380,27 +425,44 @@ where
     fn menu_complete_replacement(
         &self,
         response: &CompletionResponse,
-        edit: &CompletionEdit,
+        context: &MenuCompleteContext,
         next_index: usize,
         hooks: &impl Hooks,
-        replaced_end: usize,
         state: &EditorState,
     ) -> Vec<u8> {
+        let edit = CompletionEdit {
+            start: context.start,
+            end: context.start + context.original.len(),
+            word_bytes: context.word_bytes.clone(),
+            quote: context.quote,
+        };
         let candidate = &response.candidates[next_index];
         let filename_directory =
-            self.filename_directory_completion_for_candidate(response, edit, candidate);
+            self.filename_directory_completion_for_candidate(response, &edit, candidate);
         let append_filename_slash = append_filename_slash_for_candidate(
             candidate,
             filename_directory.as_ref(),
-            state.buffer.as_bytes().get(replaced_end).copied(),
+            state.buffer.as_bytes().get(context.end).copied(),
         );
-        self.completion_candidate_replacement_bytes(
+        let mut replacement = self.completion_candidate_replacement_bytes(
             candidate,
-            edit,
+            &edit,
             response.options.quote_filename(),
             hooks,
             append_filename_slash,
-        )
+        );
+        let suppress_append_for_directory = filename_directory.is_some()
+            || candidate.replacement_bytes().ends_with(b"/")
+            || append_filename_slash;
+        if !suppress_append_for_directory && !response.options.nospace {
+            if let Some(ch) = response.options.append_character {
+                let mut buf = [0; 4];
+                replacement.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
+            } else if !response.options.suppress_append {
+                replacement.push(b' ');
+            }
+        }
+        replacement
     }
 
     fn menu_complete_display(

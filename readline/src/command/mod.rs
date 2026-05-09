@@ -36,12 +36,14 @@ where
                 self.apply_named_command(state, &command, key, hooks)
             }
             KeyBinding::Macro(text) => {
+                state.completion.menu_completion = None;
                 state.macro_state.replaying_macro = true;
                 let outcome = self.handle_bytes(state, &text, hooks)?;
                 state.macro_state.replaying_macro = false;
                 Ok(outcome)
             }
             KeyBinding::ApplicationCommand(command) => {
+                state.completion.menu_completion = None;
                 let context = CommandContext {
                     command: &command,
                     line: state.buffer.as_bytes(),

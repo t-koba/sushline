@@ -129,7 +129,9 @@ where
             NamedCommandGroup::HistoryNav => {
                 self.apply_named_history_nav_command(state, command, key, hooks)
             }
-            NamedCommandGroup::Movement => self.apply_named_movement_command(state, command, key),
+            NamedCommandGroup::Movement => {
+                self.apply_named_movement_command(state, command, key, hooks)
+            }
             NamedCommandGroup::Kill => self.apply_named_kill_command(state, command, key, hooks),
             NamedCommandGroup::Editing => {
                 self.apply_named_editing_command(state, command, key, hooks)

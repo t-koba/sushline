@@ -171,17 +171,27 @@ where
                 });
             }
             "vi-fWord" | "vi-forward-bigword" => {
+                let change_operator = matches!(state.vi.vi_operator, Some(ViOperator::Change));
                 self.apply_vi_motion_with_operator(state, key, false, |state| {
                     repeat(state, |state| {
-                        state.buffer.forward_bigword();
+                        if change_operator {
+                            state.buffer.forward_bigword_end();
+                        } else {
+                            state.buffer.forward_bigword();
+                        }
                     });
                 });
             }
             "vi-forward-word" | "vi-fword" | "vi-next-word" => {
                 let word_breaks = self.editing_word_breaks(hooks);
+                let change_operator = matches!(state.vi.vi_operator, Some(ViOperator::Change));
                 self.apply_vi_motion_with_operator(state, key, false, |state| {
                     repeat(state, |state| {
-                        state.buffer.forward_word(word_breaks.as_deref());
+                        if change_operator {
+                            state.buffer.forward_word(word_breaks.as_deref());
+                        } else {
+                            state.buffer.vi_forward_word(word_breaks.as_deref());
+                        }
                     });
                 });
             }

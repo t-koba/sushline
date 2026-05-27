@@ -8,5 +8,7 @@ pub(crate) struct MenuCompletionState {
     pub(crate) original: Vec<u8>,
     pub(crate) word_bytes: Vec<u8>,
     pub(crate) quote: Option<char>,
+    pub(crate) line: Vec<u8>,
+    pub(crate) point: usize,
     pub(crate) response: CompletionResponse,
 }

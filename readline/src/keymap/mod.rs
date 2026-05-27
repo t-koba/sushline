@@ -78,7 +78,11 @@ impl KeySequence {
     }
 
     pub fn display_inputrc(&self) -> String {
-        let mut out = String::from("\"");
+        format!("\"{}\"", self.display_inputrc_body())
+    }
+
+    pub fn display_inputrc_body(&self) -> String {
+        let mut out = String::new();
         for b in &self.0 {
             match *b {
                 0x00 => out.push_str("\\C-@"),
@@ -101,7 +105,6 @@ impl KeySequence {
                 0x20..=0x7e => out.push(*b as char),
             }
         }
-        out.push('"');
         out
     }
 }

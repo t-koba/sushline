@@ -216,6 +216,38 @@ $endif
 }
 
 #[test]
+fn bash_readline_and_sushline_apply_same_version_mode_and_variable_conditions() {
+    let inputrc = r#"
+$if version >= 8.0
+"\C-o": beginning-of-line
+$else
+"\C-o": end-of-line
+$endif
+$if mode=emacs
+"\C-p": end-of-line
+$endif
+set completion-ignore-case on
+$if completion-ignore-case=on
+"\C-n": beginning-of-line
+$endif
+"#;
+    for keys in [
+        b"abc\x0fX\r".as_slice(),
+        b"abc\x01\x10X\r".as_slice(),
+        b"abc\x0eX\r".as_slice(),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "keys={keys:?}\nbash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_kill_line_edit() {
     let keys = b"abc def\x01\x06\x06\x0bX\r";
     let bash = run_bash_readline(keys);
@@ -260,16 +292,21 @@ fn bash_readline_and_sushline_accept_same_delete_horizontal_space_edit() {
 
 #[test]
 fn bash_readline_and_sushline_accept_same_case_word_edits() {
-    let keys = b"one two\x01\x1bu\x1bc\r";
-    let bash = run_bash_readline(keys);
-    let sushline = run_sushline_harness(keys);
+    for keys in [
+        b"one two\x01\x1bu\x1bc\r".as_slice(),
+        b"foo-bar baz\x01\x1b2\x1bu\r".as_slice(),
+        b"FOO BAR\x1b-1\x1bl\r".as_slice(),
+        b"foo BAR\x1b-1\x1bc\r".as_slice(),
+    ] {
+        let bash = run_bash_readline(keys);
+        let sushline = run_sushline_harness(keys);
 
-    assert_eq!(accepted_line(&bash), Some("ONE Two".to_string()), "{bash}");
-    assert_eq!(
-        accepted_line(&sushline),
-        Some("ONE Two".to_string()),
-        "{sushline}"
-    );
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "keys={keys:?}\nbash={bash}\nsushline={sushline}"
+        );
+    }
 }
 
 #[test]
@@ -374,6 +411,24 @@ fn bash_readline_and_sushline_accept_same_copy_region_as_kill_edit() {
 }
 
 #[test]
+fn bash_readline_and_sushline_accept_same_copy_word_commands() {
+    for (command, keys) in [
+        ("copy-backward-word", b"one two\x0f\x19\r".as_slice()),
+        ("copy-forward-word", b"one two\x01\x0f\x05\x19\r".as_slice()),
+    ] {
+        let inputrc = format!(r#""\C-o": {command}"#);
+        let bash = run_bash_readline_with_bindings(keys, &inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, &inputrc);
+
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "command={command}\nbash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_simple_undo_edit() {
     let keys = b"abc\x1f\r";
     let bash = run_bash_readline(keys);
@@ -384,7 +439,7 @@ fn bash_readline_and_sushline_accept_same_simple_undo_edit() {
 }
 
 #[test]
-fn sushline_keyboard_macro_records_consecutive_self_insert_keys() {
+fn bash_readline_and_sushline_accept_same_keyboard_macro_self_insert_replay() {
     let keys = b"\x18(abc\x18)\x18e\r";
     let bash = run_bash_readline(keys);
     let sushline = run_sushline_harness(keys);
@@ -392,7 +447,7 @@ fn sushline_keyboard_macro_records_consecutive_self_insert_keys() {
     assert_eq!(accepted_line(&bash), Some("abca".to_string()), "{bash}");
     assert_eq!(
         accepted_line(&sushline),
-        Some("abcabc".to_string()),
+        Some("abca".to_string()),
         "{sushline}"
     );
 }
@@ -409,6 +464,177 @@ fn bash_readline_and_sushline_accept_same_keyboard_macro_with_command() {
         Some("XXab".to_string()),
         "{sushline}"
     );
+}
+
+#[test]
+fn bash_readline_and_sushline_accept_same_execute_named_command() {
+    let inputrc = r#""\C-o": execute-named-command"#;
+    let keys = b"abc\x0fbeginning-of-line\rX\r";
+    let bash = run_bash_readline_with_bindings(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+}
+
+#[test]
+fn bash_readline_and_sushline_accept_same_prefix_meta_command() {
+    let inputrc = "\"\\C-o\": prefix-meta\n\"\\M-a\": beginning-of-line";
+    let keys = b"abc\x0faX\r";
+    let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+}
+
+#[test]
+fn bash_readline_and_sushline_accept_same_lowercase_version_command() {
+    let inputrc = r#""A": do-lowercase-version"#;
+    let keys = b"A\r";
+    let bash = run_bash_readline_with_bindings(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+}
+
+#[test]
+fn bash_readline_and_sushline_accept_same_abort_command() {
+    let inputrc = r#""\C-o": abort"#;
+    let keys = b"abc\x0fX\r";
+    let bash = run_bash_readline_with_bindings(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(
+        bell_count(&sushline),
+        bell_count(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+}
+
+#[test]
+fn bash_readline_and_sushline_preserve_line_through_clear_and_redraw_commands() {
+    for command in ["clear-screen", "clear-display", "redraw-current-line"] {
+        let inputrc = format!(r#""\C-o": {command}"#);
+        let keys = b"abc\x0fX\r";
+        let bash = run_bash_readline_with_bindings(keys, &inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, &inputrc);
+
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "command={command}\nbash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_accept_same_editing_mode_switch_commands() {
+    let vi_inputrc = r#""\C-o": vi-editing-mode"#;
+    let vi_keys = b"abc\x0f\x1b0iX\r";
+    let bash = run_bash_readline_with_bindings(vi_keys, vi_inputrc);
+    let sushline = run_sushline_harness_with_inputrc(vi_keys, vi_inputrc);
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "vi switch\nbash={bash}\nsushline={sushline}"
+    );
+
+    let emacs_inputrc = r#"set editing-mode vi
+"\C-o": emacs-editing-mode"#;
+    let emacs_keys = b"abc\x0f\x01X\r";
+    let bash = run_bash_readline_with_inputrc_file(emacs_keys, emacs_inputrc);
+    let sushline = run_sushline_harness_with_inputrc(emacs_keys, emacs_inputrc);
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "emacs switch\nbash={bash}\nsushline={sushline}"
+    );
+}
+
+#[test]
+fn bash_readline_and_sushline_re_read_init_file_reload_same_bindings() {
+    let initial = r#""\C-o": re-read-init-file"#;
+    let reloaded = r#""\C-o": re-read-init-file
+"\C-p": beginning-of-line"#;
+    let keys = b"abc\x0f\x10X\r";
+
+    let bash = run_bash_readline_with_reloaded_inputrc(keys, initial, reloaded);
+    let sushline = run_sushline_harness_with_reloaded_inputrc(keys, initial, reloaded);
+
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+}
+
+#[test]
+fn bash_readline_and_sushline_dump_same_functions_variables_and_macros() {
+    for (command, inputrc, expected) in [
+        (
+            "dump-functions",
+            r#""\C-o": dump-functions"#,
+            "beginning-of-line can be found",
+        ),
+        (
+            "dump-variables",
+            r#""\C-o": dump-variables"#,
+            "editing-mode is set to",
+        ),
+        (
+            "dump-macros",
+            "\"\\C-o\": dump-macros\n\"\\C-p\": \"macro\"",
+            "outputs macro",
+        ),
+    ] {
+        let keys = b"abc\x0f\r";
+        let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "command={command}\nbash={bash}\nsushline={sushline}"
+        );
+        assert!(bash.contains(expected), "command={command}\nbash={bash}");
+        assert!(
+            sushline.contains(expected),
+            "command={command}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_print_same_last_keyboard_macro() {
+    let inputrc = r#""\C-o": print-last-kbd-macro"#;
+    let keys = b"\x18(\x01X\x18)\x0f\r";
+    let bash = run_bash_readline_with_bindings(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+    assert!(bash.contains("\\C-aX"), "{bash}");
+    assert!(sushline.contains("\\C-aX"), "{sushline}");
+    assert!(!sushline.contains("\"\\C-aX\""), "{sushline}");
 }
 
 #[test]
@@ -440,21 +666,48 @@ fn bash_readline_and_sushline_accept_same_numeric_motion() {
 }
 
 #[test]
-fn bash_readline_and_sushline_accept_same_numeric_kill_word() {
-    let keys = b"one two three\x01\x1b2\x1bdX\x19\r";
-    let bash = run_bash_readline(keys);
-    let sushline = run_sushline_harness(keys);
+fn bash_readline_and_sushline_accept_same_forward_byte_inside_utf8() {
+    let inputrc = r#""\C-o": forward-byte"#;
+    let keys = "éZ\u{1}\u{f}X\r".as_bytes();
+    let bash = run_bash_readline_with_bindings(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
 
     assert_eq!(
+        accepted_line(&sushline),
         accepted_line(&bash),
-        Some("Xone two three".to_string()),
-        "{bash}"
+        "bash={bash}\nsushline={sushline}"
     );
+}
+
+#[test]
+fn bash_readline_and_sushline_accept_same_backward_byte_inside_utf8() {
+    let inputrc = r#""\C-o": backward-byte"#;
+    let keys = "e\u{301}x\u{2}\u{f}Y\r".as_bytes();
+    let bash = run_bash_readline_with_bindings(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
     assert_eq!(
         accepted_line(&sushline),
-        Some("Xone two three".to_string()),
-        "{sushline}"
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
     );
+}
+
+#[test]
+fn bash_readline_and_sushline_accept_same_numeric_kill_word() {
+    for keys in [
+        b"one two three\x01\x1b2\x1bdX\x19\r".as_slice(),
+        b"one two three\x1b-1\x1bdX\x19\r".as_slice(),
+    ] {
+        let bash = run_bash_readline(keys);
+        let sushline = run_sushline_harness(keys);
+
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "keys={keys:?}\nbash={bash}\nsushline={sushline}"
+        );
+    }
 }
 
 #[test]
@@ -481,7 +734,7 @@ fn bash_readline_and_sushline_accept_same_yank_pop_edit() {
     assert_eq!(accepted_line(&bash), Some("Xtwoone".to_string()), "{bash}");
     assert_eq!(
         accepted_line(&sushline),
-        Some("Xone".to_string()),
+        Some("Xtwoone".to_string()),
         "{sushline}"
     );
 }
@@ -577,6 +830,44 @@ fn bash_readline_and_sushline_reverse_search_repeats_to_older_match() {
 }
 
 #[test]
+fn bash_readline_and_sushline_fetch_same_numbered_history_entry() {
+    let inputrc = r#""\C-o": fetch-history"#;
+    let history = ["one", "two", "three"];
+    let keys = b"\x1b2\x0f\r";
+    let bash = run_bash_readline_with_bindings_and_history(keys, inputrc, &history);
+    let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+}
+
+#[test]
+fn bash_readline_and_sushline_operate_and_get_next_prefill_same_next_read() {
+    let inputrc = r#""\C-o": operate-and-get-next"#;
+    let history = ["one", "two", "three"];
+    for keys in [b"\x10\x10\x0f\r".as_slice(), b"\x10\x1b1\x0f\r".as_slice()] {
+        let bash =
+            run_bash_readline_two_reads_with_inputrc_file_and_history(keys, inputrc, &history);
+        let sushline =
+            run_sushline_harness_two_reads_with_inputrc_and_history(keys, inputrc, &history);
+
+        assert_eq!(
+            accepted_numbered_line(&sushline, 1),
+            accepted_numbered_line(&bash, 1),
+            "keys={keys:?}\nfirst read\nbash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            accepted_numbered_line(&sushline, 2),
+            accepted_numbered_line(&bash, 2),
+            "keys={keys:?}\nsecond read\nbash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_expand_same_history_words_and_modifiers() {
     let inputrc = r#""\C-x\C-a": history-expand-line"#;
     let history = ["echo /tmp/foo.txt alpha beta"];
@@ -592,6 +883,10 @@ fn bash_readline_and_sushline_expand_same_history_words_and_modifiers() {
         ("!!:1:t", "foo.txt"),
         ("!!:1:r", "/tmp/foo"),
         ("!!:1:e", ".txt"),
+        ("!!:q", "'echo /tmp/foo.txt alpha beta'"),
+        ("!!:x", "'echo' '/tmp/foo.txt' 'alpha' 'beta'"),
+        ("!!:1:q", "'/tmp/foo.txt'"),
+        ("!!:1:x", "'/tmp/foo.txt'"),
         ("!?foo?:%", "/tmp/foo.txt"),
         ("!?foo?:%:r", "/tmp/foo"),
         ("!!:s/alpha/ALPHA/", "echo /tmp/foo.txt ALPHA beta"),
@@ -618,6 +913,150 @@ fn bash_readline_and_sushline_expand_same_history_words_and_modifiers() {
 }
 
 #[test]
+fn bash_readline_and_sushline_apply_same_history_quote_inhibit_policy() {
+    let inputrc = "set history-quotes-inhibit-expansion on\n\"\\C-x\\C-a\": history-expand-line";
+    let history = ["echo alpha"];
+    let keys = b"'!!\x18\x01\r";
+    let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &history);
+    let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+}
+
+#[test]
+fn bash_readline_and_sushline_preserve_same_quoted_history_words() {
+    let inputrc = r#""\C-x\C-a": history-expand-line"#;
+    let quoted_history = [r#"printf "two words" $'ansi word' tail"#];
+
+    for typed in ["!!:1", "!!:2", "!!:1:q"] {
+        let keys = format!("{typed}\x18\x01\r");
+        let bash = run_bash_history_expand(typed, &quoted_history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(
+            keys.as_bytes(),
+            inputrc,
+            &quoted_history,
+        );
+
+        assert_eq!(
+            accepted_line(&sushline),
+            Some(bash.clone()),
+            "{typed}: bash={bash:?}\nsushline={sushline}"
+        );
+    }
+
+    let shell_word_history =
+        [r#"echo $foo foo=bar a@b a\ b {a,b} $(printf hi) `printf hi` <(echo hi) >(cat) tail"#];
+    for typed in [
+        "!!:1", "!!:2", "!!:3", "!!:4", "!!:5", "!!:6", "!!:7", "!!:8", "!!:9",
+    ] {
+        let keys = format!("{typed}\x18\x01\r");
+        let bash = run_bash_history_expand(typed, &shell_word_history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(
+            keys.as_bytes(),
+            inputrc,
+            &shell_word_history,
+        );
+
+        assert_eq!(
+            accepted_line(&sushline),
+            Some(bash.clone()),
+            "{typed}: bash={bash:?}\nsushline={sushline}"
+        );
+    }
+
+    let shell_group_history = ["echo arr=(one two) $((1 + 2)) ((a + b)) tail"];
+    for typed in ["!!:1", "!!:2", "!!:3", "!!:4"] {
+        let keys = format!("{typed}\x18\x01\r");
+        let bash = run_bash_history_expand(typed, &shell_group_history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(
+            keys.as_bytes(),
+            inputrc,
+            &shell_group_history,
+        );
+
+        assert_eq!(
+            accepted_line(&sushline),
+            Some(bash.clone()),
+            "{typed}: bash={bash:?}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_yank_same_quoted_history_argument() {
+    let inputrc = r#""\C-o": yank-nth-arg"#;
+    let history = [r#"printf "two words" $'ansi word' tail"#];
+    let keys = b"\x0f\r";
+    let bash = run_bash_readline_with_bindings_and_history(keys, inputrc, &history);
+    let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+}
+
+#[test]
+fn bash_readline_and_sushline_yank_same_numbered_and_repeated_history_argument() {
+    let inputrc = r#""\C-o": yank-nth-arg"#;
+    let history = ["cmd one two", "cmd alpha beta"];
+    for keys in [
+        b"\x1b1\x0f\r".as_slice(),
+        b"\x1b1\x0f\x0f\r".as_slice(),
+        b"\x0f\x0f\r".as_slice(),
+    ] {
+        let bash = run_bash_readline_with_bindings_and_history(keys, inputrc, &history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "keys={keys:?}\nbash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_yank_last_arg_repeats_same_history_cycle() {
+    let history = ["cmd one two", "cmd alpha beta"];
+    for keys in [b"\x1b.\r".as_slice(), b"\x1b.\x1b.\r".as_slice()] {
+        let bash = run_bash_readline_with_bindings_and_history(keys, "", &history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, "", &history);
+
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "keys={keys:?}\nbash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_dynamic_history_completion_uses_common_prefix() {
+    let inputrc = r#""\C-o": dynamic-complete-history"#;
+    let history = ["echo alpha", "echo alpine"];
+    let keys = b"al\x0f\r";
+    let bash = run_bash_readline_with_bindings_and_history(keys, inputrc, &history);
+    let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(
+        bell_count(&sushline),
+        bell_count(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_named_command_word_motion() {
     let keys = b"one two/three\x18\x01X\r";
     let inputrc = r#""\C-x\C-a": shell-backward-word"#;
@@ -638,16 +1077,65 @@ fn bash_readline_and_sushline_accept_same_named_command_word_motion() {
 
 #[test]
 fn bash_readline_and_sushline_accept_same_command_word_motion_over_metacharacters() {
-    let keys = b"echo foo|bar\x01\x0fX\r";
     let inputrc = r#""\C-o": shell-forward-word"#;
-    let bash = run_bash_readline_with_bindings(keys, inputrc);
-    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+    for keys in [
+        b"echo foo|bar\x01\x0fX\r".as_slice(),
+        b"cat <(echo hi)|wc\x01\x0f\x0fX\r".as_slice(),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
 
-    assert_eq!(
-        accepted_line(&sushline),
-        accepted_line(&bash),
-        "bash={bash}\nsushline={sushline}"
-    );
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "keys={keys:?}\nbash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_accept_same_shell_kill_word() {
+    for (inputrc, keys) in [
+        (
+            r#""\C-o": shell-kill-word"#,
+            b"foo|bar\x01\x0fX\r".as_slice(),
+        ),
+        (
+            "\"\\C-p\": shell-forward-word\n\"\\C-o\": shell-kill-word",
+            b"cat <(echo hi)|wc\x01\x10\x0fX\r".as_slice(),
+        ),
+        (
+            "\"\\C-p\": shell-forward-word\n\"\\C-o\": shell-backward-kill-word",
+            b"cat <(echo hi)|wc\x01\x10\x10\x0fX\r".as_slice(),
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "inputrc={inputrc:?}\nkeys={keys:?}\nbash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_accept_same_shell_transpose_words() {
+    let inputrc = r#""\C-o": shell-transpose-words"#;
+    for keys in [
+        b"one \"two words\" three\x0f\r".as_slice(),
+        b"cat <(echo hi) tail\x0f\r".as_slice(),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "keys={keys:?}\nbash={bash}\nsushline={sushline}"
+        );
+    }
 }
 
 #[test]
@@ -711,6 +1199,29 @@ fn bash_readline_and_sushline_complete_same_symlinked_directory_markers() {
 }
 
 #[test]
+fn bash_readline_and_sushline_complete_same_hidden_filename_cases() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::write(dir.path().join(".alpha"), "").expect("write hidden fixture");
+
+    for (inputrc, typed) in [
+        ("", format!("{}/.a\t\r", dir.path().display())),
+        (
+            "set match-hidden-files on",
+            format!("{}/a\t\r", dir.path().display()),
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(typed.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(typed.as_bytes(), inputrc);
+
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "inputrc={inputrc:?}\ntyped={typed:?}\nbash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_mark_directories_for_glob_completion_only() {
     let dir = tempfile::tempdir().expect("tempdir");
     fs::create_dir(dir.path().join("alpha-dir")).expect("mkdir fixture");
@@ -750,21 +1261,43 @@ fn bash_readline_and_sushline_quote_same_completed_filename_with_space() {
     let dir = tempfile::tempdir().expect("tempdir");
     let file = dir.path().join("alpha file");
     fs::write(&file, "").expect("write fixture");
-    let typed = format!("{}/alp\t\r", dir.path().display());
+    for typed in [
+        format!("{}/alp\t\r", dir.path().display()),
+        format!("{}/alpha\\ f\t\r", dir.path().display()),
+    ] {
+        let bash = run_bash_readline(typed.as_bytes());
+        let sushline = run_sushline_harness(typed.as_bytes());
 
-    let bash = run_bash_readline(typed.as_bytes());
-    let sushline = run_sushline_harness(typed.as_bytes());
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "typed={typed:?}\nbash={bash}\nsushline={sushline}"
+        );
+    }
+}
 
-    assert_eq!(
-        accepted_line(&bash),
-        Some(format!("{}/alpha file ", dir.path().display())),
-        "{bash}"
-    );
-    assert_eq!(
-        accepted_line(&sushline),
-        Some(format!("{}/alpha\\ file ", dir.path().display())),
-        "{sushline}"
-    );
+#[test]
+fn bash_readline_and_sushline_quote_same_completed_filename_with_shell_metacharacters() {
+    for name in [
+        "alpha'quote",
+        "alpha$dollar",
+        "alpha`tick`",
+        "alpha[bracket]",
+        "alpha#hash",
+    ] {
+        let dir = tempfile::tempdir().expect("tempdir");
+        fs::write(dir.path().join(name), "").expect("write fixture");
+        let typed = format!("{}/alp\t\r", dir.path().display());
+
+        let bash = run_bash_readline(typed.as_bytes());
+        let sushline = run_sushline_harness(typed.as_bytes());
+
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "name={name:?}\nbash={bash}\nsushline={sushline}"
+        );
+    }
 }
 
 #[test]
@@ -782,6 +1315,200 @@ fn bash_readline_and_sushline_complete_same_quoted_filename_with_space() {
         accepted_line(&bash),
         "bash={bash}\nsushline={sushline}"
     );
+}
+
+#[test]
+fn bash_readline_and_sushline_ring_same_bell_for_unmodified_ambiguous_completion() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::write(dir.path().join("alpha"), "").expect("write alpha fixture");
+    fs::write(dir.path().join("beta"), "").expect("write beta fixture");
+    let typed = format!("{}/\t\r", dir.path().display());
+
+    let bash = run_bash_readline(typed.as_bytes());
+    let sushline = run_sushline_harness(typed.as_bytes());
+
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(
+        bell_count(&sushline),
+        bell_count(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+    assert!(bell_count(&bash) > 0, "bash={bash}");
+}
+
+#[test]
+fn bash_readline_and_sushline_ring_same_bell_when_ambiguous_completion_extends_prefix() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::write(dir.path().join("alpha"), "").expect("write alpha fixture");
+    fs::write(dir.path().join("alpine"), "").expect("write alpine fixture");
+    let typed = format!("{}/a\t\r", dir.path().display());
+
+    let bash = run_bash_readline(typed.as_bytes());
+    let sushline = run_sushline_harness(typed.as_bytes());
+
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(
+        bell_count(&sushline),
+        bell_count(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+}
+
+#[test]
+fn bash_readline_and_sushline_ring_same_bell_for_ambiguous_complete_filename() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::write(dir.path().join("alpha"), "").expect("write alpha fixture");
+    fs::write(dir.path().join("alpine"), "").expect("write alpine fixture");
+    let inputrc = r#""\C-o": complete-filename"#;
+    let typed = format!("{}/a\x0f\r", dir.path().display());
+
+    let bash = run_bash_readline_with_bindings(typed.as_bytes(), inputrc);
+    let sushline = run_sushline_harness_with_inputrc(typed.as_bytes(), inputrc);
+
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(
+        bell_count(&sushline),
+        bell_count(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+    assert!(bell_count(&bash) > 0, "bash={bash}");
+}
+
+#[test]
+fn bash_readline_and_sushline_complete_same_filenames_into_braces() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::write(dir.path().join("alpha"), "").expect("write alpha fixture");
+    fs::write(dir.path().join("alpine"), "").expect("write alpine fixture");
+    let inputrc = r#""\C-o": complete-into-braces"#;
+
+    for typed in [
+        format!("{}/al\x0f\r", dir.path().display()),
+        format!("cat \"{}/al\x0f\r", dir.path().display()),
+        format!("cat '{}/al\x0f\r", dir.path().display()),
+    ] {
+        let bash = run_bash_readline_with_bindings(typed.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(typed.as_bytes(), inputrc);
+
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "typed={typed:?}\nbash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_cycle_same_menu_completion_items() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::write(dir.path().join("alpha"), "").expect("write alpha fixture");
+    fs::write(dir.path().join("alpine"), "").expect("write alpine fixture");
+    for (inputrc, typed) in [
+        (
+            r#""\C-o": menu-complete"#,
+            format!("{}/al\x0f\x0f\x0f\r", dir.path().display()),
+        ),
+        (
+            r#""\C-o": menu-complete-backward"#,
+            format!("{}/al\x0f\r", dir.path().display()),
+        ),
+        (
+            r#""\C-o": old-menu-complete"#,
+            format!("{}/al\x0f\r", dir.path().display()),
+        ),
+    ] {
+        let bash = run_bash_readline_with_bindings(typed.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(typed.as_bytes(), inputrc);
+
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "inputrc={inputrc:?}\ntyped={typed:?}\nbash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bell_count(&bash),
+            "inputrc={inputrc:?}\ntyped={typed:?}\nbash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_delete_char_or_list_matches_edit_and_list_cases() {
+    let inputrc = r#""\C-o": delete-char-or-list"#;
+    let bash = run_bash_readline_with_bindings(b"abc\x02\x0f\r", inputrc);
+    let sushline = run_sushline_harness_with_inputrc(b"abc\x02\x0f\r", inputrc);
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "delete case\nbash={bash}\nsushline={sushline}"
+    );
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::write(dir.path().join("alpha"), "").expect("write alpha fixture");
+    fs::write(dir.path().join("alpine"), "").expect("write alpine fixture");
+    let inputrc = "\"\\C-o\": delete-char-or-list\nset completion-query-items 999";
+    let typed = format!("{}/al\x0f\r", dir.path().display());
+    let bash = run_bash_readline_with_inputrc_file(typed.as_bytes(), inputrc);
+    let sushline = run_sushline_harness_with_inputrc(typed.as_bytes(), inputrc);
+
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "list case\nbash={bash}\nsushline={sushline}"
+    );
+}
+
+#[test]
+fn bash_readline_and_sushline_tilde_expand_preserves_spacing() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().to_string_lossy().into_owned();
+    let inputrc = r#""\C-o": tilde-expand"#;
+    let env = [("HOME", home.as_str())];
+
+    for keys in [
+        b"echo   ~/sub\x0f\r".as_slice(),
+        b"PATH=~/bin:~/lib\x0f\r".as_slice(),
+        b"echo ~+ ~-\x0f\r".as_slice(),
+    ] {
+        let bash = run_bash_readline_with_bindings_and_env(keys, inputrc, &env);
+        let sushline = run_sushline_harness_with_inputrc_and_env(keys, inputrc, &env);
+
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "keys={keys:?}\nbash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_accept_same_character_search_commands() {
+    for (command, keys) in [
+        ("character-search", b"abcabc\x01\x0fcX\r".as_slice()),
+        ("character-search-backward", b"abcabc\x0fbX\r".as_slice()),
+    ] {
+        let inputrc = format!(r#""\C-o": {command}"#);
+        let bash = run_bash_readline_with_bindings(keys, &inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, &inputrc);
+
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "command={command}\nbash={bash}\nsushline={sushline}"
+        );
+    }
 }
 
 #[test]
@@ -901,6 +1628,26 @@ fn bash_readline_and_sushline_complete_same_user_and_host_fallbacks() {
 }
 
 #[test]
+fn bash_readline_and_sushline_accept_same_vi_completion_bindings() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::write(dir.path().join("alpha"), "").expect("write alpha fixture");
+    fs::write(dir.path().join("alpine"), "").expect("write alpine fixture");
+    let inputrc = "set editing-mode vi\nset completion-query-items 999";
+
+    for key in [b'*', b'=', b'\\'] {
+        let typed = format!("{}/al\x1b{}\r", dir.path().display(), key as char);
+        let bash = run_bash_readline_with_inputrc_file(typed.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(typed.as_bytes(), inputrc);
+
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "key={key:?}\nbash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_vi_character_search() {
     let keys = b"abcabc\x1b0fcix\r";
     let inputrc = "set editing-mode vi";
@@ -931,6 +1678,25 @@ fn bash_readline_and_sushline_accept_same_vi_delete_motion() {
 }
 
 #[test]
+fn bash_readline_and_sushline_accept_same_named_word_rubout_commands() {
+    for (command, keys) in [
+        ("backward-kill-word", b"one/two three\x0f\r".as_slice()),
+        ("unix-word-rubout", b"one/two three\x0f\r".as_slice()),
+        ("unix-filename-rubout", b"one/two three\x0f\r".as_slice()),
+    ] {
+        let inputrc = format!(r#""\C-o": {command}"#);
+        let bash = run_bash_readline_with_bindings(keys, &inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, &inputrc);
+
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "command={command}\nbash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_vi_counted_motion() {
     let keys = b"one two three\x1b03wX\r";
     let inputrc = "set editing-mode vi";
@@ -942,6 +1708,33 @@ fn bash_readline_and_sushline_accept_same_vi_counted_motion() {
         accepted_line(&bash),
         "bash={bash}\nsushline={sushline}"
     );
+}
+
+#[test]
+fn bash_readline_and_sushline_accept_same_vi_word_and_match_motions() {
+    let inputrc = "set editing-mode vi";
+    for keys in [
+        b"one two\x1b0wiX\r".as_slice(),
+        b"one-two three\x1b0wiX\r".as_slice(),
+        b"one-two three\x1b0eiX\r".as_slice(),
+        b"one-two three\x1b$b iX\r".as_slice(),
+        b"one-two three\x1b0WiX\r".as_slice(),
+        b"one-two three\x1b0EiX\r".as_slice(),
+        b"one-two three\x1b$BiX\r".as_slice(),
+        b"  one two\x1b0^iX\r".as_slice(),
+        b"abcdef\x1b03|iX\r".as_slice(),
+        b"a(b[c]d)e\x1b0f(%iX\r".as_slice(),
+        b"a(b[c]d)e\x1b0f[%iX\r".as_slice(),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "keys={keys:?}\nbash={bash}\nsushline={sushline}"
+        );
+    }
 }
 
 #[test]
@@ -964,6 +1757,9 @@ fn bash_readline_and_sushline_accept_same_vi_composed_counts_and_cursor_after_op
     for keys in [
         &b"one two three four\x1b02d2w\r"[..],
         &b"one two three\x1b0dwiX\r"[..],
+        &b"one two\x1b0cWXY\x1b\r"[..],
+        &b"one two\x1b0ywp\r"[..],
+        &b"one two\x1b0yWp\r"[..],
     ] {
         let bash = run_bash_readline_with_bindings(keys, inputrc);
         let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
@@ -986,7 +1782,7 @@ fn bash_readline_and_sushline_accept_same_vi_replace_redo() {
     assert_eq!(accepted_line(&bash), Some("xbc".to_string()), "{bash}");
     assert_eq!(
         accepted_line(&sushline),
-        Some("xxc".to_string()),
+        Some("xbc".to_string()),
         "{sushline}"
     );
 }
@@ -1009,6 +1805,20 @@ fn bash_readline_and_sushline_accept_same_vi_compound_redo_and_mark_failure() {
 #[test]
 fn bash_readline_and_sushline_accept_same_vi_put_after_yank() {
     let keys = b"abc\x1b0yyp\r";
+    let inputrc = "set editing-mode vi";
+    let bash = run_bash_readline_with_bindings(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+}
+
+#[test]
+fn bash_readline_and_sushline_leave_vi_register_key_unbound_by_default() {
+    let keys = b"abc def\x1b0\"ayw\r";
     let inputrc = "set editing-mode vi";
     let bash = run_bash_readline_with_bindings(keys, inputrc);
     let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
@@ -1080,6 +1890,72 @@ fn bash_readline_and_sushline_vi_delete_under_cursor() {
 }
 
 #[test]
+fn bash_readline_and_sushline_accept_same_vi_named_history_and_expansion_helpers() {
+    let history = ["cmd one two", "cmd alpha beta"];
+    for (inputrc, keys) in [
+        (r#""\C-o": vi-fetch-history"#, b"\x1b2\x0f\r".as_slice()),
+        (r#""\C-o": vi-yank-arg"#, b"\x0f\r".as_slice()),
+        (r#""\C-o": vi-yank-arg"#, b"\x1b1\x0f\r".as_slice()),
+        (r#""\C-o": vi-yank-arg"#, b"\x1b2\x0f\r".as_slice()),
+    ] {
+        let bash = run_bash_readline_with_bindings_and_history(keys, inputrc, &history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "inputrc={inputrc:?}\nkeys={keys:?}\nbash={bash}\nsushline={sushline}"
+        );
+    }
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().to_string_lossy().into_owned();
+    let env = [("HOME", home.as_str())];
+    let inputrc = r#""\C-o": vi-tilde-expand"#;
+    let keys = b"~/sub\x0f\r";
+    let bash = run_bash_readline_with_bindings_and_env(keys, inputrc, &env);
+    let sushline = run_sushline_harness_with_inputrc_and_env(keys, inputrc, &env);
+
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+}
+
+#[test]
+fn bash_readline_and_sushline_accept_same_vi_unix_word_rubout() {
+    let inputrc = "set editing-mode vi\n\"\\C-o\": vi-unix-word-rubout";
+    let keys = b"foo/bar\x0f\r";
+    let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+}
+
+#[test]
+fn bash_readline_and_sushline_handle_same_vi_eof_maybe() {
+    let inputrc = "set editing-mode vi";
+    let bash = run_bash_readline_eof_with_inputrc(b"\x04", inputrc);
+    let sushline = run_sushline_harness_until(b"\x04", inputrc, "SUSHLINE_EOF");
+    assert!(bash.contains("SUSHLINE_EOF"), "{bash}");
+    assert!(sushline.contains("SUSHLINE_EOF"), "{sushline}");
+
+    let keys = b"abc\x1b\x04\r";
+    let bash = run_bash_readline_with_bindings(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_edit_under_narrow_terminal() {
     let keys = b"abcdef ghijkl\x01X\r";
     let bash = run_bash_readline_with_size(
@@ -1115,6 +1991,36 @@ fn bash_readline_and_sushline_accept_same_edit_under_narrow_terminal() {
         Some("Xabcdef ghijkl".to_string()),
         "{sushline}"
     );
+}
+
+#[test]
+fn bash_readline_and_sushline_accept_same_screen_line_motion() {
+    let size = PtySize {
+        rows: 4,
+        cols: 20,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    for (command, keys) in [
+        (
+            "previous-screen-line",
+            b"abcdefghij klmnopqrst uvwxyz\x0fX\r".as_slice(),
+        ),
+        (
+            "next-screen-line",
+            b"abcdefghij klmnopqrst uvwxyz\x01\x0fX\r".as_slice(),
+        ),
+    ] {
+        let inputrc = format!(r#""\C-o": {command}"#);
+        let bash = run_bash_readline_with_size(keys, &inputrc, &[], size);
+        let sushline = run_sushline_harness_with_size(keys, &inputrc, &[], size);
+
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "command={command}\nbash={bash}\nsushline={sushline}"
+        );
+    }
 }
 
 #[test]
@@ -1163,6 +2069,24 @@ fn run_bash_readline(keys: &[u8]) -> String {
 
 fn run_bash_readline_with_bindings(keys: &[u8], bindings: &str) -> String {
     run_bash_readline_with_bindings_and_history(keys, bindings, &[])
+}
+
+fn run_bash_readline_eof_with_inputrc(keys: &[u8], inputrc: &str) -> String {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    fs::write(&path, inputrc).expect("write inputrc");
+    let mut command = CommandBuilder::new("bash");
+    command.env("INPUTRC", path.to_string_lossy().as_ref());
+    command.args([
+        "--noprofile",
+        "--norc",
+        "-i",
+        "-c",
+        &format!(
+            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; if IFS= read -r -e -p "{READY_PROMPT}" line; then printf 'SUSHLINE_ACCEPTED:%s\n' "$line"; else printf 'SUSHLINE_EOF\n'; fi"#
+        ),
+    ]);
+    run_pty_until(command, keys, "SUSHLINE_EOF")
 }
 
 fn run_bash_readline_with_bindings_and_env(
@@ -1230,6 +2154,60 @@ fn run_bash_readline_with_inputrc_file_and_env(
     run_bash_readline_with_inputrc_path_and_env(keys, &path, env)
 }
 
+fn run_bash_readline_with_inputrc_file_and_history(
+    keys: &[u8],
+    inputrc: &str,
+    history: &[&str],
+) -> String {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    fs::write(&path, inputrc).expect("write inputrc");
+    let mut history_commands = history
+        .iter()
+        .map(|entry| format!("history -s {}", shell_single_quote(entry)))
+        .collect::<Vec<_>>()
+        .join("; ");
+    if history_commands.is_empty() {
+        history_commands = ":".to_string();
+    }
+    let mut command = CommandBuilder::new("bash");
+    command.env("INPUTRC", path.to_string_lossy().as_ref());
+    command.args([
+        "--noprofile",
+        "--norc",
+        "-i",
+        "-c",
+        &format!(
+            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; {history_commands}; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+        ),
+    ]);
+    run_pty(command, keys)
+}
+
+fn run_bash_readline_with_reloaded_inputrc(
+    keys: &[u8],
+    initial_inputrc: &str,
+    reloaded_inputrc: &str,
+) -> String {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    fs::write(&path, initial_inputrc).expect("write initial inputrc");
+    let mut command = CommandBuilder::new("bash");
+    command.env("INPUTRC", path.to_string_lossy().as_ref());
+    command.args([
+        "--noprofile",
+        "--norc",
+        "-i",
+        "-c",
+        &format!(
+            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+        ),
+    ]);
+    run_pty_after_prompt(command, keys, || {
+        fs::write(&path, reloaded_inputrc).expect("write reloaded inputrc");
+    })
+}
+
 fn run_bash_readline_with_inputrc_path(keys: &[u8], path: &std::path::Path) -> String {
     run_bash_readline_with_inputrc_path_and_env(keys, path, &[])
 }
@@ -1250,10 +2228,40 @@ fn run_bash_readline_with_inputrc_path_and_env(
         "-i",
         "-c",
         &format!(
-            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
         ),
     ]);
     run_pty(command, keys)
+}
+
+fn run_bash_readline_two_reads_with_inputrc_file_and_history(
+    keys: &[u8],
+    inputrc: &str,
+    history: &[&str],
+) -> String {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    fs::write(&path, inputrc).expect("write inputrc");
+    let mut history_commands = history
+        .iter()
+        .map(|entry| format!("history -s {}", shell_single_quote(entry)))
+        .collect::<Vec<_>>()
+        .join("; ");
+    if history_commands.is_empty() {
+        history_commands = ":".to_string();
+    }
+    let mut command = CommandBuilder::new("bash");
+    command.env("INPUTRC", path.to_string_lossy().as_ref());
+    command.args([
+        "--noprofile",
+        "--norc",
+        "-i",
+        "-c",
+        &format!(
+            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; {history_commands}; IFS= read -r -e -p "{READY_PROMPT}" line1; printf 'SUSHLINE_ACCEPTED_1:%s\n' "$line1"; IFS= read -r -e -p "{READY_PROMPT}" line2; printf 'SUSHLINE_ACCEPTED_2:%s\n' "$line2""#
+        ),
+    ]);
+    run_pty_until(command, keys, "SUSHLINE_ACCEPTED_2:")
 }
 
 fn run_bash_readline_with_bindings_and_history(
@@ -1309,7 +2317,7 @@ fn run_bash_readline_with_size_and_env(
         "-i",
         "-c",
         &format!(
-            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; {history_commands}; if [ -n {bind_command} ]; then bind {bind_command}; fi; IFS= read -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; {history_commands}; if [ -n {bind_command} ]; then bind {bind_command}; fi; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
         ),
     ]);
     run_pty_with_size(command, keys, size)
@@ -1321,6 +2329,14 @@ fn run_sushline_harness(keys: &[u8]) -> String {
 
 fn run_sushline_harness_with_inputrc(keys: &[u8], inputrc: &str) -> String {
     run_sushline_harness_with_inputrc_and_history(keys, inputrc, &[])
+}
+
+fn run_sushline_harness_until(keys: &[u8], inputrc: &str, stop_marker: &str) -> String {
+    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    command.env("SUSHLINE_INPUTRC", inputrc);
+    command.env("SUSHLINE_PROMPT", READY_PROMPT);
+    command.env("SUSHLINE_HISTORY", "");
+    run_pty_until(command, keys, stop_marker)
 }
 
 fn run_sushline_harness_with_inputrc_and_env(
@@ -1343,6 +2359,22 @@ fn run_sushline_harness_with_inputrc_path(keys: &[u8], path: &std::path::Path) -
     command.env("SUSHLINE_INPUTRC_FILE", path.to_string_lossy().as_ref());
     command.env("SUSHLINE_PROMPT", READY_PROMPT);
     run_pty(command, keys)
+}
+
+fn run_sushline_harness_with_reloaded_inputrc(
+    keys: &[u8],
+    initial_inputrc: &str,
+    reloaded_inputrc: &str,
+) -> String {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    fs::write(&path, initial_inputrc).expect("write initial inputrc");
+    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    command.env("SUSHLINE_INPUTRC_FILE", path.to_string_lossy().as_ref());
+    command.env("SUSHLINE_PROMPT", READY_PROMPT);
+    run_pty_after_prompt(command, keys, || {
+        fs::write(&path, reloaded_inputrc).expect("write reloaded inputrc");
+    })
 }
 
 fn run_sushline_harness_with_inputrc_and_history(
@@ -1376,6 +2408,19 @@ fn run_sushline_harness_with_size(
     run_pty_with_size(command, keys, size)
 }
 
+fn run_sushline_harness_two_reads_with_inputrc_and_history(
+    keys: &[u8],
+    inputrc: &str,
+    history: &[&str],
+) -> String {
+    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    command.env("SUSHLINE_INPUTRC", inputrc);
+    command.env("SUSHLINE_PROMPT", READY_PROMPT);
+    command.env("SUSHLINE_HISTORY", history.join("\n"));
+    command.env("SUSHLINE_READS", "2");
+    run_pty_until(command, keys, "SUSHLINE_ACCEPTED_2:")
+}
+
 fn run_pty(command: CommandBuilder, keys: &[u8]) -> String {
     run_pty_with_size(
         command,
@@ -1389,7 +2434,59 @@ fn run_pty(command: CommandBuilder, keys: &[u8]) -> String {
     )
 }
 
-fn run_pty_with_size(mut command: CommandBuilder, keys: &[u8], size: PtySize) -> String {
+fn run_pty_with_size(command: CommandBuilder, keys: &[u8], size: PtySize) -> String {
+    run_pty_with_size_until(command, keys, size, "SUSHLINE_ACCEPTED:")
+}
+
+fn run_pty_until(command: CommandBuilder, keys: &[u8], stop_marker: &str) -> String {
+    run_pty_with_size_until(
+        command,
+        keys,
+        PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        },
+        stop_marker,
+    )
+}
+
+fn run_pty_after_prompt(
+    command: CommandBuilder,
+    keys: &[u8],
+    after_prompt: impl FnOnce(),
+) -> String {
+    run_pty_with_size_until_after_prompt(
+        command,
+        keys,
+        PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        },
+        "SUSHLINE_ACCEPTED:",
+        Some(after_prompt),
+    )
+}
+
+fn run_pty_with_size_until(
+    command: CommandBuilder,
+    keys: &[u8],
+    size: PtySize,
+    stop_marker: &str,
+) -> String {
+    run_pty_with_size_until_after_prompt(command, keys, size, stop_marker, None::<fn()>)
+}
+
+fn run_pty_with_size_until_after_prompt(
+    mut command: CommandBuilder,
+    keys: &[u8],
+    size: PtySize,
+    stop_marker: &str,
+    mut after_prompt: Option<impl FnOnce()>,
+) -> String {
     command.env("TERM", "xterm-256color");
     let pty_system = NativePtySystem::default();
     let pair = pty_system.openpty(size).expect("open pty");
@@ -1410,11 +2507,14 @@ fn run_pty_with_size(mut command: CommandBuilder, keys: &[u8], size: PtySize) ->
             Ok(n) => {
                 out.extend_from_slice(&buf[..n]);
                 if !sent_keys && String::from_utf8_lossy(&out).contains(READY_PROMPT) {
+                    if let Some(after_prompt) = after_prompt.take() {
+                        after_prompt();
+                    }
                     writer.write_all(keys).expect("write keys");
                     writer.flush().expect("flush keys");
                     sent_keys = true;
                 }
-                if String::from_utf8_lossy(&out).contains("SUSHLINE_ACCEPTED:") {
+                if String::from_utf8_lossy(&out).contains(stop_marker) {
                     break;
                 }
             }
@@ -1429,10 +2529,22 @@ fn run_pty_with_size(mut command: CommandBuilder, keys: &[u8], size: PtySize) ->
 
 fn accepted_line(output: &str) -> Option<String> {
     let marker = "SUSHLINE_ACCEPTED:";
+    accepted_line_after_marker(output, marker)
+}
+
+fn accepted_numbered_line(output: &str, number: usize) -> Option<String> {
+    accepted_line_after_marker(output, &format!("SUSHLINE_ACCEPTED_{number}:"))
+}
+
+fn accepted_line_after_marker(output: &str, marker: &str) -> Option<String> {
     let start = output.find(marker)? + marker.len();
     let rest = &output[start..];
     let end = rest.find(['\r', '\n']).unwrap_or(rest.len());
     Some(rest[..end].to_string())
+}
+
+fn bell_count(output: &str) -> usize {
+    output.bytes().filter(|byte| *byte == b'\x07').count()
 }
 
 fn shell_single_quote(value: &str) -> String {

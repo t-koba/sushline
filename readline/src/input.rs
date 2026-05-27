@@ -67,6 +67,9 @@ where
         if state.input.pending_replace {
             return Ok(self.handle_replace_input(state, bytes));
         }
+        if self.handle_numeric_argument_continuation(state, bytes) {
+            return Ok(EditorOutcome::Continue);
+        }
         if self.handle_multibyte_insert(state, bytes) {
             return Ok(EditorOutcome::Continue);
         }
@@ -143,8 +146,10 @@ where
         state.input.pending_replace = false;
         let replacement = replacement_unit(bytes);
         if !replacement.is_empty() {
+            let point = state.buffer.point();
             state.record_undo();
             state.buffer.replace_char_at_point_bytes(&replacement);
+            state.buffer.set_point(point);
             if let Some(mut change) = state.vi.vi_insert_change.take() {
                 change.extend_from_slice(bytes);
                 state.vi.last_vi_change = Some(change);
@@ -172,11 +177,8 @@ where
                 state.buffer.insert_bytes(bytes);
             }
         }
-        if record_macro
-            && !state.macro_state.replaying_macro
-            && let Some(macro_bytes) = state.macro_state.keyboard_macro.as_mut()
-        {
-            macro_bytes.extend_from_slice(bytes);
+        if record_macro {
+            state.record_macro_insert_bytes(bytes);
         }
         state.record_vi_insert_bytes(bytes);
         state.after_self_insert();
@@ -200,6 +202,21 @@ where
         }
         state.record_vi_insert_bytes(bytes);
         state.after_self_insert();
+        true
+    }
+
+    fn handle_numeric_argument_continuation(
+        &mut self,
+        state: &mut EditorState,
+        bytes: &[u8],
+    ) -> bool {
+        if state.numeric_arg.is_none() {
+            return false;
+        }
+        if !matches!(bytes, [b'0'..=b'9'] | [b'-']) {
+            return false;
+        }
+        update_numeric_argument(state, bytes);
         true
     }
 
@@ -384,8 +401,10 @@ where
             state.input.pending_replace = false;
             let replacement = replacement_unit(bytes);
             if !replacement.is_empty() {
+                let point = state.buffer.point();
                 state.record_undo();
                 state.buffer.replace_char_at_point_bytes(&replacement);
+                state.buffer.set_point(point);
                 state.after_non_kill_command();
             }
             return Ok(EditorOutcome::Continue);

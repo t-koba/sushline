@@ -49,12 +49,13 @@ where
             }
             EditCommand::UniversalArgument => {
                 state.numeric_arg = Some(state.numeric_arg.unwrap_or(1) * 4);
+                state.numeric_arg_sign_only = false;
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::PrintLastKbdMacro => {
                 if let Some(macro_bytes) = &state.macro_state.last_keyboard_macro {
                     let display =
-                        crate::keymap::KeySequence::new(macro_bytes.clone()).display_inputrc();
+                        crate::keymap::KeySequence::new(macro_bytes.clone()).display_inputrc_body();
                     self.write_below_rendered_line(state, &display)?;
                     self.write_tracked_newline(state)?;
                 }

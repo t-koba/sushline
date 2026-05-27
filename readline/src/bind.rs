@@ -314,13 +314,6 @@ impl<'a> BindApi<'a> {
                         escape_bytes(value)
                     ));
                 }
-                KeyBinding::ApplicationCommand(command) => {
-                    lines.push(format!(
-                        "{}: \"{}\"",
-                        seq.display_inputrc(),
-                        escape(command)
-                    ));
-                }
                 _ => {}
             }
         }
@@ -406,11 +399,7 @@ impl<'a> BindApi<'a> {
         for (_, seq, binding) in self.keymap.iter() {
             if let KeyBinding::ApplicationCommand(command) = binding {
                 if reusable {
-                    lines.push(format!(
-                        "{}: \"{}\"",
-                        seq.display_inputrc(),
-                        escape(command)
-                    ));
+                    lines.push(format!("{} \"{}\"", seq.display_inputrc(), escape(command)));
                 } else {
                     lines.push(format!(
                         "{} executes `{}`",
@@ -487,6 +476,9 @@ fn split_bind_spec(spec: &str) -> Result<(&str, &str), String> {
             return Ok((key, &spec[idx + 1..]));
         }
     }
+    if let Some((key, command)) = split_bind_x_reusable_spec(spec) {
+        return Ok((key, command));
+    }
     if !spec.trim_start().starts_with('"') {
         Err(format!(
             "{}: first non-whitespace character is not `\"'",
@@ -495,6 +487,32 @@ fn split_bind_spec(spec: &str) -> Result<(&str, &str), String> {
     } else {
         Err("missing ':' in application command binding".to_string())
     }
+}
+
+fn split_bind_x_reusable_spec(spec: &str) -> Option<(&str, &str)> {
+    let spec = spec.trim();
+    if !spec.starts_with('"') {
+        return None;
+    }
+    let mut escaped = false;
+    for (idx, ch) in spec.char_indices().skip(1) {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == '"' {
+            let rest = spec[idx + 1..].trim_start();
+            if rest.is_empty() {
+                return None;
+            }
+            return Some((&spec[..=idx], rest));
+        }
+    }
+    None
 }
 
 fn unquote_value(value: &str) -> Result<String, BindError> {
@@ -526,6 +544,7 @@ fn optional_newline(non_empty: bool) -> &'static str {
 }
 
 fn format_variable(name: &str, value: &str, reusable: bool) -> String {
+    let value = format_variable_value(value);
     if reusable {
         format!("set {name} {value}")
     } else {
@@ -570,6 +589,8 @@ const READLINE_VARIABLE_NAMES: &[&str] = &[
     "show-mode-in-prompt",
     "skip-completed-text",
     "visible-stats",
+    "active-region-end-color",
+    "active-region-start-color",
     "bell-style",
     "comment-begin",
     "completion-display-width",
@@ -584,11 +605,19 @@ const READLINE_VARIABLE_NAMES: &[&str] = &[
     "vi-ins-mode-string",
 ];
 
-const HIDDEN_READLINE_VARIABLE_NAMES: &[&str] = &[
-    "active-region-end-color",
-    "active-region-start-color",
-    "isearch-terminators",
-];
+fn format_variable_value(value: &str) -> String {
+    if value
+        .as_bytes()
+        .iter()
+        .any(|byte| matches!(*byte, b'\\' | 0x00..=0x1f | 0x7f))
+    {
+        escape_bytes(value.as_bytes())
+    } else {
+        value.to_string()
+    }
+}
+
+const HIDDEN_READLINE_VARIABLE_NAMES: &[&str] = &["isearch-terminators"];
 
 #[cfg(test)]
 mod tests;

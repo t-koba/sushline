@@ -2,8 +2,9 @@ mod common;
 
 use common::MemoryTerminal;
 use readline::{
-    Config, Editor, History, HistoryExpansionContext, HistoryExpansionPolicy, Hooks, Prompt,
-    ReadlineResult, TerminalEvent, expand_history,
+    Config, Editor, History, HistoryChars, HistoryExpansion, HistoryExpansionContext,
+    HistoryExpansionPolicy, Hooks, Prompt, ReadlineResult, TerminalEvent, expand_history,
+    get_history_event, history_arg_extract, history_tokenize,
 };
 
 struct AliasHook;
@@ -30,7 +31,7 @@ impl Hooks for HistoryHook {
                 context.line,
                 context.history,
                 context.histchars,
-                &HistoryExpansionPolicy::default(),
+                context.policy,
                 |_| false,
             )
             .map_err(|err| err.message()),
@@ -58,6 +59,34 @@ impl Hooks for HistoryAndAliasHook {
 }
 
 #[test]
+fn readline_reexports_history_helper_apis() {
+    let policy = HistoryExpansionPolicy::default();
+    let line = b"echo one | sed 's/o/O/'";
+    assert_eq!(
+        history_tokenize(line, &policy),
+        vec![
+            b"echo".to_vec(),
+            b"one".to_vec(),
+            b"|".to_vec(),
+            b"sed".to_vec(),
+            b"'s/o/O/'".to_vec(),
+        ]
+    );
+    assert_eq!(
+        history_arg_extract(1, 3, line, &policy),
+        Some(b"one | sed".to_vec())
+    );
+
+    let mut history = History::new();
+    history.push("echo previous");
+    let event = get_history_event(b"!!", &history, HistoryChars::parse("!^#"), &policy)
+        .unwrap()
+        .expect("event");
+    assert_eq!(event.line, b"echo previous");
+    assert_eq!(event.next_index, 2);
+}
+
+#[test]
 fn named_history_expansion_commands_expand_events() {
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"!!:1-$:gs/e/E/".to_vec()),
@@ -82,7 +111,7 @@ fn named_history_expansion_commands_expand_events() {
 }
 
 #[test]
-fn history_expansion_command_without_hook_leaves_line_unchanged() {
+fn history_expansion_command_without_hook_uses_core_expander() {
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"!!".to_vec()),
         TerminalEvent::Bytes(vec![0x0f]),
@@ -94,7 +123,73 @@ fn history_expansion_command_without_hook_leaves_line_unchanged() {
     line.load_inputrc_str("\"\\C-o\": history-expand-line")
         .unwrap();
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"echo previous".to_vec()));
+}
+
+#[test]
+fn history_expansion_command_uses_inputrc_policy_variables() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"'!!'".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut history = History::new();
+    history.push("echo previous");
+    let mut line = Editor::new(Config::default(), terminal, history);
+    line.load_inputrc_str(
+        "set history-quotes-inhibit-expansion on\n\"\\C-o\": history-expand-line",
+    )
+    .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"'!!'".to_vec()));
+}
+
+#[test]
+fn history_expansion_print_only_status_is_observable() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"!!:p".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut history = History::new();
+    history.push("echo previous");
+    let mut line = Editor::new(Config::default(), terminal, history);
+    line.load_inputrc_str("\"\\C-o\": history-expand-line")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"!!:p".to_vec()));
+    assert!(line.terminal().out.contains("echo previous"));
+}
+
+#[test]
+fn history_expansion_hook_can_return_print_only_status() {
+    struct PrintOnlyHook;
+
+    impl Hooks for PrintOnlyHook {
+        fn expand_history_with_status(
+            &mut self,
+            context: HistoryExpansionContext<'_>,
+        ) -> Option<Result<HistoryExpansion, String>> {
+            assert_eq!(context.line, b"!!");
+            Some(Ok(HistoryExpansion {
+                line: b"hook-expanded".to_vec(),
+                print_only: true,
+            }))
+        }
+    }
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"!!".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = PrintOnlyHook;
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": history-expand-line")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
     assert_eq!(result, ReadlineResult::Line(b"!!".to_vec()));
+    assert!(line.terminal().out.contains("hook-expanded"));
 }
 
 #[test]

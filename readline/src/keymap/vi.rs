@@ -46,7 +46,6 @@ pub(super) fn bind_vi_defaults(this: &mut KeyMap) {
     this.bind_vi_command_named("T", "vi-char-search");
     this.bind_vi_command_named(";", "vi-char-search");
     this.bind_vi_command_named(",", "vi-char-search");
-    this.bind_vi_command_named("\"", "vi-set-register");
     this.bind_vi_command_named("%", "vi-match");
     this.bind_vi_command_named("|", "vi-column");
     this.bind_vi_command_named("G", "vi-fetch-history");

@@ -147,12 +147,7 @@ impl InputrcParser {
                         self.parse_str_inner(&included, ctx, path.parent(), include_depth + 1)?;
                     }
                     Some("include") => {}
-                    Some(other) => {
-                        return Err(InputrcError::new(
-                            line_no,
-                            format!("unsupported inputrc directive: ${other}"),
-                        ));
-                    }
+                    Some(_) => {}
                     None => {}
                 }
                 continue;
@@ -179,8 +174,12 @@ impl InputrcParser {
                 continue;
             }
 
-            parse_binding_line_in_map(line, ctx.keymap, *ctx.binding_map, ctx.variables)
-                .map_err(|message| InputrcError::new(line_no, message))?;
+            if let Err(message) =
+                parse_binding_line_in_map(line, ctx.keymap, *ctx.binding_map, ctx.variables)
+                && !message.starts_with("unknown readline command:")
+            {
+                return Err(InputrcError::new(line_no, message));
+            }
         }
 
         if active_stack.len() != 1 {
@@ -297,29 +296,7 @@ fn eval_condition(
             };
             return if op == "!=" { !matched } else { matched };
         }
-        if !matches!(op, "=" | "==" | "!=") {
-            return false;
-        }
-        let actual = variables
-            .get(name.as_str())
-            .map(String::as_str)
-            .or_else(|| {
-                if name == "editing-mode" {
-                    Some(match keymap.current() {
-                        KeyMapName::ViCommand | KeyMapName::ViInsert => "vi",
-                        _ => "emacs",
-                    })
-                } else if name == "keymap" {
-                    Some(binding_map.as_str())
-                } else {
-                    None
-                }
-            });
-        return match op {
-            "=" | "==" => actual.map(|value| value == expected).unwrap_or(false),
-            "!=" => actual.map(|value| value != expected).unwrap_or(true),
-            _ => false,
-        };
+        let _ = (variables, binding_map);
     }
     false
 }

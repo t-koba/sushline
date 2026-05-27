@@ -25,10 +25,15 @@ pub use completion::{
 pub use config::{Config, EditingMode, InputrcPath};
 pub use editor::{Editor, ReadlineError, ReadlineResult};
 pub use history::expansion::{
-    HistoryChars, HistoryExpansionError, HistoryExpansionPolicy, expand_history,
+    HistoryChars, HistoryEvent, HistoryExpansion, HistoryExpansionError, HistoryExpansionPolicy,
+    expand_history, expand_history_with_status, get_history_event, history_arg_extract,
+    history_tokenize,
 };
 pub use history::{History, HistoryDirection, HistoryEntry, HistorySearchMatch, HistoryState};
-pub use hooks::{CommandContext, Edit, HistoryExpansionContext, Hooks};
+pub use hooks::{
+    ApplicationLineExpansionContext, CommandContext, Edit, HistoryExpansionContext, Hooks,
+    QuoteContext, SpellCorrectionContext,
+};
 pub use inputrc::{InputrcError, InputrcParser};
 pub use keymap::KeyMapName;
 pub use prompt::Prompt;

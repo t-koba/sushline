@@ -20,13 +20,33 @@ fn bind_x_builtin_args_query_and_remove_application_commands() {
     let output = api
         .apply_builtin_args(&["-x", "\"\\C-o\": \"echo $READLINE_LINE\"", "-X"])
         .unwrap();
-    assert_eq!(output, "\"\\C-o\": \"echo $READLINE_LINE\"\n");
+    assert_eq!(output, "\"\\C-o\" \"echo $READLINE_LINE\"\n");
     assert_eq!(
         api.print(BindQuery::PrintApplicationCommands),
         "\"\\C-o\" executes `echo $READLINE_LINE`\n"
     );
     assert!(api.unbind_application_command("\"\\C-o\"").unwrap());
     assert_eq!(api.print(BindQuery::PrintApplicationCommandsReusable), "");
+}
+
+#[test]
+fn bind_x_reusable_output_can_be_read_back() {
+    let mut keymap = KeyMap::emacs_default();
+    let mut vars = Variables::new();
+    let mut api = BindApi::with_config(&mut keymap, &mut vars, &Config::default());
+    let output = api
+        .apply_builtin_args(&["-x", "\"\\C-x\\C-a\": echo hi", "-X"])
+        .unwrap();
+
+    let mut keymap = KeyMap::emacs_default();
+    let mut vars = Variables::new();
+    let mut api = BindApi::with_config(&mut keymap, &mut vars, &Config::default());
+    api.apply_builtin_args(&["-x", output.trim()]).unwrap();
+
+    assert_eq!(
+        api.print(BindQuery::PrintApplicationCommandsReusable),
+        output
+    );
 }
 
 #[test]

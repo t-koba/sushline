@@ -131,6 +131,7 @@ where
         state: &mut EditorState,
         command: &str,
         _key: &[u8],
+        hooks: &impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
         match command {
             "backward-byte" => {
@@ -179,10 +180,10 @@ where
                 repeat_signed(
                     state,
                     |state| {
-                        state.buffer.backward_command_word();
+                        shell_words::move_shell_backward_word(&mut state.buffer, hooks);
                     },
                     |state| {
-                        state.buffer.forward_command_word();
+                        shell_words::move_shell_forward_word(&mut state.buffer, hooks);
                     },
                 );
                 state.after_non_kill_command();
@@ -191,10 +192,10 @@ where
                 repeat_signed(
                     state,
                     |state| {
-                        state.buffer.forward_command_word();
+                        shell_words::move_shell_forward_word(&mut state.buffer, hooks);
                     },
                     |state| {
-                        state.buffer.backward_command_word();
+                        shell_words::move_shell_backward_word(&mut state.buffer, hooks);
                     },
                 );
                 state.after_non_kill_command();

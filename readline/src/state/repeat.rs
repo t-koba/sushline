@@ -76,15 +76,21 @@ pub(crate) fn update_numeric_argument(state: &mut EditorState, key: &[u8]) {
     match last {
         b'-' => {
             state.numeric_arg = Some(-state.numeric_arg.unwrap_or(1).abs());
+            state.numeric_arg_sign_only = true;
         }
         b'0'..=b'9' => {
             let digit = (last - b'0') as i32;
             let current = state.numeric_arg.unwrap_or(0);
             state.numeric_arg = if current < 0 {
-                Some(current * 10 - digit)
+                if state.numeric_arg_sign_only {
+                    Some(-digit)
+                } else {
+                    Some(current * 10 - digit)
+                }
             } else {
                 Some(current * 10 + digit)
             };
+            state.numeric_arg_sign_only = false;
         }
         _ => {}
     }

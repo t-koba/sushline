@@ -2,7 +2,8 @@ mod common;
 
 use common::MemoryTerminal;
 use readline::{
-    Config, Edit, Editor, History, Hooks, InputrcPath, Prompt, ReadlineResult, TerminalEvent,
+    ApplicationLineExpansionContext, Config, Edit, Editor, History, Hooks, InputrcPath, Prompt,
+    ReadlineResult, SpellCorrectionContext, TerminalEvent,
 };
 
 struct EditingHook;
@@ -270,6 +271,70 @@ fn bind_x_hook_can_update_line_point_and_mark() {
 }
 
 #[test]
+fn shell_word_commands_use_hook_token_spans() {
+    struct ColonTokenHook;
+
+    impl Hooks for ColonTokenHook {
+        fn tokenize_with_spans(&self, line: &[u8]) -> Option<Vec<(usize, usize)>> {
+            let mut spans = Vec::new();
+            let mut start = None;
+            for (idx, byte) in line.iter().copied().enumerate() {
+                if matches!(byte, b':' | b' ') {
+                    if let Some(start) = start.take() {
+                        spans.push((start, idx));
+                    }
+                } else {
+                    start.get_or_insert(idx);
+                }
+            }
+            if let Some(start) = start {
+                spans.push((start, line.len()));
+            }
+            Some(spans)
+        }
+    }
+
+    let inputrc = r#"
+"\C-o": shell-forward-word
+"\C-p": shell-backward-kill-word
+"\C-t": shell-transpose-words
+"#;
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"aa:bb".to_vec()),
+        TerminalEvent::Bytes(vec![0x01, 0x0f]),
+        TerminalEvent::Bytes(b"X\r".to_vec()),
+    ]);
+    let mut hooks = ColonTokenHook;
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str(inputrc).unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"aaX:bb".to_vec()));
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"aa:bb".to_vec()),
+        TerminalEvent::Bytes(vec![0x10]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = ColonTokenHook;
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str(inputrc).unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"aa:".to_vec()));
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"aa:bb".to_vec()),
+        TerminalEvent::Bytes(vec![0x14]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = ColonTokenHook;
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str(inputrc).unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"bb:aa".to_vec()));
+}
+
+#[test]
 fn negative_numeric_argument_reverses_motion_direction() {
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"ab".to_vec()),
@@ -348,6 +413,16 @@ fn hook_backed_commands_use_application_supplied_behavior() {
     assert!(line.terminal().out.contains("GNU bash, version test"));
 
     let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = EditingHook;
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": tty-status").unwrap();
+    let _ = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert!(line.terminal().out.contains("speed 9600 baud"));
+
+    let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"teh".to_vec()),
         TerminalEvent::Bytes(vec![0x0f]),
         TerminalEvent::Bytes(b"\r".to_vec()),
@@ -358,6 +433,93 @@ fn hook_backed_commands_use_application_supplied_behavior() {
         .unwrap();
     let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
     assert_eq!(result, ReadlineResult::Line("the".as_bytes().to_vec()));
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"echo".to_vec()),
+        TerminalEvent::Bytes(vec![0x1b, 0x0f]),
+    ]);
+    let mut hooks = EditingHook;
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str(
+        "set editing-mode vi\nset keymap vi-command\n\"\\C-o\": vi-edit-and-execute-command",
+    )
+    .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(
+        result,
+        ReadlineResult::Line("echo edited".as_bytes().to_vec())
+    );
+}
+
+#[test]
+fn contextual_shell_expand_hook_can_set_line_and_point() {
+    struct ContextShellExpandHook {
+        seen: bool,
+    }
+
+    impl Hooks for ContextShellExpandHook {
+        fn expand_application_line_with_context(
+            &mut self,
+            context: ApplicationLineExpansionContext<'_>,
+        ) -> Option<Edit> {
+            assert_eq!(context.line, b"abc");
+            assert_eq!(context.point, 1);
+            self.seen = true;
+            Some(Edit {
+                line: Some(b"abcd".to_vec()),
+                point: Some(2),
+                mark: None,
+            })
+        }
+    }
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(vec![0x02, 0x02, 0x0f]),
+        TerminalEvent::Bytes(b"X\r".to_vec()),
+    ]);
+    let mut hooks = ContextShellExpandHook { seen: false };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": shell-expand-line")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"abXcd".to_vec()));
+    assert!(hooks.seen);
+}
+
+#[test]
+fn contextual_spell_correct_hook_receives_line_and_word_range() {
+    struct ContextSpellHook {
+        seen: bool,
+    }
+
+    impl Hooks for ContextSpellHook {
+        fn spell_correct_with_context(
+            &mut self,
+            context: SpellCorrectionContext<'_>,
+        ) -> Option<Vec<u8>> {
+            assert_eq!(context.line, b"say teh");
+            assert_eq!(context.point, 7);
+            assert_eq!(context.word_start, 4);
+            assert_eq!(context.word_end, 7);
+            assert_eq!(context.word, b"teh");
+            self.seen = true;
+            Some(b"the".to_vec())
+        }
+    }
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"say teh".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = ContextSpellHook { seen: false };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": spell-correct-word")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"say the".to_vec()));
+    assert!(hooks.seen);
 }
 
 #[test]
@@ -480,6 +642,30 @@ fn re_read_init_file_loads_configured_inputrc() {
     let mut line = Editor::new(config, terminal, History::new());
     line.load_inputrc_str("\"\\C-o\": re-read-init-file")
         .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line("Xabc".as_bytes().to_vec()));
+}
+
+#[test]
+fn re_read_init_file_reloads_last_explicit_inputrc_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let inputrc = dir.path().join("inputrc");
+    std::fs::write(&inputrc, "\"\\C-o\": re-read-init-file\n").unwrap();
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\x10".to_vec()),
+        TerminalEvent::Bytes(b"X".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_file(&inputrc).unwrap();
+    std::fs::write(
+        &inputrc,
+        "\"\\C-o\": re-read-init-file\n\"\\C-p\": beginning-of-line\n",
+    )
+    .unwrap();
+
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
     assert_eq!(result, ReadlineResult::Line("Xabc".as_bytes().to_vec()));
 }

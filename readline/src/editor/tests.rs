@@ -181,7 +181,7 @@ impl Hooks for TestHistoryHook {
                 context.line,
                 context.history,
                 context.histchars,
-                &HistoryExpansionPolicy::default(),
+                context.policy,
                 |_| false,
             )
             .map_err(|err| err.message()),
@@ -290,6 +290,31 @@ impl TerminalIo for MemoryTerminal {
     fn tty_special_bindings(&self) -> Vec<(u8, &'static str)> {
         self.tty_special.clone()
     }
+}
+
+#[test]
+fn editor_new_retains_initial_inputrc_error_and_try_new_reports_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("inputrc");
+    std::fs::write(&path, "$else\n").unwrap();
+    let config = Config {
+        inputrc_path: crate::config::InputrcPath::Path(path),
+        ..Config::default()
+    };
+
+    let line = Editor::new(config.clone(), MemoryTerminal::default(), History::new());
+    assert!(
+        line.initial_inputrc_error()
+            .is_some_and(|err| err.contains("$else without $if")),
+        "{:?}",
+        line.initial_inputrc_error()
+    );
+
+    let err = match Editor::try_new(config, MemoryTerminal::default(), History::new()) {
+        Ok(_) => panic!("try_new unexpectedly accepted invalid inputrc"),
+        Err(err) => err,
+    };
+    assert!(err.to_string().contains("$else without $if"), "{err:?}");
 }
 
 #[test]

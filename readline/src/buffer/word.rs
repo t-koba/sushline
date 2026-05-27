@@ -87,12 +87,102 @@ pub(super) fn command_word_end(bytes: &[u8], mut idx: usize) -> usize {
             idx += 1;
             continue;
         }
+        if byte == b'$'
+            && matches!(bytes.get(idx + 1), Some(b'(' | b'{' | b'['))
+            && let Some(end) = shell_command_group_end(bytes, idx)
+        {
+            idx = end;
+            continue;
+        }
+        if matches!(byte, b'<' | b'>')
+            && bytes.get(idx + 1) == Some(&b'(')
+            && let Some(end) = paired_command_group_end(bytes, idx + 2, b'(', b')')
+        {
+            idx = end;
+            continue;
+        }
+        if byte == b'`' {
+            idx = backtick_command_group_end(bytes, idx);
+            continue;
+        }
         if is_command_word_separator_byte(byte) {
             break;
         }
         idx += 1;
     }
     idx
+}
+
+fn shell_command_group_end(bytes: &[u8], idx: usize) -> Option<usize> {
+    let (open, close) = match bytes.get(idx + 1).copied()? {
+        b'(' => (b'(', b')'),
+        b'{' => (b'{', b'}'),
+        b'[' => (b'[', b']'),
+        _ => return None,
+    };
+    paired_command_group_end(bytes, idx + 2, open, close)
+}
+
+fn paired_command_group_end(bytes: &[u8], mut cursor: usize, open: u8, close: u8) -> Option<usize> {
+    let mut depth = 1usize;
+    let mut quote = None;
+    let mut escape = false;
+    while let Some(byte) = bytes.get(cursor).copied() {
+        if escape {
+            escape = false;
+            cursor += 1;
+            continue;
+        }
+        if byte == b'\\' && quote != Some(b'\'') {
+            escape = true;
+            cursor += 1;
+            continue;
+        }
+        if let Some(active) = quote {
+            if byte == active {
+                quote = None;
+            }
+            cursor += 1;
+            continue;
+        }
+        if matches!(byte, b'\'' | b'"') {
+            quote = Some(byte);
+            cursor += 1;
+            continue;
+        }
+        if byte == open {
+            depth += 1;
+        } else if byte == close {
+            depth -= 1;
+            if depth == 0 {
+                return Some(cursor + 1);
+            }
+        }
+        cursor += 1;
+    }
+    Some(bytes.len())
+}
+
+fn backtick_command_group_end(bytes: &[u8], idx: usize) -> usize {
+    let mut escape = false;
+    let mut cursor = idx + 1;
+    while let Some(byte) = bytes.get(cursor).copied() {
+        if escape {
+            escape = false;
+            cursor += 1;
+            continue;
+        }
+        if byte == b'\\' {
+            escape = true;
+            cursor += 1;
+            continue;
+        }
+        cursor += 1;
+        if byte == b'`' {
+            break;
+        }
+    }
+    cursor
 }
 
 pub(super) fn command_word_start(bytes: &[u8], end: usize) -> usize {
@@ -365,14 +455,15 @@ impl LineBuffer {
     }
 
     pub fn transpose_command_words(&mut self) -> bool {
-        let Some((left_start, left_end)) = self.previous_bigword_bounds(self.point) else {
+        let Some((left_start, left_end)) = self.previous_command_word_bounds(self.point) else {
             return false;
         };
         let (left_start, left_end, right_start, right_end) =
-            if let Some((right_start, right_end)) = self.next_bigword_bounds_from(left_end) {
+            if let Some((right_start, right_end)) = self.next_command_word_bounds_from(left_end) {
                 (left_start, left_end, right_start, right_end)
             } else {
-                let Some((previous_start, previous_end)) = self.previous_bigword_bounds(left_start)
+                let Some((previous_start, previous_end)) =
+                    self.previous_command_word_bounds(left_start)
                 else {
                     return false;
                 };
@@ -436,6 +527,23 @@ impl LineBuffer {
     pub fn forward_bigword(&mut self) -> bool {
         let start = self.point;
         while let Some(ch) = self.char_at(self.point) {
+            if ch.is_whitespace() {
+                break;
+            }
+            self.point = self.next_char_boundary(self.point);
+        }
+        while let Some(ch) = self.char_at(self.point) {
+            if !ch.is_whitespace() {
+                break;
+            }
+            self.point = self.next_char_boundary(self.point);
+        }
+        self.point != start
+    }
+
+    pub fn forward_bigword_end(&mut self) -> bool {
+        let start = self.point;
+        while let Some(ch) = self.char_at(self.point) {
             if !ch.is_whitespace() {
                 break;
             }
@@ -443,6 +551,44 @@ impl LineBuffer {
         }
         while let Some(ch) = self.char_at(self.point) {
             if ch.is_whitespace() {
+                break;
+            }
+            self.point = self.next_char_boundary(self.point);
+        }
+        self.point != start
+    }
+
+    pub fn vi_forward_word(&mut self, break_chars: Option<&str>) -> bool {
+        self.vi_forward_word_by(word_matcher(break_chars))
+    }
+
+    fn vi_forward_word_by<F>(&mut self, is_word: F) -> bool
+    where
+        F: Fn(char) -> bool + Copy,
+    {
+        let start = self.point;
+        match self.char_at(self.point) {
+            Some(ch) if ch.is_whitespace() => {}
+            Some(ch) if is_word(ch) => {
+                while let Some(ch) = self.char_at(self.point) {
+                    if !is_word(ch) {
+                        break;
+                    }
+                    self.point = self.next_char_boundary(self.point);
+                }
+            }
+            Some(_) => {
+                while let Some(ch) = self.char_at(self.point) {
+                    if ch.is_whitespace() || is_word(ch) {
+                        break;
+                    }
+                    self.point = self.next_char_boundary(self.point);
+                }
+            }
+            None => return false,
+        }
+        while let Some(ch) = self.char_at(self.point) {
+            if !ch.is_whitespace() {
                 break;
             }
             self.point = self.next_char_boundary(self.point);
@@ -645,12 +791,32 @@ impl LineBuffer {
     }
 
     pub fn completion_word_bounds(&self, break_chars: Option<&[u8]>) -> (usize, usize) {
+        self.completion_word_bounds_at(self.point, break_chars)
+    }
+
+    pub fn vi_completion_word_bounds(&self, break_chars: Option<&[u8]>) -> (usize, usize) {
+        let break_chars = break_chars.unwrap_or(DEFAULT_COMPLETION_BREAK_CHARS);
+        let mut point = self.point;
+        if self
+            .char_at(point)
+            .is_some_and(|ch| !is_break_byte(ch, break_chars))
+        {
+            point = self.next_char_boundary(point);
+        }
+        self.completion_word_bounds_at(point, Some(break_chars))
+    }
+
+    fn completion_word_bounds_at(
+        &self,
+        point: usize,
+        break_chars: Option<&[u8]>,
+    ) -> (usize, usize) {
         let break_chars = break_chars.unwrap_or(DEFAULT_COMPLETION_BREAK_CHARS);
         let mut start = 0;
         let mut quote = None;
         let mut escaped = false;
         for (idx, ch) in self.decoded_char_indices() {
-            if idx >= self.point {
+            if idx >= point {
                 break;
             }
             if escaped {
@@ -675,7 +841,7 @@ impl LineBuffer {
                 start = idx + ch.len_utf8();
             }
         }
-        (start, self.point)
+        (start, point.min(self.bytes.len()))
     }
 
     pub fn backward_word(&mut self, break_chars: Option<&str>) -> bool {
@@ -753,25 +919,15 @@ impl LineBuffer {
         Some((start, end))
     }
 
-    fn next_bigword_bounds_from(&self, from: usize) -> Option<(usize, usize)> {
-        let mut start = self.clamp_boundary(from);
-        while let Some(ch) = self.char_at(start) {
-            if !ch.is_whitespace() {
-                break;
-            }
-            start = self.next_char_boundary(start);
+    fn next_command_word_bounds_from(&self, from: usize) -> Option<(usize, usize)> {
+        let mut start = from.min(self.bytes.len());
+        while start < self.bytes.len() && is_command_word_separator_byte(self.bytes[start]) {
+            start += 1;
         }
         if start == self.bytes.len() {
             return None;
         }
-        let mut end = start;
-        while let Some(ch) = self.char_at(end) {
-            if ch.is_whitespace() {
-                break;
-            }
-            end = self.next_char_boundary(end);
-        }
-        Some((start, end))
+        Some((start, command_word_end(&self.bytes, start)))
     }
 
     fn previous_word_bounds_by<F>(&self, before: usize, is_word: F) -> Option<(usize, usize)>
@@ -798,24 +954,15 @@ impl LineBuffer {
         Some((start, end))
     }
 
-    fn previous_bigword_bounds(&self, before: usize) -> Option<(usize, usize)> {
-        let mut end = self.clamp_boundary(before);
-        while let Some((prev, ch)) = self.prev_char(end) {
-            if !ch.is_whitespace() {
-                break;
-            }
-            end = prev;
+    fn previous_command_word_bounds(&self, before: usize) -> Option<(usize, usize)> {
+        let mut end = before.min(self.bytes.len());
+        while end > 0 && is_command_word_separator_byte(self.bytes[end - 1]) {
+            end -= 1;
         }
         if end == 0 {
             return None;
         }
-        let mut start = end;
-        while let Some((prev, ch)) = self.prev_char(start) {
-            if ch.is_whitespace() {
-                break;
-            }
-            start = prev;
-        }
+        let start = command_word_start(&self.bytes, end);
         Some((start, end))
     }
 }

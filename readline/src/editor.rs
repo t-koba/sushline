@@ -1,6 +1,6 @@
 use crate::bind::BindApi;
 use crate::buffer::LineBuffer;
-use crate::config::Config;
+use crate::config::{Config, InputrcPath};
 use crate::hooks::{HistoryExpansionContext, Hooks};
 use crate::inputrc::{InputrcParser, discover_inputrc_path};
 use crate::keymap::{EditCommand, KeyBinding, KeyMap, KeyMapName};
@@ -9,7 +9,8 @@ use crate::state::*;
 use crate::terminal::{TerminalEvent, TerminalIo};
 use crate::variables::Variables;
 use history::History;
-use history::expansion::HistoryChars;
+use history::expansion::{HistoryChars, HistoryExpansion, HistoryExpansionPolicy};
+use std::fmt;
 use std::io;
 use std::path::Path;
 use std::time::Duration;
@@ -27,6 +28,17 @@ pub enum ReadlineError {
     Inputrc(String),
 }
 
+impl fmt::Display for ReadlineError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Io(err) => write!(f, "{err}"),
+            Self::Inputrc(err) => f.write_str(err),
+        }
+    }
+}
+
+impl std::error::Error for ReadlineError {}
+
 impl From<io::Error> for ReadlineError {
     fn from(value: io::Error) -> Self {
         Self::Io(value)
@@ -43,6 +55,7 @@ where
     pub(crate) keymap: KeyMap,
     pub(crate) variables: Variables,
     pub(crate) pending_initial_line: Option<Vec<u8>>,
+    initial_inputrc_error: Option<String>,
 }
 
 impl<T> Editor<T>
@@ -50,22 +63,39 @@ where
     T: TerminalIo,
 {
     pub fn new(config: Config, terminal: T, history: History) -> Self {
+        let mut line = Self::new_without_inputrc(config, terminal, history);
+        if let Err(err) = line.reload_inputrc() {
+            line.initial_inputrc_error = Some(err.to_string());
+        }
+        line
+    }
+
+    pub fn try_new(config: Config, terminal: T, history: History) -> Result<Self, ReadlineError> {
+        let mut line = Self::new_without_inputrc(config, terminal, history);
+        line.reload_inputrc()?;
+        Ok(line)
+    }
+
+    fn new_without_inputrc(config: Config, terminal: T, history: History) -> Self {
         let mut keymap = KeyMap::emacs_default();
         let variables = Variables::default_for_config(&config);
         keymap.set_current(match config.editing_mode {
             crate::config::EditingMode::Emacs => crate::keymap::KeyMapName::EmacsStandard,
             crate::config::EditingMode::Vi => crate::keymap::KeyMapName::ViInsert,
         });
-        let mut line = Self {
+        Self {
             config,
             terminal,
             history,
             keymap,
             variables,
             pending_initial_line: None,
-        };
-        let _ = line.reload_inputrc();
-        line
+            initial_inputrc_error: None,
+        }
+    }
+
+    pub fn initial_inputrc_error(&self) -> Option<&str> {
+        self.initial_inputrc_error.as_deref()
     }
 
     pub fn bind_api(&mut self) -> BindApi<'_> {
@@ -105,14 +135,16 @@ where
     pub fn load_inputrc_file(&mut self, path: &Path) -> Result<(), ReadlineError> {
         InputrcParser::new()
             .parse_file(path, &self.config, &mut self.keymap, &mut self.variables)
-            .map_err(|e| ReadlineError::Inputrc(format!("line {}: {}", e.line, e.message)))
+            .map_err(|e| ReadlineError::Inputrc(format!("line {}: {}", e.line, e.message)))?;
+        self.config.inputrc_path = InputrcPath::Path(path.to_path_buf());
+        Ok(())
     }
 
     pub fn reload_inputrc(&mut self) -> Result<(), ReadlineError> {
         let path = match &self.config.inputrc_path {
-            crate::config::InputrcPath::Disabled => return Ok(()),
-            crate::config::InputrcPath::Path(path) => path.clone(),
-            crate::config::InputrcPath::Discover => discover_inputrc_path(),
+            InputrcPath::Disabled => return Ok(()),
+            InputrcPath::Path(path) => path.clone(),
+            InputrcPath::Discover => discover_inputrc_path(),
         };
         match self.load_inputrc_file(&path) {
             Ok(()) => Ok(()),
@@ -294,11 +326,15 @@ where
                 continue;
             };
             for map in self.tty_special_binding_maps() {
-                self.keymap.bind(
-                    map,
-                    crate::keymap::KeySequence::new(vec![byte]),
-                    KeyBinding::Command(command),
-                );
+                let binding = if command == EditCommand::Eof
+                    && matches!(map, KeyMapName::ViCommand | KeyMapName::ViInsert)
+                {
+                    KeyBinding::NamedCommand("vi-eof-maybe".to_string())
+                } else {
+                    KeyBinding::Command(command)
+                };
+                self.keymap
+                    .bind(map, crate::keymap::KeySequence::new(vec![byte]), binding);
             }
         }
     }
@@ -344,8 +380,23 @@ where
             self.variables
                 .get("histchars")
                 .map(String::as_str)
-                .unwrap_or("!^"),
+                .unwrap_or("!^#"),
         )
+    }
+
+    fn history_expansion_policy(&self) -> HistoryExpansionPolicy {
+        let mut policy = HistoryExpansionPolicy::default();
+        if let Some(value) = self.variables.get_bytes("history-word-delimiters") {
+            policy.word_delimiters = value.clone();
+        }
+        if let Some(value) = self.variables.get_bytes("history-search-delimiter-chars") {
+            policy.search_delimiters = value.clone();
+        }
+        if let Some(value) = self.variables.get_bytes("history-no-expand-chars") {
+            policy.no_expand_chars = value.clone();
+        }
+        policy.quotes_inhibit_expansion = self.variable_is_on("history-quotes-inhibit-expansion");
+        policy
     }
 
     pub(crate) fn ding(&mut self) -> Result<(), ReadlineError> {
@@ -368,14 +419,21 @@ where
         &mut self,
         line: &[u8],
         hooks: &mut impl Hooks,
-    ) -> Result<Vec<u8>, String> {
+    ) -> Result<HistoryExpansion, String> {
+        let policy = self.history_expansion_policy();
         hooks
-            .expand_history(HistoryExpansionContext {
+            .expand_history_with_status(HistoryExpansionContext {
                 line,
                 history: &self.history,
                 histchars: self.histchars(),
+                policy: &policy,
             })
-            .unwrap_or_else(|| Ok(line.to_vec()))
+            .unwrap_or_else(|| {
+                Ok(HistoryExpansion {
+                    line: line.to_vec(),
+                    print_only: false,
+                })
+            })
     }
 
     pub(crate) fn try_expand_history(
@@ -385,7 +443,13 @@ where
         hooks: &mut impl Hooks,
     ) -> Result<Option<Vec<u8>>, ReadlineError> {
         match self.expand_history_line(line, hooks) {
-            Ok(expanded) => Ok(Some(expanded)),
+            Ok(expanded) if expanded.print_only => {
+                let message = String::from_utf8_lossy(&expanded.line);
+                self.report_history_expansion_message(state, &message)?;
+                state.after_non_kill_command();
+                Ok(None)
+            }
+            Ok(expanded) => Ok(Some(expanded.line)),
             Err(message) => {
                 self.report_history_expansion_message(state, &message)?;
                 state.after_non_kill_command();

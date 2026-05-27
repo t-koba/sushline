@@ -110,7 +110,7 @@ fn redisplay_normalizes_wrap_boundary_before_returning_to_previous_visual_row() 
 
     assert_eq!(result, ReadlineResult::Line(b"ab".to_vec()));
     assert!(line.terminal().out.contains("> ab\r\n"));
-    assert!(line.terminal().moved_up.iter().any(|rows| *rows == 1));
+    assert!(line.terminal().moved_up.contains(&1));
 }
 
 #[test]
@@ -140,7 +140,9 @@ fn enable_active_region_highlights_marked_region() {
         TerminalEvent::Bytes(b"\r".to_vec()),
     ]);
     let mut line = Editor::new(Config::default(), terminal, History::new());
-    line.load_inputrc_str("set enable-active-region on")
+    line.load_inputrc_str(
+        "set enable-active-region on\nset active-region-start-color \"\\e[7m\"\nset active-region-end-color \"\\e[0m\"",
+    )
         .unwrap();
     let _ = line.read_line(Prompt::new("> "), &mut ()).unwrap();
     assert!(line.terminal().out.contains("\x1b[7ma\x1b[0m"));

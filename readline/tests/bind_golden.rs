@@ -26,6 +26,64 @@ fn bind_reusable_output_is_stable() {
 }
 
 #[test]
+fn bind_x_reusable_output_matches_gnu_readline_oracle() {
+    let bash = Command::new("bash")
+        .args([
+            "--noprofile",
+            "--norc",
+            "-i",
+            "-c",
+            r#"bind -x '"\C-x\C-a": echo hi'; bind -X"#,
+        ])
+        .output()
+        .expect("bash must be available for bind oracle tests");
+    assert!(
+        bash.status.success(),
+        "{}",
+        String::from_utf8_lossy(&bash.stderr)
+    );
+
+    let mut line = editor();
+    let mut bind = line.bind_api();
+    let sushline = bind
+        .apply_builtin_args(&["-x", "\"\\C-x\\C-a\": echo hi", "-X"])
+        .unwrap();
+
+    assert_eq!(sushline, String::from_utf8_lossy(&bash.stdout));
+}
+
+#[test]
+fn bind_p_does_not_print_bind_x_application_commands() {
+    let bash = Command::new("bash")
+        .args([
+            "--noprofile",
+            "--norc",
+            "-i",
+            "-c",
+            r#"bind -x '"\C-x\C-a": echo hi'; bind -p"#,
+        ])
+        .output()
+        .expect("bash must be available for bind oracle tests");
+    assert!(
+        bash.status.success(),
+        "{}",
+        String::from_utf8_lossy(&bash.stderr)
+    );
+    assert!(!String::from_utf8_lossy(&bash.stdout).contains("\\C-x\\C-a"));
+
+    let mut line = editor();
+    let mut bind = line.bind_api();
+    bind.apply_builtin_args(&["-x", "\"\\C-x\\C-a\": echo hi"])
+        .unwrap();
+
+    assert!(!bind.print(BindQuery::PrintReusable).contains("\\C-x\\C-a"));
+    assert!(
+        bind.print(BindQuery::PrintApplicationCommandsReusable)
+            .contains("\\C-x\\C-a")
+    );
+}
+
+#[test]
 fn bind_reusable_output_includes_default_bindings_and_unbound_comments() {
     let mut line = editor();
     let bind = line.bind_api();
@@ -49,7 +107,6 @@ fn bind_reusable_output_includes_default_bindings_and_unbound_comments() {
     assert!(output.contains("\"\\e[200~\": bracketed-paste-begin"));
     assert!(output.contains("\"f\": vi-char-search"));
     assert!(output.contains("\";\": vi-char-search"));
-    assert!(output.contains(r#""\"": vi-set-register"#));
     assert!(output.contains("# kill-region (not bound)"));
     assert!(output.contains("# alias-expand-line (not bound)"));
 }
@@ -66,7 +123,7 @@ fn default_variables_are_visible_to_bind_api() {
 }
 
 #[test]
-fn bind_variable_output_matches_gnu_bash_oracle() {
+fn bind_variable_output_matches_gnu_readline_oracle() {
     let reusable = Command::new("bash")
         .args(["--noprofile", "--norc", "-i", "-c", "bind -v"])
         .output()
@@ -151,7 +208,7 @@ fn bind_lists_gnu_readline_function_names() {
 }
 
 #[test]
-fn bind_function_name_list_matches_gnu_bash_oracle() {
+fn bind_function_name_list_matches_gnu_readline_oracle() {
     let output = Command::new("bash")
         .args(["--noprofile", "--norc", "-i", "-c", "bind -l"])
         .output()
@@ -178,7 +235,7 @@ fn bind_function_name_list_matches_gnu_bash_oracle() {
 }
 
 #[test]
-fn bind_reusable_default_key_lines_match_gnu_bash_oracle() {
+fn bind_reusable_default_key_lines_match_gnu_readline_oracle() {
     let output = Command::new("bash")
         .args(["--noprofile", "--norc", "-i", "-c", "bind -p"])
         .output()
@@ -202,13 +259,13 @@ fn bind_reusable_default_key_lines_match_gnu_bash_oracle() {
         r#""\e.": yank-last-arg"#,
         r#""\e[200~": bracketed-paste-begin"#,
     ] {
-        assert!(bash.contains(line), "GNU bash bind -p missing {line}");
+        assert!(bash.contains(line), "GNU Readline bind -p missing {line}");
         assert!(sushline.contains(line), "sushline bind -p missing {line}");
     }
 }
 
 #[test]
-fn bind_vi_command_default_key_lines_match_gnu_bash_oracle() {
+fn bind_vi_command_default_key_lines_match_gnu_readline_oracle() {
     let output = Command::new("bash")
         .args(["--noprofile", "--norc", "-i", "-c", "bind -m vi-command -p"])
         .output()
@@ -234,13 +291,15 @@ fn bind_vi_command_default_key_lines_match_gnu_bash_oracle() {
     ] {
         assert!(
             bash.contains(line),
-            "GNU bash bind -m vi-command -p missing {line}"
+            "GNU Readline bind -m vi-command -p missing {line}"
         );
         assert!(
             sushline.contains(line),
             "sushline bind -m vi-command -p missing {line}"
         );
     }
+    assert!(!bash.contains(r#""\"": vi-set-register"#));
+    assert!(!sushline.contains(r#""\"": vi-set-register"#));
 }
 
 #[test]
@@ -285,6 +344,77 @@ fn every_readline_command_name_can_be_bound() {
 }
 
 #[test]
+fn compatibility_document_covers_bind_commands_and_variables() {
+    let compatibility =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../COMPATIBILITY.md"))
+            .expect("read compatibility document");
+
+    let mut list_line = editor();
+    for command in list_line
+        .bind_api()
+        .print(BindQuery::ListFunctionNames)
+        .lines()
+    {
+        assert!(
+            compatibility.contains(&format!("`{command}`")),
+            "COMPATIBILITY.md missing bind command {command}"
+        );
+    }
+
+    let mut variable_line = editor();
+    for line in variable_line
+        .bind_api()
+        .print(BindQuery::PrintVariablesReusable)
+        .lines()
+    {
+        let Some(name) = line
+            .strip_prefix("set ")
+            .and_then(|rest| rest.split(' ').next())
+        else {
+            continue;
+        };
+        assert!(
+            compatibility.contains(&format!("`{name}`")),
+            "COMPATIBILITY.md missing bind variable {name}"
+        );
+    }
+}
+
+#[test]
+fn compatibility_document_has_no_editor_bind_history_gap_rows() {
+    let compatibility =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../COMPATIBILITY.md"))
+            .expect("read compatibility document");
+
+    let documented_rows = compatibility
+        .split("## Compatibility Boundaries")
+        .nth(1)
+        .expect("compatibility boundary section");
+    for forbidden in ["| Known deviation |", "| Not implemented |", "| Untested |"] {
+        let rows = documented_rows
+            .lines()
+            .filter(|line| line.starts_with('|') && line.contains(forbidden))
+            .collect::<Vec<_>>();
+        assert!(rows.is_empty(), "{forbidden} rows remain: {rows:?}");
+    }
+
+    for area in [
+        "| Basic line editing | Compatible |",
+        "| Emacs keymap, bindable names, and `bind` | Compatible |",
+        "| vi mode | Compatible |",
+        "| Init file/inputrc | Compatible |",
+        "| History navigation/search | Compatible |",
+        "| History expansion | Compatible |",
+        "| History file storage | Compatible |",
+    ] {
+        assert!(
+            compatibility.contains(area),
+            "COMPATIBILITY.md must mark {area} as compatible"
+        );
+    }
+}
+
+#[test]
 fn bind_can_unbind_keys_and_commands() {
     let mut line = editor();
     let mut bind = line.bind_api();
@@ -306,7 +436,7 @@ fn bind_can_unbind_keys_and_commands() {
 }
 
 #[test]
-fn bind_abnormal_diagnostics_match_gnu_bash_representative_cases() {
+fn bind_abnormal_diagnostics_match_gnu_readline_representative_cases() {
     fn bash_bind_stderr(args: &[&str]) -> String {
         let script = format!("bind {}", args.join(" "));
         let output = Command::new("bash")

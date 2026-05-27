@@ -13,6 +13,7 @@ mod kill;
 mod misc;
 mod movement;
 mod named;
+mod shell_words;
 mod typed;
 mod vi;
 

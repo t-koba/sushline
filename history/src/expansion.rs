@@ -24,9 +24,21 @@ pub struct HistoryExpansionPolicy {
     pub search_delimiters: Vec<u8>,
     pub no_expand_chars: Vec<u8>,
     pub quotes_inhibit_expansion: bool,
+    pub quote_state: Option<u8>,
 }
 
-type HistoryEvent = (Vec<u8>, usize, Option<Vec<u8>>);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryEvent {
+    pub line: Vec<u8>,
+    pub next_index: usize,
+    pub matched_word: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryExpansion {
+    pub line: Vec<u8>,
+    pub print_only: bool,
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HistoryExpansionError {
     EventNotFound(String),
@@ -49,6 +61,17 @@ pub fn expand_history(
     policy: &HistoryExpansionPolicy,
     inhibit: impl Fn(usize) -> bool,
 ) -> Result<Vec<u8>, HistoryExpansionError> {
+    expand_history_with_status(line, history, histchars, policy, inhibit)
+        .map(|expanded| expanded.line)
+}
+
+pub fn expand_history_with_status(
+    line: &[u8],
+    history: &History,
+    histchars: HistoryChars,
+    policy: &HistoryExpansionPolicy,
+    inhibit: impl Fn(usize) -> bool,
+) -> Result<HistoryExpansion, HistoryExpansionError> {
     let expansion = histchars.expansion as u8;
     let quick = histchars.quick_substitution as u8;
     if line.first() == Some(&quick)
@@ -63,19 +86,23 @@ pub fn expand_history(
             .position(|byte| *byte == quick)
             .map(|idx| old_end + 1 + idx)
             .unwrap_or(line.len());
-        return Ok(replace_once(
-            &last.line_bytes,
-            &line[1..old_end],
-            &line[old_end + 1..new_end],
-        ));
+        return Ok(HistoryExpansion {
+            line: replace_once(
+                &last.line_bytes,
+                &line[1..old_end],
+                &line[old_end + 1..new_end],
+            ),
+            print_only: false,
+        });
     }
 
     let mut out = Vec::with_capacity(line.len());
     let mut idx = 0;
-    let mut quote = None;
+    let mut quote = policy.quote_state;
     let mut at_word_start = true;
     let mut last_substitution: Option<(Vec<u8>, Vec<u8>)> = None;
     let mut last_event_search: Option<Vec<u8>> = None;
+    let mut print_only = false;
     while idx < line.len() {
         let byte = line[idx];
         if let Some(active) = quote {
@@ -101,7 +128,7 @@ pub fn expand_history(
             idx += 1;
             continue;
         }
-        if histchars.comment == line.get(idx + 1).map(|byte| *byte as char) {
+        if line.get(idx + 1) == Some(&b'#') {
             idx += 2;
             let prefix = out.clone();
             out.extend_from_slice(&prefix);
@@ -110,7 +137,7 @@ pub fn expand_history(
             });
             continue;
         }
-        let Some((mut event, mut next, matched_word)) = parse_history_event(
+        let Some(parsed_event) = parse_history_event(
             line,
             idx + 1,
             history,
@@ -123,6 +150,9 @@ pub fn expand_history(
             idx += 1;
             continue;
         };
+        let mut event = parsed_event.line;
+        let mut next = parsed_event.next_index;
+        let matched_word = parsed_event.matched_word;
         if line.get(next) == Some(&b':') {
             next += 1;
             let designator_start = next;
@@ -138,6 +168,7 @@ pub fn expand_history(
                     &mut last_substitution,
                     last_event_search.as_deref(),
                     policy,
+                    &mut print_only,
                 )?;
                 event = modified;
                 next = next_after_modifier;
@@ -163,6 +194,7 @@ pub fn expand_history(
                 &mut last_substitution,
                 last_event_search.as_deref(),
                 policy,
+                &mut print_only,
             )?;
             event = modified;
             next = next_after_modifier;
@@ -173,7 +205,20 @@ pub fn expand_history(
         out.extend_from_slice(&event);
         idx = next;
     }
-    Ok(out)
+    Ok(HistoryExpansion {
+        line: out,
+        print_only,
+    })
+}
+
+pub fn get_history_event(
+    line: &[u8],
+    history: &History,
+    histchars: HistoryChars,
+    policy: &HistoryExpansionPolicy,
+) -> Result<Option<HistoryEvent>, HistoryExpansionError> {
+    let start = usize::from(line.first() == Some(&(histchars.expansion as u8)));
+    parse_history_event(line, start, history, histchars, policy, &mut None)
 }
 
 fn parse_history_event(
@@ -190,7 +235,13 @@ fn parse_history_event(
             history
                 .entries()
                 .last()
-                .map(|entry| Some((entry.line_bytes.clone(), idx, None)))
+                .map(|entry| {
+                    Some(HistoryEvent {
+                        line: entry.line_bytes.clone(),
+                        next_index: idx,
+                        matched_word: None,
+                    })
+                })
                 .ok_or_else(|| HistoryExpansionError::EventNotFound("!!".to_string()))
         }
         Some(b'$') => {
@@ -200,7 +251,13 @@ fn parse_history_event(
                 .last()
                 .and_then(|entry| command_words(&entry.line_bytes, policy).last().cloned());
             last_arg
-                .map(|event| Some((event, idx, None)))
+                .map(|event| {
+                    Some(HistoryEvent {
+                        line: event,
+                        next_index: idx,
+                        matched_word: None,
+                    })
+                })
                 .ok_or_else(|| HistoryExpansionError::EventNotFound("!$".to_string()))
         }
         Some(b'^') => {
@@ -210,7 +267,13 @@ fn parse_history_event(
                 .last()
                 .and_then(|entry| command_words(&entry.line_bytes, policy).get(1).cloned());
             first_arg
-                .map(|event| Some((event, idx, None)))
+                .map(|event| {
+                    Some(HistoryEvent {
+                        line: event,
+                        next_index: idx,
+                        matched_word: None,
+                    })
+                })
                 .ok_or_else(|| HistoryExpansionError::EventNotFound("!^".to_string()))
         }
         Some(b'-') | Some(b'0'..=b'9') => {
@@ -237,7 +300,13 @@ fn parse_history_event(
                 }
             });
             event
-                .map(|event| Some((event, idx, None)))
+                .map(|event| {
+                    Some(HistoryEvent {
+                        line: event,
+                        next_index: idx,
+                        matched_word: None,
+                    })
+                })
                 .ok_or_else(|| HistoryExpansionError::EventNotFound(format!("!{spec_text}")))
         }
         Some(b'?') => {
@@ -271,7 +340,11 @@ fn parse_history_event(
                         .into_iter()
                         .rev()
                         .find(|word| find_bytes_local(word, &needle).is_some());
-                    Some((entry.line_bytes.clone(), idx, matched_word))
+                    Some(HistoryEvent {
+                        line: entry.line_bytes.clone(),
+                        next_index: idx,
+                        matched_word,
+                    })
                 })
                 .ok_or_else(|| {
                     HistoryExpansionError::EventNotFound(format!(
@@ -294,7 +367,13 @@ fn parse_history_event(
                 .iter()
                 .rev()
                 .find(|entry| entry.line_bytes.starts_with(prefix))
-                .map(|entry| Some((entry.line_bytes.clone(), idx, None)))
+                .map(|entry| {
+                    Some(HistoryEvent {
+                        line: entry.line_bytes.clone(),
+                        next_index: idx,
+                        matched_word: None,
+                    })
+                })
                 .ok_or_else(|| {
                     HistoryExpansionError::EventNotFound(format!(
                         "!{}",
@@ -305,7 +384,13 @@ fn parse_history_event(
         Some(b':') => history
             .entries()
             .last()
-            .map(|entry| Some((entry.line_bytes.clone(), idx, None)))
+            .map(|entry| {
+                Some(HistoryEvent {
+                    line: entry.line_bytes.clone(),
+                    next_index: idx,
+                    matched_word: None,
+                })
+            })
             .ok_or_else(|| HistoryExpansionError::EventNotFound("!!".to_string())),
         _ => Ok(None),
     }
@@ -430,6 +515,7 @@ fn apply_history_modifier(
     last_substitution: &mut Option<(Vec<u8>, Vec<u8>)>,
     last_event_search: Option<&[u8]>,
     policy: &HistoryExpansionPolicy,
+    print_only: &mut bool,
 ) -> Result<(Vec<u8>, usize), HistoryExpansionError> {
     Ok(match input.get(idx).copied() {
         Some(b'h') => (history_head(line), idx + 1),
@@ -439,14 +525,17 @@ fn apply_history_modifier(
         Some(b'q') => (quote_history_word(line), idx + 1),
         Some(b'x') => (
             join_words(
-                &command_words(line, policy)
+                &split_history_quoting_words(line)
                     .into_iter()
                     .map(|word| quote_history_word(&word))
                     .collect::<Vec<_>>(),
             ),
             idx + 1,
         ),
-        Some(b'p') => (line.to_vec(), idx + 1),
+        Some(b'p') => {
+            *print_only = true;
+            (line.to_vec(), idx + 1)
+        }
         Some(b's') => {
             let (line, idx, substitution) = apply_substitution_modifier(
                 line,
@@ -638,8 +727,25 @@ fn read_history_substitution_part(
 pub fn command_words(line: &[u8], policy: &HistoryExpansionPolicy) -> Vec<Vec<u8>> {
     command_word_spans(line, policy)
         .into_iter()
-        .map(|(start, end)| dequote_history_word(&line[start..end]))
+        .map(|(start, end)| line[start..end].to_vec())
         .collect()
+}
+
+pub fn history_tokenize(line: &[u8], policy: &HistoryExpansionPolicy) -> Vec<Vec<u8>> {
+    command_words(line, policy)
+}
+
+pub fn history_arg_extract(
+    first: usize,
+    last: usize,
+    line: &[u8],
+    policy: &HistoryExpansionPolicy,
+) -> Option<Vec<u8>> {
+    let words = command_words(line, policy);
+    if first > last || first >= words.len() {
+        return None;
+    }
+    Some(join_words(&words[first..=last.min(words.len() - 1)]))
 }
 
 fn command_word_spans(line: &[u8], policy: &HistoryExpansionPolicy) -> Vec<(usize, usize)> {
@@ -675,6 +781,27 @@ fn command_word_spans(line: &[u8], policy: &HistoryExpansionPolicy) -> Vec<(usiz
             idx += 2;
             continue;
         }
+        if byte == b'$'
+            && matches!(line.get(idx + 1), Some(b'(' | b'{' | b'['))
+            && let Some(end) = shell_group_end(line, idx)
+        {
+            word_start.get_or_insert(idx);
+            idx = end;
+            continue;
+        }
+        if matches!(byte, b'<' | b'>')
+            && line.get(idx + 1) == Some(&b'(')
+            && let Some(end) = paired_group_end(line, idx + 2, b'(', b')')
+        {
+            word_start.get_or_insert(idx);
+            idx = end;
+            continue;
+        }
+        if byte == b'`' {
+            word_start.get_or_insert(idx);
+            idx = backtick_group_end(line, idx);
+            continue;
+        }
         if matches!(byte, b'\'' | b'"') {
             word_start.get_or_insert(idx);
             quote = Some(byte);
@@ -684,9 +811,19 @@ fn command_word_spans(line: &[u8], policy: &HistoryExpansionPolicy) -> Vec<(usiz
         if byte == b'#' && word_start.is_none() {
             break;
         }
-        if byte.is_ascii_whitespace() || policy.word_delimiters.contains(&byte) {
+        if byte.is_ascii_whitespace() {
             if let Some(start) = word_start.take() {
                 spans.push((start, idx));
+            }
+        } else if policy.word_delimiters.contains(&byte) {
+            if let Some(start) = word_start.take() {
+                spans.push((start, idx));
+            }
+            let operator_len = shell_operator_len(line, idx);
+            if operator_len > 0 {
+                spans.push((idx, idx + operator_len));
+                idx += operator_len;
+                continue;
             }
         } else {
             word_start.get_or_insert(idx);
@@ -699,47 +836,129 @@ fn command_word_spans(line: &[u8], policy: &HistoryExpansionPolicy) -> Vec<(usiz
     spans
 }
 
-fn dequote_history_word(word: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(word.len());
-    let mut idx = 0;
+fn shell_operator_len(line: &[u8], idx: usize) -> usize {
+    const OPERATORS: &[&[u8]] = &[
+        b";;&", b"<<<", b"&>>", b"<<-", b"&&", b"||", b";;", b";&", b"<<", b">>", b"<&", b">&",
+        b"<>", b">|", b"&>", b"|&",
+    ];
+    for operator in OPERATORS {
+        if line[idx..].starts_with(operator) {
+            return operator.len();
+        }
+    }
+    matches!(
+        line.get(idx),
+        Some(b'|' | b'&' | b';' | b'<' | b'>' | b'(' | b')')
+    ) as usize
+}
+
+fn shell_group_end(line: &[u8], idx: usize) -> Option<usize> {
+    let (open, close) = match line.get(idx + 1).copied()? {
+        b'(' => (b'(', b')'),
+        b'{' => (b'{', b'}'),
+        b'[' => (b'[', b']'),
+        _ => return None,
+    };
+    let mut depth = 1usize;
     let mut quote = None;
     let mut escape = false;
-    while let Some(byte) = word.get(idx).copied() {
-        idx += 1;
+    let mut cursor = idx + 2;
+    while let Some(byte) = line.get(cursor).copied() {
         if escape {
-            if byte != b'\n' {
-                out.push(byte);
-            }
             escape = false;
+            cursor += 1;
             continue;
         }
         if byte == b'\\' && quote != Some(b'\'') {
             escape = true;
+            cursor += 1;
             continue;
         }
         if let Some(active) = quote {
             if byte == active {
                 quote = None;
-            } else {
-                out.push(byte);
             }
-            continue;
-        }
-        if byte == b'$' && matches!(word.get(idx), Some(b'\'' | b'"')) {
-            quote = word.get(idx).copied();
-            idx += 1;
+            cursor += 1;
             continue;
         }
         if matches!(byte, b'\'' | b'"') {
             quote = Some(byte);
-        } else {
-            out.push(byte);
+            cursor += 1;
+            continue;
+        }
+        if byte == open {
+            depth += 1;
+        } else if byte == close {
+            depth -= 1;
+            if depth == 0 {
+                return Some(cursor + 1);
+            }
+        }
+        cursor += 1;
+    }
+    Some(line.len())
+}
+
+fn paired_group_end(line: &[u8], mut cursor: usize, open: u8, close: u8) -> Option<usize> {
+    let mut depth = 1usize;
+    let mut quote = None;
+    let mut escape = false;
+    while let Some(byte) = line.get(cursor).copied() {
+        if escape {
+            escape = false;
+            cursor += 1;
+            continue;
+        }
+        if byte == b'\\' && quote != Some(b'\'') {
+            escape = true;
+            cursor += 1;
+            continue;
+        }
+        if let Some(active) = quote {
+            if byte == active {
+                quote = None;
+            }
+            cursor += 1;
+            continue;
+        }
+        if matches!(byte, b'\'' | b'"') {
+            quote = Some(byte);
+            cursor += 1;
+            continue;
+        }
+        if byte == open {
+            depth += 1;
+        } else if byte == close {
+            depth -= 1;
+            if depth == 0 {
+                return Some(cursor + 1);
+            }
+        }
+        cursor += 1;
+    }
+    Some(line.len())
+}
+
+fn backtick_group_end(line: &[u8], idx: usize) -> usize {
+    let mut escape = false;
+    let mut cursor = idx + 1;
+    while let Some(byte) = line.get(cursor).copied() {
+        if escape {
+            escape = false;
+            cursor += 1;
+            continue;
+        }
+        if byte == b'\\' {
+            escape = true;
+            cursor += 1;
+            continue;
+        }
+        cursor += 1;
+        if byte == b'`' {
+            break;
         }
     }
-    if escape {
-        out.push(b'\\');
-    }
-    out
+    cursor
 }
 
 fn join_words(words: &[Vec<u8>]) -> Vec<u8> {
@@ -751,6 +970,13 @@ fn join_words(words: &[Vec<u8>]) -> Vec<u8> {
         out.extend_from_slice(word);
     }
     out
+}
+
+fn split_history_quoting_words(line: &[u8]) -> Vec<Vec<u8>> {
+    line.split(u8::is_ascii_whitespace)
+        .filter(|word| !word.is_empty())
+        .map(Vec::from)
+        .collect()
 }
 
 fn replace_once(line: &[u8], old: &[u8], new: &[u8]) -> Vec<u8> {
@@ -870,11 +1096,6 @@ fn quote_history_word(value: &[u8]) -> Vec<u8> {
     if value.is_empty() {
         return b"''".to_vec();
     }
-    if value.iter().all(|byte| {
-        byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'/' | b'.' | b':')
-    }) {
-        return value.to_vec();
-    }
     let mut out = Vec::from(&b"'"[..]);
     for byte in value {
         if *byte == b'\'' {
@@ -890,10 +1111,11 @@ fn quote_history_word(value: &[u8]) -> Vec<u8> {
 impl Default for HistoryExpansionPolicy {
     fn default() -> Self {
         Self {
-            word_delimiters: b" \t\n\"\\'`@$><=;|&{(".to_vec(),
+            word_delimiters: b" \t\n;&()|<>".to_vec(),
             search_delimiters: b" \t\n:;".to_vec(),
             no_expand_chars: b" \t\n\r=".to_vec(),
             quotes_inhibit_expansion: false,
+            quote_state: None,
         }
     }
 }

@@ -3,8 +3,8 @@ mod common;
 use common::MemoryTerminal;
 use readline::{
     CompletionAction, CompletionCandidate, CompletionOptions, CompletionRequest,
-    CompletionResponse, CompletionType, Config, Editor, History, Hooks, Prompt, ReadlineResult,
-    TerminalEvent,
+    CompletionResponse, CompletionType, Config, Editor, History, Hooks, Prompt, QuoteContext,
+    ReadlineResult, TerminalEvent,
 };
 
 #[derive(Default)]
@@ -622,6 +622,105 @@ fn completion_dequotes_and_requotes_current_word() {
 }
 
 #[test]
+fn quote_completion_hook_receives_completion_context_inside_quotes() {
+    use std::cell::Cell;
+
+    struct ContextQuoteHook {
+        seen_quote_context: Cell<bool>,
+    }
+
+    impl Hooks for ContextQuoteHook {
+        fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
+            assert_eq!(request.context.line.as_slice(), b"cat \"alp");
+            assert_eq!(request.context.point, b"cat \"alp".len());
+            assert_eq!(request.context.word_start, 4);
+            assert_eq!(request.context.word_end, b"cat \"alp".len());
+            assert_eq!(request.context.word.as_slice(), b"alp");
+            Some(CompletionResponse {
+                candidates: vec![CompletionCandidate {
+                    replacement: b"alpha $file".to_vec(),
+                    display: None,
+                }],
+                options: CompletionOptions {
+                    filenames: true,
+                    ..Default::default()
+                },
+            })
+        }
+
+        fn quote_completion(&self, context: QuoteContext<'_>) -> Option<Vec<u8>> {
+            assert_eq!(context.value, b"alpha $file");
+            assert_eq!(context.line, b"cat \"alp");
+            assert_eq!(context.point, b"cat \"alp".len());
+            assert_eq!(context.word_start, 4);
+            assert_eq!(context.word_end, b"cat \"alp".len());
+            assert_eq!(context.word, b"alp");
+            assert_eq!(context.quote, Some('"'));
+            assert_eq!(context.completion_type, CompletionType::Complete);
+            assert!(context.quote_filename);
+            self.seen_quote_context.set(true);
+            Some(b"\"sush-quoted\"".to_vec())
+        }
+    }
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"cat \"alp".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = ContextQuoteHook {
+        seen_quote_context: Cell::new(false),
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": complete").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(
+        result,
+        ReadlineResult::Line("cat \"sush-quoted\" ".as_bytes().to_vec())
+    );
+    assert!(hooks.seen_quote_context.get());
+}
+
+#[test]
+fn legacy_quote_hook_still_quotes_unquoted_filename_completions() {
+    struct LegacyQuoteHook;
+
+    impl Hooks for LegacyQuoteHook {
+        fn complete(&mut self, _: CompletionRequest) -> Option<CompletionResponse> {
+            Some(CompletionResponse {
+                candidates: vec![CompletionCandidate {
+                    replacement: b"alpha file".to_vec(),
+                    display: None,
+                }],
+                options: CompletionOptions {
+                    filenames: true,
+                    ..Default::default()
+                },
+            })
+        }
+
+        fn quote(&self, value: &[u8]) -> Option<Vec<u8>> {
+            assert_eq!(value, b"alpha file");
+            Some(b"legacy-quoted".to_vec())
+        }
+    }
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"alp".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = LegacyQuoteHook;
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": complete").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(
+        result,
+        ReadlineResult::Line("legacy-quoted ".as_bytes().to_vec())
+    );
+}
+
+#[test]
 fn filename_hook_candidates_honor_directory_marking() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir(dir.path().join("alpha-dir")).unwrap();
@@ -758,6 +857,30 @@ fn glob_complete_marks_directories_but_glob_expand_does_not() {
         result,
         ReadlineResult::Line(format!("{}/alpha-dir", dir.path().display()).into_bytes())
     );
+}
+
+#[test]
+fn glob_completion_hook_can_expand_non_utf8_patterns() {
+    struct ByteGlobHook;
+
+    impl Hooks for ByteGlobHook {
+        fn glob_expand_bytes(&self, pattern: &[u8]) -> Option<Vec<Vec<u8>>> {
+            assert_eq!(pattern, b"pre\xff*");
+            Some(vec![b"pre\xff-match".to_vec()])
+        }
+    }
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"pre\xff*".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = ByteGlobHook;
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": glob-complete-word")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"pre\xff-match ".to_vec()));
 }
 
 #[test]
@@ -1086,11 +1209,9 @@ fn complete_into_braces_uses_default_completion_fallbacks() {
     let ReadlineResult::Line(line) = result else {
         panic!("expected accepted line");
     };
-    assert!(line.contains(&b'{'));
-    assert!(line.windows("alpha".len()).any(|window| window == b"alpha"));
-    assert!(
-        line.windows("alpine".len())
-            .any(|window| window == b"alpine")
+    assert_eq!(
+        line,
+        format!("{}/alp{{ha,ine}} ", dir.path().display()).into_bytes()
     );
 }
 

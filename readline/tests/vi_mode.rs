@@ -134,7 +134,7 @@ fn vi_substitute_line_updates_kill_register() {
 }
 
 #[test]
-fn vi_unix_word_rubout_uses_whitespace_boundary() {
+fn vi_unix_word_rubout_uses_readline_word_boundary() {
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"foo/bar".to_vec()),
         TerminalEvent::Bytes(vec![0x17]),
@@ -143,7 +143,7 @@ fn vi_unix_word_rubout_uses_whitespace_boundary() {
     let mut line = Editor::new(Config::default(), terminal, History::new());
     line.load_inputrc_str("set editing-mode vi").unwrap();
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
-    assert_eq!(result, ReadlineResult::Line(Vec::new()));
+    assert_eq!(result, ReadlineResult::Line("foo/".as_bytes().to_vec()));
 }
 
 #[test]
@@ -240,31 +240,6 @@ fn vi_till_search_repeats_in_reverse_with_comma() {
     line.load_inputrc_str("set editing-mode vi").unwrap();
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
     assert_eq!(result, ReadlineResult::Line("abcXabc".as_bytes().to_vec()));
-}
-
-#[test]
-fn vi_named_registers_store_and_put_text() {
-    let terminal = MemoryTerminal::with_events(vec![
-        TerminalEvent::Bytes(b"abc def".to_vec()),
-        TerminalEvent::Bytes(b"\x1b".to_vec()),
-        TerminalEvent::Bytes(b"0".to_vec()),
-        TerminalEvent::Bytes(b"\"".to_vec()),
-        TerminalEvent::Bytes(b"a".to_vec()),
-        TerminalEvent::Bytes(b"y".to_vec()),
-        TerminalEvent::Bytes(b"w".to_vec()),
-        TerminalEvent::Bytes(b"$".to_vec()),
-        TerminalEvent::Bytes(b"\"".to_vec()),
-        TerminalEvent::Bytes(b"a".to_vec()),
-        TerminalEvent::Bytes(b"p".to_vec()),
-        TerminalEvent::Bytes(b"\r".to_vec()),
-    ]);
-    let mut line = Editor::new(Config::default(), terminal, History::new());
-    line.load_inputrc_str("set editing-mode vi").unwrap();
-    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
-    assert_eq!(
-        result,
-        ReadlineResult::Line("abc defabc".as_bytes().to_vec())
-    );
 }
 
 #[test]

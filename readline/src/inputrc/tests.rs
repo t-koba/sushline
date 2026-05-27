@@ -71,6 +71,30 @@ fn ignores_invalid_editing_mode_and_keymap_values() {
 }
 
 #[test]
+fn ignores_unknown_directives_and_function_bindings() {
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    InputrcParser::new()
+        .parse_str(
+            "$unknown directive\n\"\\C-x\\C-a\": not-a-real-function\n\"\\C-o\": end-of-line",
+            &Config::default(),
+            &mut keymap,
+            &mut variables,
+        )
+        .unwrap();
+
+    assert!(
+        keymap
+            .lookup(KeyMapName::EmacsStandard, &[0x18, 0x01])
+            .is_none()
+    );
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
+        Some(&KeyBinding::Command(EditCommand::EndOfLine))
+    );
+}
+
+#[test]
 fn keymap_variable_selects_binding_target_without_changing_runtime_map() {
     let mut keymap = KeyMap::emacs_default();
     let mut variables = Variables::new();
@@ -95,7 +119,6 @@ fn keymap_variable_selects_binding_target_without_changing_runtime_map() {
 fn parses_gnu_style_conditions_and_trailing_function_text() {
     let mut keymap = KeyMap::emacs_default();
     let mut variables = Variables::new();
-    variables.insert("completion-ignore-case".to_string(), "on".to_string());
     InputrcParser::new()
         .parse_str(
             r#"
@@ -105,11 +128,11 @@ fn parses_gnu_style_conditions_and_trailing_function_text() {
                 $if mode > vi
                 "\C-]": end-of-line
                 $endif
-                $if completion-ignore-case=on
-                "\C-o": "case"
+                $if mode=emacs
+                "\C-o": "mode"
                 $endif
-                $if editing-mode != vi
-                "\C-e": end-of-line
+                $if completion-ignore-case=on
+                "\C-x\C-b": end-of-line
                 $endif
                 "#,
             &Config::default(),
@@ -124,11 +147,11 @@ fn parses_gnu_style_conditions_and_trailing_function_text() {
     );
     assert_eq!(
         keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
-        Some(&KeyBinding::Macro(b"case".to_vec()))
+        Some(&KeyBinding::Macro(b"mode".to_vec()))
     );
     assert_eq!(
-        keymap.lookup(KeyMapName::EmacsStandard, &[0x05]),
-        Some(&KeyBinding::Command(EditCommand::EndOfLine))
+        keymap.lookup(KeyMapName::EmacsStandard, &[0x18, 0x02]),
+        None
     );
     assert_eq!(keymap.lookup(KeyMapName::EmacsStandard, &[0x1d]), None);
 }

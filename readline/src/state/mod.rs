@@ -257,7 +257,11 @@ impl EditorState {
         }
         if matches!(
             binding,
-            KeyBinding::Command(EditCommand::StartKbdMacro | EditCommand::EndKbdMacro)
+            KeyBinding::Command(
+                EditCommand::StartKbdMacro
+                    | EditCommand::EndKbdMacro
+                    | EditCommand::CallLastKbdMacro
+            )
         ) {
             return;
         }

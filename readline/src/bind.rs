@@ -248,7 +248,7 @@ impl<'a> BindApi<'a> {
                 message: format!("`{command}': unknown function name"),
             });
         }
-        Ok(self.keymap.unbind_command(command))
+        Ok(self.keymap.unbind_command_in_map(self.target_map, command))
     }
 
     fn list_function_names(&self) -> String {
@@ -260,7 +260,7 @@ impl<'a> BindApi<'a> {
             return self.print_reusable_keymap();
         }
         let mut lines = Vec::new();
-        for (_, seq, binding) in self.keymap.iter() {
+        for (_, seq, binding) in self.keymap.iter_map(self.target_map) {
             match binding {
                 KeyBinding::Command(command) if filter.is_none_or(|f| f == *command) => {
                     lines.push(format!("{}: {}", seq.display_inputrc(), command.as_str()));
@@ -287,9 +287,9 @@ impl<'a> BindApi<'a> {
         for command in BIND_FUNCTION_NAMES {
             let mut bindings = self
                 .keymap
-                .bindings_for_command_name(command)
+                .bindings_for_command_name_in_map(self.target_map, command)
                 .into_iter()
-                .map(|(_, seq)| seq.display_inputrc())
+                .map(|seq| seq.display_inputrc())
                 .collect::<Vec<_>>();
             bindings.sort();
             if bindings.is_empty() {
@@ -300,7 +300,7 @@ impl<'a> BindApi<'a> {
                 }
             }
         }
-        for (_, seq, binding) in self.keymap.iter() {
+        for (_, seq, binding) in self.keymap.iter_map(self.target_map) {
             match binding {
                 KeyBinding::NamedCommand(command)
                     if !BIND_FUNCTION_NAMES.contains(&command.as_str()) =>
@@ -338,9 +338,9 @@ impl<'a> BindApi<'a> {
     fn function_binding_line(&self, command: &str, kind: FunctionLineKind) -> String {
         let mut bindings = self
             .keymap
-            .bindings_for_command_name(command)
+            .bindings_for_command_name_in_map(self.target_map, command)
             .into_iter()
-            .map(|(_, seq)| seq.display_inputrc())
+            .map(|seq| seq.display_inputrc())
             .collect::<Vec<_>>();
         bindings.sort();
         bindings.dedup();
@@ -373,7 +373,7 @@ impl<'a> BindApi<'a> {
 
     fn print_macros(&self, reusable: bool) -> String {
         let mut lines = Vec::new();
-        for (_, seq, binding) in self.keymap.iter() {
+        for (_, seq, binding) in self.keymap.iter_map(self.target_map) {
             if let KeyBinding::Macro(value) = binding {
                 if reusable {
                     lines.push(format!(
@@ -396,7 +396,7 @@ impl<'a> BindApi<'a> {
 
     fn print_application_commands(&self, reusable: bool) -> String {
         let mut lines = Vec::new();
-        for (_, seq, binding) in self.keymap.iter() {
+        for (_, seq, binding) in self.keymap.iter_map(self.target_map) {
             if let KeyBinding::ApplicationCommand(command) = binding {
                 if reusable {
                     lines.push(format!("{} \"{}\"", seq.display_inputrc(), escape(command)));
@@ -544,7 +544,7 @@ fn optional_newline(non_empty: bool) -> &'static str {
 }
 
 fn format_variable(name: &str, value: &str, reusable: bool) -> String {
-    let value = format_variable_value(value);
+    let value = format_variable_value(name, value);
     if reusable {
         format!("set {name} {value}")
     } else {
@@ -605,7 +605,13 @@ const READLINE_VARIABLE_NAMES: &[&str] = &[
     "vi-ins-mode-string",
 ];
 
-fn format_variable_value(value: &str) -> String {
+fn format_variable_value(name: &str, value: &str) -> String {
+    if matches!(
+        name,
+        "emacs-mode-string" | "vi-cmd-mode-string" | "vi-ins-mode-string"
+    ) {
+        return value.to_string();
+    }
     if value
         .as_bytes()
         .iter()

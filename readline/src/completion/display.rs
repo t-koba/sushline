@@ -468,12 +468,7 @@ where
                         return Ok(());
                     }
                 }
-                let columns = state
-                    .display
-                    .last_terminal_size
-                    .or_else(|| self.terminal.size().ok())
-                    .map(|size| size.columns as usize)
-                    .unwrap_or(80);
+                let columns = self.tracked_terminal_columns(state);
                 let more_rows = rendered_rows_for_output(more_prompt, columns);
                 if more_rows > 0 {
                     self.terminal.move_up(more_rows)?;

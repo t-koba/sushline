@@ -38,6 +38,7 @@ where
             }
             KeyBinding::Macro(text) => {
                 state.completion.menu_completion = None;
+                state.record_macro_insert_bytes(&text);
                 state.macro_state.replaying_macro = true;
                 let outcome = self.handle_bytes(state, &text, hooks)?;
                 state.macro_state.replaying_macro = false;

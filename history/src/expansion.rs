@@ -25,6 +25,7 @@ pub struct HistoryExpansionPolicy {
     pub no_expand_chars: Vec<u8>,
     pub quotes_inhibit_expansion: bool,
     pub quote_state: Option<u8>,
+    pub quick_substitution: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,10 +40,16 @@ pub struct HistoryExpansion {
     pub line: Vec<u8>,
     pub print_only: bool,
 }
+
+type HistorySubstitution = (Vec<u8>, Vec<u8>);
+type HistorySubstitutionResult =
+    Result<(Vec<u8>, usize, HistorySubstitution), HistoryExpansionError>;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HistoryExpansionError {
     EventNotFound(String),
     BadWordSpecifier(String),
+    SubstitutionFailed,
 }
 
 impl HistoryExpansionError {
@@ -50,6 +57,7 @@ impl HistoryExpansionError {
         match self {
             Self::EventNotFound(token) => format!("{token}: event not found"),
             Self::BadWordSpecifier(spec) => format!("{spec}: bad word specifier"),
+            Self::SubstitutionFailed => "substitution failed".to_string(),
         }
     }
 }
@@ -74,7 +82,8 @@ pub fn expand_history_with_status(
 ) -> Result<HistoryExpansion, HistoryExpansionError> {
     let expansion = histchars.expansion as u8;
     let quick = histchars.quick_substitution as u8;
-    if line.first() == Some(&quick)
+    if policy.quick_substitution
+        && line.first() == Some(&quick)
         && let Some(old_end) = line[1..]
             .iter()
             .position(|byte| *byte == quick)
@@ -87,11 +96,12 @@ pub fn expand_history_with_status(
             .map(|idx| old_end + 1 + idx)
             .unwrap_or(line.len());
         return Ok(HistoryExpansion {
-            line: replace_once(
+            line: replace_once_checked(
                 &last.line_bytes,
                 &line[1..old_end],
                 &line[old_end + 1..new_end],
-            ),
+            )
+            .ok_or(HistoryExpansionError::SubstitutionFailed)?,
             print_only: false,
         });
     }
@@ -100,7 +110,7 @@ pub fn expand_history_with_status(
     let mut idx = 0;
     let mut quote = policy.quote_state;
     let mut at_word_start = true;
-    let mut last_substitution: Option<(Vec<u8>, Vec<u8>)> = None;
+    let mut last_substitution: Option<HistorySubstitution> = None;
     let mut last_event_search: Option<Vec<u8>> = None;
     let mut print_only = false;
     while idx < line.len() {
@@ -118,6 +128,7 @@ pub fn expand_history_with_status(
         }
         if byte != expansion
             || inhibit(idx)
+            || is_escaped_history_expansion(line, idx)
             || line
                 .get(idx + 1)
                 .is_some_and(|next| policy.no_expand_chars.contains(next))
@@ -175,7 +186,7 @@ pub fn expand_history_with_status(
             }
         } else if line
             .get(next)
-            .is_some_and(|byte| matches!(byte, b'^' | b'$' | b'*' | b'%' | b'-' | b'0'..=b'9'))
+            .is_some_and(|byte| matches!(byte, b'^' | b'$' | b'*' | b'%' | b'-'))
         {
             let (designator, next_after_designator) = read_history_designator(line, next);
             next = next_after_designator;
@@ -209,6 +220,16 @@ pub fn expand_history_with_status(
         line: out,
         print_only,
     })
+}
+
+fn is_escaped_history_expansion(line: &[u8], idx: usize) -> bool {
+    let mut backslashes = 0;
+    let mut cursor = idx;
+    while cursor > 0 && line[cursor - 1] == b'\\' {
+        backslashes += 1;
+        cursor -= 1;
+    }
+    backslashes % 2 == 1
 }
 
 pub fn get_history_event(
@@ -312,11 +333,15 @@ fn parse_history_event(
         Some(b'?') => {
             idx += 1;
             let start = idx;
-            while line
-                .get(idx)
-                .is_some_and(|byte| !is_history_search_delimiter(*byte, policy))
-            {
-                idx += 1;
+            if let Some(end) = line[idx..].iter().position(|byte| *byte == b'?') {
+                idx += end;
+            } else {
+                while line
+                    .get(idx)
+                    .is_some_and(|byte| !is_history_search_delimiter(*byte, policy))
+                {
+                    idx += 1;
+                }
             }
             let mut needle = line[start..idx].to_vec();
             if line.get(idx) == Some(&b'?') {
@@ -417,7 +442,7 @@ fn apply_history_word_designator(
         }
         if matches!(
             byte,
-            b'h' | b't' | b'r' | b'e' | b'p' | b'q' | b'x' | b's' | b'g' | b'G'
+            b'h' | b't' | b'r' | b'e' | b'p' | b'q' | b'x' | b's' | b'g' | b'G' | b'a' | b'&'
         ) {
             break;
         }
@@ -512,7 +537,7 @@ fn apply_history_modifier(
     line: &[u8],
     input: &[u8],
     idx: usize,
-    last_substitution: &mut Option<(Vec<u8>, Vec<u8>)>,
+    last_substitution: &mut Option<HistorySubstitution>,
     last_event_search: Option<&[u8]>,
     policy: &HistoryExpansionPolicy,
     print_only: &mut bool,
@@ -544,7 +569,7 @@ fn apply_history_modifier(
                 false,
                 last_substitution.as_ref(),
                 last_event_search,
-            );
+            )?;
             *last_substitution = Some(substitution);
             (line, idx)
         }
@@ -556,7 +581,7 @@ fn apply_history_modifier(
                 true,
                 last_substitution.as_ref(),
                 last_event_search,
-            );
+            )?;
             *last_substitution = Some(substitution);
             (line, idx)
         }
@@ -568,7 +593,7 @@ fn apply_history_modifier(
                 last_substitution.as_ref(),
                 last_event_search,
                 policy,
-            );
+            )?;
             *last_substitution = Some(substitution);
             (line, idx)
         }
@@ -580,36 +605,52 @@ fn apply_history_modifier(
                 true,
                 last_substitution.as_ref(),
                 last_event_search,
-            );
+            )?;
             *last_substitution = Some(substitution);
             (line, idx)
         }
         Some(b'&') => {
             if let Some((old, new)) = last_substitution.as_ref() {
-                (replace_once(line, old, new), idx + 1)
+                (
+                    replace_once_checked(line, old, new)
+                        .ok_or(HistoryExpansionError::SubstitutionFailed)?,
+                    idx + 1,
+                )
             } else {
-                (line.to_vec(), idx)
+                return Err(HistoryExpansionError::SubstitutionFailed);
             }
         }
         Some(b'g') if input.get(idx + 1) == Some(&b'&') => {
             if let Some((old, new)) = last_substitution.as_ref() {
-                (replace_all(line, old, new), idx + 2)
+                (
+                    replace_all_checked(line, old, new)
+                        .ok_or(HistoryExpansionError::SubstitutionFailed)?,
+                    idx + 2,
+                )
             } else {
-                (line.to_vec(), idx)
+                return Err(HistoryExpansionError::SubstitutionFailed);
             }
         }
         Some(b'G') if input.get(idx + 1) == Some(&b'&') => {
             if let Some((old, new)) = last_substitution.as_ref() {
-                (replace_each_word_once(line, old, new, policy), idx + 2)
+                (
+                    replace_each_word_once_checked(line, old, new, policy)
+                        .ok_or(HistoryExpansionError::SubstitutionFailed)?,
+                    idx + 2,
+                )
             } else {
-                (line.to_vec(), idx)
+                return Err(HistoryExpansionError::SubstitutionFailed);
             }
         }
         Some(b'a') if input.get(idx + 1) == Some(&b'&') => {
             if let Some((old, new)) = last_substitution.as_ref() {
-                (replace_all(line, old, new), idx + 2)
+                (
+                    replace_all_checked(line, old, new)
+                        .ok_or(HistoryExpansionError::SubstitutionFailed)?,
+                    idx + 2,
+                )
             } else {
-                (line.to_vec(), idx)
+                return Err(HistoryExpansionError::SubstitutionFailed);
             }
         }
         Some(ch) => {
@@ -626,9 +667,9 @@ fn apply_substitution_modifier(
     input: &[u8],
     mut idx: usize,
     global: bool,
-    last_substitution: Option<&(Vec<u8>, Vec<u8>)>,
+    last_substitution: Option<&HistorySubstitution>,
     last_event_search: Option<&[u8]>,
-) -> (Vec<u8>, usize, (Vec<u8>, Vec<u8>)) {
+) -> HistorySubstitutionResult {
     let delimiter = input.get(idx).copied().unwrap_or(b'/');
     if input.get(idx).is_some() {
         idx += 1;
@@ -648,21 +689,22 @@ fn apply_substitution_modifier(
     let (new, next_idx) = read_history_substitution_part(input, idx, delimiter, Some(&old));
     idx = next_idx;
     let replaced = if global {
-        replace_all(line, &old, &new)
+        replace_all_checked(line, &old, &new)
     } else {
-        replace_once(line, &old, &new)
-    };
-    (replaced, idx, (old, new))
+        replace_once_checked(line, &old, &new)
+    }
+    .ok_or(HistoryExpansionError::SubstitutionFailed)?;
+    Ok((replaced, idx, (old, new)))
 }
 
 fn apply_substitution_modifier_each_word(
     line: &[u8],
     input: &[u8],
     mut idx: usize,
-    last_substitution: Option<&(Vec<u8>, Vec<u8>)>,
+    last_substitution: Option<&HistorySubstitution>,
     last_event_search: Option<&[u8]>,
     policy: &HistoryExpansionPolicy,
-) -> (Vec<u8>, usize, (Vec<u8>, Vec<u8>)) {
+) -> HistorySubstitutionResult {
     let delimiter = input.get(idx).copied().unwrap_or(b'/');
     if input.get(idx).is_some() {
         idx += 1;
@@ -681,11 +723,9 @@ fn apply_substitution_modifier_each_word(
     }
     let (new, next_idx) = read_history_substitution_part(input, idx, delimiter, Some(&old));
     idx = next_idx;
-    (
-        replace_each_word_once(line, &old, &new, policy),
-        idx,
-        (old, new),
-    )
+    let replaced = replace_each_word_once_checked(line, &old, &new, policy)
+        .ok_or(HistoryExpansionError::SubstitutionFailed)?;
+    Ok((replaced, idx, (old, new)))
 }
 
 fn read_history_substitution_part(
@@ -817,7 +857,19 @@ fn command_word_spans(line: &[u8], policy: &HistoryExpansionPolicy) -> Vec<(usiz
             }
         } else if policy.word_delimiters.contains(&byte) {
             if let Some(start) = word_start.take() {
+                if line[start..idx].iter().all(u8::is_ascii_digit)
+                    && let Some(redirection_len) = history_redirection_word_len(line, start)
+                {
+                    spans.push((start, start + redirection_len));
+                    idx = start + redirection_len;
+                    continue;
+                }
                 spans.push((start, idx));
+            }
+            if let Some(redirection_len) = history_redirection_word_len(line, idx) {
+                spans.push((idx, idx + redirection_len));
+                idx += redirection_len;
+                continue;
             }
             let operator_len = shell_operator_len(line, idx);
             if operator_len > 0 {
@@ -836,10 +888,32 @@ fn command_word_spans(line: &[u8], policy: &HistoryExpansionPolicy) -> Vec<(usiz
     spans
 }
 
+fn history_redirection_word_len(line: &[u8], idx: usize) -> Option<usize> {
+    let mut cursor = idx;
+    while line.get(cursor).is_some_and(u8::is_ascii_digit) {
+        cursor += 1;
+    }
+    let operator_start = cursor;
+    let first = line.get(cursor).copied()?;
+    if !matches!(first, b'<' | b'>') {
+        return None;
+    }
+    cursor += 1;
+    if line.get(cursor) == Some(&first) {
+        cursor += 1;
+    }
+    if line.get(cursor) == Some(&b'&') {
+        cursor += 1;
+        while line.get(cursor).is_some_and(u8::is_ascii_digit) {
+            cursor += 1;
+        }
+    }
+    (cursor > operator_start + 1 || operator_start > idx).then_some(cursor - idx)
+}
+
 fn shell_operator_len(line: &[u8], idx: usize) -> usize {
     const OPERATORS: &[&[u8]] = &[
-        b";;&", b"<<<", b"&>>", b"<<-", b"&&", b"||", b";;", b";&", b"<<", b">>", b"<&", b">&",
-        b"<>", b">|", b"&>", b"|&",
+        b"<<<", b"<<-", b"&&", b"||", b";;", b"<<", b">>", b"<&", b">&", b">|", b"&>",
     ];
     for operator in OPERATORS {
         if line[idx..].starts_with(operator) {
@@ -979,18 +1053,16 @@ fn split_history_quoting_words(line: &[u8]) -> Vec<Vec<u8>> {
         .collect()
 }
 
-fn replace_once(line: &[u8], old: &[u8], new: &[u8]) -> Vec<u8> {
+fn replace_once_checked(line: &[u8], old: &[u8], new: &[u8]) -> Option<Vec<u8>> {
     if old.is_empty() {
-        return line.to_vec();
+        return None;
     }
-    let Some(pos) = find_bytes_local(line, old) else {
-        return line.to_vec();
-    };
+    let pos = find_bytes_local(line, old)?;
     let mut out = Vec::with_capacity(line.len() - old.len() + new.len());
     out.extend_from_slice(&line[..pos]);
     out.extend_from_slice(new);
     out.extend_from_slice(&line[pos + old.len()..]);
-    out
+    Some(out)
 }
 
 fn find_bytes_local(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -1002,43 +1074,54 @@ fn find_bytes_local(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         .position(|window| window == needle)
 }
 
-fn replace_all(line: &[u8], old: &[u8], new: &[u8]) -> Vec<u8> {
+fn replace_all_checked(line: &[u8], old: &[u8], new: &[u8]) -> Option<Vec<u8>> {
     if old.is_empty() {
-        return line.to_vec();
+        return None;
     }
     let mut out = Vec::new();
     let mut rest = line;
+    let mut replaced = false;
     while let Some(pos) = find_bytes_local(rest, old) {
+        replaced = true;
         out.extend_from_slice(&rest[..pos]);
         out.extend_from_slice(new);
         rest = &rest[pos + old.len()..];
     }
+    if !replaced {
+        return None;
+    }
     out.extend_from_slice(rest);
-    out
+    Some(out)
 }
 
-fn replace_each_word_once(
+fn replace_each_word_once_checked(
     line: &[u8],
     old: &[u8],
     new: &[u8],
     policy: &HistoryExpansionPolicy,
-) -> Vec<u8> {
+) -> Option<Vec<u8>> {
     if old.is_empty() {
-        return line.to_vec();
+        return None;
     }
     let spans = command_word_spans(line, policy);
     if spans.is_empty() {
-        return line.to_vec();
+        return None;
     }
     let mut out = Vec::with_capacity(line.len());
     let mut cursor = 0;
+    let mut replaced = false;
     for (start, end) in spans {
         out.extend_from_slice(&line[cursor..start]);
-        out.extend_from_slice(&replace_once(&line[start..end], old, new));
+        if let Some(word) = replace_once_checked(&line[start..end], old, new) {
+            replaced = true;
+            out.extend_from_slice(&word);
+        } else {
+            out.extend_from_slice(&line[start..end]);
+        }
         cursor = end;
     }
     out.extend_from_slice(&line[cursor..]);
-    out
+    replaced.then_some(out)
 }
 
 fn history_head(value: &[u8]) -> Vec<u8> {
@@ -1116,6 +1199,7 @@ impl Default for HistoryExpansionPolicy {
             no_expand_chars: b" \t\n\r=".to_vec(),
             quotes_inhibit_expansion: false,
             quote_state: None,
+            quick_substitution: true,
         }
     }
 }

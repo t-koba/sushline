@@ -279,7 +279,8 @@ where
         &mut self,
         state: &mut EditorState,
     ) -> Result<(), ReadlineError> {
-        self.write_below_rendered_line(state, "^C\r\n")?;
+        self.write_tracked(state, "^C")?;
+        self.write_tracked_newline(state)?;
         self.terminal.flush()?;
         Ok(())
     }
@@ -317,16 +318,16 @@ where
         if !self.variable_is_on("bind-tty-special-chars") {
             return;
         }
-        for (byte, command) in self.terminal.tty_special_bindings() {
-            let command = if command == "end-of-file" {
-                EditCommand::Eof
-            } else if let Some(command) = EditCommand::parse(command) {
+        for (byte, command_name) in self.terminal.tty_special_bindings() {
+            let command = if command_name == "end-of-file" {
+                EditCommand::DeleteChar
+            } else if let Some(command) = EditCommand::parse(command_name) {
                 command
             } else {
                 continue;
             };
             for map in self.tty_special_binding_maps() {
-                let binding = if command == EditCommand::Eof
+                let binding = if command_name == "end-of-file"
                     && matches!(map, KeyMapName::ViCommand | KeyMapName::ViInsert)
                 {
                     KeyBinding::NamedCommand("vi-eof-maybe".to_string())
@@ -396,6 +397,7 @@ where
             policy.no_expand_chars = value.clone();
         }
         policy.quotes_inhibit_expansion = self.variable_is_on("history-quotes-inhibit-expansion");
+        policy.quick_substitution = false;
         policy
     }
 

@@ -18,7 +18,7 @@ where
                 state.record_undo();
                 if let Some(arg) = state.numeric_arg.take() {
                     let mut killed = Vec::new();
-                    let count = arg.unsigned_abs().max(1);
+                    let count = arg.unsigned_abs();
                     if arg < 0 {
                         for _ in 0..count {
                             if let Some(part) = state.buffer.delete_char_bytes() {
@@ -59,14 +59,17 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::DeleteChar => {
+                if state.buffer.is_empty() && state.numeric_arg.is_none() {
+                    return Ok(EditorOutcome::Eof);
+                }
                 state.record_undo();
                 let count = state.numeric_arg.take().unwrap_or(1);
                 if count < 0 {
-                    for _ in 0..count.unsigned_abs().max(1) {
+                    for _ in 0..count.unsigned_abs() {
                         state.buffer.backward_delete_char();
                     }
                 } else {
-                    for _ in 0..count.unsigned_abs().max(1) {
+                    for _ in 0..count.unsigned_abs() {
                         state.buffer.delete_char();
                     }
                 }
@@ -106,9 +109,23 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::SelfInsert => {
-                let count = state.numeric_arg.take().unwrap_or(1).unsigned_abs().max(1);
+                let count = repeat_count(state.numeric_arg.take());
                 if !state.undo.last_undo_was_insert {
                     state.record_undo();
+                }
+                if key.iter().any(|byte| byte.is_ascii_control()) {
+                    for _ in 0..count {
+                        if state.overwrite_mode && state.buffer.point() < state.buffer.len_chars() {
+                            let point = state.buffer.point();
+                            state.buffer.replace_char_at_point_bytes(key);
+                            state.buffer.set_point(point + key.len());
+                        } else {
+                            state.buffer.insert_bytes(key);
+                        }
+                    }
+                    state.record_vi_insert_bytes(key);
+                    state.after_self_insert();
+                    return Ok(EditorOutcome::Continue);
                 }
                 if let Ok(text) = std::str::from_utf8(key) {
                     for _ in 0..count {

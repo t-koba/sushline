@@ -84,6 +84,41 @@ fn accept_line_from_previous_visual_row_moves_below_rendered_input() {
 }
 
 #[test]
+fn multiline_history_entry_renders_as_multiple_terminal_lines() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\x1b[A".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut history = History::new();
+    history.push_bytes(b"echo one\necho two".to_vec());
+    let mut line = Editor::new(Config::default(), terminal, history);
+
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+
+    assert_eq!(result, ReadlineResult::Line(b"echo one\necho two".to_vec()));
+    assert!(line.terminal().out.contains("> echo one\r\necho two"));
+    assert!(!line.terminal().out.contains("echo one^Jecho two"));
+}
+
+#[test]
+fn quoted_insert_newline_renders_as_multiline_input() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"one".to_vec()),
+        TerminalEvent::Bytes(b"\x16".to_vec()),
+        TerminalEvent::Bytes(b"\n".to_vec()),
+        TerminalEvent::Bytes(b"two".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+
+    assert_eq!(result, ReadlineResult::Line(b"one\ntwo".to_vec()));
+    assert!(line.terminal().out.contains("> one\r\ntwo"));
+    assert!(!line.terminal().out.contains("one^Jtwo"));
+}
+
+#[test]
 fn redisplay_forces_newline_when_point_lands_on_wrap_boundary() {
     let mut terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"ab".to_vec()),

@@ -1192,6 +1192,46 @@ fn repeated_tab_lists_unmodified_directory_completions() {
 }
 
 #[test]
+fn repeated_tab_uses_default_screen_size_when_terminal_reports_zero() {
+    struct AlphaCompletion;
+    impl Hooks for AlphaCompletion {
+        fn complete(&mut self, _: CompletionRequest) -> Option<CompletionResponse> {
+            Some(CompletionResponse {
+                candidates: vec![
+                    CompletionCandidate {
+                        replacement: b"alpha".to_vec(),
+                        display: None,
+                    },
+                    CompletionCandidate {
+                        replacement: b"alpine".to_vec(),
+                        display: None,
+                    },
+                ],
+                options: CompletionOptions::default(),
+            })
+        }
+    }
+
+    let mut terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"a".to_vec()),
+        TerminalEvent::Bytes(b"\t".to_vec()),
+        TerminalEvent::Bytes(b"\t".to_vec()),
+        TerminalEvent::Bytes(b"\t".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    terminal.columns = 0;
+    terminal.rows = 0;
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let mut hooks = AlphaCompletion;
+
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+
+    assert_eq!(result, ReadlineResult::Line(b"alp".to_vec()));
+    assert!(line.terminal().out.contains("alpha   alpine"));
+    assert!(!line.terminal().out.contains("--More--"));
+}
+
+#[test]
 fn complete_into_braces_uses_default_completion_fallbacks() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("alpha"), "").unwrap();

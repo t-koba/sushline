@@ -47,7 +47,7 @@ fn ignores_unknown_variables_and_treats_unknown_bool_values_as_off() {
                 &mut variables,
             )
             .unwrap();
-    assert!(!variables.contains_key("completion-query-items"));
+    assert_eq!(variables["completion-query-items"], "0");
     assert!(!variables.contains_key("not-a-readline-variable"));
     assert_eq!(variables["completion-ignore-case"], "off");
     assert_eq!(variables["disable-completion"], "on");
@@ -112,7 +112,10 @@ fn keymap_variable_selects_binding_target_without_changing_runtime_map() {
         keymap.lookup(KeyMapName::ViCommand, b"q"),
         Some(KeyBinding::Command(EditCommand::AcceptLine))
     ));
-    assert!(keymap.lookup(KeyMapName::ViInsert, b"q").is_none());
+    assert!(matches!(
+        keymap.lookup(KeyMapName::ViInsert, b"q"),
+        Some(KeyBinding::Command(EditCommand::SelfInsert))
+    ));
 }
 
 #[test]
@@ -153,23 +156,29 @@ fn parses_gnu_style_conditions_and_trailing_function_text() {
         keymap.lookup(KeyMapName::EmacsStandard, &[0x18, 0x02]),
         None
     );
-    assert_eq!(keymap.lookup(KeyMapName::EmacsStandard, &[0x1d]), None);
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, &[0x1d]),
+        Some(&KeyBinding::NamedCommand("character-search".to_string()))
+    );
 }
 
 #[test]
-fn reports_active_include_read_errors() {
+fn ignores_active_include_read_errors() {
     let mut keymap = KeyMap::emacs_default();
     let mut variables = Variables::new();
-    let err = InputrcParser::new()
+    InputrcParser::new()
         .parse_str(
-            "$include definitely-not-present.inputrc",
+            "$include definitely-not-present.inputrc\n\"\\C-o\": end-of-line",
             &Config::default(),
             &mut keymap,
             &mut variables,
         )
-        .unwrap_err();
-    assert_eq!(err.line, 1);
-    assert!(err.message.contains("cannot include"));
+        .unwrap();
+
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
+        Some(&KeyBinding::Command(EditCommand::EndOfLine))
+    );
 }
 
 #[test]

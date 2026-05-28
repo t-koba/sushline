@@ -82,7 +82,7 @@ impl InputrcParser {
         &self,
         source: &str,
         ctx: &mut ParseContext<'_>,
-        base_dir: Option<&Path>,
+        _base_dir: Option<&Path>,
         include_depth: usize,
     ) -> Result<(), InputrcError> {
         if include_depth > self.max_include_depth {
@@ -137,13 +137,10 @@ impl InputrcParser {
                     }
                     Some("include") if *active_stack.last().unwrap_or(&true) => {
                         let path = parts.collect::<Vec<_>>().join(" ");
-                        let path = expand_include_path(&path, base_dir);
-                        let included = fs::read_to_string(&path).map_err(|e| {
-                            InputrcError::new(
-                                line_no,
-                                format!("{}: cannot include: {e}", path.display()),
-                            )
-                        })?;
+                        let path = expand_include_path(&path);
+                        let Ok(included) = fs::read_to_string(&path) else {
+                            continue;
+                        };
                         self.parse_str_inner(&included, ctx, path.parent(), include_depth + 1)?;
                     }
                     Some("include") => {}
@@ -352,7 +349,7 @@ fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
     std::cmp::Ordering::Equal
 }
 
-fn expand_include_path(path: &str, base_dir: Option<&Path>) -> PathBuf {
+fn expand_include_path(path: &str) -> PathBuf {
     let mut path = path.trim().to_string();
     if let Ok(decoded) = decode_inputrc_string(&path) {
         path = decoded;
@@ -375,13 +372,7 @@ fn expand_include_path(path: &str, base_dir: Option<&Path>) -> PathBuf {
             };
         }
     }
-    let path = PathBuf::from(path);
-    if path.is_relative()
-        && let Some(base_dir) = base_dir
-    {
-        return base_dir.join(path);
-    }
-    path
+    PathBuf::from(path)
 }
 
 fn expand_env_vars(value: &str) -> String {
@@ -459,7 +450,7 @@ fn is_quoted(value: &str) -> bool {
 fn normalize_variable_value(name: &str, value: &str) -> Option<String> {
     let value = value.trim();
     if name == "history-size" && value.parse::<isize>().is_err() {
-        return Some("500".to_string());
+        return Some("0".to_string());
     }
     if matches!(
         name,
@@ -472,7 +463,7 @@ fn normalize_variable_value(name: &str, value: &str) -> Option<String> {
         if value.parse::<isize>().is_ok() {
             return Some(value.to_string());
         }
-        return None;
+        return Some("0".to_string());
     }
     if matches!(name, "editing-mode" | "keymap") {
         return Some(value.to_ascii_lowercase());
@@ -497,10 +488,16 @@ fn normalize_variable_value(name: &str, value: &str) -> Option<String> {
             value.to_string()
         });
     }
+    if name == "comment-begin" {
+        return Some(if is_quoted(value) {
+            value[1..value.len() - 1].to_string()
+        } else {
+            value.to_string()
+        });
+    }
     if matches!(
         name,
         "bell-style"
-            | "comment-begin"
             | "histchars"
             | "history-word-delimiters"
             | "history-search-delimiter-chars"

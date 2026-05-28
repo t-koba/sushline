@@ -245,10 +245,19 @@ impl LineBuffer {
     where
         F: Fn(char) -> bool + Copy,
     {
-        let end = self.point;
+        let point = self.point;
+        let mut end = point;
+        if self.char_at(point).is_some_and(is_word) {
+            while let Some(ch) = self.char_at(end) {
+                if !is_word(ch) {
+                    break;
+                }
+                end = self.next_char_boundary(end);
+            }
+        }
         self.backward_word_by(is_word);
         let start = self.point;
-        self.point = end;
+        self.point = point;
         self.range_bytes(start, end)
     }
 
@@ -260,10 +269,19 @@ impl LineBuffer {
     where
         F: Fn(char) -> bool + Copy,
     {
-        let start = self.point;
+        let point = self.point;
+        let mut start = point;
+        if self.char_at(point).is_some_and(is_word) {
+            while let Some((prev, ch)) = self.prev_char(start) {
+                if !is_word(ch) {
+                    break;
+                }
+                start = prev;
+            }
+        }
         self.forward_word_by(is_word);
         let end = self.point;
-        self.point = start;
+        self.point = point;
         self.range_bytes(start, end)
     }
 

@@ -1,8 +1,8 @@
 use std::fs;
 
 use history::expansion::{
-    HistoryChars, HistoryExpansionPolicy, expand_history, expand_history_with_status,
-    get_history_event, history_arg_extract, history_tokenize,
+    HistoryChars, HistoryExpansionError, HistoryExpansionPolicy, expand_history,
+    expand_history_with_status, get_history_event, history_arg_extract, history_tokenize,
 };
 use history::{History, HistoryDirection};
 
@@ -113,6 +113,10 @@ fn reads_writes_appends_and_truncates_history_files() {
             .collect::<Vec<_>>(),
         vec!["two", "three"]
     );
+
+    let appended_last = dir.path().join("append-last");
+    loaded.append_last_to_file(&appended_last, 2).unwrap();
+    assert_eq!(fs::read_to_string(appended_last).unwrap(), "two\nthree\n");
 }
 
 #[test]
@@ -220,7 +224,7 @@ fn preserves_timestamped_history_file_records() {
 
     loaded.push("printf three");
     loaded.add_time("#1700000002");
-    loaded.append_file(&path, 3).unwrap();
+    loaded.append_file_with_timestamps(&path, 3, true).unwrap();
     History::truncate_file(&path, 2).unwrap();
 
     let truncated = History::read_file(&path).unwrap();
@@ -231,13 +235,22 @@ fn preserves_timestamped_history_file_records() {
             .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
             .collect::<Vec<_>>(),
         vec![
-            (Some("#1700000001"), "printf two".to_string()),
-            (Some("#1700000002"), "printf three".to_string()),
+            (None, "printf two".to_string()),
+            (None, "printf three".to_string())
         ]
     );
     assert_eq!(
         fs::read_to_string(&path).unwrap(),
-        "#1700000001\nprintf two\n#1700000002\nprintf three\n"
+        "printf two\nprintf three\n"
+    );
+
+    let timestamped = dir.path().join("timestamped");
+    loaded
+        .write_file_with_timestamps(&timestamped, true)
+        .unwrap();
+    assert_eq!(
+        fs::read_to_string(timestamped).unwrap(),
+        "#1700000000\necho one\n# not timestamp\n#1700000001\nprintf two\n#1700000002\nprintf three\n"
     );
 }
 
@@ -247,7 +260,7 @@ fn reads_history_file_ranges_and_controls_timestamp_writes() {
     let path = dir.path().join("history");
     fs::write(&path, "#1700000000\none\n#1700000001\ntwo\nthree\n").unwrap();
 
-    let ranged = History::read_file_range(&path, 1, Some(2)).unwrap();
+    let ranged = History::read_file_range(&path, 1, Some(3)).unwrap();
     assert_eq!(
         ranged
             .entries()
@@ -258,6 +271,36 @@ fn reads_history_file_ranges_and_controls_timestamp_writes() {
             (Some("#1700000001"), "two".to_string()),
             (None, "three".to_string()),
         ]
+    );
+
+    let single = History::read_file_range(&path, 1, Some(2)).unwrap();
+    assert_eq!(
+        single
+            .entries()
+            .iter()
+            .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
+            .collect::<Vec<_>>(),
+        vec![(Some("#1700000001"), "two".to_string())]
+    );
+
+    let to_end = History::read_file_range(&path, 1, None).unwrap();
+    assert_eq!(
+        to_end
+            .entries()
+            .iter()
+            .map(|entry| entry.line().into_owned())
+            .collect::<Vec<_>>(),
+        vec!["two".to_string(), "three".to_string()]
+    );
+
+    let reversed_range = History::read_file_range(&path, 1, Some(0)).unwrap();
+    assert_eq!(
+        reversed_range
+            .entries()
+            .iter()
+            .map(|entry| entry.line().into_owned())
+            .collect::<Vec<_>>(),
+        vec!["two".to_string(), "three".to_string()]
     );
 
     let no_timestamps = dir.path().join("no-timestamps");
@@ -291,7 +334,7 @@ fn append_new_can_suppress_timestamp_writes() {
 
     assert_eq!(
         fs::read_to_string(&path).unwrap(),
-        "#1700000000\none\ntwo\n#1700000002\nthree\n"
+        "#1700000000\none\ntwo\nthree\n"
     );
 }
 
@@ -334,6 +377,117 @@ fn history_expansion_supports_line_so_far_status_and_policy() {
         },)
         .unwrap(),
         b"!!".to_vec()
+    );
+}
+
+#[test]
+fn history_expansion_matches_readline_search_and_substitution_failures() {
+    let mut history = History::new();
+    history.push("grep needle middle needle-last tail");
+
+    assert_eq!(
+        expand_history(
+            b"!?needle middle?",
+            &history,
+            HistoryChars::parse("!^#"),
+            &HistoryExpansionPolicy::default(),
+            |_| false,
+        )
+        .unwrap(),
+        b"grep needle middle needle-last tail".to_vec()
+    );
+
+    history.clear();
+    history.push("printf /a/b/c.txt alpha alpha beta");
+    for expansion in [
+        b"!!:s/missing/MISSING/".as_slice(),
+        b"!!:gs/missing/MISSING/".as_slice(),
+        b"!!:Gs/missing/MISSING/".as_slice(),
+        b"!!:&".as_slice(),
+        b"^missing^MISSING^".as_slice(),
+        b"^^MISSING^".as_slice(),
+    ] {
+        assert_eq!(
+            expand_history(
+                expansion,
+                &history,
+                HistoryChars::parse("!^#"),
+                &HistoryExpansionPolicy::default(),
+                |_| false,
+            ),
+            Err(HistoryExpansionError::SubstitutionFailed),
+            "{}",
+            String::from_utf8_lossy(expansion)
+        );
+    }
+}
+
+#[test]
+fn history_expansion_only_allows_readline_colonless_word_designators() {
+    let mut history = History::new();
+    history.push("echo zero one two three");
+
+    assert_eq!(
+        expand_history(
+            b"!!2",
+            &history,
+            HistoryChars::parse("!^#"),
+            &HistoryExpansionPolicy::default(),
+            |_| false,
+        )
+        .unwrap(),
+        b"echo zero one two three2".to_vec()
+    );
+    assert_eq!(
+        expand_history(
+            b"!!0",
+            &history,
+            HistoryChars::parse("!^#"),
+            &HistoryExpansionPolicy::default(),
+            |_| false,
+        )
+        .unwrap(),
+        b"echo zero one two three0".to_vec()
+    );
+    assert_eq!(
+        expand_history(
+            b"!!-2",
+            &history,
+            HistoryChars::parse("!^#"),
+            &HistoryExpansionPolicy::default(),
+            |_| false,
+        )
+        .unwrap(),
+        b"echo zero one".to_vec()
+    );
+}
+
+#[test]
+fn history_expansion_honors_readline_backslash_inhibition() {
+    let mut history = History::new();
+    history.push("echo alpha");
+
+    assert_eq!(
+        expand_history(
+            br"\!!",
+            &history,
+            HistoryChars::parse("!^#"),
+            &HistoryExpansionPolicy::default(),
+            |_| false,
+        )
+        .unwrap(),
+        br"\!!".to_vec()
+    );
+    assert_eq!(
+        expand_history(
+            br"\\!!",
+            &history,
+            HistoryChars::parse("!^#"),
+            &HistoryExpansionPolicy::default(),
+            |_| false,
+        )
+        .unwrap(),
+        br"\\echo alpha".to_vec()
     );
 }
 
@@ -423,6 +577,72 @@ fn history_expansion_preserves_quoted_history_words() {
         ("!!:3", b"one".as_slice()),
         ("!!:4", b"two".as_slice()),
         ("!!:5", b")".as_slice()),
+    ] {
+        assert_eq!(
+            expand_history(
+                typed.as_bytes(),
+                &history,
+                HistoryChars::parse("!^#"),
+                &HistoryExpansionPolicy::default(),
+                |_| false,
+            )
+            .unwrap(),
+            expected.to_vec(),
+            "{typed}"
+        );
+    }
+
+    history.clear();
+    history.push("cat <in >out 2>&1 |& sed s/a/b/ && echo done");
+    for (typed, expected) in [
+        ("!!:1", b"<".as_slice()),
+        ("!!:2", b"in".as_slice()),
+        ("!!:3", b">".as_slice()),
+        ("!!:4", b"out".as_slice()),
+        ("!!:5", b"2>&1".as_slice()),
+        ("!!:6", b"|".as_slice()),
+        ("!!:7", b"&".as_slice()),
+        ("!!:8", b"sed".as_slice()),
+        ("!!:9", b"s/a/b/".as_slice()),
+        ("!!:10", b"&&".as_slice()),
+        ("!!:11", b"echo".as_slice()),
+    ] {
+        assert_eq!(
+            expand_history(
+                typed.as_bytes(),
+                &history,
+                HistoryChars::parse("!^#"),
+                &HistoryExpansionPolicy::default(),
+                |_| false,
+            )
+            .unwrap(),
+            expected.to_vec(),
+            "{typed}"
+        );
+    }
+
+    history.clear();
+    history.push("cmd 2>file 12>>file 3<in 4<&0 >&2 <&0 &>>file ;& ;;& <>rw");
+    for (typed, expected) in [
+        ("!!:1", b"2>".as_slice()),
+        ("!!:2", b"file".as_slice()),
+        ("!!:3", b"12>>".as_slice()),
+        ("!!:4", b"file".as_slice()),
+        ("!!:5", b"3<".as_slice()),
+        ("!!:6", b"in".as_slice()),
+        ("!!:7", b"4<&0".as_slice()),
+        ("!!:8", b">&2".as_slice()),
+        ("!!:9", b"<&0".as_slice()),
+        ("!!:10", b"&>".as_slice()),
+        ("!!:11", b">".as_slice()),
+        ("!!:12", b"file".as_slice()),
+        ("!!:13", b";".as_slice()),
+        ("!!:14", b"&".as_slice()),
+        ("!!:15", b";;".as_slice()),
+        ("!!:16", b"&".as_slice()),
+        ("!!:17", b"<".as_slice()),
+        ("!!:18", b">".as_slice()),
+        ("!!:19", b"rw".as_slice()),
     ] {
         assert_eq!(
             expand_history(

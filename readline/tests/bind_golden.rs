@@ -105,8 +105,6 @@ fn bind_reusable_output_includes_default_bindings_and_unbound_comments() {
     assert!(output.contains("\"\\C-xe\": call-last-kbd-macro"));
     assert!(output.contains("\"a\": self-insert"));
     assert!(output.contains("\"\\e[200~\": bracketed-paste-begin"));
-    assert!(output.contains("\"f\": vi-char-search"));
-    assert!(output.contains("\";\": vi-char-search"));
     assert!(output.contains("# kill-region (not bound)"));
     assert!(output.contains("# alias-expand-line (not bound)"));
 }
@@ -170,6 +168,61 @@ fn bind_variable_output_matches_gnu_readline_oracle() {
 }
 
 #[test]
+fn bind_variable_set_normalization_matches_gnu_readline_oracle() {
+    let commands = [
+        "set completion-ignore-case maybe",
+        "set disable-completion",
+        "set history-size many",
+        "set completion-query-items many",
+        "set completion-display-width many",
+        "set completion-prefix-display-length many",
+        "set keyseq-timeout many",
+        "set bell-style none",
+        "set comment-begin \"// x\"",
+        "set emacs-mode-string \"\\e[1mE\"",
+    ];
+    let bash_command = commands
+        .iter()
+        .map(|command| format!("bind {}", shell_single_quote(command)))
+        .chain(std::iter::once("bind -v".to_string()))
+        .collect::<Vec<_>>()
+        .join("; ");
+    let bash = Command::new("bash")
+        .args(["--noprofile", "--norc", "-i", "-c", &bash_command])
+        .output()
+        .expect("bash must be available for bind oracle tests");
+    assert!(
+        bash.status.success(),
+        "{}",
+        String::from_utf8_lossy(&bash.stderr)
+    );
+
+    let mut line = editor();
+    let mut bind = line.bind_api();
+    for command in commands {
+        bind.apply_line(command).unwrap();
+    }
+    let sushline = bind.print(BindQuery::PrintVariablesReusable);
+
+    let selected = [
+        "bell-style",
+        "comment-begin",
+        "completion-display-width",
+        "completion-ignore-case",
+        "completion-prefix-display-length",
+        "completion-query-items",
+        "disable-completion",
+        "emacs-mode-string",
+        "history-size",
+        "keyseq-timeout",
+    ];
+    assert_eq!(
+        selected_variable_lines(&sushline, &selected),
+        selected_variable_lines(&String::from_utf8_lossy(&bash.stdout), &selected)
+    );
+}
+
+#[test]
 fn bind_query_reports_function_bindings() {
     let mut line = editor();
     let bind = line.bind_api();
@@ -179,7 +232,7 @@ fn bind_query_reports_function_bindings() {
     let unknown = bind.print(BindQuery::QueryFunction("not-a-command".to_string()));
 
     assert_eq!(yank, "yank can be invoked via \"\\C-y\".\n");
-    assert_eq!(unbound, "vi-append-eol can be invoked via \"A\".\n");
+    assert_eq!(unbound, "vi-append-eol is not bound to any keys\n");
     assert_eq!(unknown, "not-a-command is not a function\n");
 }
 
@@ -265,6 +318,47 @@ fn bind_reusable_default_key_lines_match_gnu_readline_oracle() {
 }
 
 #[test]
+fn bind_default_keymap_binding_lines_match_gnu_readline_oracle() {
+    for (name, bash_command, keymap) in [
+        ("emacs", "bind -p", None),
+        (
+            "vi-command",
+            "bind -m vi-command -p",
+            Some(KeyMapName::ViCommand),
+        ),
+        (
+            "vi-insert",
+            "bind -m vi-insert -p",
+            Some(KeyMapName::ViInsert),
+        ),
+    ] {
+        let output = Command::new("bash")
+            .args(["--noprofile", "--norc", "-i", "-c", bash_command])
+            .output()
+            .expect("bash must be available for bind oracle tests");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let bash = String::from_utf8_lossy(&output.stdout);
+
+        let mut line = editor();
+        let mut bind = line.bind_api();
+        if let Some(keymap) = keymap {
+            bind.apply_builtin_args(&["-m", keymap.as_str()]).unwrap();
+        }
+        let sushline = bind.print(BindQuery::PrintReusable);
+
+        assert_eq!(
+            default_binding_lines(&sushline),
+            default_binding_lines(&bash),
+            "{name} default binding lines differ"
+        );
+    }
+}
+
+#[test]
 fn bind_vi_command_default_key_lines_match_gnu_readline_oracle() {
     let output = Command::new("bash")
         .args(["--noprofile", "--norc", "-i", "-c", "bind -m vi-command -p"])
@@ -284,10 +378,30 @@ fn bind_vi_command_default_key_lines_match_gnu_readline_oracle() {
     let sushline = bind.print(BindQuery::PrintReusable);
 
     for line in [
+        r#""\C-d": vi-eof-maybe"#,
+        r#""\C-g": abort"#,
+        r#""\C-h": backward-char"#,
+        r#""\C-n": next-history"#,
+        r#""\C-p": previous-history"#,
+        "\"#\": insert-comment",
+        r#""*": bash-vi-complete"#,
+        r#""+": next-history"#,
+        r#""-": previous-history"#,
+        r#""B": vi-prev-word"#,
+        r#""E": vi-end-word"#,
+        r#""R": vi-replace"#,
+        r#""W": vi-next-word"#,
+        r#""_": vi-yank-arg"#,
+        r#""b": vi-prev-word"#,
+        r#""e": vi-end-word"#,
+        r#""r": vi-change-char"#,
+        r#""v": vi-edit-and-execute-command"#,
+        r#""w": vi-next-word"#,
         r#""x": vi-delete"#,
         r#""X": vi-rubout"#,
         r#""d": vi-delete-to"#,
         r#""p": vi-put"#,
+        r#""&": vi-tilde-expand"#,
     ] {
         assert!(
             bash.contains(line),
@@ -300,6 +414,56 @@ fn bind_vi_command_default_key_lines_match_gnu_readline_oracle() {
     }
     assert!(!bash.contains(r#""\"": vi-set-register"#));
     assert!(!sushline.contains(r#""\"": vi-set-register"#));
+}
+
+#[test]
+fn bind_vi_insert_default_key_lines_match_gnu_readline_oracle() {
+    let output = Command::new("bash")
+        .args(["--noprofile", "--norc", "-i", "-c", "bind -m vi-insert -p"])
+        .output()
+        .expect("bash must be available for bind oracle tests");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let bash = String::from_utf8_lossy(&output.stdout);
+
+    let mut line = editor();
+    let mut bind = line.bind_api();
+    bind.apply_builtin_args(&["-m", KeyMapName::ViInsert.as_str()])
+        .unwrap();
+    let sushline = bind.print(BindQuery::PrintReusable);
+
+    for line in [
+        r#""\C-d": vi-eof-maybe"#,
+        r#""\C-h": backward-delete-char"#,
+        r#""\C-i": complete"#,
+        r#""\C-j": accept-line"#,
+        r#""\C-m": accept-line"#,
+        r#""\C-n": menu-complete"#,
+        r#""\C-p": menu-complete-backward"#,
+        r#""\C-r": reverse-search-history"#,
+        r#""\C-s": forward-search-history"#,
+        r#""\C-t": transpose-chars"#,
+        r#""\C-u": unix-line-discard"#,
+        r#""\C-v": quoted-insert"#,
+        r#""\C-w": vi-unix-word-rubout"#,
+        r#""\C-y": yank"#,
+        r#""\C-_": vi-undo"#,
+        r#""\C-?": backward-delete-char"#,
+        r#""\e": vi-movement-mode"#,
+        r#""\e[200~": bracketed-paste-begin"#,
+    ] {
+        assert!(
+            bash.contains(line),
+            "GNU Readline bind -m vi-insert -p missing {line}"
+        );
+        assert!(
+            sushline.contains(line),
+            "sushline bind -m vi-insert -p missing {line}"
+        );
+    }
 }
 
 #[test]
@@ -422,11 +586,14 @@ fn bind_can_unbind_keys_and_commands() {
     assert!(bind.unbind_key("\"\\C-y\"").unwrap());
     bind.apply_builtin_args(&["-m", "vi-insert"]).unwrap();
     assert!(bind.unbind_key("\"\\C-y\"").unwrap());
+    bind.apply_builtin_args(&["-m", "vi-command"]).unwrap();
+    assert!(bind.unbind_key("\"\\C-y\"").unwrap());
     assert_eq!(
         bind.print(BindQuery::QueryFunction("yank".to_string())),
         "yank is not bound to any keys\n"
     );
 
+    bind.apply_builtin_args(&["-m", "emacs"]).unwrap();
     assert!(bind.unbind_command("yank-pop").unwrap() > 0);
     assert_eq!(
         bind.print(BindQuery::QueryFunction("yank-pop".to_string())),
@@ -519,4 +686,30 @@ impl TerminalIo for DummyTerminal {
     fn move_to_column(&mut self, _column: u16) -> io::Result<()> {
         Ok(())
     }
+}
+
+fn selected_variable_lines(output: &str, names: &[&str]) -> Vec<String> {
+    names
+        .iter()
+        .filter_map(|name| {
+            output
+                .lines()
+                .find(|line| line.starts_with(&format!("set {name} ")))
+                .map(ToString::to_string)
+        })
+        .collect()
+}
+
+fn shell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn default_binding_lines(output: &str) -> Vec<String> {
+    let mut lines = output
+        .lines()
+        .filter(|line| line.starts_with('"'))
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    lines.sort();
+    lines
 }

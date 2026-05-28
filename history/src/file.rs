@@ -32,14 +32,12 @@ impl History {
     ) -> io::Result<Self> {
         let file = fs::File::open(path)?;
         let mut history = Self::new();
-        let end = to.unwrap_or(usize::MAX);
-        for (idx, (line, timestamp)) in read_history_records(file)?.into_iter().enumerate() {
-            if idx < from {
-                continue;
-            }
-            if idx > end {
-                break;
-            }
+        let count = range_count(from, to);
+        for (line, timestamp) in read_history_records(file)?
+            .into_iter()
+            .skip(from)
+            .take(count)
+        {
             history.push_entry(line, timestamp, false);
         }
         history.file_loaded_len = history.entries.len();
@@ -72,14 +70,12 @@ impl History {
         max_entries: Option<usize>,
     ) -> io::Result<()> {
         let file = fs::File::open(path)?;
-        let end = to.unwrap_or(usize::MAX);
-        for (idx, (line, timestamp)) in read_history_records(file)?.into_iter().enumerate() {
-            if idx < from {
-                continue;
-            }
-            if idx > end {
-                break;
-            }
+        let count = range_count(from, to);
+        for (line, timestamp) in read_history_records(file)?
+            .into_iter()
+            .skip(from)
+            .take(count)
+        {
             self.push_entry(line, timestamp, false);
         }
         self.enforce_max_len(max_entries);
@@ -92,7 +88,7 @@ impl History {
     }
 
     pub fn write_file(&self, path: impl AsRef<Path>) -> io::Result<()> {
-        self.write_file_with_timestamps(path, true)
+        self.write_file_with_timestamps(path, false)
     }
 
     pub fn write_file_with_timestamps(
@@ -115,7 +111,12 @@ impl History {
     }
 
     pub fn append_file(&self, path: impl AsRef<Path>, from: usize) -> io::Result<()> {
-        self.append_file_with_timestamps(path, from, true)
+        self.append_file_with_timestamps(path, from, false)
+    }
+
+    pub fn append_last_to_file(&self, path: impl AsRef<Path>, nelements: usize) -> io::Result<()> {
+        let from = self.entries.len().saturating_sub(nelements);
+        self.append_file(path, from)
     }
 
     pub fn append_file_with_timestamps(
@@ -146,7 +147,7 @@ impl History {
     }
 
     pub fn append_new_to_file(&mut self, path: impl AsRef<Path>) -> io::Result<()> {
-        self.append_new_to_file_with_timestamps(path, true)
+        self.append_new_to_file_with_timestamps(path, false)
     }
 
     pub fn append_new_to_file_with_timestamps(
@@ -167,7 +168,7 @@ impl History {
             let tmp = history_tmp_path(path);
             let mut file = fs::File::create(&tmp)?;
             for entry in &history.entries[keep_from..] {
-                write_entry(&mut file, entry, true)?;
+                write_entry(&mut file, entry, false)?;
             }
             file.sync_all()?;
             fs::rename(&tmp, path)
@@ -179,6 +180,14 @@ impl History {
             write_entry(file, entry, write_timestamps)?;
         }
         Ok(())
+    }
+}
+
+fn range_count(from: usize, to: Option<usize>) -> usize {
+    match to {
+        None => usize::MAX,
+        Some(to) if to < from => usize::MAX,
+        Some(to) => to.saturating_sub(from).max(1),
     }
 }
 

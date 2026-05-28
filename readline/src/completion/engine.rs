@@ -12,7 +12,7 @@ use crate::completion::{
 use crate::editor::{Editor, ReadlineError};
 use crate::hooks::{Hooks, QuoteContext};
 use crate::keymap::KeyMapName;
-use crate::state::{CompletionAttemptState, EditorState, MenuCompletionState};
+use crate::state::{CompletionAttemptState, EditorState, MenuCompletionState, repeat_count};
 use crate::terminal::TerminalIo;
 
 struct MenuCompleteContext {
@@ -431,9 +431,10 @@ where
         backward: bool,
         previous_match_index: Option<usize>,
     ) -> usize {
-        let arg = state.numeric_arg.take().unwrap_or(1);
-        let backward = if arg < 0 { !backward } else { backward };
-        let steps = arg.unsigned_abs().max(1) as usize;
+        let arg = state.numeric_arg.take();
+        let signed_arg = arg.unwrap_or(1);
+        let backward = if signed_arg < 0 { !backward } else { backward };
+        let steps = repeat_count(arg) as usize;
         let match_count = candidate_count + 1;
         if previous_match_index.is_none() && self.variable_is_on("menu-complete-display-prefix") {
             return 0;

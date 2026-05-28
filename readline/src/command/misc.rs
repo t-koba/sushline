@@ -21,6 +21,14 @@ where
                 Ok(EditorOutcome::Accepted(state.buffer.as_bytes().to_vec()))
             }
             EditCommand::CallLastKbdMacro => {
+                if state.macro_state.keyboard_macro.is_some() {
+                    state.macro_state.keyboard_macro = None;
+                    state.macro_state.last_keyboard_macro = None;
+                    state.macro_state.last_recorded_self_insert = false;
+                    self.ding()?;
+                    state.after_non_kill_command();
+                    return Ok(EditorOutcome::Continue);
+                }
                 if let Some(macro_bytes) = state.macro_state.last_keyboard_macro.clone() {
                     state.macro_state.replaying_macro = true;
                     let outcome = self.handle_bytes(state, &macro_bytes, hooks)?;

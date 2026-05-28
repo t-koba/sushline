@@ -12,7 +12,7 @@ const NAMED_COMPLETION_COMMANDS: &[(&str, CompletionCommand)] = &[
     (
         "bash-vi-complete",
         CompletionCommand {
-            completion_type: CompletionType::Command,
+            completion_type: CompletionType::ViComplete,
             record_undo: true,
         },
     ),

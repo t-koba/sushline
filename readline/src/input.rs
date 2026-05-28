@@ -160,7 +160,7 @@ where
     }
 
     fn insert_literal(&mut self, state: &mut EditorState, bytes: &[u8], record_macro: bool) {
-        let count = state.numeric_arg.take().unwrap_or(1).unsigned_abs().max(1);
+        let count = repeat_count(state.numeric_arg.take());
         if !state.undo.last_undo_was_insert {
             state.record_undo();
         }

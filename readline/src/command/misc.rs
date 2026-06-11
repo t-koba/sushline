@@ -21,6 +21,14 @@ where
                 Ok(EditorOutcome::Accepted(state.buffer.as_bytes().to_vec()))
             }
             EditCommand::CallLastKbdMacro => {
+                if state.macro_state.keyboard_macro.is_some() {
+                    state.macro_state.keyboard_macro = None;
+                    state.macro_state.last_keyboard_macro = None;
+                    state.macro_state.last_recorded_self_insert = false;
+                    self.ding()?;
+                    state.after_non_kill_command();
+                    return Ok(EditorOutcome::Continue);
+                }
                 if let Some(macro_bytes) = state.macro_state.last_keyboard_macro.clone() {
                     state.macro_state.replaying_macro = true;
                     let outcome = self.handle_bytes(state, &macro_bytes, hooks)?;
@@ -49,12 +57,13 @@ where
             }
             EditCommand::UniversalArgument => {
                 state.numeric_arg = Some(state.numeric_arg.unwrap_or(1) * 4);
+                state.numeric_arg_sign_only = false;
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::PrintLastKbdMacro => {
                 if let Some(macro_bytes) = &state.macro_state.last_keyboard_macro {
                     let display =
-                        crate::keymap::KeySequence::new(macro_bytes.clone()).display_inputrc();
+                        crate::keymap::KeySequence::new(macro_bytes.clone()).display_inputrc_body();
                     self.write_below_rendered_line(state, &display)?;
                     self.write_tracked_newline(state)?;
                 }

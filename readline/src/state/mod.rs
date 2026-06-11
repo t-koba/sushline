@@ -33,6 +33,7 @@ pub(crate) struct EditorState {
     pub(crate) paste: BracketedPasteState,
     pub(crate) display: DisplayState,
     pub(crate) numeric_arg: Option<i32>,
+    pub(crate) numeric_arg_sign_only: bool,
     pub(crate) mark: Option<usize>,
     pub(crate) overwrite_mode: bool,
     pub(crate) original_line: Vec<u8>,
@@ -41,6 +42,7 @@ pub(crate) struct EditorState {
 #[derive(Debug, Default)]
 pub(crate) struct InputState {
     pub(crate) quoted_insert: bool,
+    pub(crate) interrupted: bool,
     pub(crate) pending_key: Vec<u8>,
     pub(crate) skipping_csi: bool,
     pub(crate) csi_sequence_started: bool,
@@ -110,6 +112,7 @@ pub(crate) struct MacroState {
     pub(crate) keyboard_macro: Option<Vec<u8>>,
     pub(crate) last_keyboard_macro: Option<Vec<u8>>,
     pub(crate) replaying_macro: bool,
+    pub(crate) last_recorded_self_insert: bool,
 }
 
 #[derive(Debug, Default)]
@@ -142,6 +145,7 @@ impl EditorState {
             paste: BracketedPasteState::default(),
             display: DisplayState::default(),
             numeric_arg: None,
+            numeric_arg_sign_only: false,
             mark: None,
             overwrite_mode: false,
             original_line,
@@ -219,7 +223,6 @@ impl EditorState {
     }
 
     pub(crate) fn after_self_insert(&mut self) {
-        self.kill.last_was_kill = false;
         self.kill.last_yank = None;
         self.search.reverse_search = None;
         self.undo.last_undo_was_insert = true;
@@ -239,12 +242,14 @@ impl EditorState {
 
     pub(crate) fn start_keyboard_macro(&mut self) {
         self.macro_state.keyboard_macro = Some(Vec::new());
+        self.macro_state.last_recorded_self_insert = false;
     }
 
     pub(crate) fn end_keyboard_macro(&mut self) {
         if let Some(macro_bytes) = self.macro_state.keyboard_macro.take() {
             self.macro_state.last_keyboard_macro = Some(macro_bytes);
         }
+        self.macro_state.last_recorded_self_insert = false;
     }
 
     pub(crate) fn record_macro_binding(&mut self, key: &[u8], binding: &KeyBinding) {
@@ -253,14 +258,36 @@ impl EditorState {
         }
         if matches!(
             binding,
-            KeyBinding::Command(EditCommand::StartKbdMacro | EditCommand::EndKbdMacro)
+            KeyBinding::Command(
+                EditCommand::StartKbdMacro
+                    | EditCommand::EndKbdMacro
+                    | EditCommand::CallLastKbdMacro
+            )
         ) {
             return;
         }
 
+        let is_self_insert = matches!(binding, KeyBinding::Command(EditCommand::SelfInsert));
+        if is_self_insert && self.macro_state.last_recorded_self_insert {
+            return;
+        }
         if let Some(macro_bytes) = self.macro_state.keyboard_macro.as_mut() {
             macro_bytes.extend_from_slice(key);
         }
+        self.macro_state.last_recorded_self_insert = is_self_insert;
+    }
+
+    pub(crate) fn record_macro_insert_bytes(&mut self, bytes: &[u8]) {
+        if self.macro_state.keyboard_macro.is_none() || self.macro_state.replaying_macro {
+            return;
+        }
+        if self.macro_state.last_recorded_self_insert {
+            return;
+        }
+        if let Some(macro_bytes) = self.macro_state.keyboard_macro.as_mut() {
+            macro_bytes.extend_from_slice(bytes);
+        }
+        self.macro_state.last_recorded_self_insert = true;
     }
 
     pub(crate) fn begin_vi_insert_change(&mut self, key: &[u8]) {

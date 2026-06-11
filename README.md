@@ -6,9 +6,11 @@ It started as the line editor for
 [Sushi shell, a.k.a. Sush](https://github.com/shellgei/rusty_bash), and its
 public API is designed for Rust embedders.
 
-The initial compatibility baseline is GNU Bash 5.3 with GNU Readline 8.3.
-Sushline is an independent Rust implementation and does not include Readline
-source code.
+The compatibility target is GNU Readline 8.3 and GNU History Library
+observable behavior. Sushline uses Bash-hosted oracle tests where Bash is the
+practical way to exercise GNU Readline, but Sushline is not a Bash-compatible
+shell implementation. It is an independent Rust implementation and does not
+include Readline source code.
 It is not a C ABI-compatible replacement for Readline; compatibility is
 documented at the Rust API and observable editor/history behavior level.
 

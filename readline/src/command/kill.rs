@@ -147,13 +147,23 @@ where
             "insert-last-argument" | "yank-last-arg" => {
                 state.record_undo();
                 let arg = state.numeric_arg.take();
-                self.yank_history_arg(state, arg, hooks)?;
+                self.yank_history_arg(state, arg, hooks, true)?;
                 state.after_non_kill_command();
             }
-            "yank-nth-arg" | "vi-yank-arg" => {
+            "yank-nth-arg" => {
                 state.record_undo();
                 let n = state.numeric_arg.take().unwrap_or(1);
-                self.yank_history_arg(state, Some(n), hooks)?;
+                self.yank_history_arg(state, Some(n), hooks, false)?;
+                state.after_non_kill_command();
+            }
+            "vi-yank-arg" => {
+                state.record_undo();
+                let n = match state.numeric_arg.take() {
+                    Some(arg) if arg > 0 => arg - 1,
+                    Some(arg) => arg,
+                    None => -1,
+                };
+                self.yank_history_arg(state, Some(n), hooks, false)?;
                 state.after_non_kill_command();
             }
             "shell-backward-kill-word" => {
@@ -161,8 +171,8 @@ where
                 let mut killed = Vec::new();
                 let direction = repeat_signed_collect_bytes(
                     state,
-                    |state| state.buffer.backward_kill_command_word(),
-                    |state| state.buffer.kill_command_word(),
+                    |state| shell_words::kill_shell_backward_word(&mut state.buffer, hooks),
+                    |state| shell_words::kill_shell_forward_word(&mut state.buffer, hooks),
                     |part, out| {
                         out.splice(0..0, part);
                     },
@@ -177,8 +187,8 @@ where
                 let mut killed = Vec::new();
                 let direction = repeat_signed_collect_bytes(
                     state,
-                    |state| state.buffer.kill_command_word(),
-                    |state| state.buffer.backward_kill_command_word(),
+                    |state| shell_words::kill_shell_forward_word(&mut state.buffer, hooks),
+                    |state| shell_words::kill_shell_backward_word(&mut state.buffer, hooks),
                     |part, out| out.extend(part),
                     |part, out| {
                         out.splice(0..0, part);
@@ -195,7 +205,7 @@ where
             }
             "vi-unix-word-rubout" => {
                 state.record_undo();
-                let killed = state.buffer.unix_word_rubout();
+                let killed = state.buffer.backward_kill_word(None);
                 state.push_kill(killed, KillDirection::Backward);
             }
             _ => unreachable!("named command group mismatch"),

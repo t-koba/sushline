@@ -248,7 +248,7 @@ impl<'a> BindApi<'a> {
                 message: format!("`{command}': unknown function name"),
             });
         }
-        Ok(self.keymap.unbind_command(command))
+        Ok(self.keymap.unbind_command_in_map(self.target_map, command))
     }
 
     fn list_function_names(&self) -> String {
@@ -260,7 +260,7 @@ impl<'a> BindApi<'a> {
             return self.print_reusable_keymap();
         }
         let mut lines = Vec::new();
-        for (_, seq, binding) in self.keymap.iter() {
+        for (_, seq, binding) in self.keymap.iter_map(self.target_map) {
             match binding {
                 KeyBinding::Command(command) if filter.is_none_or(|f| f == *command) => {
                     lines.push(format!("{}: {}", seq.display_inputrc(), command.as_str()));
@@ -287,9 +287,9 @@ impl<'a> BindApi<'a> {
         for command in BIND_FUNCTION_NAMES {
             let mut bindings = self
                 .keymap
-                .bindings_for_command_name(command)
+                .bindings_for_command_name_in_map(self.target_map, command)
                 .into_iter()
-                .map(|(_, seq)| seq.display_inputrc())
+                .map(|seq| seq.display_inputrc())
                 .collect::<Vec<_>>();
             bindings.sort();
             if bindings.is_empty() {
@@ -300,7 +300,7 @@ impl<'a> BindApi<'a> {
                 }
             }
         }
-        for (_, seq, binding) in self.keymap.iter() {
+        for (_, seq, binding) in self.keymap.iter_map(self.target_map) {
             match binding {
                 KeyBinding::NamedCommand(command)
                     if !BIND_FUNCTION_NAMES.contains(&command.as_str()) =>
@@ -312,13 +312,6 @@ impl<'a> BindApi<'a> {
                         "{}: \"{}\"",
                         seq.display_inputrc(),
                         escape_bytes(value)
-                    ));
-                }
-                KeyBinding::ApplicationCommand(command) => {
-                    lines.push(format!(
-                        "{}: \"{}\"",
-                        seq.display_inputrc(),
-                        escape(command)
                     ));
                 }
                 _ => {}
@@ -345,9 +338,9 @@ impl<'a> BindApi<'a> {
     fn function_binding_line(&self, command: &str, kind: FunctionLineKind) -> String {
         let mut bindings = self
             .keymap
-            .bindings_for_command_name(command)
+            .bindings_for_command_name_in_map(self.target_map, command)
             .into_iter()
-            .map(|(_, seq)| seq.display_inputrc())
+            .map(|seq| seq.display_inputrc())
             .collect::<Vec<_>>();
         bindings.sort();
         bindings.dedup();
@@ -380,7 +373,7 @@ impl<'a> BindApi<'a> {
 
     fn print_macros(&self, reusable: bool) -> String {
         let mut lines = Vec::new();
-        for (_, seq, binding) in self.keymap.iter() {
+        for (_, seq, binding) in self.keymap.iter_map(self.target_map) {
             if let KeyBinding::Macro(value) = binding {
                 if reusable {
                     lines.push(format!(
@@ -403,14 +396,10 @@ impl<'a> BindApi<'a> {
 
     fn print_application_commands(&self, reusable: bool) -> String {
         let mut lines = Vec::new();
-        for (_, seq, binding) in self.keymap.iter() {
+        for (_, seq, binding) in self.keymap.iter_map(self.target_map) {
             if let KeyBinding::ApplicationCommand(command) = binding {
                 if reusable {
-                    lines.push(format!(
-                        "{}: \"{}\"",
-                        seq.display_inputrc(),
-                        escape(command)
-                    ));
+                    lines.push(format!("{} \"{}\"", seq.display_inputrc(), escape(command)));
                 } else {
                     lines.push(format!(
                         "{} executes `{}`",
@@ -487,6 +476,9 @@ fn split_bind_spec(spec: &str) -> Result<(&str, &str), String> {
             return Ok((key, &spec[idx + 1..]));
         }
     }
+    if let Some((key, command)) = split_bind_x_reusable_spec(spec) {
+        return Ok((key, command));
+    }
     if !spec.trim_start().starts_with('"') {
         Err(format!(
             "{}: first non-whitespace character is not `\"'",
@@ -495,6 +487,32 @@ fn split_bind_spec(spec: &str) -> Result<(&str, &str), String> {
     } else {
         Err("missing ':' in application command binding".to_string())
     }
+}
+
+fn split_bind_x_reusable_spec(spec: &str) -> Option<(&str, &str)> {
+    let spec = spec.trim();
+    if !spec.starts_with('"') {
+        return None;
+    }
+    let mut escaped = false;
+    for (idx, ch) in spec.char_indices().skip(1) {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == '"' {
+            let rest = spec[idx + 1..].trim_start();
+            if rest.is_empty() {
+                return None;
+            }
+            return Some((&spec[..=idx], rest));
+        }
+    }
+    None
 }
 
 fn unquote_value(value: &str) -> Result<String, BindError> {
@@ -526,6 +544,7 @@ fn optional_newline(non_empty: bool) -> &'static str {
 }
 
 fn format_variable(name: &str, value: &str, reusable: bool) -> String {
+    let value = format_variable_value(name, value);
     if reusable {
         format!("set {name} {value}")
     } else {
@@ -570,6 +589,8 @@ const READLINE_VARIABLE_NAMES: &[&str] = &[
     "show-mode-in-prompt",
     "skip-completed-text",
     "visible-stats",
+    "active-region-end-color",
+    "active-region-start-color",
     "bell-style",
     "comment-begin",
     "completion-display-width",
@@ -584,11 +605,25 @@ const READLINE_VARIABLE_NAMES: &[&str] = &[
     "vi-ins-mode-string",
 ];
 
-const HIDDEN_READLINE_VARIABLE_NAMES: &[&str] = &[
-    "active-region-end-color",
-    "active-region-start-color",
-    "isearch-terminators",
-];
+fn format_variable_value(name: &str, value: &str) -> String {
+    if matches!(
+        name,
+        "emacs-mode-string" | "vi-cmd-mode-string" | "vi-ins-mode-string"
+    ) {
+        return value.to_string();
+    }
+    if value
+        .as_bytes()
+        .iter()
+        .any(|byte| matches!(*byte, b'\\' | 0x00..=0x1f | 0x7f))
+    {
+        escape_bytes(value.as_bytes())
+    } else {
+        value.to_string()
+    }
+}
+
+const HIDDEN_READLINE_VARIABLE_NAMES: &[&str] = &["isearch-terminators"];
 
 #[cfg(test)]
 mod tests;

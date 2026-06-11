@@ -9,6 +9,7 @@ pub struct MemoryTerminal {
     events: VecDeque<TerminalEvent>,
     pub out: String,
     pub columns: u16,
+    pub rows: u16,
     pub tty_special: Vec<(u8, &'static str)>,
     pub meta_enabled: Vec<bool>,
     pub keypad_enabled: Vec<bool>,
@@ -23,6 +24,7 @@ impl MemoryTerminal {
             events: events.into(),
             out: String::new(),
             columns: 80,
+            rows: 24,
             tty_special: Vec::new(),
             meta_enabled: Vec::new(),
             keypad_enabled: Vec::new(),
@@ -63,7 +65,7 @@ impl TerminalIo for MemoryTerminal {
     fn size(&self) -> io::Result<TerminalSize> {
         Ok(TerminalSize {
             columns: self.columns,
-            rows: 24,
+            rows: self.rows,
         })
     }
 

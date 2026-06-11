@@ -49,6 +49,19 @@ fn kills_and_moves_by_words() {
 }
 
 #[test]
+fn copies_current_word_when_point_is_inside_word() {
+    let mut b = LineBuffer::from("one two three");
+    b.set_point("one two thre".len());
+    assert_eq!(b.copy_backward_word(None), b"three");
+    assert_eq!(b.point(), "one two thre".len());
+
+    let mut b = LineBuffer::from("one two three");
+    b.set_point(1);
+    assert_eq!(b.copy_forward_word(None), b"one");
+    assert_eq!(b.point(), 1);
+}
+
+#[test]
 fn replaces_ranges_and_updates_point() {
     let mut b = LineBuffer::from("abcdef");
     b.replace_range(2, 5, "XY");

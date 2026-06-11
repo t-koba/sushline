@@ -332,6 +332,21 @@ pub(super) fn glob_complete_bytes(
     hooks: &impl Hooks,
     variables: &Variables,
 ) -> CompletionResponse {
+    if let Some(matches) = hooks.glob_expand_bytes(word) {
+        return CompletionResponse {
+            candidates: matches
+                .into_iter()
+                .map(|replacement| CompletionCandidate {
+                    replacement,
+                    display: None,
+                })
+                .collect(),
+            options: CompletionOptions {
+                filenames: true,
+                ..Default::default()
+            },
+        };
+    }
     if let Ok(word) = std::str::from_utf8(word) {
         return glob_complete(word, hooks, variables);
     }

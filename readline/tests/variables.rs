@@ -143,17 +143,16 @@ fn show_mode_in_prompt_adds_mode_string() {
 fn bracketed_paste_variable_enables_terminal_mode_and_pastes_literal_text() {
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"\x1b[200~".to_vec()),
-        TerminalEvent::Bytes(b"literal\ntext\x1b[201~".to_vec()),
+        TerminalEvent::Bytes(b"literal".to_vec()),
+        TerminalEvent::Bytes(b"\x03".to_vec()),
+        TerminalEvent::Bytes(b"\ntext\x1b[201~".to_vec()),
         TerminalEvent::Bytes(b"\r".to_vec()),
     ]);
     let mut line = Editor::new(Config::default(), terminal, History::new());
     line.load_inputrc_str("set enable-bracketed-paste on")
         .unwrap();
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
-    assert_eq!(
-        result,
-        ReadlineResult::Line("literal\ntext".as_bytes().to_vec())
-    );
+    assert_eq!(result, ReadlineResult::Line(b"literal\x03\ntext".to_vec()));
     assert!(line.terminal().out.contains("\x1b[?2004h"));
     assert!(line.terminal().out.contains("\x1b[?2004l"));
 }

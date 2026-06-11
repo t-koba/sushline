@@ -1,19 +1,12 @@
 use crate::buffer::LineBuffer;
-use crate::hooks::Hooks;
+use crate::hooks::{Hooks, validate_token_spans};
 
-fn hook_token_spans(line: &[u8], hooks: &impl Hooks) -> Option<Vec<(usize, usize)>> {
-    let spans = hooks.tokenize_with_spans(line)?;
-    let mut previous_end = 0;
-    for &(start, end) in &spans {
-        if start >= end || end > line.len() || start < previous_end {
-            return None;
-        }
-        previous_end = end;
-    }
-    Some(spans)
+fn hook_token_spans(line: &[u8], hooks: &mut impl Hooks) -> Option<Vec<(usize, usize)>> {
+    let spans = hooks.shell_word_spans(line)?;
+    validate_token_spans(line, &spans).then_some(spans)
 }
 
-pub(super) fn move_shell_forward_word(buffer: &mut LineBuffer, hooks: &impl Hooks) -> bool {
+pub(super) fn move_shell_forward_word(buffer: &mut LineBuffer, hooks: &mut impl Hooks) -> bool {
     let Some(spans) = hook_token_spans(buffer.as_bytes(), hooks) else {
         return buffer.forward_command_word();
     };
@@ -25,7 +18,7 @@ pub(super) fn move_shell_forward_word(buffer: &mut LineBuffer, hooks: &impl Hook
     buffer.point() != point
 }
 
-pub(super) fn move_shell_backward_word(buffer: &mut LineBuffer, hooks: &impl Hooks) -> bool {
+pub(super) fn move_shell_backward_word(buffer: &mut LineBuffer, hooks: &mut impl Hooks) -> bool {
     let Some(spans) = hook_token_spans(buffer.as_bytes(), hooks) else {
         return buffer.backward_command_word();
     };
@@ -37,7 +30,7 @@ pub(super) fn move_shell_backward_word(buffer: &mut LineBuffer, hooks: &impl Hoo
     buffer.point() != point
 }
 
-pub(super) fn kill_shell_forward_word(buffer: &mut LineBuffer, hooks: &impl Hooks) -> Vec<u8> {
+pub(super) fn kill_shell_forward_word(buffer: &mut LineBuffer, hooks: &mut impl Hooks) -> Vec<u8> {
     let start = buffer.point();
     if move_shell_forward_word(buffer, hooks) {
         buffer.delete_range_bytes(start, buffer.point())
@@ -46,7 +39,7 @@ pub(super) fn kill_shell_forward_word(buffer: &mut LineBuffer, hooks: &impl Hook
     }
 }
 
-pub(super) fn kill_shell_backward_word(buffer: &mut LineBuffer, hooks: &impl Hooks) -> Vec<u8> {
+pub(super) fn kill_shell_backward_word(buffer: &mut LineBuffer, hooks: &mut impl Hooks) -> Vec<u8> {
     let end = buffer.point();
     if move_shell_backward_word(buffer, hooks) {
         buffer.delete_range_bytes(buffer.point(), end)
@@ -55,7 +48,7 @@ pub(super) fn kill_shell_backward_word(buffer: &mut LineBuffer, hooks: &impl Hoo
     }
 }
 
-pub(super) fn transpose_shell_words(buffer: &mut LineBuffer, hooks: &impl Hooks) -> bool {
+pub(super) fn transpose_shell_words(buffer: &mut LineBuffer, hooks: &mut impl Hooks) -> bool {
     let Some(spans) = hook_token_spans(buffer.as_bytes(), hooks) else {
         return buffer.transpose_command_words();
     };

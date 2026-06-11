@@ -23,7 +23,7 @@ where
         state: &mut EditorState,
         command: EditCommand,
         key: &[u8],
-        hooks: &impl Hooks,
+        hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
         match command {
             EditCommand::BackwardChar => {
@@ -131,7 +131,7 @@ where
         state: &mut EditorState,
         command: &str,
         _key: &[u8],
-        hooks: &impl Hooks,
+        hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
         match command {
             "backward-byte" => {
@@ -165,27 +165,25 @@ where
                 state.after_non_kill_command();
             }
             "shell-backward-word" => {
-                repeat_signed(
-                    state,
-                    |state| {
-                        shell_words::move_shell_backward_word(&mut state.buffer, hooks);
-                    },
-                    |state| {
+                let arg = state.numeric_arg.take().unwrap_or(1);
+                for _ in 0..arg.unsigned_abs() {
+                    if arg < 0 {
                         shell_words::move_shell_forward_word(&mut state.buffer, hooks);
-                    },
-                );
+                    } else {
+                        shell_words::move_shell_backward_word(&mut state.buffer, hooks);
+                    }
+                }
                 state.after_non_kill_command();
             }
             "shell-forward-word" => {
-                repeat_signed(
-                    state,
-                    |state| {
-                        shell_words::move_shell_forward_word(&mut state.buffer, hooks);
-                    },
-                    |state| {
+                let arg = state.numeric_arg.take().unwrap_or(1);
+                for _ in 0..arg.unsigned_abs() {
+                    if arg < 0 {
                         shell_words::move_shell_backward_word(&mut state.buffer, hooks);
-                    },
-                );
+                    } else {
+                        shell_words::move_shell_forward_word(&mut state.buffer, hooks);
+                    }
+                }
                 state.after_non_kill_command();
             }
             _ => unreachable!("named command group mismatch"),

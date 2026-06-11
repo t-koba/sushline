@@ -107,16 +107,16 @@ pub(super) fn os_string_completion_bytes(value: &std::ffi::OsStr) -> Vec<u8> {
 
 pub(crate) fn complete_commands_with_hooks_bytes(
     word: &[u8],
-    hooks: &impl Hooks,
+    hooks: &mut impl Hooks,
 ) -> CompletionResponse {
     let mut response = complete_commands_bytes(word);
     response.candidates.extend(
         hooks
             .command_names()
             .into_iter()
-            .filter(|name| name.as_bytes().starts_with(word))
+            .filter(|name| name.starts_with(word))
             .map(|name| CompletionCandidate {
-                replacement: name.into_bytes(),
+                replacement: name,
                 display: None,
             }),
     );
@@ -125,13 +125,20 @@ pub(crate) fn complete_commands_with_hooks_bytes(
 
 pub(super) fn complete_variables(word: &str, hooks: &mut impl Hooks) -> CompletionResponse {
     let has_sigil = word.starts_with('$');
-    let prefix = word.strip_prefix('$').unwrap_or(word);
+    let prefix = word.strip_prefix('$').unwrap_or(word).as_bytes();
     let candidates = hooks
         .variable_names()
         .into_iter()
         .filter(|name| name.starts_with(prefix))
         .map(|name| CompletionCandidate {
-            replacement: if has_sigil { format!("${name}") } else { name }.into_bytes(),
+            replacement: if has_sigil {
+                let mut replacement = Vec::with_capacity(name.len() + 1);
+                replacement.push(b'$');
+                replacement.extend(name);
+                replacement
+            } else {
+                name
+            },
             display: None,
         })
         .collect();
@@ -141,7 +148,7 @@ pub(super) fn complete_variables(word: &str, hooks: &mut impl Hooks) -> Completi
     }
 }
 
-pub(super) fn complete_users(word: &str, hooks: &impl Hooks) -> CompletionResponse {
+pub(super) fn complete_users(word: &str, hooks: &mut impl Hooks) -> CompletionResponse {
     let prefix = word.strip_prefix('~').unwrap_or(word);
     let mut names = BTreeMap::<String, ()>::new();
     if let Ok(passwd) = fs::read_to_string("/etc/passwd") {
@@ -156,7 +163,7 @@ pub(super) fn complete_users(word: &str, hooks: &impl Hooks) -> CompletionRespon
         names.insert(name, ());
     }
     for name in hooks.user_names() {
-        names.insert(name, ());
+        names.insert(String::from_utf8_lossy(&name).into_owned(), ());
     }
     let candidates = names
         .into_keys()
@@ -176,7 +183,7 @@ pub(super) fn complete_users(word: &str, hooks: &impl Hooks) -> CompletionRespon
     }
 }
 
-pub(super) fn complete_hosts(word: &str, hooks: &impl Hooks) -> CompletionResponse {
+pub(super) fn complete_hosts(word: &str, hooks: &mut impl Hooks) -> CompletionResponse {
     let prefix = word.strip_prefix('@').unwrap_or(word);
     let mut hosts = BTreeMap::<String, ()>::new();
     if let Ok(hosts_source) = fs::read_to_string("/etc/hosts") {
@@ -193,7 +200,7 @@ pub(super) fn complete_hosts(word: &str, hooks: &impl Hooks) -> CompletionRespon
         hosts.insert(host, ());
     }
     for host in hooks.host_names() {
-        hosts.insert(host, ());
+        hosts.insert(String::from_utf8_lossy(&host).into_owned(), ());
     }
     let candidates = hosts
         .into_keys()
@@ -266,15 +273,15 @@ pub(super) fn known_host_names() -> Vec<String> {
 
 pub(crate) fn glob_complete(
     word: &str,
-    hooks: &impl Hooks,
+    hooks: &mut impl Hooks,
     variables: &Variables,
 ) -> CompletionResponse {
-    if let Some(matches) = hooks.glob_expand(word) {
+    if let Some(matches) = hooks.glob_expand(word.as_bytes()) {
         return CompletionResponse {
             candidates: matches
                 .into_iter()
                 .map(|replacement| CompletionCandidate {
-                    replacement: replacement.into_bytes(),
+                    replacement,
                     display: None,
                 })
                 .collect(),
@@ -329,10 +336,10 @@ pub(crate) fn glob_complete(
 
 pub(super) fn glob_complete_bytes(
     word: &[u8],
-    hooks: &impl Hooks,
+    hooks: &mut impl Hooks,
     variables: &Variables,
 ) -> CompletionResponse {
-    if let Some(matches) = hooks.glob_expand_bytes(word) {
+    if let Some(matches) = hooks.glob_expand(word) {
         return CompletionResponse {
             candidates: matches
                 .into_iter()

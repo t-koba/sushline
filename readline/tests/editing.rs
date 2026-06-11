@@ -2,14 +2,14 @@ mod common;
 
 use common::MemoryTerminal;
 use readline::{
-    ApplicationLineExpansionContext, Config, Edit, Editor, History, Hooks, InputrcPath, Prompt,
+    Config, Edit, Editor, History, Hooks, InputrcPath, LineExpansionContext, Prompt,
     ReadlineResult, SpellCorrectionContext, TerminalEvent,
 };
 
 struct EditingHook;
 
 impl Hooks for EditingHook {
-    fn version(&self) -> Option<String> {
+    fn version(&mut self) -> Option<String> {
         Some("GNU bash, version test".to_string())
     }
 
@@ -19,18 +19,22 @@ impl Hooks for EditingHook {
         Some(out)
     }
 
-    fn expand_application_line(&mut self, line: &[u8]) -> Option<Vec<u8>> {
+    fn expand_line(&mut self, context: LineExpansionContext<'_>) -> Option<Edit> {
         let mut out = b"expanded ".to_vec();
-        out.extend_from_slice(line);
-        Some(out)
+        out.extend_from_slice(context.line);
+        Some(Edit {
+            line: Some(out),
+            point: None,
+            mark: None,
+        })
     }
 
-    fn tty_status(&self) -> Option<String> {
+    fn tty_status(&mut self) -> Option<String> {
         Some("speed 9600 baud".to_string())
     }
 
-    fn spell_correct(&mut self, word: &[u8]) -> Option<Vec<u8>> {
-        (word == b"teh").then(|| b"the".to_vec())
+    fn spell_correct(&mut self, context: SpellCorrectionContext<'_>) -> Option<Vec<u8>> {
+        (context.word == b"teh").then(|| b"the".to_vec())
     }
 }
 
@@ -305,7 +309,7 @@ fn shell_word_commands_use_hook_token_spans() {
     struct ColonTokenHook;
 
     impl Hooks for ColonTokenHook {
-        fn tokenize_with_spans(&self, line: &[u8]) -> Option<Vec<(usize, usize)>> {
+        fn shell_word_spans(&mut self, line: &[u8]) -> Option<Vec<(usize, usize)>> {
             let mut spans = Vec::new();
             let mut start = None;
             for (idx, byte) in line.iter().copied().enumerate() {
@@ -383,7 +387,7 @@ fn editing_word_breaks_hook_controls_word_commands() {
     struct WordBreakHook;
 
     impl Hooks for WordBreakHook {
-        fn editing_word_breaks(&self) -> Option<Vec<u8>> {
+        fn editing_word_breaks(&mut self) -> Option<Vec<u8>> {
             Some(b" \t\n".to_vec())
         }
     }
@@ -488,10 +492,7 @@ fn contextual_shell_expand_hook_can_set_line_and_point() {
     }
 
     impl Hooks for ContextShellExpandHook {
-        fn expand_application_line_with_context(
-            &mut self,
-            context: ApplicationLineExpansionContext<'_>,
-        ) -> Option<Edit> {
+        fn expand_line(&mut self, context: LineExpansionContext<'_>) -> Option<Edit> {
             assert_eq!(context.line, b"abc");
             assert_eq!(context.point, 1);
             self.seen = true;
@@ -524,10 +525,7 @@ fn contextual_spell_correct_hook_receives_line_and_word_range() {
     }
 
     impl Hooks for ContextSpellHook {
-        fn spell_correct_with_context(
-            &mut self,
-            context: SpellCorrectionContext<'_>,
-        ) -> Option<Vec<u8>> {
+        fn spell_correct(&mut self, context: SpellCorrectionContext<'_>) -> Option<Vec<u8>> {
             assert_eq!(context.line, b"say teh");
             assert_eq!(context.point, 7);
             assert_eq!(context.word_start, 4);

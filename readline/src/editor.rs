@@ -439,19 +439,12 @@ where
         hooks: &mut impl Hooks,
     ) -> Result<HistoryExpansion, String> {
         let policy = self.history_expansion_policy();
-        hooks
-            .expand_history_with_status(HistoryExpansionContext {
-                line,
-                history: &self.history,
-                histchars: self.histchars(),
-                policy: &policy,
-            })
-            .unwrap_or_else(|| {
-                Ok(HistoryExpansion {
-                    line: line.to_vec(),
-                    print_only: false,
-                })
-            })
+        hooks.expand_history(HistoryExpansionContext {
+            line,
+            history: &self.history,
+            histchars: self.histchars(),
+            policy: &policy,
+        })
     }
 
     pub(crate) fn try_expand_history(

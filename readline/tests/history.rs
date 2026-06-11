@@ -25,17 +25,19 @@ impl Hooks for HistoryHook {
     fn expand_history(
         &mut self,
         context: HistoryExpansionContext<'_>,
-    ) -> Option<Result<Vec<u8>, String>> {
-        Some(
-            expand_history(
-                context.line,
-                context.history,
-                context.histchars,
-                context.policy,
-                |_| false,
-            )
-            .map_err(|err| err.message()),
+    ) -> Result<HistoryExpansion, String> {
+        expand_history(
+            context.line,
+            context.history,
+            context.histchars,
+            context.policy,
+            |_| false,
         )
+        .map(|line| HistoryExpansion {
+            line,
+            print_only: false,
+        })
+        .map_err(|err| err.message())
     }
 }
 
@@ -53,7 +55,7 @@ impl Hooks for HistoryAndAliasHook {
     fn expand_history(
         &mut self,
         context: HistoryExpansionContext<'_>,
-    ) -> Option<Result<Vec<u8>, String>> {
+    ) -> Result<HistoryExpansion, String> {
         HistoryHook.expand_history(context)
     }
 }
@@ -166,15 +168,15 @@ fn history_expansion_hook_can_return_print_only_status() {
     struct PrintOnlyHook;
 
     impl Hooks for PrintOnlyHook {
-        fn expand_history_with_status(
+        fn expand_history(
             &mut self,
             context: HistoryExpansionContext<'_>,
-        ) -> Option<Result<HistoryExpansion, String>> {
+        ) -> Result<HistoryExpansion, String> {
             assert_eq!(context.line, b"!!");
-            Some(Ok(HistoryExpansion {
+            Ok(HistoryExpansion {
                 line: b"hook-expanded".to_vec(),
                 print_only: true,
-            }))
+            })
         }
     }
 
@@ -238,9 +240,12 @@ fn history_expansion_hook_can_replace_core_expander() {
         fn expand_history(
             &mut self,
             context: HistoryExpansionContext<'_>,
-        ) -> Option<Result<Vec<u8>, String>> {
+        ) -> Result<HistoryExpansion, String> {
             assert_eq!(context.line, b"!!");
-            Some(Ok(b"hook-expanded".to_vec()))
+            Ok(HistoryExpansion {
+                line: b"hook-expanded".to_vec(),
+                print_only: false,
+            })
         }
     }
 

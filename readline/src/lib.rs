@@ -31,8 +31,8 @@ pub use history::expansion::{
 };
 pub use history::{History, HistoryDirection, HistoryEntry, HistorySearchMatch, HistoryState};
 pub use hooks::{
-    ApplicationLineExpansionContext, CommandContext, Edit, HistoryExpansionContext, Hooks,
-    QuoteContext, SpellCorrectionContext,
+    CommandContext, Edit, HistoryExpansionContext, Hooks, LineExpansionContext, QuoteContext,
+    SpellCorrectionContext,
 };
 pub use inputrc::{InputrcError, InputrcParser};
 pub use keymap::KeyMapName;

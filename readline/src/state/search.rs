@@ -1,5 +1,13 @@
 use history::History;
 
+#[derive(Debug, Default)]
+pub(crate) struct SearchState {
+    pub(crate) reverse_search: Option<ReverseSearchState>,
+    pub(crate) non_incremental_search: Option<NonIncrementalSearchState>,
+    pub(crate) last_search: Option<Vec<u8>>,
+    pub(crate) last_search_direction: Option<SearchDirection>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ReverseSearchState {
     pub(crate) query: Vec<u8>,

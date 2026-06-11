@@ -1,10 +1,70 @@
 use crate::buffer::LineBuffer;
+use history::HistoryUndoEntry;
+
+use super::EditorState;
+
+#[derive(Debug, Default)]
+pub(crate) struct UndoState {
+    pub(crate) undo_stack: Vec<UndoEntry>,
+    pub(crate) pending_undo: Option<LineBuffer>,
+    pub(crate) last_undo_was_insert: bool,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct UndoEntry {
     pub(crate) start: usize,
     pub(crate) deleted: Vec<u8>,
     pub(crate) inserted: Vec<u8>,
+}
+
+impl EditorState {
+    pub(crate) fn record_undo(&mut self) {
+        self.undo
+            .pending_undo
+            .get_or_insert_with(|| self.buffer.clone());
+    }
+
+    pub(crate) fn undo(&mut self) {
+        self.commit_pending_undo();
+        if let Some(entry) = self.undo.undo_stack.pop() {
+            entry.undo(&mut self.buffer);
+        }
+        self.after_non_kill_command();
+    }
+
+    pub(crate) fn undo_snapshot_lines(&self) -> Vec<HistoryUndoEntry> {
+        self.undo
+            .undo_stack
+            .iter()
+            .map(|entry| HistoryUndoEntry {
+                start: entry.start,
+                deleted: entry.deleted.clone(),
+                inserted: entry.inserted.clone(),
+            })
+            .collect()
+    }
+
+    pub(crate) fn restore_undo_snapshot_lines(&mut self, lines: &[HistoryUndoEntry]) {
+        self.undo.undo_stack = lines
+            .iter()
+            .map(|entry| UndoEntry {
+                start: entry.start,
+                deleted: entry.deleted.clone(),
+                inserted: entry.inserted.clone(),
+            })
+            .collect();
+    }
+
+    pub(crate) fn commit_pending_undo(&mut self) {
+        let Some(before) = self.undo.pending_undo.take() else {
+            return;
+        };
+        if before != self.buffer
+            && let Some(entry) = UndoEntry::from_buffers(&before, &self.buffer)
+        {
+            self.undo.undo_stack.push(entry);
+        }
+    }
 }
 
 impl UndoEntry {

@@ -232,7 +232,7 @@ where
             .entries()
             .iter()
             .rev()
-            .flat_map(|entry| self.tokenize(&entry.line_bytes, hooks))
+            .flat_map(|entry| self.shell_words(&entry.line_bytes, hooks))
             .filter(|word| word.starts_with(&prefix) && word.as_slice() != prefix.as_slice())
         {
             if !matches.iter().any(|seen| seen == &word) {
@@ -258,7 +258,7 @@ where
         &mut self,
         state: &mut EditorState,
         arg: Option<i32>,
-        hooks: &impl Hooks,
+        hooks: &mut impl Hooks,
         cycle_history: bool,
     ) -> Result<(), ReadlineError> {
         let entries = self.history.entries();
@@ -287,7 +287,7 @@ where
             self.ding()?;
             return Ok(());
         };
-        let words = self.tokenize(&entry.line_bytes, hooks);
+        let words = self.shell_words(&entry.line_bytes, hooks);
         if words.is_empty() {
             return Ok(());
         }
@@ -311,9 +311,9 @@ where
         Ok(())
     }
 
-    fn tokenize(&self, line: &[u8], hooks: &impl Hooks) -> Vec<Vec<u8>> {
+    fn shell_words(&self, line: &[u8], hooks: &mut impl Hooks) -> Vec<Vec<u8>> {
         hooks
-            .tokenize(line)
+            .shell_words(line)
             .unwrap_or_else(|| command_words(line, &HistoryExpansionPolicy::default()))
     }
 }

@@ -126,7 +126,7 @@ where
         state: &mut EditorState,
         command: &str,
         key: &[u8],
-        hooks: &impl Hooks,
+        hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
         match command {
             "vi-bWord" | "vi-backward-bigword" => {

@@ -41,6 +41,15 @@ pub struct HistoryExpansion {
     pub print_only: bool,
 }
 
+impl HistoryExpansion {
+    pub fn unchanged(line: &[u8]) -> Self {
+        Self {
+            line: line.to_vec(),
+            print_only: false,
+        }
+    }
+}
+
 type HistorySubstitution = (Vec<u8>, Vec<u8>);
 type HistorySubstitutionResult =
     Result<(Vec<u8>, usize, HistorySubstitution), HistoryExpansionError>;

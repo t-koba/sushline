@@ -18,7 +18,9 @@ Public modules:
 - `sushline::readline`: editor, keymaps, inputrc, bind, completion, terminal
   I/O, prompt handling, hooks, and editor-owned history types.
 - `sushline::history`: history entries, navigation, search, state/stifle APIs,
-  file persistence, timestamps, and history expansion.
+  file persistence, timestamps, and history expansion. This is a thin alias to
+  the history crate; `sushline::readline::History` is the canonical path when
+  embedding an `Editor`.
 
 Embedders should depend on the root crate.
 
@@ -55,10 +57,45 @@ Sushline accesses embedding-program behavior through
 `sushline::readline::Hooks`.
 
 Main hook types are `CommandContext`, `HistoryExpansionContext`,
+`LineExpansionContext`, `SpellCorrectionContext`, `QuoteContext`,
 `CompletionRequest`, `CompletionResponse`, and `Edit`. Hook methods cover
-variables, expansion, completion sources, quoting, word-break policy,
+line expansion, history expansion, completion sources, completion quoting,
+glob expansion, command/user/host/variable name sources, shell word policy,
 application commands, status text, spelling correction, signals, and version
 text.
+
+`Hooks` is intentionally a single trait with default methods. `Editor` does
+not store hooks; each `read_line` call receives `&mut impl Hooks`, which lets an
+embedder borrow application state for exactly one read. Hook methods use
+`&mut self` uniformly because real embedders commonly update shell state,
+completion caches, or signal flags while answering a request.
+
+The default `expand_history` implementation runs sushline's built-in history
+expander and returns `HistoryExpansion`, including print-only status. Embedders
+that want to suppress expansion return `HistoryExpansion::unchanged(line)`.
+Completion uses two distinct hooks: `complete` is programmable completion, and
+`default_complete` is the application-owned default path used when no compspec
+exists or when an empty programmable result requests `bashdefault`.
+
+Most hook payloads are byte-oriented. Command, user, host, and variable name
+sources return `Vec<Vec<u8>>`; `glob_expand` accepts bytes; shell word hooks are
+split into `shell_word_spans` for editing by word ranges and `shell_words` for
+history-word commands. The default `shell_words` derives words from valid
+spans, but a words-only hook does not affect shell-word movement.
+
+Hook API migration:
+
+| Old API | New API |
+|---|---|
+| `expand_application_line`, `expand_application_line_with_context` | `expand_line(LineExpansionContext)` |
+| `expand_history_with_status` | `expand_history` returning `HistoryExpansion` |
+| `expand_history` returning `Option<Result<Vec<u8>, String>>` | `expand_history` returning `Result<HistoryExpansion, String>` |
+| `spell_correct`, `spell_correct_with_context` | `spell_correct(SpellCorrectionContext)` |
+| `glob_expand`, `glob_expand_bytes` | `glob_expand(&[u8])` |
+| `tokenize_with_spans` | `shell_word_spans` |
+| `tokenize` | `shell_words` |
+| `quote` | implement `quote_completion`; check `ctx.quote` and `ctx.quote_filename` there |
+| `get_variable`, `set_variable` | removed; sushline never called them |
 
 `bind` and inputrc accept function names from multiple functional areas.
 Editor-owned functions are handled internally; application-owned functions are

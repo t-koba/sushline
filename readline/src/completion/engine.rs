@@ -356,7 +356,7 @@ where
         state: &mut EditorState,
         previous: MenuCompletionState,
         backward: bool,
-        hooks: &impl Hooks,
+        hooks: &mut impl Hooks,
     ) -> Result<(), ReadlineError> {
         let response = previous.response;
         let context = MenuCompleteContext {
@@ -377,7 +377,7 @@ where
         state: &mut EditorState,
         response: CompletionResponse,
         backward: bool,
-        hooks: &impl Hooks,
+        hooks: &mut impl Hooks,
         context: MenuCompleteContext,
     ) -> Result<(), ReadlineError> {
         let next_index = self.menu_complete_cycle(
@@ -453,7 +453,7 @@ where
         &self,
         response: &CompletionResponse,
         context: &MenuCompleteContext,
-        hooks: &impl Hooks,
+        hooks: &mut impl Hooks,
         completion_type: CompletionType,
     ) -> Vec<u8> {
         let Some(prefix) = common_prefix_bytes(&response.candidates) else {
@@ -481,7 +481,7 @@ where
         response: &CompletionResponse,
         context: &MenuCompleteContext,
         next_index: usize,
-        hooks: &impl Hooks,
+        hooks: &mut impl Hooks,
         state: &EditorState,
         completion_type: CompletionType,
     ) -> Vec<u8> {
@@ -648,7 +648,7 @@ where
         edit: &CompletionEdit,
         completion_type: CompletionType,
         quote_filename: bool,
-        hooks: &impl Hooks,
+        hooks: &mut impl Hooks,
     ) -> Vec<u8> {
         if let Some(quoted) = hooks.quote_completion(QuoteContext {
             value,
@@ -696,7 +696,7 @@ where
         edit: &CompletionEdit,
         completion_type: CompletionType,
         quote_filename: bool,
-        hooks: &impl Hooks,
+        hooks: &mut impl Hooks,
         append_filename_slash: bool,
     ) -> Vec<u8> {
         let mut replacement = candidate.replacement_bytes().to_vec();
@@ -709,7 +709,7 @@ where
     pub(super) fn completion_edit(
         &self,
         state: &EditorState,
-        hooks: &impl Hooks,
+        hooks: &mut impl Hooks,
     ) -> CompletionEdit {
         let word_breaks = self.completion_word_breaks(hooks);
         completion_edit(
@@ -723,13 +723,13 @@ where
         FilenameOptions::from_variables(&self.variables)
     }
 
-    pub(crate) fn completion_word_breaks(&self, hooks: &impl Hooks) -> Vec<u8> {
+    pub(crate) fn completion_word_breaks(&self, hooks: &mut impl Hooks) -> Vec<u8> {
         hooks
             .completion_word_breaks()
             .unwrap_or_else(|| b" \t\n".to_vec())
     }
 
-    pub(crate) fn editing_word_breaks(&self, hooks: &impl Hooks) -> Option<String> {
+    pub(crate) fn editing_word_breaks(&self, hooks: &mut impl Hooks) -> Option<String> {
         hooks
             .editing_word_breaks()
             .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())

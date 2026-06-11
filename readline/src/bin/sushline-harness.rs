@@ -5,8 +5,8 @@ use std::{fs, path::Path};
 struct HarnessApplication;
 
 impl Hooks for HarnessApplication {
-    fn command_names(&self) -> Vec<String> {
-        let mut names = vec!["echo".to_string()];
+    fn command_names(&mut self) -> Vec<Vec<u8>> {
+        let mut names = vec![b"echo".to_vec()];
         for dir in std::env::var_os("PATH")
             .into_iter()
             .flat_map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
@@ -17,7 +17,13 @@ impl Hooks for HarnessApplication {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if is_executable_file(&path) {
-                    names.push(entry.file_name().to_string_lossy().into_owned());
+                    names.push(
+                        entry
+                            .file_name()
+                            .to_string_lossy()
+                            .into_owned()
+                            .into_bytes(),
+                    );
                 }
             }
         }
@@ -26,8 +32,10 @@ impl Hooks for HarnessApplication {
         names
     }
 
-    fn variable_names(&mut self) -> Vec<String> {
-        let mut names = std::env::vars().map(|(name, _)| name).collect::<Vec<_>>();
+    fn variable_names(&mut self) -> Vec<Vec<u8>> {
+        let mut names = std::env::vars()
+            .map(|(name, _)| name.into_bytes())
+            .collect::<Vec<_>>();
         names.sort();
         names.dedup();
         names

@@ -1,6 +1,6 @@
 use super::*;
 use crate::completion::CompletionType;
-use crate::hooks::{ApplicationLineExpansionContext, SpellCorrectionContext};
+use crate::hooks::{LineExpansionContext, SpellCorrectionContext};
 
 impl<T> Editor<T>
 where
@@ -274,12 +274,10 @@ where
             }
             "shell-expand-line" => {
                 state.record_undo();
-                if let Some(edit) =
-                    hooks.expand_application_line_with_context(ApplicationLineExpansionContext {
-                        line: state.buffer.as_bytes(),
-                        point: state.buffer.byte_point(),
-                    })
-                {
+                if let Some(edit) = hooks.expand_line(LineExpansionContext {
+                    line: state.buffer.as_bytes(),
+                    point: state.buffer.byte_point(),
+                }) {
                     if let Some(line) = edit.line {
                         state.buffer = LineBuffer::from_bytes(line);
                     }
@@ -307,7 +305,7 @@ where
                 let word = state.buffer.word_before_point(Some(&word_breaks));
                 let end = state.buffer.point();
                 let start = end.saturating_sub(word.len());
-                if let Some(corrected) = hooks.spell_correct_with_context(SpellCorrectionContext {
+                if let Some(corrected) = hooks.spell_correct(SpellCorrectionContext {
                     line: state.buffer.as_bytes(),
                     point: state.buffer.byte_point(),
                     word_start: start,

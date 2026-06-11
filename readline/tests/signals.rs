@@ -25,7 +25,7 @@ fn hooks_can_report_pending_sigint() {
     }
 
     impl Hooks for SignalHook {
-        fn check_signals(&self) -> Option<i32> {
+        fn check_signals(&mut self) -> Option<i32> {
             self.pending.replace(false).then_some(libc::SIGINT)
         }
     }

@@ -40,7 +40,7 @@ external editing, and `bind -x` command execution, must be supplied through
 
 | Area | Baseline behavior | Sushline behavior | Status |
 | --- | --- | --- | --- |
-| Command-word parsing | Readline shell-word commands are typically backed by the embedding shell's lexer state. | Sushline's built-in command-word parser matches covered oracle cases, including quoted history words, command substitutions, process substitutions, and shell operator tokens. Embedders that need exact language lexer state can provide byte spans through `Hooks::tokenize_with_spans`; shell-word movement, kill, transpose, dynamic history completion, and yank-argument commands use those hook boundaries. | Hook-backed |
+| Command-word parsing | Readline shell-word commands are typically backed by the embedding shell's lexer state. | Sushline's built-in command-word parser matches covered oracle cases, including quoted history words, command substitutions, process substitutions, and shell operator tokens. Embedders that need exact language lexer state can provide byte spans through `Hooks::shell_word_spans`; shell-word movement, kill, and transpose use spans, while dynamic history completion and yank-argument commands use `Hooks::shell_words`. | Hook-backed |
 | Filename quoting and locale edges | Readline behavior depends on quote state, locale, byte/character handling, and shell integration. | Sushline has byte-oriented dequote/requote logic and matching options. Several common quoted cases, including unquoted filenames containing spaces and shell metacharacters, are covered; embedders can provide application quoting through `Hooks::quote_completion`, with `Hooks::quote` retained for legacy unquoted filename quoting. | Hook-backed |
 | Embedder-owned completion categories | Command and variable completion may include aliases, reserved words, functions, builtins, variables, and executables owned by the embedding application. | Sushline provides executables and platform fallbacks; embedder-owned names are supplied through completion hooks such as `Hooks::command_names` and `Hooks::variable_names`. | Hook-backed |
 | Application expansion and embedder state commands | Commands such as `shell-expand-line`, `spell-correct-word`, `display-shell-version`, `tty-status`, external editing, and `bind -x` use application-owned state. | Sushline dispatches those responsibilities through context-carrying hooks and applies returned edits/output in the Readline command flow. | Hook-backed |
@@ -56,7 +56,7 @@ external editing, and `bind -x` command execution, must be supplied through
 | Init file/inputrc | Compatible | `set`, key bindings, macros, `$if`, `$else`, `$endif`, `$include`, version/term/mode/application conditions, include depth checks. | Parser behavior and bind-visible output are covered; arbitrary shell/application state is intentionally not inferred by Sushline. |
 | Completion | Mixed | Default completion, listing, insertion, menu completion, export-completions, display formatting, many filename options. | Embedder-owned categories and application-specific quoting are represented through hooks. |
 | History navigation/search | Compatible | Previous/next, beginning/end, prefix search, substring search, incremental and non-incremental search state for covered editor behavior. | No known gap in the scoped Rust behavior. |
-| History expansion | Compatible | Event designators including `!#`, word designators, modifiers including `:p` status, quick substitution, policy variables, quote state, inhibit predicates. | Alias expansion and exact application lexer state can be supplied through hooks; `Hooks::expand_history_with_status` preserves print-only status for Sush-owned expansion. |
+| History expansion | Compatible | Event designators including `!#`, word designators, modifiers including `:p` status, quick substitution, policy variables, quote state, inhibit predicates. | Alias expansion and exact application lexer state can be supplied through hooks; `Hooks::expand_history` returns `HistoryExpansion` and preserves print-only status for Sush-owned expansion. |
 | History file storage | Compatible | Read, range read, load, write, append, append-new, truncate, timestamp records, write/append timestamp control, default `~/.history` helpers, file locking on Unix. | No known gap in the scoped Rust file behavior; GNU C globals are out of scope. |
 
 ## User-Facing Readline Commands
@@ -70,7 +70,7 @@ sections.
 | --- | --- | --- |
 | `beginning-of-line`, `end-of-line`, `forward-char`, `backward-char`, `forward-word`, `backward-word` | Compatible | Covered by direct editor and oracle tests. |
 | `forward-byte`, `backward-byte` | Compatible | Byte-position movement, including insertion inside UTF-8 byte sequences, is covered by GNU oracle tests. |
-| `shell-forward-word`, `shell-backward-word` | Hook-backed | Covered command-word cases match, including metacharacters and process substitution; `Hooks::tokenize_with_spans` supplies exact shell lexer boundaries when the embedder has them. |
+| `shell-forward-word`, `shell-backward-word` | Hook-backed | Covered command-word cases match, including metacharacters and process substitution; `Hooks::shell_word_spans` supplies exact shell lexer boundaries when the embedder has them. |
 | `previous-screen-line`, `next-screen-line` | Compatible | Covered by GNU oracle tests under a narrow wrapped terminal. |
 | `clear-screen`, `clear-display`, `redraw-current-line` | Terminal-backed | Implemented through the terminal/display abstraction; GNU oracle covers line-buffer preservation, and exact escape bytes are terminal/backend dependent. |
 
@@ -83,7 +83,7 @@ sections.
 | `history-search-backward`, `history-search-forward`, `history-substring-search-backward`, `history-substring-search-forward` | Compatible | Prefix and substring history search are implemented and tested. |
 | `history-expand-line`, `magic-space` | Compatible | Core expansion is built in and honors `histchars` and history expansion policy variables. |
 | `history-and-alias-expand-line`, `alias-expand-line` | Hook-backed | History expansion is built in; alias expansion uses `Hooks::expand_aliases` because aliases are owned by the embedding application. |
-| `yank-nth-arg`, `yank-last-arg`, `insert-last-argument` | Hook-backed | Quoted, numeric, repeated, and shell-construct history arguments are covered by GNU oracle tests; `Hooks::tokenize` or `Hooks::tokenize_with_spans` can supply exact application lexer words. |
+| `yank-nth-arg`, `yank-last-arg`, `insert-last-argument` | Hook-backed | Quoted, numeric, repeated, and shell-construct history arguments are covered by GNU oracle tests; `Hooks::shell_words` can supply exact application lexer words. |
 | `fetch-history` | Compatible | Numbered history fetch is covered by GNU oracle tests. |
 | `operate-and-get-next` | Compatible | Multi-read prefill behavior, including numeric arguments, is covered by GNU oracle tests. |
 
@@ -94,7 +94,7 @@ sections.
 | `end-of-file`, `delete-char`, `backward-delete-char`, `forward-backward-delete-char` | Compatible | EOF on empty input and delete behavior are implemented and tested. |
 | `quoted-insert`, `tab-insert`, `self-insert`, `bracketed-paste-begin` | Compatible | Literal insertion and bracketed paste are implemented and tested. |
 | `transpose-chars`, `transpose-words` | Compatible | Covered by oracle tests. |
-| `shell-transpose-words` | Hook-backed | Quoted and process-substitution command-word transposition is covered by GNU oracle tests; `Hooks::tokenize_with_spans` can supply exact application lexer boundaries. |
+| `shell-transpose-words` | Hook-backed | Quoted and process-substitution command-word transposition is covered by GNU oracle tests; `Hooks::shell_word_spans` can supply exact application lexer boundaries. |
 | `upcase-word`, `downcase-word`, `capitalize-word` | Hook-backed | Numeric, negative numeric, and punctuation word-boundary cases are covered by GNU oracle tests; custom word classes are supplied through `Hooks::editing_word_breaks`. |
 | `overwrite-mode` | Compatible | Covered by editor tests. |
 
@@ -104,7 +104,7 @@ sections.
 | --- | --- | --- |
 | `kill-line`, `backward-kill-line`, `unix-line-discard`, `kill-whole-line` | Compatible | Covered by editor/oracle tests, including direction and numeric cases. |
 | `kill-word`, `backward-kill-word`, `unix-word-rubout`, `unix-filename-rubout` | Hook-backed | Positive and negative numeric `kill-word` plus representative word/filename rubout cases are covered by GNU oracle tests; custom word classes are supplied through `Hooks::editing_word_breaks`. |
-| `shell-kill-word`, `shell-backward-kill-word` | Hook-backed | Shell metacharacter and process-substitution cases are covered by GNU oracle tests; `Hooks::tokenize_with_spans` can supply exact application lexer boundaries. |
+| `shell-kill-word`, `shell-backward-kill-word` | Hook-backed | Shell metacharacter and process-substitution cases are covered by GNU oracle tests; `Hooks::shell_word_spans` can supply exact application lexer boundaries. |
 | `delete-horizontal-space` | Compatible | Covered by oracle tests. |
 | `kill-region`, `copy-region-as-kill`, `copy-backward-word`, `copy-forward-word` | Compatible | Region and copy-word operations are covered by GNU oracle tests for accepted-line behavior. |
 | `yank` | Compatible | Covered by tests. |
@@ -130,8 +130,8 @@ sections.
 | `complete-variable`, `possible-variable-completions` | Hook-backed | Application-owned variables are supplied through `Hooks::variable_names`. |
 | `menu-complete`, `menu-complete-backward`, `old-menu-complete` | Compatible | Menu behavior is covered by focused tests, including numeric arguments, backward cycling, wrapping, single-match behavior, and display-prefix handling. |
 | `complete-into-braces` | Compatible | GNU brace layout, shared prefix handling, quoting, and append-space behavior are covered by oracle tests. |
-| `dabbrev-expand`, `dynamic-complete-history` | Hook-backed | Expands from history words; quoted words and ambiguous common-prefix behavior are covered by GNU oracle tests, and `Hooks::tokenize` / `Hooks::tokenize_with_spans` can supply exact application lexer words. |
-| `glob-complete-word`, `glob-expand-word`, `glob-list-expansions` | Hook-backed | Covered for representative glob cases; application globbing can be supplied through `Hooks::glob_expand_bytes` or the legacy UTF-8 `Hooks::glob_expand`. |
+| `dabbrev-expand`, `dynamic-complete-history` | Hook-backed | Expands from history words; quoted words and ambiguous common-prefix behavior are covered by GNU oracle tests, and `Hooks::shell_words` can supply exact application lexer words. |
+| `glob-complete-word`, `glob-expand-word`, `glob-list-expansions` | Hook-backed | Covered for representative glob cases; application globbing can be supplied through byte-oriented `Hooks::glob_expand`. |
 | `vi-complete` | Compatible | Default vi completion bindings `*`, `=`, and backslash are covered by GNU oracle tests, including command-mode cursor-under-character word bounds. |
 | `bash-vi-complete` | Hook-backed | Dispatches through command completion; embedder-owned command categories are supplied through `Hooks::command_names`. |
 | `export-completions` | Compatible | The Readline export-completions protocol is implemented and tested. |
@@ -143,7 +143,7 @@ sections.
 | `re-read-init-file`, `abort`, `do-lowercase-version`, `prefix-meta`, `undo`, `revert-line`, `set-mark`, `exchange-point-and-mark`, `skip-csi-sequence`, `dump-functions`, `dump-variables`, `dump-macros`, `execute-named-command`, `emacs-editing-mode`, `vi-editing-mode` | Compatible | Covered by direct editor tests and GNU oracle cases for observable line-editing behavior, including explicit inputrc file reload and dump command output. |
 | `arrow-key-prefix` | Compatible | Accepted as a CSI-skip command and tested. |
 | `display-shell-version`, `tty-status` | Hook-backed | Version/job/terminal status come from hooks; command output behavior is tested. |
-| `shell-expand-line`, `spell-correct-word`, `edit-and-execute-command` | Hook-backed | Application expansion and spelling correction can use context-carrying hooks (`expand_application_line_with_context`, `spell_correct_with_context`); external editing comes from `Hooks::edit_and_execute`. |
+| `shell-expand-line`, `spell-correct-word`, `edit-and-execute-command` | Hook-backed | Application expansion and spelling correction use context-carrying hooks (`expand_line`, `spell_correct`); external editing comes from `Hooks::edit_and_execute`. |
 | Application command bindings (`bind -x`) | Compatible | `BindApi` stores, queries, unbinds, and prints bindings in GNU-shaped forms; dispatch uses `Hooks::on_command` because command execution belongs to the embedder. |
 | `tilde-expand` | Compatible | Current-word expansion, whitespace preservation, assignment-like words, and `~+`/`~-` behavior are covered by GNU oracle tests. |
 | `character-search`, `character-search-backward` | Compatible | Covered by GNU oracle tests. |
@@ -204,9 +204,9 @@ sections.
 | --- | --- | --- |
 | Event designators `!!`, `!n`, `!-n`, `!string`, `!?string[?]`, `!$`, `!^`, `!:`, `!#` | Compatible | Implemented by `history::expand_history`; `!#` was added in this audit. |
 | Quick substitution `^old^new^` | Compatible | Implemented for the previous history entry. |
-| Word designators `0`, `n`, `^`, `$`, `%`, `x-y`, `*`, `x*`, `x-` | Hook-backed | Implemented over command words; quoted words, shell variable-like words, escaped spaces, command substitutions, process substitutions, shell operators, assignment-like array syntax, and common delimiters are covered by GNU oracle tests. Exact shell tokenization and status can be provided through `Hooks::expand_history_with_status`. |
+| Word designators `0`, `n`, `^`, `$`, `%`, `x-y`, `*`, `x*`, `x-` | Hook-backed | Implemented over command words; quoted words, shell variable-like words, escaped spaces, command substitutions, process substitutions, shell operators, assignment-like array syntax, and common delimiters are covered by GNU oracle tests. Exact shell tokenization and status can be provided through `Hooks::expand_history`. |
 | Modifiers `h`, `t`, `r`, `e`, `q`, `x`, `s/old/new/`, `&`, `g`, `a`, `G` | Compatible | Covered by GNU oracle tests for path modifiers, quoting modifiers, and substitution variants. |
-| Modifier `p` | Compatible | `expand_history_with_status` preserves the print-only status. |
+| Modifier `p` | Compatible | `HistoryExpansion` preserves the print-only status. |
 | Existing quote state | Compatible | `HistoryExpansionPolicy::quote_state` exposes quote state to the Rust API. |
 | Inhibit-expansion callback | Compatible | A per-call inhibit predicate is available. |
 
@@ -233,7 +233,7 @@ Sushline APIs; it is not a C ABI or C API compatibility promise.
 | Search: `history_search`, `history_search_prefix`, `history_search_pos` | `history_search_bytes`, `history_search_prefix`, `history_search_pos` | Compatible | Byte/string search behavior is covered by tests; Rust return types are the in-scope API. |
 | Files: `read_history`, `write_history`, `append_history`, `history_truncate_file`, default `~/.history` filename | `read_file`, `load_file`, `write_file`, `append_file`, `append_last_to_file`, `append_new_to_file`, `truncate_file`, `default_file_path`, default-file helpers | Compatible | File operations, timestamps, default path helpers, and Unix locking are covered by tests. |
 | File range: `read_history_range` | `read_file_range`, `load_file_range` | Compatible | Range-reading APIs were added in this audit. |
-| Expansion: `history_expand` | `expand_history`, `expand_history_with_status`, `Hooks::expand_history_with_status` | Compatible | Expanded text and `:p` print-only status are available and can be passed through the editor hook boundary. |
+| Expansion: `history_expand` | `expand_history`, `expand_history_with_status`, `Hooks::expand_history` | Compatible | Expanded text and `:p` print-only status are available and can be passed through the editor hook boundary. |
 | Expansion helpers: `get_history_event`, `history_tokenize`, `history_arg_extract` | `get_history_event`, `history_tokenize`, `history_arg_extract`, `command_words` | Compatible | Rust helper APIs are exposed and covered by tests. |
 | Variables: `history_base`, `history_length`, `history_max_entries` | `HistoryState` and methods | Compatible | Represented as Rust-owned state rather than process globals; `HistoryState` offset, length, stifle, and maximum-entry behavior is covered by tests. |
 | Variables: `history_expansion_char`, `history_subst_char`, `history_comment_char`, `history_word_delimiters`, `history_search_delimiter_chars`, `history_no_expand_chars`, `history_quotes_inhibit_expansion` | `HistoryChars`, `HistoryExpansionPolicy` | Compatible | Available to expansion APIs and wired into editor history expansion. |

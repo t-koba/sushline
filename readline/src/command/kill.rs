@@ -9,7 +9,7 @@ where
         state: &mut EditorState,
         command: EditCommand,
         _key: &[u8],
-        hooks: &impl Hooks,
+        hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
         match command {
             EditCommand::BackwardKillLine => {
@@ -131,7 +131,7 @@ where
         state: &mut EditorState,
         command: &str,
         _key: &[u8],
-        hooks: &impl Hooks,
+        hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
         match command {
             "copy-backward-word" => {
@@ -169,33 +169,43 @@ where
             "shell-backward-kill-word" => {
                 state.record_undo();
                 let mut killed = Vec::new();
-                let direction = repeat_signed_collect_bytes(
-                    state,
-                    |state| shell_words::kill_shell_backward_word(&mut state.buffer, hooks),
-                    |state| shell_words::kill_shell_forward_word(&mut state.buffer, hooks),
-                    |part, out| {
-                        out.splice(0..0, part);
-                    },
-                    |part, out| out.extend(part),
-                    (KillDirection::Backward, KillDirection::Forward),
-                    &mut killed,
-                );
+                let arg = state.numeric_arg.take().unwrap_or(1);
+                let direction = if arg < 0 {
+                    for _ in 0..arg.unsigned_abs() {
+                        killed.extend(shell_words::kill_shell_forward_word(
+                            &mut state.buffer,
+                            hooks,
+                        ));
+                    }
+                    KillDirection::Forward
+                } else {
+                    for _ in 0..arg.unsigned_abs() {
+                        let part = shell_words::kill_shell_backward_word(&mut state.buffer, hooks);
+                        killed.splice(0..0, part);
+                    }
+                    KillDirection::Backward
+                };
                 state.push_kill(killed, direction);
             }
             "shell-kill-word" => {
                 state.record_undo();
                 let mut killed = Vec::new();
-                let direction = repeat_signed_collect_bytes(
-                    state,
-                    |state| shell_words::kill_shell_forward_word(&mut state.buffer, hooks),
-                    |state| shell_words::kill_shell_backward_word(&mut state.buffer, hooks),
-                    |part, out| out.extend(part),
-                    |part, out| {
-                        out.splice(0..0, part);
-                    },
-                    (KillDirection::Forward, KillDirection::Backward),
-                    &mut killed,
-                );
+                let arg = state.numeric_arg.take().unwrap_or(1);
+                let direction = if arg < 0 {
+                    for _ in 0..arg.unsigned_abs() {
+                        let part = shell_words::kill_shell_backward_word(&mut state.buffer, hooks);
+                        killed.splice(0..0, part);
+                    }
+                    KillDirection::Backward
+                } else {
+                    for _ in 0..arg.unsigned_abs() {
+                        killed.extend(shell_words::kill_shell_forward_word(
+                            &mut state.buffer,
+                            hooks,
+                        ));
+                    }
+                    KillDirection::Forward
+                };
                 state.push_kill(killed, direction);
             }
             "unix-filename-rubout" => {

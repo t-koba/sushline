@@ -733,7 +733,7 @@ fn quote_completion_hook_receives_completion_context_inside_quotes() {
             })
         }
 
-        fn quote_completion(&self, context: QuoteContext<'_>) -> Option<Vec<u8>> {
+        fn quote_completion(&mut self, context: QuoteContext<'_>) -> Option<Vec<u8>> {
             assert_eq!(context.value, b"alpha $file");
             assert_eq!(context.line, b"cat \"alp");
             assert_eq!(context.point, b"cat \"alp".len());
@@ -767,7 +767,7 @@ fn quote_completion_hook_receives_completion_context_inside_quotes() {
 }
 
 #[test]
-fn legacy_quote_hook_still_quotes_unquoted_filename_completions() {
+fn quote_completion_hook_can_quote_unquoted_filename_completions() {
     struct LegacyQuoteHook;
 
     impl Hooks for LegacyQuoteHook {
@@ -784,8 +784,10 @@ fn legacy_quote_hook_still_quotes_unquoted_filename_completions() {
             })
         }
 
-        fn quote(&self, value: &[u8]) -> Option<Vec<u8>> {
-            assert_eq!(value, b"alpha file");
+        fn quote_completion(&mut self, context: QuoteContext<'_>) -> Option<Vec<u8>> {
+            assert_eq!(context.value, b"alpha file");
+            assert_eq!(context.quote, None);
+            assert!(context.quote_filename);
             Some(b"legacy-quoted".to_vec())
         }
     }
@@ -949,7 +951,7 @@ fn glob_completion_hook_can_expand_non_utf8_patterns() {
     struct ByteGlobHook;
 
     impl Hooks for ByteGlobHook {
-        fn glob_expand_bytes(&self, pattern: &[u8]) -> Option<Vec<Vec<u8>>> {
+        fn glob_expand(&mut self, pattern: &[u8]) -> Option<Vec<Vec<u8>>> {
             assert_eq!(pattern, b"pre\xff*");
             Some(vec![b"pre\xff-match".to_vec()])
         }
@@ -1236,8 +1238,8 @@ fn completion_variables_display_and_skip_completed_text() {
 fn variable_completion_uses_hook_names() {
     struct VariableHook;
     impl Hooks for VariableHook {
-        fn variable_names(&mut self) -> Vec<String> {
-            vec!["SUSH_LOCAL".to_string(), "SUSH_OTHER".to_string()]
+        fn variable_names(&mut self) -> Vec<Vec<u8>> {
+            vec![b"SUSH_LOCAL".to_vec(), b"SUSH_OTHER".to_vec()]
         }
     }
 

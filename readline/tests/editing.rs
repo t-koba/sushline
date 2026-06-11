@@ -222,6 +222,36 @@ fn reverse_search_repeats_and_aborts_with_original_line() {
 }
 
 #[test]
+fn reverse_search_ctrl_c_byte_interrupts_instead_of_staying_in_search() {
+    let mut history = History::new();
+    history.push("alpha one");
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"draft".to_vec()),
+        TerminalEvent::Bytes(b"\x12".to_vec()),
+        TerminalEvent::Bytes(b"alpha".to_vec()),
+        TerminalEvent::Bytes(b"\x03".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, history);
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Interrupted);
+    assert!(line.terminal().out.contains("^C\n"));
+    assert!(line.terminal().cleared_screen > 0);
+}
+
+#[test]
+fn quoted_insert_ctrl_c_byte_remains_literal() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\x16".to_vec()),
+        TerminalEvent::Bytes(b"\x03".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(vec![0x03]));
+}
+
+#[test]
 fn history_preserve_point_keeps_cursor_column_on_history_navigation() {
     let mut history = History::new();
     history.push("abcdef");

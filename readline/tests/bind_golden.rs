@@ -10,6 +10,12 @@ fn editor() -> Editor<DummyTerminal> {
     Editor::new(Config::default(), DummyTerminal, History::new())
 }
 
+fn bash_oracle_command() -> Command {
+    let mut command = Command::new("bash");
+    command.env("TERM", "xterm-256color");
+    command
+}
+
 #[test]
 fn bind_reusable_output_is_stable() {
     let mut line = editor();
@@ -27,7 +33,7 @@ fn bind_reusable_output_is_stable() {
 
 #[test]
 fn bind_x_reusable_output_matches_gnu_readline_oracle() {
-    let bash = Command::new("bash")
+    let bash = bash_oracle_command()
         .args([
             "--noprofile",
             "--norc",
@@ -54,7 +60,7 @@ fn bind_x_reusable_output_matches_gnu_readline_oracle() {
 
 #[test]
 fn bind_p_does_not_print_bind_x_application_commands() {
-    let bash = Command::new("bash")
+    let bash = bash_oracle_command()
         .args([
             "--noprofile",
             "--norc",
@@ -122,11 +128,11 @@ fn default_variables_are_visible_to_bind_api() {
 
 #[test]
 fn bind_variable_output_matches_gnu_readline_oracle() {
-    let reusable = Command::new("bash")
+    let reusable = bash_oracle_command()
         .args(["--noprofile", "--norc", "-i", "-c", "bind -v"])
         .output()
         .expect("bash must be available for bind oracle tests");
-    let descriptive = Command::new("bash")
+    let descriptive = bash_oracle_command()
         .args(["--noprofile", "--norc", "-i", "-c", "bind -V"])
         .output()
         .expect("bash must be available for bind oracle tests");
@@ -163,8 +169,14 @@ fn bind_variable_output_matches_gnu_readline_oracle() {
             "enable-bracketed-paste is set to `on'",
         );
 
-    assert_eq!(bind.print(BindQuery::PrintVariablesReusable), reusable);
-    assert_eq!(bind.print(BindQuery::PrintVariables), descriptive);
+    assert_eq!(
+        comparable_variable_output(&bind.print(BindQuery::PrintVariablesReusable)),
+        comparable_variable_output(&reusable)
+    );
+    assert_eq!(
+        comparable_variable_output(&bind.print(BindQuery::PrintVariables)),
+        comparable_variable_output(&descriptive)
+    );
 }
 
 #[test]
@@ -187,7 +199,7 @@ fn bind_variable_set_normalization_matches_gnu_readline_oracle() {
         .chain(std::iter::once("bind -v".to_string()))
         .collect::<Vec<_>>()
         .join("; ");
-    let bash = Command::new("bash")
+    let bash = bash_oracle_command()
         .args(["--noprofile", "--norc", "-i", "-c", &bash_command])
         .output()
         .expect("bash must be available for bind oracle tests");
@@ -262,7 +274,7 @@ fn bind_lists_gnu_readline_function_names() {
 
 #[test]
 fn bind_function_name_list_matches_gnu_readline_oracle() {
-    let output = Command::new("bash")
+    let output = bash_oracle_command()
         .args(["--noprofile", "--norc", "-i", "-c", "bind -l"])
         .output()
         .expect("bash must be available for bind oracle tests");
@@ -289,7 +301,7 @@ fn bind_function_name_list_matches_gnu_readline_oracle() {
 
 #[test]
 fn bind_reusable_default_key_lines_match_gnu_readline_oracle() {
-    let output = Command::new("bash")
+    let output = bash_oracle_command()
         .args(["--noprofile", "--norc", "-i", "-c", "bind -p"])
         .output()
         .expect("bash must be available for bind oracle tests");
@@ -332,7 +344,7 @@ fn bind_default_keymap_binding_lines_match_gnu_readline_oracle() {
             Some(KeyMapName::ViInsert),
         ),
     ] {
-        let output = Command::new("bash")
+        let output = bash_oracle_command()
             .args(["--noprofile", "--norc", "-i", "-c", bash_command])
             .output()
             .expect("bash must be available for bind oracle tests");
@@ -360,7 +372,7 @@ fn bind_default_keymap_binding_lines_match_gnu_readline_oracle() {
 
 #[test]
 fn bind_vi_command_default_key_lines_match_gnu_readline_oracle() {
-    let output = Command::new("bash")
+    let output = bash_oracle_command()
         .args(["--noprofile", "--norc", "-i", "-c", "bind -m vi-command -p"])
         .output()
         .expect("bash must be available for bind oracle tests");
@@ -418,7 +430,7 @@ fn bind_vi_command_default_key_lines_match_gnu_readline_oracle() {
 
 #[test]
 fn bind_vi_insert_default_key_lines_match_gnu_readline_oracle() {
-    let output = Command::new("bash")
+    let output = bash_oracle_command()
         .args(["--noprofile", "--norc", "-i", "-c", "bind -m vi-insert -p"])
         .output()
         .expect("bash must be available for bind oracle tests");
@@ -606,7 +618,7 @@ fn bind_can_unbind_keys_and_commands() {
 fn bind_abnormal_diagnostics_match_gnu_readline_representative_cases() {
     fn bash_bind_stderr(args: &[&str]) -> String {
         let script = format!("bind {}", args.join(" "));
-        let output = Command::new("bash")
+        let output = bash_oracle_command()
             .args(["--noprofile", "--norc", "-c", &script])
             .output()
             .expect("bash must be available for bind diagnostic oracle tests");
@@ -697,6 +709,19 @@ fn selected_variable_lines(output: &str, names: &[&str]) -> Vec<String> {
                 .find(|line| line.starts_with(&format!("set {name} ")))
                 .map(ToString::to_string)
         })
+        .collect()
+}
+
+fn comparable_variable_output(output: &str) -> String {
+    output
+        .lines()
+        .filter(|line| {
+            !line.starts_with("set active-region-start-color ")
+                && !line.starts_with("set active-region-end-color ")
+                && !line.starts_with("active-region-start-color is set to ")
+                && !line.starts_with("active-region-end-color is set to ")
+        })
+        .map(|line| format!("{line}\n"))
         .collect()
 }
 

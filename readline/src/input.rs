@@ -16,10 +16,6 @@ where
         signal: i32,
     ) -> Result<Option<ReadlineResult>, ReadlineError> {
         self.terminal.restore_mode()?;
-        #[cfg(all(unix, not(test)))]
-        unsafe {
-            libc::raise(signal);
-        }
         #[cfg(unix)]
         if signal == libc::SIGINT {
             self.echo_signal_interrupt(state)?;

@@ -98,6 +98,28 @@ fn menu_complete_uses_completion_hook() {
 }
 
 #[test]
+fn completion_query_ctrl_c_interrupts_and_clears_transient_prompt() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\t".to_vec()),
+        TerminalEvent::Bytes(b"\x03".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = StaticCompletion::default();
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set completion-query-items 1")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Interrupted);
+    assert!(line.terminal().out.contains("^C\n"));
+    assert!(
+        !line
+            .terminal()
+            .out
+            .contains("Display all 2 possibilities?^C")
+    );
+}
+
+#[test]
 fn menu_complete_replaces_previous_candidate() {
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(vec![0x0f]),
@@ -488,6 +510,69 @@ fn menu_complete_uses_programmable_filter_replacement_and_append_options() {
     line.load_inputrc_str("\"\\C-o\": menu-complete").unwrap();
     let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
     assert_eq!(result, ReadlineResult::Line("alpha:".as_bytes().to_vec()));
+}
+
+#[test]
+fn completion_sort_removes_duplicate_replacements_even_when_display_differs() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = OptionCompletion {
+        options: CompletionOptions::default(),
+        candidates: vec![
+            CompletionCandidate {
+                replacement: b"same".to_vec(),
+                display: Some("zeta".to_string()),
+            },
+            CompletionCandidate {
+                replacement: b"other".to_vec(),
+                display: None,
+            },
+            CompletionCandidate {
+                replacement: b"same".to_vec(),
+                display: Some("alpha".to_string()),
+            },
+        ],
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": insert-completions")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"same other ".to_vec()));
+}
+
+#[test]
+fn completion_nosort_preserves_first_occurrence_but_still_removes_duplicates() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = OptionCompletion {
+        options: CompletionOptions {
+            nosort: true,
+            ..Default::default()
+        },
+        candidates: vec![
+            CompletionCandidate {
+                replacement: b"beta".to_vec(),
+                display: None,
+            },
+            CompletionCandidate {
+                replacement: b"alpha".to_vec(),
+                display: None,
+            },
+            CompletionCandidate {
+                replacement: b"beta".to_vec(),
+                display: None,
+            },
+        ],
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": insert-completions")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"beta alpha ".to_vec()));
 }
 
 #[test]

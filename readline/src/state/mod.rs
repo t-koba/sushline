@@ -42,6 +42,7 @@ pub(crate) struct EditorState {
 #[derive(Debug, Default)]
 pub(crate) struct InputState {
     pub(crate) quoted_insert: bool,
+    pub(crate) interrupted: bool,
     pub(crate) pending_key: Vec<u8>,
     pub(crate) skipping_csi: bool,
     pub(crate) csi_sequence_started: bool,

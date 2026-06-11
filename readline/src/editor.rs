@@ -244,6 +244,13 @@ where
                 }
                 TerminalEvent::Bytes(bytes) if bytes.is_empty() => continue,
                 TerminalEvent::Bytes(bytes) => {
+                    if bytes.as_slice() == [0x03]
+                        && !state.input.quoted_insert
+                        && !state.paste.bracketed_paste
+                    {
+                        self.echo_signal_interrupt(&mut state)?;
+                        return Ok(ReadlineResult::Interrupted);
+                    }
                     let outcome = if state.search.non_incremental_search.is_some() {
                         self.handle_non_incremental_search(&mut state, &bytes)
                     } else if state.search.reverse_search.is_some() {
@@ -251,6 +258,9 @@ where
                     } else {
                         self.handle_bytes(&mut state, &bytes, hooks)?
                     };
+                    if state.input.interrupted {
+                        return Ok(ReadlineResult::Interrupted);
+                    }
                     if matches!(outcome, EditorOutcome::Continue) {
                         self.render(&mut state)?;
                     } else {
@@ -279,8 +289,14 @@ where
         &mut self,
         state: &mut EditorState,
     ) -> Result<(), ReadlineError> {
-        self.write_tracked(state, "^C")?;
-        self.write_tracked_newline(state)?;
+        if state.display.rendered_cursor_row > 0 {
+            self.terminal.move_up(state.display.rendered_cursor_row)?;
+        }
+        self.terminal.move_to_column(0)?;
+        self.terminal.clear_to_screen_end()?;
+        state.display.rendered_rows = 0;
+        state.display.rendered_cursor_row = 0;
+        self.terminal.write("^C\n")?;
         self.terminal.flush()?;
         Ok(())
     }

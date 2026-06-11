@@ -1772,7 +1772,7 @@ fn bash_readline_and_sushline_ring_same_bell_for_ambiguous_complete_filename() {
     let inputrc = r#""\C-o": complete-filename"#;
     let typed = format!("{}/a\x0f\r", dir.path().display());
 
-    let bash = run_bash_readline_with_bindings(typed.as_bytes(), inputrc);
+    let bash = run_bash_readline_with_inputrc_file(typed.as_bytes(), inputrc);
     let sushline = run_sushline_harness_with_inputrc(typed.as_bytes(), inputrc);
 
     assert_eq!(
@@ -1809,6 +1809,21 @@ fn bash_readline_and_sushline_complete_same_filenames_into_braces() {
             "typed={typed:?}\nbash={bash}\nsushline={sushline}"
         );
     }
+}
+
+#[test]
+fn bash_readline_and_sushline_list_completion_candidates_in_same_sorted_order() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    for name in ["gamma", "alpha", "beta"] {
+        fs::write(dir.path().join(name), "").expect("write fixture");
+    }
+    let inputrc = "\"\\C-o\": possible-filename-completions\nset completion-query-items 999";
+    let typed = format!("{}/\x0f\r", dir.path().display());
+
+    let bash = run_bash_readline_with_inputrc_file(typed.as_bytes(), inputrc);
+    let sushline = run_sushline_harness_with_inputrc(typed.as_bytes(), inputrc);
+
+    assert_same_candidate_order(&bash, &sushline, &["alpha", "beta", "gamma"]);
 }
 
 #[test]
@@ -2987,6 +3002,42 @@ fn accepted_line_after_marker(output: &str, marker: &str) -> Option<String> {
 
 fn bell_count(output: &str) -> usize {
     output.bytes().filter(|byte| *byte == b'\x07').count()
+}
+
+fn assert_same_candidate_order(bash: &str, sushline: &str, candidates: &[&str]) {
+    let bash_order = candidate_order(bash, candidates);
+    let sushline_order = candidate_order(sushline, candidates);
+    assert_eq!(
+        sushline_order, bash_order,
+        "bash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(
+        bash_order,
+        candidates
+            .iter()
+            .map(|candidate| candidate.to_string())
+            .collect::<Vec<_>>(),
+        "bash={bash}"
+    );
+}
+
+fn candidate_order(output: &str, candidates: &[&str]) -> Vec<String> {
+    let mut positions = candidates
+        .iter()
+        .map(|candidate| {
+            (
+                output.find(candidate).unwrap_or_else(|| {
+                    panic!("candidate {candidate:?} missing from output {output:?}")
+                }),
+                (*candidate).to_string(),
+            )
+        })
+        .collect::<Vec<_>>();
+    positions.sort_by_key(|(position, _)| *position);
+    positions
+        .into_iter()
+        .map(|(_, candidate)| candidate)
+        .collect()
 }
 
 fn shell_single_quote(value: &str) -> String {

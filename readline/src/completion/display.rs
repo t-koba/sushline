@@ -1,5 +1,6 @@
 use crate::completion::{CompletionCandidate, CompletionResponse};
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::ffi::CString;
 
 pub(crate) fn common_prefix_bytes(candidates: &[CompletionCandidate]) -> Option<Vec<u8>> {
@@ -28,22 +29,22 @@ pub(crate) fn abbreviate_completion_prefix(items: &mut [String], prefix: &str, f
 }
 
 pub(crate) fn sort_completion_response(response: &mut CompletionResponse) {
-    if response.options.nosort {
-        return;
+    if !response.options.nosort {
+        response
+            .candidates
+            .sort_by(|a, b| match (a.display.as_deref(), b.display.as_deref()) {
+                (Some(a), Some(b)) => compare_with_current_locale(a.as_bytes(), b.as_bytes()),
+                (Some(a), None) => compare_with_current_locale(a.as_bytes(), b.replacement_bytes()),
+                (None, Some(b)) => compare_with_current_locale(a.replacement_bytes(), b.as_bytes()),
+                (None, None) => {
+                    compare_with_current_locale(a.replacement_bytes(), b.replacement_bytes())
+                }
+            });
     }
+    let mut seen = HashSet::new();
     response
         .candidates
-        .sort_by(|a, b| match (a.display.as_deref(), b.display.as_deref()) {
-            (Some(a), Some(b)) => compare_with_current_locale(a.as_bytes(), b.as_bytes()),
-            (Some(a), None) => compare_with_current_locale(a.as_bytes(), b.replacement_bytes()),
-            (None, Some(b)) => compare_with_current_locale(a.replacement_bytes(), b.as_bytes()),
-            (None, None) => {
-                compare_with_current_locale(a.replacement_bytes(), b.replacement_bytes())
-            }
-        });
-    response
-        .candidates
-        .dedup_by(|a, b| a.replacement_bytes() == b.replacement_bytes());
+        .retain(|candidate| seen.insert(candidate.replacement_bytes().to_vec()));
 }
 
 fn compare_with_current_locale(a: &[u8], b: &[u8]) -> Ordering {
@@ -347,6 +348,11 @@ where
             )?;
             self.terminal.flush()?;
             match self.terminal.read_event(None)? {
+                TerminalEvent::Bytes(bytes) if bytes.as_slice() == [0x03] => {
+                    self.echo_signal_interrupt(state)?;
+                    state.input.interrupted = true;
+                    return Ok(());
+                }
                 TerminalEvent::Bytes(bytes)
                     if matches!(bytes.as_slice(), b"y" | b"Y" | b" " | b"\t" | b"\r" | b"\n") => {}
                 TerminalEvent::Bytes(_) => {
@@ -355,8 +361,9 @@ where
                 }
                 TerminalEvent::Resize(_) | TerminalEvent::Timeout => {}
                 TerminalEvent::Signal(signal) => {
-                    let _ = self.handle_terminal_signal(state, signal)?;
-                    self.write_tracked_newline(state)?;
+                    if self.handle_terminal_signal(state, signal)?.is_some() {
+                        state.input.interrupted = true;
+                    }
                     return Ok(());
                 }
             }
@@ -449,6 +456,11 @@ where
                 self.terminal.write(more_prompt)?;
                 self.terminal.flush()?;
                 match self.terminal.read_event(None)? {
+                    TerminalEvent::Bytes(bytes) if bytes.as_slice() == [0x03] => {
+                        self.echo_signal_interrupt(state)?;
+                        state.input.interrupted = true;
+                        return Ok(());
+                    }
                     TerminalEvent::Bytes(bytes) if matches!(bytes.as_slice(), b"q" | b"Q") => {
                         self.write_tracked_newline(state)?;
                         return Ok(());
@@ -463,8 +475,9 @@ where
                         page_remaining = page_rows;
                     }
                     TerminalEvent::Signal(signal) => {
-                        let _ = self.handle_terminal_signal(state, signal)?;
-                        self.write_tracked_newline(state)?;
+                        if self.handle_terminal_signal(state, signal)?.is_some() {
+                            state.input.interrupted = true;
+                        }
                         return Ok(());
                     }
                 }

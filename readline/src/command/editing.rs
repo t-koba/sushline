@@ -1,6 +1,6 @@
 use super::*;
 use crate::completion::CompletionType;
-use crate::completion::filename::expand_tilde as expand_tilde_str;
+use crate::hooks::{ApplicationLineExpansionContext, SpellCorrectionContext};
 
 impl<T> Editor<T>
 where
@@ -18,7 +18,7 @@ where
                 state.record_undo();
                 if let Some(arg) = state.numeric_arg.take() {
                     let mut killed = Vec::new();
-                    let count = arg.unsigned_abs().max(1);
+                    let count = arg.unsigned_abs();
                     if arg < 0 {
                         for _ in 0..count {
                             if let Some(part) = state.buffer.delete_char_bytes() {
@@ -59,14 +59,17 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::DeleteChar => {
+                if state.buffer.is_empty() && state.numeric_arg.is_none() {
+                    return Ok(EditorOutcome::Eof);
+                }
                 state.record_undo();
                 let count = state.numeric_arg.take().unwrap_or(1);
                 if count < 0 {
-                    for _ in 0..count.unsigned_abs().max(1) {
+                    for _ in 0..count.unsigned_abs() {
                         state.buffer.backward_delete_char();
                     }
                 } else {
-                    for _ in 0..count.unsigned_abs().max(1) {
+                    for _ in 0..count.unsigned_abs() {
                         state.buffer.delete_char();
                     }
                 }
@@ -106,9 +109,23 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::SelfInsert => {
-                let count = state.numeric_arg.take().unwrap_or(1).unsigned_abs().max(1);
+                let count = repeat_count(state.numeric_arg.take());
                 if !state.undo.last_undo_was_insert {
                     state.record_undo();
+                }
+                if key.iter().any(|byte| byte.is_ascii_control()) {
+                    for _ in 0..count {
+                        if state.overwrite_mode && state.buffer.point() < state.buffer.len_chars() {
+                            let point = state.buffer.point();
+                            state.buffer.replace_char_at_point_bytes(key);
+                            state.buffer.set_point(point + key.len());
+                        } else {
+                            state.buffer.insert_bytes(key);
+                        }
+                    }
+                    state.record_vi_insert_bytes(key);
+                    state.after_self_insert();
+                    return Ok(EditorOutcome::Continue);
                 }
                 if let Ok(text) = std::str::from_utf8(key) {
                     for _ in 0..count {
@@ -257,8 +274,21 @@ where
             }
             "shell-expand-line" => {
                 state.record_undo();
-                if let Some(expanded) = hooks.expand_application_line(state.buffer.as_bytes()) {
-                    state.buffer = LineBuffer::from_bytes(expanded);
+                if let Some(edit) =
+                    hooks.expand_application_line_with_context(ApplicationLineExpansionContext {
+                        line: state.buffer.as_bytes(),
+                        point: state.buffer.byte_point(),
+                    })
+                {
+                    if let Some(line) = edit.line {
+                        state.buffer = LineBuffer::from_bytes(line);
+                    }
+                    if let Some(point) = edit.point {
+                        state.buffer.set_point(point);
+                    }
+                    if let Some(mark) = edit.mark {
+                        state.mark = mark;
+                    }
                     state.after_non_kill_command();
                 } else {
                     self.ding()?;
@@ -267,7 +297,7 @@ where
             "shell-transpose-words" => {
                 state.record_undo();
                 repeat(state, |state| {
-                    state.buffer.transpose_command_words();
+                    shell_words::transpose_shell_words(&mut state.buffer, hooks);
                 });
                 state.after_non_kill_command();
             }
@@ -275,9 +305,15 @@ where
                 state.record_undo();
                 let word_breaks = self.completion_word_breaks(hooks);
                 let word = state.buffer.word_before_point(Some(&word_breaks));
-                if let Some(corrected) = hooks.spell_correct(&word) {
-                    let end = state.buffer.point();
-                    let start = end.saturating_sub(word.len());
+                let end = state.buffer.point();
+                let start = end.saturating_sub(word.len());
+                if let Some(corrected) = hooks.spell_correct_with_context(SpellCorrectionContext {
+                    line: state.buffer.as_bytes(),
+                    point: state.buffer.byte_point(),
+                    word_start: start,
+                    word_end: end,
+                    word: &word,
+                }) {
                     state.buffer.replace_range_bytes(start, end, &corrected);
                 } else {
                     self.ding()?;
@@ -291,7 +327,7 @@ where
             }
             "tilde-expand" | "vi-tilde-expand" => {
                 state.record_undo();
-                state.buffer = LineBuffer::from_bytes(expand_tilde(state.buffer.as_bytes()));
+                expand_tilde_at_point(&mut state.buffer);
                 state.after_non_kill_command();
             }
             _ => unreachable!("named command group mismatch"),
@@ -300,30 +336,22 @@ where
     }
 }
 
-fn expand_tilde(line: &[u8]) -> Vec<u8> {
-    if let Ok(text) = std::str::from_utf8(line) {
-        return expand_tilde_str(text).into_bytes();
+fn expand_tilde_at_point(buffer: &mut LineBuffer) {
+    let bytes = buffer.as_bytes();
+    let point = buffer.byte_point().min(bytes.len());
+    let start = bytes[..point]
+        .iter()
+        .rposition(|byte| byte.is_ascii_whitespace())
+        .map(|idx| idx + 1)
+        .unwrap_or(0);
+    let end = bytes[point..]
+        .iter()
+        .position(|byte| byte.is_ascii_whitespace())
+        .map(|idx| point + idx)
+        .unwrap_or(bytes.len());
+    if let Some(expanded) = expand_tilde_word(&bytes[start..end]) {
+        buffer.replace_range_bytes(start, end, &expanded);
     }
-    let mut out = Vec::with_capacity(line.len());
-    let mut idx = 0;
-    while idx < line.len() {
-        if line[idx] == b'~' && (idx == 0 || line[idx - 1].is_ascii_whitespace()) {
-            let end = line[idx..]
-                .iter()
-                .position(|byte| byte.is_ascii_whitespace())
-                .map(|pos| idx + pos)
-                .unwrap_or(line.len());
-            let word = &line[idx..end];
-            if let Some(expanded) = expand_tilde_word(word) {
-                out.extend(expanded);
-                idx = end;
-                continue;
-            }
-        }
-        out.push(line[idx]);
-        idx += 1;
-    }
-    out
 }
 
 fn expand_tilde_word(word: &[u8]) -> Option<Vec<u8>> {
@@ -335,6 +363,24 @@ fn expand_tilde_word(word: &[u8]) -> Option<Vec<u8>> {
         home.push(b'/');
         home.extend_from_slice(rest);
         return Some(home);
+    }
+    if word == b"~+" {
+        return pwd_bytes();
+    }
+    if let Some(rest) = word.strip_prefix(b"~+/") {
+        let mut pwd = pwd_bytes()?;
+        pwd.push(b'/');
+        pwd.extend_from_slice(rest);
+        return Some(pwd);
+    }
+    if word == b"~-" {
+        return oldpwd_bytes();
+    }
+    if let Some(rest) = word.strip_prefix(b"~-/") {
+        let mut oldpwd = oldpwd_bytes()?;
+        oldpwd.push(b'/');
+        oldpwd.extend_from_slice(rest);
+        return Some(oldpwd);
     }
     let rest = word.strip_prefix(b"~")?;
     let slash = rest.iter().position(|byte| *byte == b'/');
@@ -355,15 +401,43 @@ fn expand_tilde_word(word: &[u8]) -> Option<Vec<u8>> {
     Some(home)
 }
 
+fn pwd_bytes() -> Option<Vec<u8>> {
+    std::env::var_os("PWD")
+        .map(|pwd| os_string_to_bytes(pwd.as_os_str()))
+        .or_else(|| {
+            std::env::current_dir()
+                .ok()
+                .map(|pwd| os_string_to_bytes(pwd.as_os_str()))
+        })
+}
+
+fn oldpwd_bytes() -> Option<Vec<u8>> {
+    std::env::var_os("OLDPWD").map(|oldpwd| os_string_to_bytes(oldpwd.as_os_str()))
+}
+
 fn user_home_dir(user: &str) -> Option<Vec<u8>> {
-    let passwd = std::fs::read("/etc/passwd").ok()?;
-    for line in passwd.split(|byte| *byte == b'\n') {
-        let mut fields = line.split(|byte| *byte == b':');
-        if fields.next() == Some(user.as_bytes()) {
-            return fields.nth(4).map(|field| field.to_vec());
+    if let Ok(passwd) = std::fs::read("/etc/passwd") {
+        for line in passwd.split(|byte| *byte == b'\n') {
+            let mut fields = line.split(|byte| *byte == b':');
+            if fields.next() == Some(user.as_bytes()) {
+                return fields.nth(4).map(|field| field.to_vec());
+            }
         }
     }
-    None
+    let output = std::process::Command::new("getent")
+        .arg("passwd")
+        .arg(user)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    output
+        .stdout
+        .split(|byte| *byte == b'\n')
+        .next()
+        .and_then(|line| line.split(|byte| *byte == b':').nth(5))
+        .map(|field| field.to_vec())
 }
 
 #[cfg(unix)]

@@ -1,9 +1,20 @@
 use super::{History, HistoryEntry};
 use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 impl History {
+    pub fn default_file_path() -> PathBuf {
+        std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".history")
+    }
+
+    pub fn read_default_file() -> io::Result<Self> {
+        Self::read_file(Self::default_file_path())
+    }
+
     pub fn read_file(path: impl AsRef<Path>) -> io::Result<Self> {
         let file = fs::File::open(path)?;
         let mut history = Self::new();
@@ -12,6 +23,29 @@ impl History {
         }
         history.file_loaded_len = history.entries.len();
         Ok(history)
+    }
+
+    pub fn read_file_range(
+        path: impl AsRef<Path>,
+        from: usize,
+        to: Option<usize>,
+    ) -> io::Result<Self> {
+        let file = fs::File::open(path)?;
+        let mut history = Self::new();
+        let count = range_count(from, to);
+        for (line, timestamp) in read_history_records(file)?
+            .into_iter()
+            .skip(from)
+            .take(count)
+        {
+            history.push_entry(line, timestamp, false);
+        }
+        history.file_loaded_len = history.entries.len();
+        Ok(history)
+    }
+
+    pub fn load_default_file(&mut self, max_entries: Option<usize>) -> io::Result<()> {
+        self.load_file(Self::default_file_path(), max_entries)
     }
 
     pub fn load_file(
@@ -28,30 +62,100 @@ impl History {
         Ok(())
     }
 
+    pub fn load_file_range(
+        &mut self,
+        path: impl AsRef<Path>,
+        from: usize,
+        to: Option<usize>,
+        max_entries: Option<usize>,
+    ) -> io::Result<()> {
+        let file = fs::File::open(path)?;
+        let count = range_count(from, to);
+        for (line, timestamp) in read_history_records(file)?
+            .into_iter()
+            .skip(from)
+            .take(count)
+        {
+            self.push_entry(line, timestamp, false);
+        }
+        self.enforce_max_len(max_entries);
+        self.file_loaded_len = self.entries.len();
+        Ok(())
+    }
+
+    pub fn write_default_file(&self) -> io::Result<()> {
+        self.write_file(Self::default_file_path())
+    }
+
     pub fn write_file(&self, path: impl AsRef<Path>) -> io::Result<()> {
+        self.write_file_with_timestamps(path, false)
+    }
+
+    pub fn write_file_with_timestamps(
+        &self,
+        path: impl AsRef<Path>,
+        write_timestamps: bool,
+    ) -> io::Result<()> {
         let path = path.as_ref();
         with_history_lock(path, || {
             let tmp = history_tmp_path(path);
             let mut file = fs::File::create(&tmp)?;
-            self.write_entries(&mut file)
+            self.write_entries(&mut file, write_timestamps)
                 .and_then(|()| file.sync_all())
                 .and_then(|()| fs::rename(&tmp, path))
         })
     }
 
+    pub fn append_default_file(&self, from: usize) -> io::Result<()> {
+        self.append_file(Self::default_file_path(), from)
+    }
+
     pub fn append_file(&self, path: impl AsRef<Path>, from: usize) -> io::Result<()> {
+        self.append_file_with_timestamps(path, from, false)
+    }
+
+    pub fn append_last_to_file(&self, path: impl AsRef<Path>, nelements: usize) -> io::Result<()> {
+        let from = self.entries.len().saturating_sub(nelements);
+        self.append_file(path, from)
+    }
+
+    pub fn append_file_with_timestamps(
+        &self,
+        path: impl AsRef<Path>,
+        from: usize,
+        write_timestamps: bool,
+    ) -> io::Result<()> {
         let path = path.as_ref();
         with_history_lock(path, || {
             let mut file = OpenOptions::new().create(true).append(true).open(path)?;
             for entry in self.entries.iter().skip(from) {
-                write_entry(&mut file, entry)?;
+                write_entry(&mut file, entry, write_timestamps)?;
             }
             file.sync_all()
         })
     }
 
+    pub fn append_new_to_default_file(&mut self) -> io::Result<()> {
+        self.append_new_to_file(Self::default_file_path())
+    }
+
+    pub fn append_new_to_default_file_with_timestamps(
+        &mut self,
+        write_timestamps: bool,
+    ) -> io::Result<()> {
+        self.append_new_to_file_with_timestamps(Self::default_file_path(), write_timestamps)
+    }
+
     pub fn append_new_to_file(&mut self, path: impl AsRef<Path>) -> io::Result<()> {
-        self.append_file(path, self.file_loaded_len)?;
+        self.append_new_to_file_with_timestamps(path, false)
+    }
+
+    pub fn append_new_to_file_with_timestamps(
+        &mut self,
+        path: impl AsRef<Path>,
+        write_timestamps: bool,
+    ) -> io::Result<()> {
+        self.append_file_with_timestamps(path, self.file_loaded_len, write_timestamps)?;
         self.file_loaded_len = self.entries.len();
         Ok(())
     }
@@ -64,18 +168,26 @@ impl History {
             let tmp = history_tmp_path(path);
             let mut file = fs::File::create(&tmp)?;
             for entry in &history.entries[keep_from..] {
-                write_entry(&mut file, entry)?;
+                write_entry(&mut file, entry, false)?;
             }
             file.sync_all()?;
             fs::rename(&tmp, path)
         })
     }
 
-    fn write_entries(&self, file: &mut fs::File) -> io::Result<()> {
+    fn write_entries(&self, file: &mut fs::File, write_timestamps: bool) -> io::Result<()> {
         for entry in &self.entries {
-            write_entry(file, entry)?;
+            write_entry(file, entry, write_timestamps)?;
         }
         Ok(())
+    }
+}
+
+fn range_count(from: usize, to: Option<usize>) -> usize {
+    match to {
+        None => usize::MAX,
+        Some(to) if to < from => usize::MAX,
+        Some(to) => to.saturating_sub(from).max(1),
     }
 }
 
@@ -84,8 +196,12 @@ fn is_timestamp_record(line: &str) -> bool {
         .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
-fn write_entry(file: &mut fs::File, entry: &HistoryEntry) -> io::Result<()> {
-    if let Some(timestamp) = &entry.timestamp {
+fn write_entry(
+    file: &mut fs::File,
+    entry: &HistoryEntry,
+    write_timestamps: bool,
+) -> io::Result<()> {
+    if write_timestamps && let Some(timestamp) = &entry.timestamp {
         writeln!(file, "{timestamp}")?;
     }
     file.write_all(&entry.line_bytes)?;

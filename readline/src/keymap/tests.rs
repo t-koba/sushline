@@ -45,10 +45,50 @@ fn detects_key_sequence_prefixes() {
 }
 
 #[test]
-fn inputrc_accepts_bindable_eof_name_without_exporting_bash_oracle_name() {
+fn inputrc_accepts_bindable_eof_name_without_exporting_readline_bind_name() {
     assert_eq!(EditCommand::parse("end-of-file"), Some(EditCommand::Eof));
     assert!(is_bindable_function_name("end-of-file"));
     assert!(!BIND_FUNCTION_NAMES.contains(&"end-of-file"));
+}
+
+#[test]
+fn typed_edit_commands_round_trip_through_public_names() {
+    for command in EditCommand::ALL {
+        let name = command.as_str();
+        assert_eq!(
+            EditCommand::parse(name),
+            Some(*command),
+            "{name} must parse back to its typed command"
+        );
+        assert!(
+            is_bindable_function_name(name),
+            "{name} must be accepted by bind/inputrc"
+        );
+    }
+}
+
+#[test]
+fn bind_function_name_tables_stay_sorted_and_disjoint() {
+    assert!(
+        BIND_FUNCTION_NAMES.windows(2).all(|pair| pair[0] < pair[1]),
+        "bind -l command names must stay sorted for binary_search"
+    );
+    assert!(
+        commands::EXTRA_BIND_FUNCTION_NAMES
+            .windows(2)
+            .all(|pair| pair[0] < pair[1]),
+        "extra bind command names must stay sorted for binary_search"
+    );
+    for name in commands::EXTRA_BIND_FUNCTION_NAMES {
+        assert!(
+            !BIND_FUNCTION_NAMES.contains(name),
+            "{name} must not be duplicated in bind -l names"
+        );
+        assert!(
+            EditCommand::parse(name).is_some(),
+            "{name} must map to a typed command"
+        );
+    }
 }
 
 #[test]

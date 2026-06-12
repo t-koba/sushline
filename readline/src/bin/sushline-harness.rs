@@ -1,29 +1,10 @@
-use readline::{
-    Config, Editor, History, HistoryExpansionContext, HistoryExpansionPolicy, Hooks, Prompt,
-    ReadlineResult, Terminal, expand_history,
-};
+use readline::{Config, Editor, History, Hooks, Prompt, ReadlineResult, Terminal};
 use std::process::ExitCode;
 use std::{fs, path::Path};
 
 struct HarnessApplication;
 
 impl Hooks for HarnessApplication {
-    fn expand_history(
-        &mut self,
-        context: HistoryExpansionContext<'_>,
-    ) -> Option<Result<Vec<u8>, String>> {
-        Some(
-            expand_history(
-                context.line,
-                context.history,
-                context.histchars,
-                &HistoryExpansionPolicy::default(),
-                |_| false,
-            )
-            .map_err(|err| err.message()),
-        )
-    }
-
     fn command_names(&self) -> Vec<String> {
         let mut names = vec!["echo".to_string()];
         for dir in std::env::var_os("PATH")
@@ -91,22 +72,36 @@ fn main() -> ExitCode {
         return ExitCode::from(1);
     }
 
-    match line.read_line(Prompt::new(prompt), &mut hooks) {
-        Ok(ReadlineResult::Line(bytes)) => {
-            println!("SUSHLINE_ACCEPTED:{}", String::from_utf8_lossy(&bytes));
-            ExitCode::SUCCESS
-        }
-        Ok(ReadlineResult::Interrupted) => {
-            println!("SUSHLINE_INTERRUPTED");
-            ExitCode::from(130)
-        }
-        Ok(ReadlineResult::Eof) => {
-            println!("SUSHLINE_EOF");
-            ExitCode::SUCCESS
-        }
-        Err(err) => {
-            eprintln!("SUSHLINE_ERROR:{err:?}");
-            ExitCode::from(1)
+    let reads = std::env::var("SUSHLINE_READS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(1)
+        .max(1);
+    for read_idx in 1..=reads {
+        match line.read_line(Prompt::new(prompt.clone()), &mut hooks) {
+            Ok(ReadlineResult::Line(bytes)) => {
+                if reads == 1 {
+                    println!("SUSHLINE_ACCEPTED:{}", String::from_utf8_lossy(&bytes));
+                } else {
+                    println!(
+                        "SUSHLINE_ACCEPTED_{read_idx}:{}",
+                        String::from_utf8_lossy(&bytes)
+                    );
+                }
+            }
+            Ok(ReadlineResult::Interrupted) => {
+                println!("SUSHLINE_INTERRUPTED");
+                return ExitCode::from(130);
+            }
+            Ok(ReadlineResult::Eof) => {
+                println!("SUSHLINE_EOF");
+                return ExitCode::SUCCESS;
+            }
+            Err(err) => {
+                eprintln!("SUSHLINE_ERROR:{err:?}");
+                return ExitCode::from(1);
+            }
         }
     }
+    ExitCode::SUCCESS
 }

@@ -78,13 +78,17 @@ impl KeySequence {
     }
 
     pub fn display_inputrc(&self) -> String {
-        let mut out = String::from("\"");
+        format!("\"{}\"", self.display_inputrc_body())
+    }
+
+    pub fn display_inputrc_body(&self) -> String {
+        let mut out = String::new();
         for b in &self.0 {
             match *b {
                 0x00 => out.push_str("\\C-@"),
-                b'\n' => out.push_str("\\n"),
-                b'\r' => out.push_str("\\r"),
-                b'\t' => out.push_str("\\t"),
+                b'\n' => out.push_str("\\C-j"),
+                b'\r' => out.push_str("\\C-m"),
+                b'\t' => out.push_str("\\C-i"),
                 0x1b => out.push_str("\\e"),
                 0x1c => out.push_str("\\C-\\\\"),
                 0x1d => out.push_str("\\C-]"),
@@ -101,7 +105,6 @@ impl KeySequence {
                 0x20..=0x7e => out.push(*b as char),
             }
         }
-        out.push('"');
         out
     }
 }
@@ -423,10 +426,10 @@ impl KeyMap {
         for (map, bindings) in &self.maps {
             for (seq, binding) in bindings {
                 match binding {
-                    KeyBinding::Command(bound) if bound.as_str() == command => {
+                    KeyBinding::Command(bound) if command_name_matches(bound.as_str(), command) => {
                         out.push((*map, seq.clone()));
                     }
-                    KeyBinding::NamedCommand(bound) if bound == command => {
+                    KeyBinding::NamedCommand(bound) if command_name_matches(bound, command) => {
                         out.push((*map, seq.clone()));
                     }
                     _ => {}
@@ -434,6 +437,28 @@ impl KeyMap {
             }
         }
         out
+    }
+
+    pub fn bindings_for_command_name_in_map(
+        &self,
+        map: KeyMapName,
+        command: &str,
+    ) -> Vec<KeySequence> {
+        self.maps
+            .get(&map.canonical())
+            .into_iter()
+            .flat_map(|bindings| {
+                bindings.iter().filter_map(|(seq, binding)| match binding {
+                    KeyBinding::Command(bound) if command_name_matches(bound.as_str(), command) => {
+                        Some(seq.clone())
+                    }
+                    KeyBinding::NamedCommand(bound) if command_name_matches(bound, command) => {
+                        Some(seq.clone())
+                    }
+                    _ => None,
+                })
+            })
+            .collect()
     }
 
     pub fn unbind_key(&mut self, map: KeyMapName, key: &KeySequence) -> Option<KeyBinding> {
@@ -447,13 +472,26 @@ impl KeyMap {
         for bindings in self.maps.values_mut() {
             let before = bindings.len();
             bindings.retain(|_, binding| match binding {
-                KeyBinding::Command(bound) => bound.as_str() != command,
-                KeyBinding::NamedCommand(bound) => bound != command,
+                KeyBinding::Command(bound) => !command_name_matches(bound.as_str(), command),
+                KeyBinding::NamedCommand(bound) => !command_name_matches(bound, command),
                 _ => true,
             });
             removed += before - bindings.len();
         }
         removed
+    }
+
+    pub fn unbind_command_in_map(&mut self, map: KeyMapName, command: &str) -> usize {
+        let Some(bindings) = self.maps.get_mut(&map.canonical()) else {
+            return 0;
+        };
+        let before = bindings.len();
+        bindings.retain(|_, binding| match binding {
+            KeyBinding::Command(bound) => !command_name_matches(bound.as_str(), command),
+            KeyBinding::NamedCommand(bound) => !command_name_matches(bound, command),
+            _ => true,
+        });
+        before - bindings.len()
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (KeyMapName, &KeySequence, &KeyBinding)> {
@@ -463,6 +501,26 @@ impl KeyMap {
                 .map(move |(seq, binding)| (*map, seq, binding))
         })
     }
+
+    pub fn iter_map(
+        &self,
+        map: KeyMapName,
+    ) -> impl Iterator<Item = (KeyMapName, &KeySequence, &KeyBinding)> {
+        let map = map.canonical();
+        self.maps.get(&map).into_iter().flat_map(move |bindings| {
+            bindings
+                .iter()
+                .map(move |(seq, binding)| (map, seq, binding))
+        })
+    }
+}
+
+fn command_name_matches(bound: &str, query: &str) -> bool {
+    bound == query
+        || matches!(
+            (bound, query),
+            ("insert-last-argument", "yank-last-arg") | ("yank-last-arg", "insert-last-argument")
+        )
 }
 
 impl fmt::Display for EditCommand {

@@ -20,13 +20,33 @@ fn bind_x_builtin_args_query_and_remove_application_commands() {
     let output = api
         .apply_builtin_args(&["-x", "\"\\C-o\": \"echo $READLINE_LINE\"", "-X"])
         .unwrap();
-    assert_eq!(output, "\"\\C-o\": \"echo $READLINE_LINE\"\n");
+    assert_eq!(output, "\"\\C-o\" \"echo $READLINE_LINE\"\n");
     assert_eq!(
         api.print(BindQuery::PrintApplicationCommands),
         "\"\\C-o\" executes `echo $READLINE_LINE`\n"
     );
     assert!(api.unbind_application_command("\"\\C-o\"").unwrap());
     assert_eq!(api.print(BindQuery::PrintApplicationCommandsReusable), "");
+}
+
+#[test]
+fn bind_x_reusable_output_can_be_read_back() {
+    let mut keymap = KeyMap::emacs_default();
+    let mut vars = Variables::new();
+    let mut api = BindApi::with_config(&mut keymap, &mut vars, &Config::default());
+    let output = api
+        .apply_builtin_args(&["-x", "\"\\C-x\\C-a\": echo hi", "-X"])
+        .unwrap();
+
+    let mut keymap = KeyMap::emacs_default();
+    let mut vars = Variables::new();
+    let mut api = BindApi::with_config(&mut keymap, &mut vars, &Config::default());
+    api.apply_builtin_args(&["-x", output.trim()]).unwrap();
+
+    assert_eq!(
+        api.print(BindQuery::PrintApplicationCommandsReusable),
+        output
+    );
 }
 
 #[test]
@@ -40,9 +60,15 @@ fn bind_builtin_args_cover_common_query_options() {
     api.apply_builtin_args(&["-r", "\"\\C-y\""]).unwrap();
     assert_eq!(
         api.apply_builtin_args(&["-q", "yank"]).unwrap(),
-        "yank can be invoked via \"\\C-y\".\n"
+        "yank is not bound to any keys\n"
     );
     api.apply_builtin_args(&["-m", "vi-insert", "-r", "\"\\C-y\""])
+        .unwrap();
+    assert_eq!(
+        api.apply_builtin_args(&["-q", "yank"]).unwrap(),
+        "yank is not bound to any keys\n"
+    );
+    api.apply_builtin_args(&["-m", "vi-command", "-r", "\"\\C-y\""])
         .unwrap();
     assert_eq!(
         api.apply_builtin_args(&["-q", "yank"]).unwrap(),
@@ -95,12 +121,12 @@ fn bind_f_uses_runtime_config_for_conditionals() {
 }
 
 #[test]
-fn bind_f_resolves_relative_includes_from_inputrc_directory() {
+fn bind_f_resolves_absolute_includes() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("inputrc");
     let included = dir.path().join("included");
     std::fs::write(&included, "\"\\C-p\": end-of-line\n").unwrap();
-    std::fs::write(&path, "$include included\n").unwrap();
+    std::fs::write(&path, format!("$include {}\n", included.display())).unwrap();
 
     let mut keymap = KeyMap::emacs_default();
     let mut vars = Variables::new();

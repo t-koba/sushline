@@ -3,8 +3,8 @@ mod common;
 use common::MemoryTerminal;
 use readline::{
     CompletionAction, CompletionCandidate, CompletionOptions, CompletionRequest,
-    CompletionResponse, CompletionType, Config, Editor, History, Hooks, Prompt, ReadlineResult,
-    TerminalEvent,
+    CompletionResponse, CompletionType, Config, Editor, History, Hooks, Prompt, QuoteContext,
+    ReadlineResult, TerminalEvent,
 };
 
 #[derive(Default)]
@@ -55,6 +55,32 @@ impl Hooks for OptionCompletion {
     }
 }
 
+struct ThreeCompletion {
+    options: CompletionOptions,
+}
+
+impl Hooks for ThreeCompletion {
+    fn complete(&mut self, _: CompletionRequest) -> Option<CompletionResponse> {
+        Some(CompletionResponse {
+            candidates: vec![
+                CompletionCandidate {
+                    replacement: b"alpha".to_vec(),
+                    display: None,
+                },
+                CompletionCandidate {
+                    replacement: b"beta".to_vec(),
+                    display: None,
+                },
+                CompletionCandidate {
+                    replacement: b"gamma".to_vec(),
+                    display: None,
+                },
+            ],
+            options: self.options.clone(),
+        })
+    }
+}
+
 #[test]
 fn menu_complete_uses_completion_hook() {
     let terminal = MemoryTerminal::with_events(vec![
@@ -68,7 +94,29 @@ fn menu_complete_uses_completion_hook() {
     let mut line = Editor::new(Config::default(), terminal, History::new());
     line.load_inputrc_str("\"\\C-o\": menu-complete").unwrap();
     let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
-    assert_eq!(result, ReadlineResult::Line("alpha".as_bytes().to_vec()));
+    assert_eq!(result, ReadlineResult::Line("alpha ".as_bytes().to_vec()));
+}
+
+#[test]
+fn completion_query_ctrl_c_interrupts_and_clears_transient_prompt() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\t".to_vec()),
+        TerminalEvent::Bytes(b"\x03".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = StaticCompletion::default();
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set completion-query-items 1")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Interrupted);
+    assert!(line.terminal().out.contains("^C\n"));
+    assert!(
+        !line
+            .terminal()
+            .out
+            .contains("Display all 2 possibilities?^C")
+    );
 }
 
 #[test]
@@ -85,11 +133,11 @@ fn menu_complete_replaces_previous_candidate() {
     let mut line = Editor::new(Config::default(), terminal, History::new());
     line.load_inputrc_str("\"\\C-o\": menu-complete").unwrap();
     let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
-    assert_eq!(result, ReadlineResult::Line("beta".as_bytes().to_vec()));
+    assert_eq!(result, ReadlineResult::Line("beta ".as_bytes().to_vec()));
 }
 
 #[test]
-fn menu_complete_stops_at_end_and_restores_original_text() {
+fn menu_complete_wraps_to_common_prefix_at_end() {
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"a".to_vec()),
         TerminalEvent::Bytes(vec![0x0f]),
@@ -104,7 +152,450 @@ fn menu_complete_stops_at_end_and_restores_original_text() {
     let mut line = Editor::new(Config::default(), terminal, History::new());
     line.load_inputrc_str("\"\\C-o\": menu-complete").unwrap();
     let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Line(Vec::new()));
+}
+
+#[test]
+fn menu_complete_keeps_state_after_wrapping_to_common_prefix() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"a".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = StaticCompletion {
+        expected_type: Some(CompletionType::MenuComplete),
+        ..Default::default()
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": menu-complete").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Line("alpha ".as_bytes().to_vec()));
+}
+
+#[test]
+fn menu_complete_reuses_initial_completion_response() {
+    struct WordDependentCompletion {
+        calls: usize,
+    }
+    impl Hooks for WordDependentCompletion {
+        fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
+            self.calls += 1;
+            assert_eq!(request.context.word.as_slice(), b"a");
+            Some(CompletionResponse {
+                candidates: vec![
+                    CompletionCandidate {
+                        replacement: b"alpha".to_vec(),
+                        display: None,
+                    },
+                    CompletionCandidate {
+                        replacement: b"alpine".to_vec(),
+                        display: None,
+                    },
+                ],
+                options: CompletionOptions {
+                    nospace: true,
+                    ..Default::default()
+                },
+            })
+        }
+    }
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"a".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = WordDependentCompletion { calls: 0 };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": menu-complete").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Line("alpine".as_bytes().to_vec()));
+    assert_eq!(hooks.calls, 1);
+}
+
+#[test]
+fn menu_complete_backward_and_old_menu_complete_share_cycle_behavior() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(vec![0x10]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = ThreeCompletion {
+        options: CompletionOptions {
+            nospace: true,
+            ..Default::default()
+        },
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": menu-complete\n\"\\C-p\": menu-complete-backward")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Line("".as_bytes().to_vec()));
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = ThreeCompletion {
+        options: CompletionOptions {
+            nospace: true,
+            ..Default::default()
+        },
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": old-menu-complete")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Line("beta".as_bytes().to_vec()));
+}
+
+#[test]
+fn shift_tab_sequence_can_bind_to_menu_complete_backward() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\x1b[Z".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = ThreeCompletion {
+        options: CompletionOptions {
+            nospace: true,
+            ..Default::default()
+        },
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\e[Z\": menu-complete-backward")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Line("gamma".as_bytes().to_vec()));
+}
+
+#[test]
+fn menu_complete_numeric_argument_moves_within_saved_candidates() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\x1b2".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = ThreeCompletion {
+        options: CompletionOptions {
+            nospace: true,
+            ..Default::default()
+        },
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": menu-complete").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Line("beta".as_bytes().to_vec()));
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\x1b2".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = ThreeCompletion {
+        options: CompletionOptions {
+            nospace: true,
+            ..Default::default()
+        },
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": menu-complete").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Line("gamma".as_bytes().to_vec()));
+}
+
+#[test]
+fn menu_complete_display_prefix_is_first_menu_choice() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"a".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = OptionCompletion {
+        options: CompletionOptions {
+            nospace: true,
+            ..Default::default()
+        },
+        candidates: vec![
+            CompletionCandidate {
+                replacement: b"alpha".to_vec(),
+                display: None,
+            },
+            CompletionCandidate {
+                replacement: b"alpine".to_vec(),
+                display: None,
+            },
+        ],
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": menu-complete\nset menu-complete-display-prefix on")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Line("alp".as_bytes().to_vec()));
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"a".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = OptionCompletion {
+        options: CompletionOptions {
+            nospace: true,
+            ..Default::default()
+        },
+        candidates: vec![
+            CompletionCandidate {
+                replacement: b"alpha".to_vec(),
+                display: None,
+            },
+            CompletionCandidate {
+                replacement: b"alpine".to_vec(),
+                display: None,
+            },
+        ],
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": menu-complete\nset menu-complete-display-prefix on")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Line("alpha".as_bytes().to_vec()));
+}
+
+#[test]
+fn menu_complete_show_all_if_ambiguous_displays_matches_on_first_menu() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"a".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = StaticCompletion {
+        expected_type: Some(CompletionType::MenuComplete),
+        ..Default::default()
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": menu-complete\nset show-all-if-ambiguous on")
+        .unwrap();
+    let _ = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert!(line.terminal().out.contains("alpha"));
+    assert!(line.terminal().out.contains("beta"));
+}
+
+#[test]
+fn menu_complete_single_match_completes_without_starting_menu_state() {
+    struct SingleCompletion {
+        calls: usize,
+    }
+
+    impl Hooks for SingleCompletion {
+        fn complete(&mut self, _: CompletionRequest) -> Option<CompletionResponse> {
+            self.calls += 1;
+            Some(CompletionResponse {
+                candidates: vec![CompletionCandidate {
+                    replacement: b"alpha".to_vec(),
+                    display: None,
+                }],
+                options: CompletionOptions::default(),
+            })
+        }
+    }
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"a".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = SingleCompletion { calls: 0 };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": menu-complete").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(
+        result,
+        ReadlineResult::Line("alpha alpha ".as_bytes().to_vec())
+    );
+    assert_eq!(hooks.calls, 2);
+}
+
+#[test]
+fn menu_complete_display_only_does_not_start_menu_state() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"a".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = OptionCompletion {
+        options: CompletionOptions {
+            action: Some(CompletionAction::DisplayOnly),
+            ..Default::default()
+        },
+        candidates: vec![CompletionCandidate {
+            replacement: b"alpha".to_vec(),
+            display: None,
+        }],
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": menu-complete").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
     assert_eq!(result, ReadlineResult::Line("a".as_bytes().to_vec()));
+    assert!(line.terminal().out.contains("alpha"));
+}
+
+#[test]
+fn menu_complete_uses_programmable_filter_replacement_and_append_options() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"a".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = OptionCompletion {
+        options: CompletionOptions {
+            filter_suffix: Some(b".rs".to_vec()),
+            replacement_prefix: Some(b"--".to_vec()),
+            nosort: true,
+            nospace: true,
+            ..Default::default()
+        },
+        candidates: vec![
+            CompletionCandidate {
+                replacement: b"alpha.rs".to_vec(),
+                display: None,
+            },
+            CompletionCandidate {
+                replacement: b"alpha.txt".to_vec(),
+                display: None,
+            },
+            CompletionCandidate {
+                replacement: b"alpine.rs".to_vec(),
+                display: None,
+            },
+        ],
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": menu-complete").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(
+        result,
+        ReadlineResult::Line("--alpine.rs".as_bytes().to_vec())
+    );
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = OptionCompletion {
+        options: CompletionOptions {
+            append_character: Some(':'),
+            ..Default::default()
+        },
+        candidates: vec![
+            CompletionCandidate {
+                replacement: b"alpha".to_vec(),
+                display: None,
+            },
+            CompletionCandidate {
+                replacement: b"beta".to_vec(),
+                display: None,
+            },
+        ],
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": menu-complete").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Line("alpha:".as_bytes().to_vec()));
+}
+
+#[test]
+fn completion_sort_removes_duplicate_replacements_even_when_display_differs() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = OptionCompletion {
+        options: CompletionOptions::default(),
+        candidates: vec![
+            CompletionCandidate {
+                replacement: b"same".to_vec(),
+                display: Some("zeta".to_string()),
+            },
+            CompletionCandidate {
+                replacement: b"other".to_vec(),
+                display: None,
+            },
+            CompletionCandidate {
+                replacement: b"same".to_vec(),
+                display: Some("alpha".to_string()),
+            },
+        ],
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": insert-completions")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"same other ".to_vec()));
+}
+
+#[test]
+fn completion_nosort_preserves_first_occurrence_but_still_removes_duplicates() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = OptionCompletion {
+        options: CompletionOptions {
+            nosort: true,
+            ..Default::default()
+        },
+        candidates: vec![
+            CompletionCandidate {
+                replacement: b"beta".to_vec(),
+                display: None,
+            },
+            CompletionCandidate {
+                replacement: b"alpha".to_vec(),
+                display: None,
+            },
+            CompletionCandidate {
+                replacement: b"beta".to_vec(),
+                display: None,
+            },
+        ],
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": insert-completions")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"beta alpha ".to_vec()));
+}
+
+#[test]
+fn menu_complete_marks_and_quotes_filename_candidates() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("alpha dir")).unwrap();
+    std::fs::write(dir.path().join("alpha file"), "").unwrap();
+    let word = format!("{}/alpha", dir.path().display());
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(word.as_bytes().to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": menu-complete").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    let ReadlineResult::Line(line) = result else {
+        panic!("expected accepted line");
+    };
+    assert!(
+        line.ends_with(b"alpha\\ dir/") || line.ends_with(b"alpha\\ file "),
+        "{line:?}"
+    );
 }
 
 #[test]
@@ -212,6 +703,105 @@ fn completion_dequotes_and_requotes_current_word() {
     assert_eq!(
         result,
         ReadlineResult::Line("cat foo\\ bar\\ baz ".as_bytes().to_vec())
+    );
+}
+
+#[test]
+fn quote_completion_hook_receives_completion_context_inside_quotes() {
+    use std::cell::Cell;
+
+    struct ContextQuoteHook {
+        seen_quote_context: Cell<bool>,
+    }
+
+    impl Hooks for ContextQuoteHook {
+        fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
+            assert_eq!(request.context.line.as_slice(), b"cat \"alp");
+            assert_eq!(request.context.point, b"cat \"alp".len());
+            assert_eq!(request.context.word_start, 4);
+            assert_eq!(request.context.word_end, b"cat \"alp".len());
+            assert_eq!(request.context.word.as_slice(), b"alp");
+            Some(CompletionResponse {
+                candidates: vec![CompletionCandidate {
+                    replacement: b"alpha $file".to_vec(),
+                    display: None,
+                }],
+                options: CompletionOptions {
+                    filenames: true,
+                    ..Default::default()
+                },
+            })
+        }
+
+        fn quote_completion(&self, context: QuoteContext<'_>) -> Option<Vec<u8>> {
+            assert_eq!(context.value, b"alpha $file");
+            assert_eq!(context.line, b"cat \"alp");
+            assert_eq!(context.point, b"cat \"alp".len());
+            assert_eq!(context.word_start, 4);
+            assert_eq!(context.word_end, b"cat \"alp".len());
+            assert_eq!(context.word, b"alp");
+            assert_eq!(context.quote, Some('"'));
+            assert_eq!(context.completion_type, CompletionType::Complete);
+            assert!(context.quote_filename);
+            self.seen_quote_context.set(true);
+            Some(b"\"sush-quoted\"".to_vec())
+        }
+    }
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"cat \"alp".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = ContextQuoteHook {
+        seen_quote_context: Cell::new(false),
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": complete").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(
+        result,
+        ReadlineResult::Line("cat \"sush-quoted\" ".as_bytes().to_vec())
+    );
+    assert!(hooks.seen_quote_context.get());
+}
+
+#[test]
+fn legacy_quote_hook_still_quotes_unquoted_filename_completions() {
+    struct LegacyQuoteHook;
+
+    impl Hooks for LegacyQuoteHook {
+        fn complete(&mut self, _: CompletionRequest) -> Option<CompletionResponse> {
+            Some(CompletionResponse {
+                candidates: vec![CompletionCandidate {
+                    replacement: b"alpha file".to_vec(),
+                    display: None,
+                }],
+                options: CompletionOptions {
+                    filenames: true,
+                    ..Default::default()
+                },
+            })
+        }
+
+        fn quote(&self, value: &[u8]) -> Option<Vec<u8>> {
+            assert_eq!(value, b"alpha file");
+            Some(b"legacy-quoted".to_vec())
+        }
+    }
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"alp".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = LegacyQuoteHook;
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": complete").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(
+        result,
+        ReadlineResult::Line("legacy-quoted ".as_bytes().to_vec())
     );
 }
 
@@ -352,6 +942,30 @@ fn glob_complete_marks_directories_but_glob_expand_does_not() {
         result,
         ReadlineResult::Line(format!("{}/alpha-dir", dir.path().display()).into_bytes())
     );
+}
+
+#[test]
+fn glob_completion_hook_can_expand_non_utf8_patterns() {
+    struct ByteGlobHook;
+
+    impl Hooks for ByteGlobHook {
+        fn glob_expand_bytes(&self, pattern: &[u8]) -> Option<Vec<Vec<u8>>> {
+            assert_eq!(pattern, b"pre\xff*");
+            Some(vec![b"pre\xff-match".to_vec()])
+        }
+    }
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"pre\xff*".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = ByteGlobHook;
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": glob-complete-word")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"pre\xff-match ".to_vec()));
 }
 
 #[test]
@@ -663,6 +1277,46 @@ fn repeated_tab_lists_unmodified_directory_completions() {
 }
 
 #[test]
+fn repeated_tab_uses_default_screen_size_when_terminal_reports_zero() {
+    struct AlphaCompletion;
+    impl Hooks for AlphaCompletion {
+        fn complete(&mut self, _: CompletionRequest) -> Option<CompletionResponse> {
+            Some(CompletionResponse {
+                candidates: vec![
+                    CompletionCandidate {
+                        replacement: b"alpha".to_vec(),
+                        display: None,
+                    },
+                    CompletionCandidate {
+                        replacement: b"alpine".to_vec(),
+                        display: None,
+                    },
+                ],
+                options: CompletionOptions::default(),
+            })
+        }
+    }
+
+    let mut terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"a".to_vec()),
+        TerminalEvent::Bytes(b"\t".to_vec()),
+        TerminalEvent::Bytes(b"\t".to_vec()),
+        TerminalEvent::Bytes(b"\t".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    terminal.columns = 0;
+    terminal.rows = 0;
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let mut hooks = AlphaCompletion;
+
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+
+    assert_eq!(result, ReadlineResult::Line(b"alp".to_vec()));
+    assert!(line.terminal().out.contains("alpha   alpine"));
+    assert!(!line.terminal().out.contains("--More--"));
+}
+
+#[test]
 fn complete_into_braces_uses_default_completion_fallbacks() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("alpha"), "").unwrap();
@@ -680,11 +1334,9 @@ fn complete_into_braces_uses_default_completion_fallbacks() {
     let ReadlineResult::Line(line) = result else {
         panic!("expected accepted line");
     };
-    assert!(line.contains(&b'{'));
-    assert!(line.windows("alpha".len()).any(|window| window == b"alpha"));
-    assert!(
-        line.windows("alpine".len())
-            .any(|window| window == b"alpine")
+    assert_eq!(
+        line,
+        format!("{}/alp{{ha,ine}} ", dir.path().display()).into_bytes()
     );
 }
 

@@ -14,13 +14,25 @@ impl<T> Editor<T>
 where
     T: TerminalIo,
 {
+    pub(crate) fn usable_terminal_size(&self) -> TerminalSize {
+        let size = self.terminal.size().unwrap_or(TerminalSize {
+            columns: 80,
+            rows: 24,
+        });
+        normalize_terminal_size(size)
+    }
+
+    pub(crate) fn tracked_terminal_columns(&self, state: &EditorState) -> usize {
+        state
+            .display
+            .last_terminal_size
+            .map(normalize_terminal_size)
+            .unwrap_or_else(|| self.usable_terminal_size())
+            .columns as usize
+    }
+
     pub(crate) fn completion_display_width(&self) -> usize {
-        let screen_width = self
-            .terminal
-            .size()
-            .ok()
-            .map(|size| size.columns as usize)
-            .unwrap_or(80);
+        let screen_width = self.usable_terminal_size().columns as usize;
         if let Some(width) = self
             .variables
             .get("completion-display-width")
@@ -39,11 +51,7 @@ where
     }
 
     pub(crate) fn terminal_screen_rows(&self) -> usize {
-        self.terminal
-            .size()
-            .ok()
-            .map(|size| size.rows as usize)
-            .unwrap_or(24)
+        self.usable_terminal_size().rows as usize
     }
 
     pub(super) fn current_prompt_width(&self, state: &EditorState) -> usize {
@@ -107,11 +115,8 @@ where
         let size = state
             .display
             .last_terminal_size
-            .or_else(|| self.terminal.size().ok())
-            .unwrap_or(TerminalSize {
-                columns: 80,
-                rows: 24,
-            });
+            .map(normalize_terminal_size)
+            .unwrap_or_else(|| self.usable_terminal_size());
         let columns = size.columns as usize;
         let (buffer, point_width) = if self.variable_is_on("horizontal-scroll-mode") {
             state.buffer.horizontal_window_with_options(
@@ -165,12 +170,7 @@ where
 
     pub(crate) fn write_tracked(&mut self, state: &mut EditorState, text: &str) -> io::Result<()> {
         self.terminal.write(text)?;
-        let columns = state
-            .display
-            .last_terminal_size
-            .or_else(|| self.terminal.size().ok())
-            .map(|size| size.columns as usize)
-            .unwrap_or(80);
+        let columns = self.tracked_terminal_columns(state);
         state.display.rendered_cursor_row = state
             .display
             .rendered_cursor_row
@@ -184,12 +184,7 @@ where
         bytes: &[u8],
     ) -> io::Result<()> {
         self.terminal.write_bytes(bytes)?;
-        let columns = state
-            .display
-            .last_terminal_size
-            .or_else(|| self.terminal.size().ok())
-            .map(|size| size.columns as usize)
-            .unwrap_or(80);
+        let columns = self.tracked_terminal_columns(state);
         let text = String::from_utf8_lossy(bytes);
         state.display.rendered_cursor_row = state
             .display
@@ -252,6 +247,13 @@ where
                 .unwrap_or_else(|| "@".to_string()),
         };
         Prompt::new(raw).visible().to_string()
+    }
+}
+
+fn normalize_terminal_size(size: TerminalSize) -> TerminalSize {
+    TerminalSize {
+        columns: if size.columns == 0 { 80 } else { size.columns },
+        rows: if size.rows == 0 { 24 } else { size.rows },
     }
 }
 

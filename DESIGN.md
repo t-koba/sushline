@@ -136,6 +136,8 @@ The embedder supplies:
   desired. Completion sorting delegates ordering to libc `strcoll`.
 - Supplying and persisting history according to the embedding program's policy.
 - Programmable completion state and candidate generation.
+- Shell-specific completion quoting, glob expansion, history expansion status,
+  spelling correction, shell word ranges, and shell expansion through `Hooks`.
 - Executing application commands for `bind -x`.
 - `edit-and-execute-command` policy.
 - Translating `ReadlineResult` into the embedding program's input and control
@@ -145,7 +147,7 @@ The embedder supplies:
 
 ## Test Structure
 
-Unit tests cover internal behavior. PTY oracle tests compare observable behavior
-against the GNU Bash 5.3 and GNU Readline 8.3 baseline. Embedding-program tests
-should focus on application state, completion builtins, prompt expansion, and
-history policy.
+Unit tests cover internal behavior. PTY oracle tests compare observable
+Readline and History behavior against GNU Readline 8.3 / GNU History Library
+through a GNU Bash 5.3 host. Embedding-program tests should focus on
+application state, completion builtins, prompt expansion, and history policy.

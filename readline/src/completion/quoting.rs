@@ -5,10 +5,20 @@ pub(super) struct CompletionEdit {
     pub(super) end: usize,
     pub(super) word_bytes: Vec<u8>,
     pub(super) quote: Option<char>,
+    pub(super) line: Vec<u8>,
+    pub(super) point: usize,
 }
 
-pub(super) fn completion_edit(state: &EditorState, break_chars: &[u8]) -> CompletionEdit {
-    let (mut start, end) = state.buffer.completion_word_bounds(Some(break_chars));
+pub(super) fn completion_edit(
+    state: &EditorState,
+    break_chars: &[u8],
+    include_point_char: bool,
+) -> CompletionEdit {
+    let (mut start, end) = if include_point_char {
+        state.buffer.vi_completion_word_bounds(Some(break_chars))
+    } else {
+        state.buffer.completion_word_bounds(Some(break_chars))
+    };
     let bytes = state.buffer.as_bytes();
     if start > 0 && matches!(bytes.get(start - 1), Some(b'\'' | b'"')) {
         start -= 1;
@@ -25,6 +35,8 @@ pub(super) fn completion_edit(state: &EditorState, break_chars: &[u8]) -> Comple
         end,
         word_bytes,
         quote,
+        line: bytes.to_vec(),
+        point: state.buffer.byte_point(),
     }
 }
 
@@ -90,7 +102,6 @@ pub(super) fn quote_filename_bytes(bytes: &[u8]) -> Vec<u8> {
                 | b'}'
                 | b'*'
                 | b'?'
-                | b'#'
         ) {
             out.push(b'\\');
         }

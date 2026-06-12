@@ -73,7 +73,7 @@ fn named_vi_command_group(command: &str) -> Option<ViCommandGroup> {
         "vi-back-to-indent" | "vi-first-print" => Some(ViCommandGroup::Motion),
         "vi-backward-word" | "vi-bword" | "vi-prev-word" => Some(ViCommandGroup::Motion),
         "vi-change-case" => Some(ViCommandGroup::Operator),
-        "vi-change-char" | "vi-replace" => Some(ViCommandGroup::Operator),
+        "vi-change-char" => Some(ViCommandGroup::Operator),
         "vi-change-to" => Some(ViCommandGroup::Operator),
         "vi-column" => Some(ViCommandGroup::Motion),
         "vi-delete" => Some(ViCommandGroup::Operator),
@@ -88,7 +88,7 @@ fn named_vi_command_group(command: &str) -> Option<ViCommandGroup> {
         "vi-match" => Some(ViCommandGroup::Mode),
         "vi-overstrike-delete" | "vi-rubout" => Some(ViCommandGroup::Edit),
         "vi-put" => Some(ViCommandGroup::Edit),
-        "vi-redo" => Some(ViCommandGroup::Edit),
+        "vi-redo" | "vi-replace" => Some(ViCommandGroup::Edit),
         "vi-search" => Some(ViCommandGroup::Search),
         "vi-search-again" => Some(ViCommandGroup::Search),
         "vi-set-register" => Some(ViCommandGroup::Mode),
@@ -142,6 +142,14 @@ where
                 });
             }
             "vi-backward-word" | "vi-bword" | "vi-prev-word" => {
+                if command == "vi-prev-word" && key == b"B" {
+                    self.apply_vi_motion_with_operator(state, key, false, |state| {
+                        repeat(state, |state| {
+                            state.buffer.backward_bigword();
+                        });
+                    });
+                    return Ok(EditorOutcome::Continue);
+                }
                 let word_breaks = self.editing_word_breaks(hooks);
                 self.apply_vi_motion_with_operator(state, key, false, |state| {
                     repeat(state, |state| {
@@ -163,6 +171,14 @@ where
                 });
             }
             "vi-end-word" | "vi-eword" => {
+                if command == "vi-end-word" && key == b"E" {
+                    self.apply_vi_motion_with_operator(state, key, true, |state| {
+                        repeat(state, |state| {
+                            state.buffer.end_bigword();
+                        });
+                    });
+                    return Ok(EditorOutcome::Continue);
+                }
                 let word_breaks = self.editing_word_breaks(hooks);
                 self.apply_vi_motion_with_operator(state, key, true, |state| {
                     repeat(state, |state| {
@@ -171,17 +187,40 @@ where
                 });
             }
             "vi-fWord" | "vi-forward-bigword" => {
+                let change_operator = matches!(state.vi.vi_operator, Some(ViOperator::Change));
                 self.apply_vi_motion_with_operator(state, key, false, |state| {
                     repeat(state, |state| {
-                        state.buffer.forward_bigword();
+                        if change_operator {
+                            state.buffer.forward_bigword_end();
+                        } else {
+                            state.buffer.forward_bigword();
+                        }
                     });
                 });
             }
             "vi-forward-word" | "vi-fword" | "vi-next-word" => {
+                if command == "vi-next-word" && key == b"W" {
+                    let change_operator = matches!(state.vi.vi_operator, Some(ViOperator::Change));
+                    self.apply_vi_motion_with_operator(state, key, false, |state| {
+                        repeat(state, |state| {
+                            if change_operator {
+                                state.buffer.forward_bigword_end();
+                            } else {
+                                state.buffer.forward_bigword();
+                            }
+                        });
+                    });
+                    return Ok(EditorOutcome::Continue);
+                }
                 let word_breaks = self.editing_word_breaks(hooks);
+                let change_operator = matches!(state.vi.vi_operator, Some(ViOperator::Change));
                 self.apply_vi_motion_with_operator(state, key, false, |state| {
                     repeat(state, |state| {
-                        state.buffer.forward_word(word_breaks.as_deref());
+                        if change_operator {
+                            state.buffer.forward_word(word_breaks.as_deref());
+                        } else {
+                            state.buffer.vi_forward_word(word_breaks.as_deref());
+                        }
                     });
                 });
             }
@@ -218,7 +257,7 @@ where
                 state.vi.last_vi_change = Some(state.vi_key_sequence_for_change(key));
                 state.after_non_kill_command();
             }
-            "vi-change-char" | "vi-replace" => {
+            "vi-change-char" => {
                 state.input.pending_replace = true;
                 state.vi.vi_insert_change = Some(state.vi_key_sequence_for_change(key));
                 state.after_non_kill_command();
@@ -354,6 +393,13 @@ where
                 if let Some(bytes) = state.vi.last_vi_change.clone() {
                     return self.replay_vi_change(state, &bytes, hooks);
                 }
+                state.after_non_kill_command();
+            }
+            "vi-replace" => {
+                state.numeric_arg.take();
+                state.overwrite_mode = true;
+                self.keymap.set_current(KeyMapName::ViInsert);
+                state.begin_vi_insert_change(key);
                 state.after_non_kill_command();
             }
             "vi-undo" => {

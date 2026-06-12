@@ -131,6 +131,7 @@ where
         state: &mut EditorState,
         command: &str,
         _key: &[u8],
+        hooks: &impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
         match command {
             "backward-byte" => {
@@ -146,30 +147,18 @@ where
                 state.after_non_kill_command();
             }
             "next-screen-line" => {
-                let columns = state
-                    .display
-                    .last_terminal_size
-                    .or_else(|| self.terminal.size().ok())
-                    .map(|size| size.columns as usize)
-                    .unwrap_or(80)
-                    .max(1);
+                let columns = self.tracked_terminal_columns(state).max(1);
                 let prompt_width = self.current_prompt_width(state);
-                let count = state.numeric_arg.take().unwrap_or(1).unsigned_abs().max(1) as isize;
+                let count = repeat_count(state.numeric_arg.take()) as isize;
                 state
                     .buffer
                     .move_screen_line(prompt_width, columns, count, self.render_options());
                 state.after_non_kill_command();
             }
             "previous-screen-line" => {
-                let columns = state
-                    .display
-                    .last_terminal_size
-                    .or_else(|| self.terminal.size().ok())
-                    .map(|size| size.columns as usize)
-                    .unwrap_or(80)
-                    .max(1);
+                let columns = self.tracked_terminal_columns(state).max(1);
                 let prompt_width = self.current_prompt_width(state);
-                let count = state.numeric_arg.take().unwrap_or(1).unsigned_abs().max(1) as isize;
+                let count = repeat_count(state.numeric_arg.take()) as isize;
                 state
                     .buffer
                     .move_screen_line(prompt_width, columns, -count, self.render_options());
@@ -179,10 +168,10 @@ where
                 repeat_signed(
                     state,
                     |state| {
-                        state.buffer.backward_command_word();
+                        shell_words::move_shell_backward_word(&mut state.buffer, hooks);
                     },
                     |state| {
-                        state.buffer.forward_command_word();
+                        shell_words::move_shell_forward_word(&mut state.buffer, hooks);
                     },
                 );
                 state.after_non_kill_command();
@@ -191,10 +180,10 @@ where
                 repeat_signed(
                     state,
                     |state| {
-                        state.buffer.forward_command_word();
+                        shell_words::move_shell_forward_word(&mut state.buffer, hooks);
                     },
                     |state| {
-                        state.buffer.backward_command_word();
+                        shell_words::move_shell_backward_word(&mut state.buffer, hooks);
                     },
                 );
                 state.after_non_kill_command();

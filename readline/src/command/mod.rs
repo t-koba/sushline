@@ -13,6 +13,7 @@ mod kill;
 mod misc;
 mod movement;
 mod named;
+mod shell_words;
 mod typed;
 mod vi;
 
@@ -36,12 +37,15 @@ where
                 self.apply_named_command(state, &command, key, hooks)
             }
             KeyBinding::Macro(text) => {
+                state.completion.menu_completion = None;
+                state.record_macro_insert_bytes(&text);
                 state.macro_state.replaying_macro = true;
                 let outcome = self.handle_bytes(state, &text, hooks)?;
                 state.macro_state.replaying_macro = false;
                 Ok(outcome)
             }
             KeyBinding::ApplicationCommand(command) => {
+                state.completion.menu_completion = None;
                 let context = CommandContext {
                     command: &command,
                     line: state.buffer.as_bytes(),

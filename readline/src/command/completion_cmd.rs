@@ -12,7 +12,7 @@ const NAMED_COMPLETION_COMMANDS: &[(&str, CompletionCommand)] = &[
     (
         "bash-vi-complete",
         CompletionCommand {
-            completion_type: CompletionType::Command,
+            completion_type: CompletionType::ViComplete,
             record_undo: true,
         },
     ),
@@ -199,7 +199,7 @@ where
             }
             "dabbrev-expand" | "dynamic-complete-history" => {
                 state.record_undo();
-                self.dynamic_complete_history(state, hooks);
+                self.dynamic_complete_history(state, hooks)?;
                 state.after_non_kill_command();
             }
             "export-completions" => {
@@ -220,22 +220,38 @@ where
         &mut self,
         state: &mut EditorState,
         hooks: &mut impl Hooks,
-    ) {
+    ) -> Result<(), ReadlineError> {
         let word_breaks = self.completion_word_breaks(hooks);
         let prefix = state.buffer.word_before_point(Some(&word_breaks));
         if prefix.is_empty() {
-            return;
+            return Ok(());
         }
-        if let Some(entry) = self
+        let mut matches = Vec::new();
+        for word in self
             .history
             .entries()
             .iter()
             .rev()
             .flat_map(|entry| self.tokenize(&entry.line_bytes, hooks))
-            .find(|word| word.starts_with(&prefix) && word.as_slice() != prefix.as_slice())
+            .filter(|word| word.starts_with(&prefix) && word.as_slice() != prefix.as_slice())
         {
-            state.buffer.insert_bytes(&entry[prefix.len()..]);
+            if !matches.iter().any(|seen| seen == &word) {
+                matches.push(word);
+            }
         }
+        if matches.is_empty() {
+            self.ding()?;
+            return Ok(());
+        }
+        if let Some(common) = common_history_completion_prefix(&matches)
+            && common.len() > prefix.len()
+        {
+            state.buffer.insert_bytes(&common[prefix.len()..]);
+        }
+        if matches.len() > 1 {
+            self.ding()?;
+        }
+        Ok(())
     }
 
     pub(crate) fn yank_history_arg(
@@ -243,12 +259,15 @@ where
         state: &mut EditorState,
         arg: Option<i32>,
         hooks: &impl Hooks,
+        cycle_history: bool,
     ) -> Result<(), ReadlineError> {
         let entries = self.history.entries();
         if entries.is_empty() {
             return Ok(());
         };
-        let repeated = state.completion.last_yank_arg.clone();
+        let repeated = cycle_history
+            .then(|| state.completion.last_yank_arg.clone())
+            .flatten();
         let (history_index, n) = if let Some(previous) = repeated {
             if let Some((start, end)) = previous.range {
                 state.buffer.replace_range(start, end, "");
@@ -280,11 +299,15 @@ where
         let start = state.buffer.point();
         state.buffer.insert_bytes(&words[idx]);
         let end = state.buffer.point();
-        state.completion.last_yank_arg = Some(LastYankArgState {
-            history_index,
-            arg: n,
-            range: Some((start, end)),
-        });
+        if cycle_history {
+            state.completion.last_yank_arg = Some(LastYankArgState {
+                history_index,
+                arg: n,
+                range: Some((start, end)),
+            });
+        } else {
+            state.completion.last_yank_arg = None;
+        }
         Ok(())
     }
 
@@ -293,4 +316,14 @@ where
             .tokenize(line)
             .unwrap_or_else(|| command_words(line, &HistoryExpansionPolicy::default()))
     }
+}
+
+fn common_history_completion_prefix(words: &[Vec<u8>]) -> Option<Vec<u8>> {
+    let mut prefix = words.first()?.clone();
+    for word in &words[1..] {
+        while !word.starts_with(&prefix) {
+            prefix.pop()?;
+        }
+    }
+    Some(prefix)
 }

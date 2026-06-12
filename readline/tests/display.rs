@@ -84,6 +84,41 @@ fn accept_line_from_previous_visual_row_moves_below_rendered_input() {
 }
 
 #[test]
+fn multiline_history_entry_renders_as_multiple_terminal_lines() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\x1b[A".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut history = History::new();
+    history.push_bytes(b"echo one\necho two".to_vec());
+    let mut line = Editor::new(Config::default(), terminal, history);
+
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+
+    assert_eq!(result, ReadlineResult::Line(b"echo one\necho two".to_vec()));
+    assert!(line.terminal().out.contains("> echo one\r\necho two"));
+    assert!(!line.terminal().out.contains("echo one^Jecho two"));
+}
+
+#[test]
+fn quoted_insert_newline_renders_as_multiline_input() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"one".to_vec()),
+        TerminalEvent::Bytes(b"\x16".to_vec()),
+        TerminalEvent::Bytes(b"\n".to_vec()),
+        TerminalEvent::Bytes(b"two".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+
+    assert_eq!(result, ReadlineResult::Line(b"one\ntwo".to_vec()));
+    assert!(line.terminal().out.contains("> one\r\ntwo"));
+    assert!(!line.terminal().out.contains("one^Jtwo"));
+}
+
+#[test]
 fn redisplay_forces_newline_when_point_lands_on_wrap_boundary() {
     let mut terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"ab".to_vec()),
@@ -110,7 +145,7 @@ fn redisplay_normalizes_wrap_boundary_before_returning_to_previous_visual_row() 
 
     assert_eq!(result, ReadlineResult::Line(b"ab".to_vec()));
     assert!(line.terminal().out.contains("> ab\r\n"));
-    assert!(line.terminal().moved_up.iter().any(|rows| *rows == 1));
+    assert!(line.terminal().moved_up.contains(&1));
 }
 
 #[test]
@@ -140,7 +175,9 @@ fn enable_active_region_highlights_marked_region() {
         TerminalEvent::Bytes(b"\r".to_vec()),
     ]);
     let mut line = Editor::new(Config::default(), terminal, History::new());
-    line.load_inputrc_str("set enable-active-region on")
+    line.load_inputrc_str(
+        "set enable-active-region on\nset active-region-start-color \"\\e[7m\"\nset active-region-end-color \"\\e[0m\"",
+    )
         .unwrap();
     let _ = line.read_line(Prompt::new("> "), &mut ()).unwrap();
     assert!(line.terminal().out.contains("\x1b[7ma\x1b[0m"));

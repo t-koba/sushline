@@ -67,6 +67,7 @@ pub(super) fn display_char(
         return ch.to_string();
     }
     match ch {
+        '\n' => "\r\n".to_string(),
         '\x00'..='\x1f' => {
             let caret = char::from_u32((ch as u32) + 0x40).unwrap_or('@');
             format!("^{caret}")

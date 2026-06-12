@@ -37,5 +37,5 @@ fn hooks_can_report_pending_sigint() {
     let mut line = Editor::new(Config::default(), terminal, History::new());
     let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
     assert_eq!(result, ReadlineResult::Interrupted);
-    assert!(line.terminal().out.contains("^C\n"));
+    assert!(line.terminal().out.contains("^C\r\n"));
 }

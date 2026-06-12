@@ -58,7 +58,7 @@ where
         self.effective_prompt(state).1
     }
 
-    fn effective_prompt(&self, state: &EditorState) -> (String, usize) {
+    pub(crate) fn effective_prompt(&self, state: &EditorState) -> (String, usize) {
         if let Some(prompt) = active_search_prompt(state) {
             let width = visible_width(&prompt);
             return (prompt, width);

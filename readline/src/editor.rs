@@ -281,6 +281,14 @@ where
             self.echo_signal_interrupt(state)?;
             return Ok(Some(ReadlineResult::Interrupted));
         }
+        #[cfg(unix)]
+        {
+            self.terminal.restore_mode()?;
+            unsafe {
+                libc::raise(signal);
+            }
+            self.terminal.enter_raw_mode()?;
+        }
         let _ = signal;
         Ok(None)
     }

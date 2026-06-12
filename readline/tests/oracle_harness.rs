@@ -51,6 +51,11 @@ fn bash_and_sushline_ctrl_c_return_to_next_prompt_without_partial_line() {
 
     assert!(bash.contains("^C"), "{bash}");
     assert!(sushline.contains("^C"), "{sushline}");
+    assert!(bash.contains(&format!("{READY_PROMPT}^C")), "{bash}");
+    assert!(
+        sushline.contains(&format!("{READY_PROMPT}^C")),
+        "{sushline}"
+    );
     assert!(bash.contains("SUSHLINE_ACCEPTED:ok"), "{bash}");
     assert_eq!(accepted_numbered_line(&sushline, 2), Some("ok".to_string()));
     assert!(!sushline.contains("Interrupted system call"), "{sushline}");

@@ -302,10 +302,13 @@ where
         }
         self.terminal.move_to_column(0)?;
         self.terminal.clear_to_screen_end()?;
+        let (prompt, _) = self.effective_prompt(state);
+        self.terminal
+            .write_bytes(&crate::buffer::rendered_string_to_bytes(&prompt))?;
+        self.terminal.write("^C\r\n")?;
+        self.terminal.flush()?;
         state.display.rendered_rows = 0;
         state.display.rendered_cursor_row = 0;
-        self.terminal.write("^C\n")?;
-        self.terminal.flush()?;
         Ok(())
     }
 

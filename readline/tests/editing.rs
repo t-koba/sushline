@@ -235,7 +235,7 @@ fn reverse_search_ctrl_c_byte_interrupts_instead_of_staying_in_search() {
     let mut line = Editor::new(Config::default(), terminal, history);
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
     assert_eq!(result, ReadlineResult::Interrupted);
-    assert!(line.terminal().out.contains("^C\n"));
+    assert!(line.terminal().out.contains("^C\r\n"));
     assert!(line.terminal().cleared_screen > 0);
 }
 

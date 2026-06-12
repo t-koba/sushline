@@ -502,7 +502,16 @@ fn read_raw_event(timeout: Option<Duration>) -> io::Result<TerminalEvent> {
         )
     };
     if read < 0 {
-        return Err(io::Error::last_os_error());
+        let err = io::Error::last_os_error();
+        if err.kind() == io::ErrorKind::Interrupted {
+            if SIGWINCH_RECEIVED.swap(false, Ordering::SeqCst) {
+                return current_resize_event();
+            }
+            if let Some(event) = pending_signal_event() {
+                return Ok(event);
+            }
+        }
+        return Err(err);
     }
     if read == 0 {
         return Ok(TerminalEvent::Timeout);

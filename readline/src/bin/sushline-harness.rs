@@ -85,6 +85,7 @@ fn main() -> ExitCode {
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(1)
         .max(1);
+    let continue_on_interrupt = std::env::var_os("SUSHLINE_CONTINUE_ON_INTERRUPT").is_some();
     for read_idx in 1..=reads {
         match line.read_line(Prompt::new(prompt.clone()), &mut hooks) {
             Ok(ReadlineResult::Line(bytes)) => {
@@ -99,7 +100,9 @@ fn main() -> ExitCode {
             }
             Ok(ReadlineResult::Interrupted) => {
                 println!("SUSHLINE_INTERRUPTED");
-                return ExitCode::from(130);
+                if !continue_on_interrupt {
+                    return ExitCode::from(130);
+                }
             }
             Ok(ReadlineResult::Eof) => {
                 println!("SUSHLINE_EOF");

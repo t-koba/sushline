@@ -19,6 +19,34 @@ fn bash_readline_and_sushline_accept_same_basic_emacs_edit() {
 }
 
 #[test]
+fn sushline_ctrl_c_signal_interrupts_readline_without_io_error() {
+    let sushline = run_sushline_harness_until(b"abc\x03", "", "SUSHLINE_INTERRUPTED");
+
+    assert!(sushline.contains("^C"), "{sushline}");
+    assert!(sushline.contains("SUSHLINE_INTERRUPTED"), "{sushline}");
+    assert!(!sushline.contains("Interrupted system call"), "{sushline}");
+    assert!(!sushline.contains("SUSHLINE_ERROR"), "{sushline}");
+}
+
+#[test]
+fn bash_and_sushline_ctrl_c_return_to_next_prompt_without_partial_line() {
+    let bash = run_bash_interactive_after_ctrl_c();
+    let sushline = run_sushline_harness_after_ctrl_c();
+
+    assert!(bash.contains("^C"), "{bash}");
+    assert!(sushline.contains("^C"), "{sushline}");
+    assert!(bash.contains(&format!("{READY_PROMPT}^C")), "{bash}");
+    assert!(
+        sushline.contains(&format!("{READY_PROMPT}^C")),
+        "{sushline}"
+    );
+    assert!(bash.contains("SUSHLINE_ACCEPTED:ok"), "{bash}");
+    assert_eq!(accepted_numbered_line(&sushline, 2), Some("ok".to_string()));
+    assert!(!sushline.contains("Interrupted system call"), "{sushline}");
+    assert!(!sushline.contains("SUSHLINE_ERROR"), "{sushline}");
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_backspace_edit() {
     let keys = b"abc\x7fd\r";
     let bash = run_bash_readline(keys);

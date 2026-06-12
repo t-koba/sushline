@@ -22,6 +22,10 @@ where
             self.echo_signal_interrupt(state)?;
             return Ok(Some(ReadlineResult::Interrupted));
         }
+        #[cfg(unix)]
+        unsafe {
+            libc::raise(signal);
+        }
         #[cfg(not(unix))]
         let _ = state;
         #[cfg(not(unix))]

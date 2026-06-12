@@ -110,7 +110,7 @@ fn completion_query_ctrl_c_interrupts_and_clears_transient_prompt() {
         .unwrap();
     let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
     assert_eq!(result, ReadlineResult::Interrupted);
-    assert!(line.terminal().out.contains("^C\n"));
+    assert!(line.terminal().out.contains("> ^C\r\n"));
     assert!(
         !line
             .terminal()

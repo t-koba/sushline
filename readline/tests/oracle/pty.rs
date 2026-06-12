@@ -2,6 +2,8 @@ use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use std::fs;
 use std::io::{Read, Write};
 use std::process::Command;
+use std::sync::mpsc;
+use std::thread;
 use std::time::{Duration, Instant};
 
 pub(super) const READY_PROMPT: &str = "SUSHLINE_READY>";
@@ -11,6 +13,23 @@ pub(super) fn run_bash_readline(keys: &[u8]) -> String {
 
 pub(super) fn run_bash_readline_with_bindings(keys: &[u8], bindings: &str) -> String {
     run_bash_readline_with_bindings_and_history(keys, bindings, &[])
+}
+
+pub(super) fn run_bash_interactive_after_ctrl_c() -> String {
+    let mut command = CommandBuilder::new("bash");
+    command.env("PS1", READY_PROMPT);
+    command.args(["--noprofile", "--norc", "-i"]);
+    run_pty_steps_until(
+        command,
+        &[
+            (READY_PROMPT, b"abc\x03".as_slice()),
+            (
+                READY_PROMPT,
+                b"printf 'SUSHLINE_ACCEPTED:%s\\n' ok\r".as_slice(),
+            ),
+        ],
+        "SUSHLINE_ACCEPTED:ok",
+    )
 }
 
 pub(super) fn run_bash_readline_eof_with_inputrc(keys: &[u8], inputrc: &str) -> String {
@@ -281,6 +300,23 @@ pub(super) fn run_sushline_harness_until(keys: &[u8], inputrc: &str, stop_marker
     run_pty_until(command, keys, stop_marker)
 }
 
+pub(super) fn run_sushline_harness_after_ctrl_c() -> String {
+    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    command.env("SUSHLINE_INPUTRC", "");
+    command.env("SUSHLINE_PROMPT", READY_PROMPT);
+    command.env("SUSHLINE_HISTORY", "");
+    command.env("SUSHLINE_READS", "2");
+    command.env("SUSHLINE_CONTINUE_ON_INTERRUPT", "1");
+    run_pty_steps_until(
+        command,
+        &[
+            (READY_PROMPT, b"abc\x03".as_slice()),
+            (READY_PROMPT, b"ok\r".as_slice()),
+        ],
+        "SUSHLINE_ACCEPTED_2:",
+    )
+}
+
 pub(super) fn run_sushline_harness_with_inputrc_and_env(
     keys: &[u8],
     inputrc: &str,
@@ -395,6 +431,86 @@ pub(super) fn run_pty_until(command: CommandBuilder, keys: &[u8], stop_marker: &
         },
         stop_marker,
     )
+}
+
+pub(super) fn run_pty_steps_until(
+    command: CommandBuilder,
+    steps: &[(&str, &[u8])],
+    stop_marker: &str,
+) -> String {
+    run_pty_steps_with_size_until(
+        command,
+        steps,
+        PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        },
+        stop_marker,
+    )
+}
+
+pub(super) fn run_pty_steps_with_size_until(
+    mut command: CommandBuilder,
+    steps: &[(&str, &[u8])],
+    size: PtySize,
+    stop_marker: &str,
+) -> String {
+    command.env("TERM", "xterm-256color");
+    let pty_system = NativePtySystem::default();
+    let pair = pty_system.openpty(size).expect("open pty");
+
+    let mut child = pair.slave.spawn_command(command).expect("spawn command");
+    drop(pair.slave);
+
+    let mut reader = pair.master.try_clone_reader().expect("pty reader");
+    let mut writer = pair.master.take_writer().expect("pty writer");
+    let (tx, rx) = mpsc::channel();
+    let reader_thread = thread::spawn(move || {
+        let mut buf = [0_u8; 1024];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if tx.send(buf[..n].to_vec()).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut out = Vec::new();
+    let mut next_step = 0;
+    let mut scan_start = 0;
+
+    while Instant::now() < deadline {
+        match rx.recv_timeout(Duration::from_millis(20)) {
+            Ok(chunk) => {
+                out.extend_from_slice(&chunk);
+                let output = String::from_utf8_lossy(&out);
+                let new_output = String::from_utf8_lossy(&out[scan_start..]);
+                if next_step < steps.len() && new_output.contains(steps[next_step].0) {
+                    writer.write_all(steps[next_step].1).expect("write keys");
+                    writer.flush().expect("flush keys");
+                    next_step += 1;
+                    scan_start = out.len();
+                }
+                if output.contains(stop_marker) {
+                    break;
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = reader_thread.join();
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 pub(super) fn run_pty_after_prompt(

@@ -1,6 +1,7 @@
-use unicode_width::UnicodeWidthChar;
+use crate::width::char_width;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Prompt.
 pub struct Prompt {
     raw: String,
     visible: String,
@@ -8,6 +9,7 @@ pub struct Prompt {
 }
 
 impl Prompt {
+    /// New.
     pub fn new(raw: impl Into<String>) -> Self {
         let raw = raw.into();
         let (visible, width) = strip_readline_markers(&raw);
@@ -18,14 +20,17 @@ impl Prompt {
         }
     }
 
+    /// Raw.
     pub fn raw(&self) -> &str {
         &self.raw
     }
 
+    /// Visible.
     pub fn visible(&self) -> &str {
         &self.visible
     }
 
+    /// Width.
     pub fn width(&self) -> usize {
         self.width
     }
@@ -144,7 +149,7 @@ fn push_prompt_char(
         *current_line_width = 0;
         *width = 0;
     } else {
-        *current_line_width += UnicodeWidthChar::width(ch).unwrap_or(0);
+        *current_line_width += char_width(ch);
         *width = *current_line_width;
     }
 }

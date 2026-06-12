@@ -6,72 +6,113 @@ use history::expansion::{
 };
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// Edit.
 pub struct Edit {
+    /// Line.
     pub line: Option<Vec<u8>>,
+    /// Point.
     pub point: Option<usize>,
+    /// Mark.
     pub mark: Option<Option<usize>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// CommandContext.
 pub struct CommandContext<'a> {
+    /// Command.
     pub command: &'a str,
+    /// Line.
     pub line: &'a [u8],
+    /// Point.
     pub point: usize,
+    /// Mark.
     pub mark: Option<usize>,
+    /// Argument.
     pub argument: Option<i32>,
+    /// Key.
     pub key: &'a [u8],
+    /// Keymap.
     pub keymap: KeyMapName,
 }
 
 #[derive(Debug, Clone, Copy)]
+/// HistoryExpansionContext.
 pub struct HistoryExpansionContext<'a> {
+    /// Line.
     pub line: &'a [u8],
+    /// History.
     pub history: &'a History,
+    /// Histchars.
     pub histchars: HistoryChars,
+    /// Policy.
     pub policy: &'a HistoryExpansionPolicy,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// LineExpansionContext.
 pub struct LineExpansionContext<'a> {
+    /// Line.
     pub line: &'a [u8],
+    /// Point.
     pub point: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// SpellCorrectionContext.
 pub struct SpellCorrectionContext<'a> {
+    /// Line.
     pub line: &'a [u8],
+    /// Point.
     pub point: usize,
+    /// Word start.
     pub word_start: usize,
+    /// Word end.
     pub word_end: usize,
+    /// Word.
     pub word: &'a [u8],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// QuoteContext.
 pub struct QuoteContext<'a> {
+    /// Value.
     pub value: &'a [u8],
+    /// Line.
     pub line: &'a [u8],
+    /// Point.
     pub point: usize,
+    /// Word start.
     pub word_start: usize,
+    /// Word end.
     pub word_end: usize,
+    /// Word.
     pub word: &'a [u8],
+    /// Quote.
     pub quote: Option<char>,
+    /// Completion type.
     pub completion_type: CompletionType,
+    /// Quote filename.
     pub quote_filename: bool,
 }
 
+/// Hooks.
 pub trait Hooks {
+    /// Checks for pending application signals.
     fn check_signals(&mut self) -> Option<i32> {
         None
     }
 
+    /// Returns the embedding application's version string.
     fn version(&mut self) -> Option<String> {
         None
     }
 
+    /// Returns tty status text for display-oriented commands.
     fn tty_status(&mut self) -> Option<String> {
         None
     }
 
+    /// Allows the embedder to intercept an editing command.
     fn on_command(&mut self, _context: CommandContext<'_>) -> Option<Edit> {
         None
     }
@@ -85,18 +126,22 @@ pub trait Hooks {
         None
     }
 
+    /// Expands aliases in a command line.
     fn expand_aliases(&mut self, _line: &[u8]) -> Option<Vec<u8>> {
         None
     }
 
+    /// Opens the current line in an external editor and returns replacement text.
     fn edit_and_execute(&mut self, _line: &[u8]) -> Option<Vec<u8>> {
         None
     }
 
+    /// Returns a corrected spelling for the word in context.
     fn spell_correct(&mut self, _context: SpellCorrectionContext<'_>) -> Option<Vec<u8>> {
         None
     }
 
+    /// Expands history references in a line.
     fn expand_history(
         &mut self,
         context: HistoryExpansionContext<'_>,
@@ -123,34 +168,42 @@ pub trait Hooks {
         None
     }
 
+    /// Quotes a completion candidate for insertion.
     fn quote_completion(&mut self, _context: QuoteContext<'_>) -> Option<Vec<u8>> {
         None
     }
 
+    /// Expands a glob pattern into candidate paths.
     fn glob_expand(&mut self, _pattern: &[u8]) -> Option<Vec<Vec<u8>>> {
         None
     }
 
+    /// Returns command names for completion.
     fn command_names(&mut self) -> Vec<Vec<u8>> {
         Vec::new()
     }
 
+    /// Returns user names for completion.
     fn user_names(&mut self) -> Vec<Vec<u8>> {
         Vec::new()
     }
 
+    /// Returns host names for completion.
     fn host_names(&mut self) -> Vec<Vec<u8>> {
         Vec::new()
     }
 
+    /// Returns variable names for completion.
     fn variable_names(&mut self) -> Vec<Vec<u8>> {
         Vec::new()
     }
 
+    /// Returns completion word-break bytes.
     fn completion_word_breaks(&mut self) -> Option<Vec<u8>> {
         None
     }
 
+    /// Returns editing word-break bytes.
     fn editing_word_breaks(&mut self) -> Option<Vec<u8>> {
         None
     }
@@ -194,6 +247,7 @@ pub(crate) fn derive_words_from_spans(
     if !validate_token_spans(line, &spans) {
         return None;
     }
+    // Some.
     Some(
         spans
             .into_iter()

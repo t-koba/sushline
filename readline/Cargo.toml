@@ -7,7 +7,6 @@ description = "Pure Rust Readline-style line editing foundation for Sush"
 
 [dependencies]
 history = { path = "../history" }
-crossterm = "0.28"
 libc = "0.2"
 unicode-width = "0.1"
 

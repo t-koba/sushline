@@ -7,8 +7,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// InputrcError.
 pub struct InputrcError {
+    /// Line.
     pub line: usize,
+    /// Message.
     pub message: String,
 }
 
@@ -29,12 +32,14 @@ impl InputrcError {
 }
 
 #[derive(Debug, Default)]
+/// InputrcParser.
 pub struct InputrcParser {
     max_include_depth: usize,
     readline_version: String,
 }
 
 impl InputrcParser {
+    /// New.
     pub fn new() -> Self {
         Self {
             max_include_depth: 16,
@@ -42,6 +47,7 @@ impl InputrcParser {
         }
     }
 
+    /// Parse str.
     pub fn parse_str(
         &self,
         source: &str,
@@ -59,6 +65,7 @@ impl InputrcParser {
         self.parse_str_inner(source, &mut ctx, None, 0)
     }
 
+    /// Parse file.
     pub fn parse_file(
         &self,
         path: &Path,
@@ -190,6 +197,7 @@ impl InputrcParser {
     }
 }
 
+/// Parse binding line in map.
 pub fn parse_binding_line_in_map(
     line: &str,
     keymap: &mut KeyMap,
@@ -218,6 +226,7 @@ pub fn parse_binding_line_in_map(
         return Err(format!("unknown readline command: {value}"));
     };
     keymap.bind(map, seq, binding);
+    // Ok.
     Ok(())
 }
 
@@ -228,6 +237,7 @@ fn variable_is_on(variables: &Variables, name: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Apply variable.
 pub fn apply_variable(keymap: &mut KeyMap, variables: &mut Variables, name: &str, value: &str) {
     let canonical_name = name.to_ascii_lowercase();
     let Some(normalized) = normalize_variable_value(&canonical_name, value) else {
@@ -545,6 +555,7 @@ fn decode_inputrc_bytes(value: &str, meta_prefix: bool) -> Result<Vec<u8>, Strin
         .and_then(|value| value.strip_suffix('"'))
         .ok_or_else(|| "expected quoted string".to_string())?;
     let keyseq = KeySequence::parse_with_meta(&format!("\"{inner}\""), meta_prefix)?;
+    // Ok.
     Ok(keyseq.bytes().to_vec())
 }
 

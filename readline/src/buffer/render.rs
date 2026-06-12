@@ -1,6 +1,13 @@
+//! Pure buffer rendering.
+//!
+//! This module owns conversion from buffer bytes to display strings and point
+//! widths, including control-character and meta-byte display semantics.
+
+#![allow(missing_docs)]
+
 use super::{LineBuffer, private_byte_char, private_byte_value};
+use crate::width::char_width;
 use std::borrow::Cow;
-use unicode_width::UnicodeWidthChar;
 
 #[derive(Debug, Clone)]
 pub struct RenderOptions<'a> {
@@ -33,13 +40,7 @@ pub(super) fn rendered_char_width(ch: char, options: RenderOptions<'_>) -> usize
         options.byte_oriented,
     )
     .chars()
-    .map(|ch| {
-        if ch == '\n' {
-            0
-        } else {
-            UnicodeWidthChar::width(ch).unwrap_or(0)
-        }
-    })
+    .map(|ch| if ch == '\n' { 0 } else { char_width(ch) })
     .sum()
 }
 
@@ -104,7 +105,7 @@ impl LineBuffer {
     pub fn move_to_display_width(&mut self, target: usize) {
         let mut width = 0;
         for (idx, ch) in self.decoded_char_indices() {
-            let ch_width = UnicodeWidthChar::width(ch).unwrap_or(0);
+            let ch_width = char_width(ch);
             if width + ch_width > target {
                 self.point = idx;
                 return;
@@ -173,7 +174,7 @@ impl LineBuffer {
                     col = 0;
                     continue;
                 }
-                let width = UnicodeWidthChar::width(rendered).unwrap_or(0);
+                let width = char_width(rendered);
                 if width > 0 && col + width > columns {
                     row += 1;
                     col = 0;
@@ -192,7 +193,7 @@ impl LineBuffer {
     pub fn display_width_before_point(&self) -> usize {
         self.decoded_chars_in_range(0, self.point)
             .into_iter()
-            .map(|ch| UnicodeWidthChar::width(ch).unwrap_or(0))
+            .map(char_width)
             .sum()
     }
 
@@ -200,7 +201,7 @@ impl LineBuffer {
         self.decoded_char_indices()
             .into_iter()
             .map(|(_, ch)| ch)
-            .map(|ch| UnicodeWidthChar::width(ch).unwrap_or(0))
+            .map(char_width)
             .sum()
     }
 
@@ -301,10 +302,7 @@ impl LineBuffer {
                 options.output_meta,
                 options.byte_oriented,
             );
-            width += display
-                .chars()
-                .map(|ch| UnicodeWidthChar::width(ch).unwrap_or(0))
-                .sum::<usize>();
+            width += display.chars().map(char_width).sum::<usize>();
             out.push_str(&display);
         }
         if self.point == self.bytes.len() {

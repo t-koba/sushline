@@ -8,21 +8,34 @@ use crate::variables::Variables;
 use std::fs;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// BindQuery.
 pub enum BindQuery {
+    /// ListFunctionNames.
     ListFunctionNames,
+    /// PrintReusable.
     PrintReusable,
+    /// PrintFunctions.
     PrintFunctions,
+    /// PrintVariablesReusable.
     PrintVariablesReusable,
+    /// PrintVariables.
     PrintVariables,
+    /// PrintMacrosReusable.
     PrintMacrosReusable,
+    /// PrintMacros.
     PrintMacros,
+    /// PrintApplicationCommandsReusable.
     PrintApplicationCommandsReusable,
+    /// PrintApplicationCommands.
     PrintApplicationCommands,
+    /// QueryFunction.
     QueryFunction(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// BindError.
 pub struct BindError {
+    /// Message.
     pub message: String,
 }
 
@@ -40,6 +53,7 @@ impl From<InputrcError> for BindError {
     }
 }
 
+/// BindApi.
 pub struct BindApi<'a> {
     keymap: &'a mut KeyMap,
     variables: &'a mut Variables,
@@ -62,6 +76,7 @@ impl<'a> BindApi<'a> {
         }
     }
 
+    /// Apply line.
     pub fn apply_line(&mut self, line: &str) -> Result<(), BindError> {
         let line = line.trim();
         if let Some(rest) = line.strip_prefix("set ") {
@@ -82,6 +97,7 @@ impl<'a> BindApi<'a> {
             .map_err(BindError::from)
     }
 
+    /// Bind application command.
     pub fn bind_application_command(
         &mut self,
         key: &str,
@@ -96,11 +112,13 @@ impl<'a> BindApi<'a> {
         Ok(())
     }
 
+    /// Bind application command spec.
     pub fn bind_application_command_spec(&mut self, spec: &str) -> Result<(), BindError> {
         let (key, command) = split_bind_spec(spec).map_err(BindError::from)?;
         self.bind_application_command(key.trim(), unquote_value(command.trim())?)
     }
 
+    /// Unbind application command.
     pub fn unbind_application_command(&mut self, key: &str) -> Result<bool, BindError> {
         let seq = KeySequence::parse(key).map_err(BindError::from)?;
         let removed = matches!(
@@ -110,6 +128,7 @@ impl<'a> BindApi<'a> {
         Ok(removed)
     }
 
+    /// Apply builtin args.
     pub fn apply_builtin_args(&mut self, args: &[&str]) -> Result<String, BindError> {
         let mut output = String::new();
         let mut idx = 0;
@@ -222,6 +241,7 @@ impl<'a> BindApi<'a> {
         Ok(output)
     }
 
+    /// Print.
     pub fn print(&self, query: BindQuery) -> String {
         match query {
             BindQuery::ListFunctionNames => self.list_function_names(),
@@ -237,11 +257,13 @@ impl<'a> BindApi<'a> {
         }
     }
 
+    /// Unbind key.
     pub fn unbind_key(&mut self, key: &str) -> Result<bool, BindError> {
         let seq = KeySequence::parse(key).map_err(BindError::from)?;
         Ok(self.keymap.unbind_key(self.target_map, &seq).is_some())
     }
 
+    /// Unbind command.
     pub fn unbind_command(&mut self, command: &str) -> Result<usize, BindError> {
         if !is_bindable_function_name(command) {
             return Err(BindError {
@@ -416,7 +438,9 @@ impl<'a> BindApi<'a> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FunctionLineKind {
+    /// Print.
     Print,
+    /// Query.
     Query,
 }
 
@@ -536,6 +560,7 @@ fn unquote_value(value: &str) -> Result<String, BindError> {
             message: "trailing escape in quoted application command".to_string(),
         });
     }
+    // Ok.
     Ok(out)
 }
 

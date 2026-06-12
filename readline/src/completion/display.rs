@@ -1,7 +1,10 @@
 use crate::completion::{CompletionCandidate, CompletionResponse};
+use crate::width::{rendered_rows_for_output, visible_width};
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::ffi::CString;
+
+// Pure completion layout helpers.
 
 pub(crate) fn common_prefix_bytes(candidates: &[CompletionCandidate]) -> Option<Vec<u8>> {
     let first = candidates.first()?.replacement_bytes().to_vec();
@@ -178,123 +181,7 @@ fn ls_color_named_code(name: &str) -> Option<String> {
     })
 }
 
-pub(crate) fn visible_width(value: &str) -> usize {
-    let mut width = 0;
-    let mut chars = value.chars().peekable();
-    let mut hidden = false;
-    while let Some(ch) = chars.next() {
-        if ch == '\x01' {
-            hidden = true;
-            continue;
-        }
-        if ch == '\x02' {
-            hidden = false;
-            continue;
-        }
-        if hidden {
-            continue;
-        }
-        if ch == '\x1b' && chars.peek() == Some(&'[') {
-            for ch in chars.by_ref() {
-                if ch.is_ascii_alphabetic() {
-                    break;
-                }
-            }
-        } else if ch == '\x1b' && chars.peek() == Some(&']') {
-            chars.next();
-            let mut previous = '\0';
-            for ch in chars.by_ref() {
-                if ch == '\x07' || (previous == '\x1b' && ch == '\\') {
-                    break;
-                }
-                previous = ch;
-            }
-        } else if ch == '\x1b' {
-            chars.next();
-        } else {
-            width += unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
-        }
-    }
-    width
-}
-
-pub(crate) fn rendered_rows_for_output(output: &str, columns: usize) -> u16 {
-    let columns = columns.max(1);
-    let mut row = 0usize;
-    let mut col = 0usize;
-    for ch in terminal_visible_chars(output) {
-        if ch == '\n' {
-            row += 1;
-            col = 0;
-            continue;
-        }
-        let width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
-        if width > 0 && col + width > columns {
-            row += 1;
-            col = 0;
-        }
-        col += width;
-        if col >= columns {
-            row += col / columns;
-            col %= columns;
-        }
-    }
-    row as u16
-}
-
-pub(crate) fn output_ends_at_wrap_boundary(output: &str, columns: usize) -> bool {
-    let columns = columns.max(1);
-    let mut col = 0usize;
-    let mut saw_visible_cell = false;
-    let mut ended_with_newline = false;
-    for ch in terminal_visible_chars(output) {
-        if ch == '\n' {
-            col = 0;
-            ended_with_newline = true;
-            continue;
-        }
-        ended_with_newline = false;
-        let width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
-        if width > 0 && col + width > columns {
-            col = 0;
-        }
-        col += width;
-        if col >= columns {
-            col %= columns;
-        }
-        saw_visible_cell |= width > 0;
-    }
-    saw_visible_cell && !ended_with_newline && col == 0
-}
-
-pub(crate) fn terminal_visible_chars(output: &str) -> Vec<char> {
-    let mut chars = output.chars().peekable();
-    let mut visible = Vec::new();
-    while let Some(ch) = chars.next() {
-        if ch == '\x1b' && chars.peek() == Some(&'[') {
-            chars.next();
-            for ch in chars.by_ref() {
-                if ('@'..='~').contains(&ch) {
-                    break;
-                }
-            }
-        } else if ch == '\x1b' && chars.peek() == Some(&']') {
-            chars.next();
-            let mut previous = '\0';
-            for ch in chars.by_ref() {
-                if ch == '\x07' || (previous == '\x1b' && ch == '\\') {
-                    break;
-                }
-                previous = ch;
-            }
-        } else if ch == '\x1b' {
-            let _ = chars.next();
-        } else {
-            visible.push(ch);
-        }
-    }
-    visible
-}
+// Editor-backed completion display and paging.
 
 use crate::completion::builtin::visible_stats_marker;
 use crate::completion::filename::{
@@ -305,6 +192,7 @@ use crate::editor::{Editor, ReadlineError};
 use crate::prompt::Prompt;
 use crate::state::EditorState;
 use crate::terminal::{TerminalEvent, TerminalIo};
+use crate::variables::BoolVariable;
 
 impl<T> Editor<T>
 where
@@ -334,7 +222,7 @@ where
             .get("completion-query-items")
             .and_then(|value| value.parse::<isize>().ok())
             .unwrap_or(100);
-        let displayed_query = self.variable_is_on("page-completions")
+        let displayed_query = self.flag(BoolVariable::PageCompletions)
             && query_items > 0
             && response.candidates.len() >= query_items as usize;
         if displayed_query {
@@ -451,7 +339,7 @@ where
         let mut idx = 0;
         let mut page_remaining = page_rows;
         while idx < lines.len() {
-            if self.variable_is_on("page-completions") && idx > 0 && page_remaining == 0 {
+            if self.flag(BoolVariable::PageCompletions) && idx > 0 && page_remaining == 0 {
                 let more_prompt = "--More--";
                 self.terminal.write(more_prompt)?;
                 self.terminal.flush()?;

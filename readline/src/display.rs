@@ -1,12 +1,17 @@
+//! Redisplay orchestration.
+//!
+//! This module converts prompt and buffer render output into terminal writes.
+//! Cell-width calculations go through `crate::width`; byte rendering remains
+//! owned by `buffer::render`.
+
 use crate::buffer::{RenderOptions, rendered_string_to_bytes};
-use crate::completion::display::{
-    output_ends_at_wrap_boundary, rendered_rows_for_output, visible_width,
-};
 use crate::editor::{Editor, ReadlineError};
 use crate::keymap::KeyMapName;
 use crate::prompt::Prompt;
 use crate::state::{EditorState, SearchDirection};
-use crate::terminal::{TerminalIo, TerminalSize};
+use crate::terminal::{TerminalIo, TerminalSize, escape};
+use crate::variables::BoolVariable;
+use crate::width::{output_ends_at_wrap_boundary, rendered_rows_for_output, visible_width};
 use std::borrow::Cow;
 use std::io;
 
@@ -64,7 +69,7 @@ where
             return (prompt, width);
         }
         let mut mode = self.mode_prompt_prefix();
-        if self.variable_is_on("mark-modified-lines")
+        if self.flag(BoolVariable::MarkModifiedLines)
             && self
                 .history
                 .current_history()
@@ -72,7 +77,7 @@ where
         {
             mode.push('*');
         }
-        if self.variable_is_on("show-mode-in-prompt")
+        if self.flag(BoolVariable::ShowModeInPrompt)
             && let Some(operator) = state.vi_operator_prompt()
         {
             mode.push_str(operator);
@@ -83,7 +88,7 @@ where
 
     pub(super) fn render_options(&self) -> RenderOptions<'_> {
         RenderOptions {
-            active_region: self.variable_is_on("enable-active-region"),
+            active_region: self.flag(BoolVariable::EnableActiveRegion),
             active_region_start: self
                 .variables
                 .get_bytes("active-region-start-color")
@@ -94,9 +99,9 @@ where
                 .get_bytes("active-region-end-color")
                 .map(|bytes| Cow::Borrowed(bytes.as_slice()))
                 .unwrap_or(Cow::Borrowed(b"\x1b[0m")),
-            echo_control: self.variable_is_on("echo-control-characters"),
-            output_meta: self.variable_is_on("output-meta"),
-            byte_oriented: self.variable_is_on("byte-oriented"),
+            echo_control: self.flag(BoolVariable::EchoControlCharacters),
+            output_meta: self.flag(BoolVariable::OutputMeta),
+            byte_oriented: self.flag(BoolVariable::ByteOriented),
         }
     }
 
@@ -118,7 +123,7 @@ where
             .map(normalize_terminal_size)
             .unwrap_or_else(|| self.usable_terminal_size());
         let columns = size.columns as usize;
-        let (buffer, point_width) = if self.variable_is_on("horizontal-scroll-mode") {
+        let (buffer, point_width) = if self.flag(BoolVariable::HorizontalScrollMode) {
             state.buffer.horizontal_window_with_options(
                 columns.saturating_sub(prompt_width).max(1),
                 state.mark,
@@ -136,7 +141,7 @@ where
         if ends_at_wrap_boundary {
             self.terminal.write("\r\n")?;
         }
-        if self.variable_is_on("horizontal-scroll-mode") {
+        if self.flag(BoolVariable::HorizontalScrollMode) {
             let column = if columns > 0 {
                 (prompt_width + point_width) % columns
             } else {
@@ -223,7 +228,7 @@ where
     }
 
     pub(super) fn mode_prompt_prefix(&self) -> String {
-        if !self.variable_is_on("show-mode-in-prompt") {
+        if !self.flag(BoolVariable::ShowModeInPrompt) {
             return String::new();
         }
         let raw = match self.keymap.current() {
@@ -301,11 +306,11 @@ where
         };
         let prompt_width = visible_width(self.mode_prompt_prefix().as_str()) + state.prompt.width();
         let column = prompt_width + state.buffer.display_width_until(match_pos);
-        self.terminal.write("\x1b[s")?;
+        self.terminal.write(escape::SAVE_CURSOR)?;
         self.terminal.move_to_column(column as u16)?;
         self.terminal.flush()?;
         std::thread::sleep(std::time::Duration::from_millis(500));
-        self.terminal.write("\x1b[u")?;
+        self.terminal.write(escape::RESTORE_CURSOR)?;
         Ok(())
     }
 }

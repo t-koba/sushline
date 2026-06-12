@@ -1,13 +1,18 @@
 use super::History;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Characters that control history expansion parsing.
 pub struct HistoryChars {
+    /// Expansion.
     pub expansion: char,
+    /// Quick substitution.
     pub quick_substitution: char,
+    /// Comment.
     pub comment: Option<char>,
 }
 
 impl HistoryChars {
+    /// Parse.
     pub fn parse(value: &str) -> Self {
         let mut chars = value.chars();
         Self {
@@ -19,29 +24,44 @@ impl HistoryChars {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// HistoryExpansionPolicy.
 pub struct HistoryExpansionPolicy {
+    /// Word delimiters.
     pub word_delimiters: Vec<u8>,
+    /// Search delimiters.
     pub search_delimiters: Vec<u8>,
+    /// No expand chars.
     pub no_expand_chars: Vec<u8>,
+    /// Quotes inhibit expansion.
     pub quotes_inhibit_expansion: bool,
+    /// Quote state.
     pub quote_state: Option<u8>,
+    /// Quick substitution.
     pub quick_substitution: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// HistoryEvent.
 pub struct HistoryEvent {
+    /// Line.
     pub line: Vec<u8>,
+    /// Next index.
     pub next_index: usize,
+    /// Matched word.
     pub matched_word: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// HistoryExpansion.
 pub struct HistoryExpansion {
+    /// Line.
     pub line: Vec<u8>,
+    /// Print only.
     pub print_only: bool,
 }
 
 impl HistoryExpansion {
+    /// Unchanged.
     pub fn unchanged(line: &[u8]) -> Self {
         Self {
             line: line.to_vec(),
@@ -55,13 +75,18 @@ type HistorySubstitutionResult =
     Result<(Vec<u8>, usize, HistorySubstitution), HistoryExpansionError>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// HistoryExpansionError.
 pub enum HistoryExpansionError {
+    /// EventNotFound.
     EventNotFound(String),
+    /// BadWordSpecifier.
     BadWordSpecifier(String),
+    /// SubstitutionFailed.
     SubstitutionFailed,
 }
 
 impl HistoryExpansionError {
+    /// Message.
     pub fn message(&self) -> String {
         match self {
             Self::EventNotFound(token) => format!("{token}: event not found"),
@@ -71,6 +96,7 @@ impl HistoryExpansionError {
     }
 }
 
+/// Expand history.
 pub fn expand_history(
     line: &[u8],
     history: &History,
@@ -82,6 +108,7 @@ pub fn expand_history(
         .map(|expanded| expanded.line)
 }
 
+/// Expand history with status.
 pub fn expand_history_with_status(
     line: &[u8],
     history: &History,
@@ -225,6 +252,7 @@ pub fn expand_history_with_status(
         out.extend_from_slice(&event);
         idx = next;
     }
+    // Ok.
     Ok(HistoryExpansion {
         line: out,
         print_only,
@@ -241,6 +269,7 @@ fn is_escaped_history_expansion(line: &[u8], idx: usize) -> bool {
     backslashes % 2 == 1
 }
 
+/// Get history event.
 pub fn get_history_event(
     line: &[u8],
     history: &History,
@@ -518,6 +547,7 @@ fn select_history_words(
         }
         return Ok(join_words(&words[start..=end]));
     }
+    // Ok.
     Ok(words[idx_for(spec)?].clone())
 }
 
@@ -551,6 +581,7 @@ fn apply_history_modifier(
     policy: &HistoryExpansionPolicy,
     print_only: &mut bool,
 ) -> Result<(Vec<u8>, usize), HistoryExpansionError> {
+    // Ok.
     Ok(match input.get(idx).copied() {
         Some(b'h') => (history_head(line), idx + 1),
         Some(b't') => (history_tail(line), idx + 1),
@@ -703,6 +734,7 @@ fn apply_substitution_modifier(
         replace_once_checked(line, &old, &new)
     }
     .ok_or(HistoryExpansionError::SubstitutionFailed)?;
+    // Ok.
     Ok((replaced, idx, (old, new)))
 }
 
@@ -734,6 +766,7 @@ fn apply_substitution_modifier_each_word(
     idx = next_idx;
     let replaced = replace_each_word_once_checked(line, &old, &new, policy)
         .ok_or(HistoryExpansionError::SubstitutionFailed)?;
+    // Ok.
     Ok((replaced, idx, (old, new)))
 }
 
@@ -773,6 +806,7 @@ fn read_history_substitution_part(
     (part, idx)
 }
 
+/// Command words.
 pub fn command_words(line: &[u8], policy: &HistoryExpansionPolicy) -> Vec<Vec<u8>> {
     command_word_spans(line, policy)
         .into_iter()
@@ -780,10 +814,12 @@ pub fn command_words(line: &[u8], policy: &HistoryExpansionPolicy) -> Vec<Vec<u8
         .collect()
 }
 
+/// History tokenize.
 pub fn history_tokenize(line: &[u8], policy: &HistoryExpansionPolicy) -> Vec<Vec<u8>> {
     command_words(line, policy)
 }
 
+/// History arg extract.
 pub fn history_arg_extract(
     first: usize,
     last: usize,
@@ -794,6 +830,7 @@ pub fn history_arg_extract(
     if first > last || first >= words.len() {
         return None;
     }
+    // Some.
     Some(join_words(&words[first..=last.min(words.len() - 1)]))
 }
 
@@ -979,6 +1016,7 @@ fn shell_group_end(line: &[u8], idx: usize) -> Option<usize> {
         }
         cursor += 1;
     }
+    // Some.
     Some(line.len())
 }
 
@@ -1019,6 +1057,7 @@ fn paired_group_end(line: &[u8], mut cursor: usize, open: u8, close: u8) -> Opti
         }
         cursor += 1;
     }
+    // Some.
     Some(line.len())
 }
 
@@ -1071,6 +1110,7 @@ fn replace_once_checked(line: &[u8], old: &[u8], new: &[u8]) -> Option<Vec<u8>> 
     out.extend_from_slice(&line[..pos]);
     out.extend_from_slice(new);
     out.extend_from_slice(&line[pos + old.len()..]);
+    // Some.
     Some(out)
 }
 
@@ -1100,6 +1140,7 @@ fn replace_all_checked(line: &[u8], old: &[u8], new: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
     out.extend_from_slice(rest);
+    // Some.
     Some(out)
 }
 

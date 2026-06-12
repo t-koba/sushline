@@ -4,6 +4,7 @@ use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 
 impl History {
+    /// Default file path.
     pub fn default_file_path() -> PathBuf {
         std::env::var_os("HOME")
             .map(PathBuf::from)
@@ -11,10 +12,12 @@ impl History {
             .join(".history")
     }
 
+    /// Read default file.
     pub fn read_default_file() -> io::Result<Self> {
         Self::read_file(Self::default_file_path())
     }
 
+    /// Read file.
     pub fn read_file(path: impl AsRef<Path>) -> io::Result<Self> {
         let file = fs::File::open(path)?;
         let mut history = Self::new();
@@ -25,6 +28,7 @@ impl History {
         Ok(history)
     }
 
+    /// Read file range.
     pub fn read_file_range(
         path: impl AsRef<Path>,
         from: usize,
@@ -44,10 +48,12 @@ impl History {
         Ok(history)
     }
 
+    /// Load default file.
     pub fn load_default_file(&mut self, max_entries: Option<usize>) -> io::Result<()> {
         self.load_file(Self::default_file_path(), max_entries)
     }
 
+    /// Load file.
     pub fn load_file(
         &mut self,
         path: impl AsRef<Path>,
@@ -62,6 +68,7 @@ impl History {
         Ok(())
     }
 
+    /// Load file range.
     pub fn load_file_range(
         &mut self,
         path: impl AsRef<Path>,
@@ -83,14 +90,17 @@ impl History {
         Ok(())
     }
 
+    /// Write default file.
     pub fn write_default_file(&self) -> io::Result<()> {
         self.write_file(Self::default_file_path())
     }
 
+    /// Write file.
     pub fn write_file(&self, path: impl AsRef<Path>) -> io::Result<()> {
         self.write_file_with_timestamps(path, false)
     }
 
+    /// Write file with timestamps.
     pub fn write_file_with_timestamps(
         &self,
         path: impl AsRef<Path>,
@@ -106,19 +116,23 @@ impl History {
         })
     }
 
+    /// Append default file.
     pub fn append_default_file(&self, from: usize) -> io::Result<()> {
         self.append_file(Self::default_file_path(), from)
     }
 
+    /// Append file.
     pub fn append_file(&self, path: impl AsRef<Path>, from: usize) -> io::Result<()> {
         self.append_file_with_timestamps(path, from, false)
     }
 
+    /// Append last to file.
     pub fn append_last_to_file(&self, path: impl AsRef<Path>, nelements: usize) -> io::Result<()> {
         let from = self.entries.len().saturating_sub(nelements);
         self.append_file(path, from)
     }
 
+    /// Append file with timestamps.
     pub fn append_file_with_timestamps(
         &self,
         path: impl AsRef<Path>,
@@ -135,10 +149,12 @@ impl History {
         })
     }
 
+    /// Append new to default file.
     pub fn append_new_to_default_file(&mut self) -> io::Result<()> {
         self.append_new_to_file(Self::default_file_path())
     }
 
+    /// Append new to default file with timestamps.
     pub fn append_new_to_default_file_with_timestamps(
         &mut self,
         write_timestamps: bool,
@@ -146,10 +162,12 @@ impl History {
         self.append_new_to_file_with_timestamps(Self::default_file_path(), write_timestamps)
     }
 
+    /// Append new to file.
     pub fn append_new_to_file(&mut self, path: impl AsRef<Path>) -> io::Result<()> {
         self.append_new_to_file_with_timestamps(path, false)
     }
 
+    /// Append new to file with timestamps.
     pub fn append_new_to_file_with_timestamps(
         &mut self,
         path: impl AsRef<Path>,
@@ -160,6 +178,7 @@ impl History {
         Ok(())
     }
 
+    /// Truncate file.
     pub fn truncate_file(path: impl AsRef<Path>, max_len: usize) -> io::Result<()> {
         let path = path.as_ref();
         with_history_lock(path, || {
@@ -230,6 +249,7 @@ fn read_history_records(file: fs::File) -> io::Result<Vec<(Vec<u8>, Option<Strin
         records.push((std::mem::take(&mut line), pending_timestamp.take()));
         line.clear();
     }
+    // Ok.
     Ok(records)
 }
 
@@ -287,10 +307,12 @@ fn unlock_file(file: &fs::File) -> io::Result<()> {
 
 #[cfg(not(unix))]
 fn lock_file(_file: &fs::File) -> io::Result<()> {
+    // Ok.
     Ok(())
 }
 
 #[cfg(not(unix))]
 fn unlock_file(_file: &fs::File) -> io::Result<()> {
+    // Ok.
     Ok(())
 }

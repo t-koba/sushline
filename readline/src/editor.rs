@@ -6,8 +6,8 @@ use crate::inputrc::{InputrcParser, discover_inputrc_path};
 use crate::keymap::{EditCommand, KeyBinding, KeyMap, KeyMapName};
 use crate::prompt::Prompt;
 use crate::state::*;
-use crate::terminal::{TerminalEvent, TerminalIo};
-use crate::variables::Variables;
+use crate::terminal::{TerminalEvent, TerminalIo, escape};
+use crate::variables::{BoolVariable, Variables};
 use history::History;
 use history::expansion::{HistoryChars, HistoryExpansion, HistoryExpansionPolicy};
 use std::fmt;
@@ -16,15 +16,22 @@ use std::path::Path;
 use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// ReadlineResult.
 pub enum ReadlineResult {
+    /// Line.
     Line(Vec<u8>),
+    /// Interrupted.
     Interrupted,
+    /// Eof.
     Eof,
 }
 
 #[derive(Debug)]
+/// ReadlineError.
 pub enum ReadlineError {
+    /// Io.
     Io(io::Error),
+    /// Inputrc.
     Inputrc(String),
 }
 
@@ -45,6 +52,7 @@ impl From<io::Error> for ReadlineError {
     }
 }
 
+/// Editor.
 pub struct Editor<T>
 where
     T: TerminalIo,
@@ -62,6 +70,7 @@ impl<T> Editor<T>
 where
     T: TerminalIo,
 {
+    /// New.
     pub fn new(config: Config, terminal: T, history: History) -> Self {
         let mut line = Self::new_without_inputrc(config, terminal, history);
         if let Err(err) = line.reload_inputrc() {
@@ -70,6 +79,7 @@ where
         line
     }
 
+    /// Try new.
     pub fn try_new(config: Config, terminal: T, history: History) -> Result<Self, ReadlineError> {
         let mut line = Self::new_without_inputrc(config, terminal, history);
         line.reload_inputrc()?;
@@ -94,44 +104,54 @@ where
         }
     }
 
+    /// Initial inputrc error.
     pub fn initial_inputrc_error(&self) -> Option<&str> {
         self.initial_inputrc_error.as_deref()
     }
 
+    /// Bind api.
     pub fn bind_api(&mut self) -> BindApi<'_> {
         BindApi::with_config(&mut self.keymap, &mut self.variables, &self.config)
     }
 
+    /// Terminal.
     pub fn terminal(&self) -> &T {
         &self.terminal
     }
 
+    /// Terminal mut.
     pub fn terminal_mut(&mut self) -> &mut T {
         &mut self.terminal
     }
 
+    /// History.
     pub fn history(&self) -> &History {
         &self.history
     }
 
+    /// History mut.
     pub fn history_mut(&mut self) -> &mut History {
         &mut self.history
     }
 
+    /// Variables.
     pub fn variables(&self) -> &Variables {
         &self.variables
     }
 
+    /// Variables mut.
     pub fn variables_mut(&mut self) -> &mut Variables {
         &mut self.variables
     }
 
+    /// Load inputrc str.
     pub fn load_inputrc_str(&mut self, source: &str) -> Result<(), ReadlineError> {
         InputrcParser::new()
             .parse_str(source, &self.config, &mut self.keymap, &mut self.variables)
             .map_err(|e| ReadlineError::Inputrc(format!("line {}: {}", e.line, e.message)))
     }
 
+    /// Load inputrc file.
     pub fn load_inputrc_file(&mut self, path: &Path) -> Result<(), ReadlineError> {
         InputrcParser::new()
             .parse_file(path, &self.config, &mut self.keymap, &mut self.variables)
@@ -140,6 +160,7 @@ where
         Ok(())
     }
 
+    /// Reload inputrc.
     pub fn reload_inputrc(&mut self) -> Result<(), ReadlineError> {
         let path = match &self.config.inputrc_path {
             InputrcPath::Disabled => return Ok(()),
@@ -153,35 +174,38 @@ where
         }
     }
 
+    /// Cleanup after signal.
     pub fn cleanup_after_signal(&mut self) -> Result<(), ReadlineError> {
-        if self.variable_is_on("enable-bracketed-paste") {
-            let _ = self.terminal.write("\x1b[?2004l");
+        if self.flag(BoolVariable::EnableBracketedPaste) {
+            let _ = self.terminal.write(escape::BRACKETED_PASTE_OFF);
             let _ = self.terminal.flush();
         }
-        if self.variable_is_on("enable-meta-key") {
+        if self.flag(BoolVariable::EnableMetaKey) {
             let _ = self.terminal.set_meta_key_enabled(false);
             let _ = self.terminal.flush();
         }
-        if self.variable_is_on("enable-keypad") {
+        if self.flag(BoolVariable::EnableKeypad) {
             let _ = self.terminal.set_application_keypad_enabled(false);
             let _ = self.terminal.flush();
         }
         self.terminal.restore_mode().map_err(ReadlineError::Io)
     }
 
+    /// Reset after signal.
     pub fn reset_after_signal(&mut self) -> Result<(), ReadlineError> {
         self.terminal.enter_raw_mode()?;
         self.terminal
-            .set_meta_key_enabled(self.variable_is_on("enable-meta-key"))?;
+            .set_meta_key_enabled(self.flag(BoolVariable::EnableMetaKey))?;
         self.terminal
-            .set_application_keypad_enabled(self.variable_is_on("enable-keypad"))?;
-        if self.variable_is_on("enable-bracketed-paste") {
-            self.terminal.write("\x1b[?2004h")?;
+            .set_application_keypad_enabled(self.flag(BoolVariable::EnableKeypad))?;
+        if self.flag(BoolVariable::EnableBracketedPaste) {
+            self.terminal.write(escape::BRACKETED_PASTE_ON)?;
             self.terminal.flush()?;
         }
         Ok(())
     }
 
+    /// Read line.
     pub fn read_line(
         &mut self,
         prompt: Prompt,
@@ -281,6 +305,8 @@ where
             self.echo_signal_interrupt(state)?;
             return Ok(Some(ReadlineResult::Interrupted));
         }
+        #[cfg(not(unix))]
+        let _ = state;
         let _ = signal;
         Ok(None)
     }
@@ -313,7 +339,7 @@ where
             EditorOutcome::Accepted(bytes) => {
                 self.move_below_rendered_line(state)?;
                 self.terminal.flush()?;
-                if self.variable_is_on("revert-all-at-newline") {
+                if self.flag(BoolVariable::RevertAllAtNewline) {
                     self.history.revert_current_edit();
                 }
                 if self.config.auto_add_history {
@@ -331,7 +357,7 @@ where
     }
 
     fn bind_tty_special_chars(&mut self) {
-        if !self.variable_is_on("bind-tty-special-chars") {
+        if !self.flag(BoolVariable::BindTtySpecialChars) {
             return;
         }
         for (byte, command_name) in self.terminal.tty_special_bindings() {
@@ -390,6 +416,10 @@ where
 
     pub(crate) fn variable_is_on(&self, name: &str) -> bool {
         self.variables.is_on(name)
+    }
+
+    pub(crate) fn flag(&self, variable: BoolVariable) -> bool {
+        self.variables.flag(variable)
     }
 
     fn histchars(&self) -> HistoryChars {
@@ -498,7 +528,7 @@ where
     }
 
     pub(crate) fn replace_from_history(&mut self, state: &mut EditorState, line: &[u8]) {
-        if !self.variable_is_on("revert-all-at-newline")
+        if !self.flag(BoolVariable::RevertAllAtNewline)
             && let Some(index) = self.history.current_index()
         {
             self.history
@@ -509,13 +539,13 @@ where
         state.original_line = line.to_vec();
         state.undo.undo_stack.clear();
         state.undo.pending_undo = None;
-        if !self.variable_is_on("revert-all-at-newline")
+        if !self.flag(BoolVariable::RevertAllAtNewline)
             && let Some(index) = self.history.current_index()
             && let Some(undo_list) = self.history.undo_list(index)
         {
             state.restore_undo_snapshot_lines(undo_list);
         }
-        if self.variable_is_on("history-preserve-point") {
+        if self.flag(BoolVariable::HistoryPreservePoint) {
             state.buffer.set_point(point);
         }
     }
@@ -531,8 +561,11 @@ where
 }
 
 pub(crate) enum EditorOutcome {
+    /// Continue.
     Continue,
+    /// Accepted.
     Accepted(Vec<u8>),
+    /// Eof.
     Eof,
 }
 

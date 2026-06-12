@@ -17,7 +17,7 @@ Readline and History Library C ABI compatibility is explicitly out of scope.
 | Compatible | Matched against the baseline for the scoped behavior, with no known user-visible difference. |
 | Implemented | Implemented, but not audited enough to claim GNU-compatible behavior for the whole row. |
 | Implementation-specific | Implemented through Sushline's Rust model rather than GNU Readline/History internals; observable differences may exist outside tested cases. |
-| Terminal-backed | Implemented through `TerminalIo` and terminfo-backed terminal behavior; exact escape bytes are terminal/backend dependent. |
+| Terminal-backed | Implemented through `TerminalIo`, terminfo-backed capabilities where available, and fixed ANSI helpers for the built-in terminal; exact bytes may still depend on terminal/backend capabilities. |
 | Mixed | The area contains multiple statuses; use the detailed rows below. |
 | Known deviation | A known observable behavior differs from the baseline. |
 | Hook-backed | The Readline command/mechanism is implemented; GNU-equivalent embedder-owned state or behavior is supplied through `Hooks`. |
@@ -41,10 +41,10 @@ external editing, and `bind -x` command execution, must be supplied through
 | Area | Baseline behavior | Sushline behavior | Status |
 | --- | --- | --- | --- |
 | Command-word parsing | Readline shell-word commands are typically backed by the embedding shell's lexer state. | Sushline's built-in command-word parser matches covered oracle cases, including quoted history words, command substitutions, process substitutions, and shell operator tokens. Embedders that need exact language lexer state can provide byte spans through `Hooks::shell_word_spans`; shell-word movement, kill, and transpose use spans, while dynamic history completion and yank-argument commands use `Hooks::shell_words`. | Hook-backed |
-| Filename quoting and locale edges | Readline behavior depends on quote state, locale, byte/character handling, and shell integration. | Sushline has byte-oriented dequote/requote logic and matching options. Several common quoted cases, including unquoted filenames containing spaces and shell metacharacters, are covered; embedders can provide application quoting through `Hooks::quote_completion`, with `Hooks::quote` retained for legacy unquoted filename quoting. | Hook-backed |
+| Filename quoting and locale edges | Readline behavior depends on quote state, locale, byte/character handling, and shell integration. | Sushline has byte-oriented dequote/requote logic and matching options. Several common quoted cases, including unquoted filenames containing spaces and shell metacharacters, are covered; embedders can provide application quoting through `Hooks::quote_completion`. | Hook-backed |
 | Embedder-owned completion categories | Command and variable completion may include aliases, reserved words, functions, builtins, variables, and executables owned by the embedding application. | Sushline provides executables and platform fallbacks; embedder-owned names are supplied through completion hooks such as `Hooks::command_names` and `Hooks::variable_names`. | Hook-backed |
 | Application expansion and embedder state commands | Commands such as `shell-expand-line`, `spell-correct-word`, `display-shell-version`, `tty-status`, external editing, and `bind -x` use application-owned state. | Sushline dispatches those responsibilities through context-carrying hooks and applies returned edits/output in the Readline command flow. | Hook-backed |
-| Region/display/terminal internals | Readline redisplay and active-region behavior are tied to terminal capabilities. | Sushline implements equivalent visible behavior through its Rust terminal/display model and `TerminalIo`. | Terminal-backed |
+| Region/display/terminal internals | Readline redisplay and active-region behavior are tied to terminal capabilities. | Sushline implements equivalent visible behavior through its Rust terminal/display model and `TerminalIo`. The built-in terminal backend is Unix-oriented; non-Unix builds compile but return `Unsupported` for live terminal operations unless an embedder supplies another `TerminalIo`. | Terminal-backed |
 
 ## High-Level Coverage
 
@@ -108,14 +108,14 @@ sections.
 | `delete-horizontal-space` | Compatible | Covered by oracle tests. |
 | `kill-region`, `copy-region-as-kill`, `copy-backward-word`, `copy-forward-word` | Compatible | Region and copy-word operations are covered by GNU oracle tests for accepted-line behavior. |
 | `yank` | Compatible | Covered by tests. |
-| `yank-pop` | Compatible | The previously documented multiple-kill case now matches the GNU oracle. |
+| `yank-pop` | Compatible | Multiple-kill cycling behavior is covered by GNU oracle tests. |
 
 ### Numeric Arguments And Macros
 
 | Command(s) | Status | Notes |
 | --- | --- | --- |
 | `digit-argument`, `universal-argument` | Compatible | Implemented and covered by editor/oracle tests. |
-| `start-kbd-macro`, `end-kbd-macro`, `call-last-kbd-macro` | Compatible | The previously documented consecutive self-insert replay difference now matches the GNU oracle. |
+| `start-kbd-macro`, `end-kbd-macro`, `call-last-kbd-macro` | Compatible | Consecutive self-insert replay behavior is covered by GNU oracle tests. |
 | `print-last-kbd-macro` | Compatible | Output for recorded macro bodies is covered by GNU oracle tests. |
 
 ### Completion Commands And Behavior
@@ -156,7 +156,7 @@ sections.
 | `vi-append-eol`, `vi-append-mode`, `vi-insert-beg`, `vi-insertion-mode`, `vi-movement-mode`, `vi-editing-mode` | Compatible | Covered by vi/editor tests for the scoped behavior. |
 | `vi-arg-digit`, `vi-search`, `vi-search-again`, `vi-char-search` | Compatible | Covered by vi/oracle tests for numeric and search behavior. |
 | `vi-bWord`, `vi-backward-bigword`, `vi-back-to-indent`, `vi-first-print`, `vi-backward-word`, `vi-bword`, `vi-prev-word`, `vi-column`, `vi-eWord`, `vi-end-bigword`, `vi-end-word`, `vi-eword`, `vi-fWord`, `vi-forward-bigword`, `vi-forward-word`, `vi-fword`, `vi-next-word`, `vi-match` | Compatible | Covered by GNU oracle cases for punctuation words, bigwords, counts, operator-specific `w`/`W` behavior, first-print, column, and bracket matching. |
-| `vi-change-case`, `vi-change-char`, `vi-replace`, `vi-change-to`, `vi-delete`, `vi-delete-to`, `vi-subst`, `vi-yank-to` | Compatible | Operator, change, replacement, and redo cases are covered, including the previously documented `r` redo difference. |
+| `vi-change-case`, `vi-change-char`, `vi-replace`, `vi-change-to`, `vi-delete`, `vi-delete-to`, `vi-subst`, `vi-yank-to` | Compatible | Operator, change, replacement, and redo cases are covered by vi/oracle tests. |
 | `vi-overstrike`, `vi-overstrike-delete`, `vi-rubout`, `vi-put`, `vi-redo`, `vi-undo`, `vi-yank-pop` | Compatible | Covered by vi/editor tests for the scoped behavior. |
 | `vi-fetch-history`, `vi-eof-maybe`, `vi-goto-mark`, `vi-set-mark`, `vi-tilde-expand`, `vi-unix-word-rubout`, `vi-yank-arg` | Compatible | History fetch, EOF behavior, tilde expansion, vi mark movement, default-unbound register key behavior, vi word rubout, and vi yank-arg numeric behavior are covered by GNU oracle tests. |
 | `vi-edit-and-execute-command` | Hook-backed | External edit-and-execute behavior comes from `Hooks::edit_and_execute`; hook dispatch and acceptance are tested. |
@@ -202,7 +202,7 @@ sections.
 
 | Feature | Status | Notes |
 | --- | --- | --- |
-| Event designators `!!`, `!n`, `!-n`, `!string`, `!?string[?]`, `!$`, `!^`, `!:`, `!#` | Compatible | Implemented by `history::expand_history`; `!#` was added in this audit. |
+| Event designators `!!`, `!n`, `!-n`, `!string`, `!?string[?]`, `!$`, `!^`, `!:`, `!#` | Compatible | Implemented by `history::expand_history`. |
 | Quick substitution `^old^new^` | Compatible | Implemented for the previous history entry. |
 | Word designators `0`, `n`, `^`, `$`, `%`, `x-y`, `*`, `x*`, `x-` | Hook-backed | Implemented over command words; quoted words, shell variable-like words, escaped spaces, command substitutions, process substitutions, shell operators, assignment-like array syntax, and common delimiters are covered by GNU oracle tests. Exact shell tokenization and status can be provided through `Hooks::expand_history`. |
 | Modifiers `h`, `t`, `r`, `e`, `q`, `x`, `s/old/new/`, `&`, `g`, `a`, `G` | Compatible | Covered by GNU oracle tests for path modifiers, quoting modifiers, and substitution variants. |
@@ -232,7 +232,7 @@ Sushline APIs; it is not a C ABI or C API compatibility promise.
 | Navigation: `history_set_pos`, `previous_history`, `next_history` | `set_pos`, `previous_history`, `next_history` | Compatible | Implemented on `History` and tested. |
 | Search: `history_search`, `history_search_prefix`, `history_search_pos` | `history_search_bytes`, `history_search_prefix`, `history_search_pos` | Compatible | Byte/string search behavior is covered by tests; Rust return types are the in-scope API. |
 | Files: `read_history`, `write_history`, `append_history`, `history_truncate_file`, default `~/.history` filename | `read_file`, `load_file`, `write_file`, `append_file`, `append_last_to_file`, `append_new_to_file`, `truncate_file`, `default_file_path`, default-file helpers | Compatible | File operations, timestamps, default path helpers, and Unix locking are covered by tests. |
-| File range: `read_history_range` | `read_file_range`, `load_file_range` | Compatible | Range-reading APIs were added in this audit. |
+| File range: `read_history_range` | `read_file_range`, `load_file_range` | Compatible | Range-reading APIs are implemented and covered by tests. |
 | Expansion: `history_expand` | `expand_history`, `expand_history_with_status`, `Hooks::expand_history` | Compatible | Expanded text and `:p` print-only status are available and can be passed through the editor hook boundary. |
 | Expansion helpers: `get_history_event`, `history_tokenize`, `history_arg_extract` | `get_history_event`, `history_tokenize`, `history_arg_extract`, `command_words` | Compatible | Rust helper APIs are exposed and covered by tests. |
 | Variables: `history_base`, `history_length`, `history_max_entries` | `HistoryState` and methods | Compatible | Represented as Rust-owned state rather than process globals; `HistoryState` offset, length, stifle, and maximum-entry behavior is covered by tests. |

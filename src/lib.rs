@@ -1,4 +1,5 @@
 //! Facade crate for sushline's line-editing and history components.
+#![warn(missing_docs)]
 
 /// Thin alias for the history crate.
 ///

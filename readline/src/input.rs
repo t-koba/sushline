@@ -4,6 +4,7 @@ use crate::hooks::Hooks;
 use crate::keymap::{EditCommand, KeyBinding, KeyMapName};
 use crate::state::*;
 use crate::terminal::TerminalIo;
+use crate::variables::BoolVariable;
 use history::HistoryDirection;
 
 impl<T> Editor<T>
@@ -21,6 +22,8 @@ where
             self.echo_signal_interrupt(state)?;
             return Ok(Some(ReadlineResult::Interrupted));
         }
+        #[cfg(not(unix))]
+        let _ = state;
         #[cfg(not(unix))]
         let _ = signal;
         self.terminal.enter_raw_mode()?;
@@ -290,10 +293,10 @@ where
         }
 
         let stripped = byte & 0x7f;
-        if self.variable_is_on("convert-meta") {
+        if self.flag(BoolVariable::ConvertMeta) {
             return Some(vec![0x1b, stripped]);
         }
-        if !self.variable_is_on("input-meta") && !self.variable_is_on("meta-flag") {
+        if !self.flag(BoolVariable::InputMeta) && !self.flag(BoolVariable::MetaFlag) {
             return Some(vec![stripped]);
         }
         None
@@ -482,7 +485,7 @@ where
                     &mut search,
                     &self.history,
                     true,
-                    self.variable_is_on("search-ignore-case"),
+                    self.flag(BoolVariable::SearchIgnoreCase),
                 );
                 self.apply_search_match(state, &search);
                 state.search.reverse_search = Some(search);
@@ -495,7 +498,7 @@ where
                     &mut search,
                     &self.history,
                     false,
-                    self.variable_is_on("search-ignore-case"),
+                    self.flag(BoolVariable::SearchIgnoreCase),
                 );
                 if !self.apply_search_match(state, &search) {
                     state.buffer = LineBuffer::from_bytes(search.original_line.clone());
@@ -548,7 +551,7 @@ where
                 &mut search,
                 &self.history,
                 false,
-                self.variable_is_on("search-ignore-case"),
+                self.flag(BoolVariable::SearchIgnoreCase),
             );
             self.apply_search_match(state, &search);
         }
@@ -588,7 +591,7 @@ where
                     if let Some(found) = self.history.history_search_bytes_with_case(
                         &query,
                         direction,
-                        self.variable_is_on("search-ignore-case"),
+                        self.flag(BoolVariable::SearchIgnoreCase),
                     ) {
                         self.replace_from_history(state, &found.line_bytes);
                     } else {

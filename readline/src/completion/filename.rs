@@ -461,6 +461,7 @@ pub(crate) fn glob_match(pattern: &str, value: &str) -> bool {
     )
 }
 
+#[cfg_attr(not(unix), allow(dead_code))]
 fn glob_match_bytes(pattern: &[u8], value: &[u8]) -> bool {
     match (pattern.split_first(), value.split_first()) {
         (None, None) => true,
@@ -489,6 +490,7 @@ fn glob_match_bytes(pattern: &[u8], value: &[u8]) -> bool {
     }
 }
 
+#[cfg_attr(not(unix), allow(dead_code))]
 fn match_bracket_class_bytes(pattern_after_open: &[u8], value: u8) -> Option<(bool, &[u8])> {
     let mut idx = 0;
     let mut negated = false;

@@ -408,6 +408,7 @@ pub(super) fn glob_complete_bytes(
     }
 }
 
+#[cfg_attr(not(unix), allow(dead_code))]
 pub(super) fn glob_match_bytes_raw(pattern: &[u8], name: &[u8]) -> bool {
     fn rec(pattern: &[u8], name: &[u8]) -> bool {
         match pattern.split_first() {

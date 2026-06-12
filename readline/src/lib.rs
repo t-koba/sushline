@@ -1,4 +1,5 @@
 //! Pure Rust line-editing foundation for interactive command interpreters.
+#![warn(missing_docs)]
 
 mod bind;
 mod buffer;
@@ -15,6 +16,7 @@ mod prompt;
 mod state;
 mod terminal;
 mod variables;
+mod width;
 
 pub use bind::{BindApi, BindError, BindQuery};
 pub use buffer::{LineBuffer, WordStyle};

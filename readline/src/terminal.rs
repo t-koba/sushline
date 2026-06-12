@@ -1,64 +1,99 @@
-use crossterm::cursor::{MoveToColumn, MoveUp};
-#[cfg(not(unix))]
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
-use crossterm::terminal::{self, Clear, ClearType};
-use crossterm::{execute, queue};
+//! Terminal I/O boundary.
+//!
+//! Terminfo-provided capabilities remain terminfo-backed where sushline
+//! already used them. Cursor movement and clear-to-end operations use fixed
+//! ANSI escape sequences. Parameterized terminfo expansion for those helpers is
+//! intentionally not part of the terminal backend.
+//!
+//! The concrete terminal backend is Unix-oriented. Non-Unix targets compile,
+//! but live terminal operations return `Unsupported` until a backend is added.
+
 use std::io::{self, Stdout, Write};
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
 #[cfg(unix)]
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::Duration;
 
+pub(crate) mod escape;
 mod terminfo;
 pub(crate) use terminfo::{active_region_default_sequence_bytes, active_region_default_sequences};
 use terminfo::{terminfo_keypad_sequence, terminfo_meta_sequence, terminfo_sequence};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// TerminalSize.
 pub struct TerminalSize {
+    /// Columns.
     pub columns: u16,
+    /// Rows.
     pub rows: u16,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// TerminalEvent.
 pub enum TerminalEvent {
+    /// Bytes.
     Bytes(Vec<u8>),
+    /// Resize.
     Resize(TerminalSize),
+    /// Signal.
     Signal(i32),
+    /// Timeout.
     Timeout,
 }
 
+/// TerminalIo.
 pub trait TerminalIo {
+    /// Enters raw terminal mode.
     fn enter_raw_mode(&mut self) -> io::Result<()>;
+    /// Restores the previous terminal mode.
     fn restore_mode(&mut self) -> io::Result<()>;
+    /// Reads the next terminal event.
     fn read_event(&mut self, timeout: Option<Duration>) -> io::Result<TerminalEvent>;
+    /// Writes UTF-8 text to the terminal.
     fn write(&mut self, text: &str) -> io::Result<()>;
+    /// Writes bytes to the terminal.
     fn write_bytes(&mut self, bytes: &[u8]) -> io::Result<()>;
+    /// Flushes pending terminal output.
     fn flush(&mut self) -> io::Result<()>;
+    /// Returns the terminal size.
     fn size(&self) -> io::Result<TerminalSize>;
+    /// Clears from the cursor to the end of the line.
     fn clear_after_cursor(&mut self) -> io::Result<()>;
+    /// Clears from the cursor to the end of the screen.
     fn clear_to_screen_end(&mut self) -> io::Result<()> {
         self.clear_after_cursor()
     }
+    /// Clears the display from the first column.
     fn clear_display(&mut self) -> io::Result<()> {
-        self.write("\r\x1b[J")
+        self.write("\r")?;
+        self.write(escape::CLEAR_TO_SCREEN_END)
     }
+    /// Moves the cursor to a zero-based terminal column.
     fn move_to_column(&mut self, column: u16) -> io::Result<()>;
+    /// Moves the cursor up by `rows` terminal rows.
     fn move_up(&mut self, _rows: u16) -> io::Result<()> {
         Ok(())
     }
+    /// Emits a visible bell.
     fn visible_bell(&mut self) -> io::Result<()> {
-        self.write("\x1b[?5h\x1b[?5l")
+        self.write(escape::VISIBLE_BELL)
     }
+    /// Enables or disables terminal meta-key handling.
     fn set_meta_key_enabled(&mut self, _enabled: bool) -> io::Result<()> {
         Ok(())
     }
+    /// Enables or disables application keypad mode.
     fn set_application_keypad_enabled(&mut self, _enabled: bool) -> io::Result<()> {
         Ok(())
     }
+    /// Returns bindings for tty special characters.
     fn tty_special_bindings(&self) -> Vec<(u8, &'static str)> {
         Vec::new()
     }
 }
 
+/// Terminal.
 pub struct Terminal {
     stdout: Stdout,
     raw: bool,
@@ -67,6 +102,7 @@ pub struct Terminal {
 }
 
 impl Terminal {
+    /// New.
     pub fn new() -> Self {
         Self {
             stdout: io::stdout(),
@@ -98,22 +134,27 @@ impl TerminalIo for Terminal {
         {
             install_signal_handlers();
             enable_readline_mode(&mut self.saved_termios)?;
+            self.raw = true;
+            Ok(())
         }
         #[cfg(not(unix))]
-        terminal::enable_raw_mode()?;
-        self.raw = true;
-        Ok(())
+        {
+            Err(unsupported_terminal_io())
+        }
     }
 
     fn restore_mode(&mut self) -> io::Result<()> {
         if self.raw {
             #[cfg(unix)]
-            restore_readline_mode(&mut self.saved_termios)?;
+            {
+                restore_readline_mode(&mut self.saved_termios)?;
+                restore_signal_handlers();
+                self.raw = false;
+            }
             #[cfg(not(unix))]
-            terminal::disable_raw_mode()?;
-            #[cfg(unix)]
-            restore_signal_handlers();
-            self.raw = false;
+            {
+                return Err(unsupported_terminal_io());
+            }
         }
         Ok(())
     }
@@ -126,19 +167,8 @@ impl TerminalIo for Terminal {
 
         #[cfg(not(unix))]
         {
-            if let Some(timeout) = timeout
-                && !event::poll(timeout)?
-            {
-                return Ok(TerminalEvent::Timeout);
-            }
-
-            match event::read()? {
-                Event::Key(key) => Ok(TerminalEvent::Bytes(key_to_bytes(key))),
-                Event::Resize(columns, rows) => {
-                    Ok(TerminalEvent::Resize(TerminalSize { columns, rows }))
-                }
-                _ => Ok(TerminalEvent::Timeout),
-            }
+            let _ = timeout;
+            Err(unsupported_terminal_io())
         }
     }
 
@@ -155,44 +185,48 @@ impl TerminalIo for Terminal {
     }
 
     fn size(&self) -> io::Result<TerminalSize> {
-        let (columns, rows) = terminal::size()?;
-        Ok(TerminalSize { columns, rows })
+        query_terminal_size()
     }
 
     fn clear_after_cursor(&mut self) -> io::Result<()> {
-        execute!(self.stdout, Clear(ClearType::UntilNewLine))
+        self.stdout
+            .write_all(escape::CLEAR_TO_LINE_END.as_bytes())?;
+        self.stdout.flush()
     }
 
     fn clear_to_screen_end(&mut self) -> io::Result<()> {
-        execute!(self.stdout, Clear(ClearType::FromCursorDown))
+        self.stdout
+            .write_all(escape::CLEAR_TO_SCREEN_END.as_bytes())?;
+        self.stdout.flush()
     }
 
     fn clear_display(&mut self) -> io::Result<()> {
         if let Some(sequence) = terminfo_sequence("clear") {
             self.stdout.write_all(&sequence)?;
         } else {
-            execute!(self.stdout, Clear(ClearType::All))?;
+            self.stdout.write_all(escape::CLEAR_ALL.as_bytes())?;
         }
         if let Some(sequence) = terminfo_sequence("E3") {
             self.stdout.write_all(&sequence)
         } else {
-            self.stdout.write_all(b"\x1b[3J")
+            self.stdout.write_all(escape::ERASE_SCROLLBACK.as_bytes())
         }
     }
 
     fn move_to_column(&mut self, column: u16) -> io::Result<()> {
-        queue!(self.stdout, MoveToColumn(column))
+        self.stdout
+            .write_all(escape::move_to_column(column).as_bytes())
     }
 
     fn move_up(&mut self, rows: u16) -> io::Result<()> {
-        queue!(self.stdout, MoveUp(rows))
+        self.stdout.write_all(escape::move_up(rows).as_bytes())
     }
 
     fn visible_bell(&mut self) -> io::Result<()> {
         if let Some(sequence) = terminfo_sequence("flash") {
             self.stdout.write_all(&sequence)
         } else {
-            self.stdout.write_all(b"\x1b[?5h\x1b[?5l")
+            self.stdout.write_all(escape::VISIBLE_BELL.as_bytes())
         }
     }
 
@@ -201,9 +235,9 @@ impl TerminalIo for Terminal {
             self.stdout.write_all(&sequence)
         } else if std::env::var("TERM").is_ok_and(|term| term.starts_with("xterm")) {
             if enabled {
-                self.stdout.write_all(b"\x1b[?1034h")
+                self.stdout.write_all(escape::XTERM_META_ON.as_bytes())
             } else {
-                self.stdout.write_all(b"\x1b[?1034l")
+                self.stdout.write_all(escape::XTERM_META_OFF.as_bytes())
             }
         } else {
             Ok(())
@@ -214,9 +248,11 @@ impl TerminalIo for Terminal {
         if let Some(sequence) = terminfo_keypad_sequence(enabled) {
             self.stdout.write_all(&sequence)
         } else if enabled {
-            self.stdout.write_all(b"\x1b=")
+            self.stdout
+                .write_all(escape::APPLICATION_KEYPAD_ON.as_bytes())
         } else {
-            self.stdout.write_all(b"\x1b>")
+            self.stdout
+                .write_all(escape::APPLICATION_KEYPAD_OFF.as_bytes())
         }
     }
 
@@ -248,6 +284,7 @@ fn enable_readline_mode(saved: &mut Option<libc::termios>) -> io::Result<()> {
     if rc != 0 {
         return Err(io::Error::last_os_error());
     }
+    // Ok.
     Ok(())
 }
 
@@ -260,6 +297,7 @@ fn restore_readline_mode(saved: &mut Option<libc::termios>) -> io::Result<()> {
     if rc != 0 {
         return Err(io::Error::last_os_error());
     }
+    // Ok.
     Ok(())
 }
 
@@ -469,6 +507,7 @@ fn read_raw_event(timeout: Option<Duration>) -> io::Result<TerminalEvent> {
     if read == 0 {
         return Ok(TerminalEvent::Timeout);
     }
+    // Ok.
     Ok(TerminalEvent::Bytes(buf[..read as usize].to_vec()))
 }
 
@@ -482,9 +521,52 @@ fn pending_signal_event() -> Option<TerminalEvent> {
 
 #[cfg(unix)]
 fn current_resize_event() -> io::Result<TerminalEvent> {
-    let (columns, rows) = terminal::size()?;
-    Ok(TerminalEvent::Resize(TerminalSize { columns, rows }))
+    query_terminal_size().map(TerminalEvent::Resize)
 }
+
+#[cfg(unix)]
+fn query_terminal_size() -> io::Result<TerminalSize> {
+    let stdout = io::stdout();
+    if let Ok(size) = query_terminal_size_fd(stdout.as_raw_fd()) {
+        return Ok(size);
+    }
+    let stdin = io::stdin();
+    if let Ok(size) = query_terminal_size_fd(stdin.as_raw_fd()) {
+        return Ok(size);
+    }
+    let tty = std::fs::OpenOptions::new().read(true).open("/dev/tty")?;
+    query_terminal_size_fd(tty.as_raw_fd())
+}
+
+#[cfg(unix)]
+fn query_terminal_size_fd(fd: std::os::fd::RawFd) -> io::Result<TerminalSize> {
+    let mut winsize = std::mem::MaybeUninit::<libc::winsize>::zeroed();
+    let rc = unsafe { libc::ioctl(fd, libc::TIOCGWINSZ, winsize.as_mut_ptr()) };
+    if rc != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let winsize = unsafe { winsize.assume_init() };
+    // Ok.
+    Ok(TerminalSize {
+        columns: winsize.ws_col,
+        rows: winsize.ws_row,
+    })
+}
+
+#[cfg(not(unix))]
+fn query_terminal_size() -> io::Result<TerminalSize> {
+    // Err.
+    Err(unsupported_terminal_io())
+}
+
+#[cfg(not(unix))]
+fn unsupported_terminal_io() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::Unsupported,
+        "terminal input is not supported on this platform",
+    )
+}
+#[cfg(unix)]
 fn push_tty_binding(
     bindings: &mut Vec<(u8, &'static str)>,
     value: libc::cc_t,
@@ -498,47 +580,4 @@ fn push_tty_binding(
 #[cfg(not(unix))]
 fn tty_special_bindings() -> Vec<(u8, &'static str)> {
     Vec::new()
-}
-
-#[cfg(not(unix))]
-fn key_to_bytes(key: KeyEvent) -> Vec<u8> {
-    match key.code {
-        KeyCode::Char(ch) if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            vec![control_byte(ch)]
-        }
-        KeyCode::Char(ch) if key.modifiers.contains(KeyModifiers::ALT) => {
-            let mut bytes = vec![0x1b];
-            bytes.extend(ch.to_string().as_bytes());
-            bytes
-        }
-        KeyCode::Char(ch) => ch.to_string().into_bytes(),
-        KeyCode::Enter => vec![b'\r'],
-        KeyCode::Tab => vec![b'\t'],
-        KeyCode::Backspace => vec![0x7f],
-        KeyCode::Delete => vec![0x1b, b'[', b'3', b'~'],
-        KeyCode::Left => vec![0x1b, b'[', b'D'],
-        KeyCode::Right => vec![0x1b, b'[', b'C'],
-        KeyCode::Up => vec![0x1b, b'[', b'A'],
-        KeyCode::Down => vec![0x1b, b'[', b'B'],
-        KeyCode::Esc => vec![0x1b],
-        _ => Vec::new(),
-    }
-}
-
-#[cfg(not(unix))]
-fn control_byte(ch: char) -> u8 {
-    match ch {
-        '?' => 0x7f,
-        ' ' => 0x00,
-        'a'..='z' => ch as u8 - b'a' + 1,
-        'A'..='Z' => ch as u8 - b'A' + 1,
-        '2' => 0x00,
-        '3' => 0x1b,
-        '4' => 0x1c,
-        '5' => 0x1d,
-        '6' => 0x1e,
-        '7' => 0x1f,
-        '8' => 0x7f,
-        _ => ch as u8,
-    }
 }

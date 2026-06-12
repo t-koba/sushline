@@ -1,25 +1,31 @@
 mod render;
 mod word;
+use crate::width::char_width;
 pub use render::RenderOptions;
 pub(crate) use render::{append_bytes_lossless, rendered_string_to_bytes};
 use word::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// WordStyle.
 pub enum WordStyle {
+    /// Readline.
     Readline,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+/// LineBuffer.
 pub struct LineBuffer {
     bytes: Vec<u8>,
     point: usize,
 }
 
 impl LineBuffer {
+    /// New.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// From.
     pub fn from(text: &str) -> Self {
         Self {
             bytes: text.as_bytes().to_vec(),
@@ -27,23 +33,28 @@ impl LineBuffer {
         }
     }
 
+    /// From bytes.
     pub fn from_bytes(bytes: Vec<u8>) -> Self {
         let point = bytes.len();
         Self { bytes, point }
     }
 
+    /// As string.
     pub fn as_string(&self) -> String {
         String::from_utf8_lossy(&self.bytes).into_owned()
     }
 
+    /// As bytes.
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes
     }
 
+    /// Point.
     pub fn point(&self) -> usize {
         self.point
     }
 
+    /// Byte index for char index.
     pub fn byte_index_for_char_index(&self, index: usize) -> usize {
         if index >= self.bytes.len() {
             self.bytes.len()
@@ -52,37 +63,45 @@ impl LineBuffer {
         }
     }
 
+    /// Byte point.
     pub fn byte_point(&self) -> usize {
         self.point
     }
 
+    /// Len chars.
     pub fn len_chars(&self) -> usize {
         self.bytes.len()
     }
 
+    /// Is empty.
     pub fn is_empty(&self) -> bool {
         self.bytes.is_empty()
     }
 
+    /// Set point.
     pub fn set_point(&mut self, point: usize) {
         self.point = self.clamp_boundary(point);
     }
 
+    /// Insert char.
     pub fn insert_char(&mut self, ch: char) {
         let mut buf = [0; 4];
         self.insert_bytes(ch.encode_utf8(&mut buf).as_bytes());
     }
 
+    /// Insert str.
     pub fn insert_str(&mut self, text: &str) {
         self.insert_bytes(text.as_bytes());
     }
 
+    /// Insert bytes.
     pub fn insert_bytes(&mut self, bytes: &[u8]) {
         let point = self.point.min(self.bytes.len());
         self.bytes.splice(point..point, bytes.iter().copied());
         self.point = point + bytes.len();
     }
 
+    /// Replace char at point bytes.
     pub fn replace_char_at_point_bytes(&mut self, bytes: &[u8]) -> bool {
         let Some(end) = self.next_char_boundary_checked(self.point) else {
             return false;
@@ -92,24 +111,29 @@ impl LineBuffer {
         true
     }
 
+    /// Replace range.
     pub fn replace_range(&mut self, start: usize, end: usize, text: &str) {
         self.replace_range_bytes(start, end, text.as_bytes());
     }
 
+    /// Replace range bytes.
     pub fn replace_range_bytes(&mut self, start: usize, end: usize, bytes: &[u8]) {
         let (start, end) = self.normalized_range(start, end);
         self.bytes.splice(start..end, bytes.iter().copied());
         self.point = start + bytes.len();
     }
 
+    /// Char at point.
     pub fn char_at_point(&self) -> Option<char> {
         self.char_at(self.point)
     }
 
+    /// Char before point.
     pub fn char_before_point(&self) -> Option<char> {
         self.prev_char(self.point).map(|(_, ch)| ch)
     }
 
+    /// Next nonblank from.
     pub fn next_nonblank_from(&self, from: usize) -> usize {
         let mut idx = self.clamp_boundary(from);
         while let Some(ch) = self.char_at(idx) {
@@ -121,6 +145,7 @@ impl LineBuffer {
         idx
     }
 
+    /// Set char at point.
     pub fn set_char_at_point(&mut self, ch: char) -> bool {
         let Some(end) = self.next_char_boundary_checked(self.point) else {
             return false;
@@ -141,6 +166,7 @@ impl LineBuffer {
         }
     }
 
+    /// Set char before point.
     pub fn set_char_before_point(&mut self, ch: char) -> bool {
         let Some(start) = self.prev_char_boundary_checked(self.point) else {
             return false;
@@ -154,11 +180,13 @@ impl LineBuffer {
         true
     }
 
+    /// Insert comment.
     pub fn insert_comment(&mut self, comment: &str) {
         self.point = 0;
         self.insert_str(comment);
     }
 
+    /// Toggle comment.
     pub fn toggle_comment(&mut self, comment: &str) {
         self.point = 0;
         if !comment.is_empty() && self.bytes.starts_with(comment.as_bytes()) {
@@ -168,11 +196,13 @@ impl LineBuffer {
         }
     }
 
+    /// Range bytes.
     pub fn range_bytes(&self, start: usize, end: usize) -> Vec<u8> {
         let (start, end) = self.normalized_range(start, end);
         self.bytes[start..end].to_vec()
     }
 
+    /// Delete range bytes.
     pub fn delete_range_bytes(&mut self, start: usize, end: usize) -> Vec<u8> {
         let (start, end) = self.normalized_range(start, end);
         let deleted = self.bytes[start..end].to_vec();
@@ -244,7 +274,7 @@ impl LineBuffer {
     pub(crate) fn display_width_until(&self, end: usize) -> usize {
         self.decoded_char_indices_in_range(0, end.min(self.bytes.len()))
             .into_iter()
-            .map(|(_, ch)| unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0))
+            .map(|(_, ch)| char_width(ch))
             .sum()
     }
 
@@ -316,10 +346,12 @@ impl LineBuffer {
         None
     }
 
+    /// Delete char.
     pub fn delete_char(&mut self) -> bool {
         self.delete_char_bytes().is_some()
     }
 
+    /// Delete char bytes.
     pub fn delete_char_bytes(&mut self) -> Option<Vec<u8>> {
         let end = self.next_grapheme_boundary_checked(self.point)?;
         let deleted = self.bytes[self.point..end].to_vec();
@@ -327,10 +359,12 @@ impl LineBuffer {
         Some(deleted)
     }
 
+    /// Backward delete char.
     pub fn backward_delete_char(&mut self) -> bool {
         self.backward_delete_char_bytes().is_some()
     }
 
+    /// Backward delete char bytes.
     pub fn backward_delete_char_bytes(&mut self) -> Option<Vec<u8>> {
         let start = self.prev_grapheme_boundary_checked(self.point)?;
         let deleted = self.bytes[start..self.point].to_vec();
@@ -339,6 +373,7 @@ impl LineBuffer {
         Some(deleted)
     }
 
+    /// Backward replace char with space.
     pub fn backward_replace_char_with_space(&mut self) -> bool {
         let Some(start) = self.prev_grapheme_boundary_checked(self.point) else {
             return false;
@@ -348,14 +383,17 @@ impl LineBuffer {
         true
     }
 
+    /// Move beginning.
     pub fn move_beginning(&mut self) {
         self.point = 0;
     }
 
+    /// Move end.
     pub fn move_end(&mut self) {
         self.point = self.bytes.len();
     }
 
+    /// Move forward.
     pub fn move_forward(&mut self) -> bool {
         let Some(next) = self.next_grapheme_boundary_checked(self.point) else {
             return false;
@@ -364,6 +402,7 @@ impl LineBuffer {
         true
     }
 
+    /// Move backward.
     pub fn move_backward(&mut self) -> bool {
         let Some(prev) = self.prev_grapheme_boundary_checked(self.point) else {
             return false;
@@ -372,6 +411,7 @@ impl LineBuffer {
         true
     }
 
+    /// Move forward byte.
     pub fn move_forward_byte(&mut self) -> bool {
         if self.point >= self.bytes.len() {
             return false;
@@ -380,6 +420,7 @@ impl LineBuffer {
         true
     }
 
+    /// Move backward byte.
     pub fn move_backward_byte(&mut self) -> bool {
         if self.point == 0 {
             return false;
@@ -388,6 +429,7 @@ impl LineBuffer {
         true
     }
 
+    /// Transpose chars.
     pub fn transpose_chars(&mut self) -> bool {
         let bounds = self.grapheme_boundaries();
         if bounds.len() < 3 || self.point == 0 {

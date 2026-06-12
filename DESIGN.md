@@ -28,9 +28,9 @@ Embedders should depend on the root crate.
 
 The `readline` crate owns interactive line editing.
 
-Important source areas: `editor.rs`, `input.rs`, `keymap/`, `bind.rs`,
-`inputrc.rs`, `buffer/`, `command/`, `completion/`, `display.rs`, `prompt.rs`,
-`terminal.rs`, and `hooks.rs`.
+Important source areas: `editor.rs`, `state/`, `input.rs`, `keymap/`,
+`bind.rs`, `inputrc.rs`, `buffer/`, `command/`, `completion/`, `display.rs`,
+`prompt.rs`, `width.rs`, `terminal.rs`, `terminal/`, and `hooks.rs`.
 
 The `history` crate owns history data structures and algorithms.
 Important source areas: `lib.rs`, `file.rs`, and `expansion.rs`. History save
@@ -83,19 +83,11 @@ split into `shell_word_spans` for editing by word ranges and `shell_words` for
 history-word commands. The default `shell_words` derives words from valid
 spans, but a words-only hook does not affect shell-word movement.
 
-Hook API migration:
-
-| Old API | New API |
-|---|---|
-| `expand_application_line`, `expand_application_line_with_context` | `expand_line(LineExpansionContext)` |
-| `expand_history_with_status` | `expand_history` returning `HistoryExpansion` |
-| `expand_history` returning `Option<Result<Vec<u8>, String>>` | `expand_history` returning `Result<HistoryExpansion, String>` |
-| `spell_correct`, `spell_correct_with_context` | `spell_correct(SpellCorrectionContext)` |
-| `glob_expand`, `glob_expand_bytes` | `glob_expand(&[u8])` |
-| `tokenize_with_spans` | `shell_word_spans` |
-| `tokenize` | `shell_words` |
-| `quote` | implement `quote_completion`; check `ctx.quote` and `ctx.quote_filename` there |
-| `get_variable`, `set_variable` | removed; sushline never called them |
+The current hook surface consists of signal/status hooks, command interception,
+line expansion, alias expansion, external editing, spelling correction, history
+expansion, programmable and default completion, completion quoting, glob
+expansion, command/user/host/variable name sources, completion/editing word
+breaks, and shell word spans/words.
 
 `bind` and inputrc accept function names from multiple functional areas.
 Editor-owned functions are handled internally; application-owned functions are
@@ -120,14 +112,40 @@ Terminal access is isolated behind `TerminalIo`. The editor consumes
 `TerminalEvent` values and writes through terminal methods instead of reading
 from stdin or writing escape sequences directly throughout the command code.
 
-The concrete `Terminal` handles raw-mode setup and restoration, terminal size,
-resize events, byte input, signal events, visible bell, keypad/meta-key mode,
-and display clearing. Tests can provide an in-memory `TerminalIo`
-implementation, which keeps editor behavior testable without a real TTY.
+On Unix, the concrete `Terminal` handles raw-mode setup and restoration,
+terminal size, resize events, byte input, signal events, visible bell,
+keypad/meta-key mode, and display clearing. On non-Unix targets it remains
+available for compilation but returns `Unsupported` for live terminal
+operations until a backend is provided. Tests and embedders can provide their
+own `TerminalIo` implementation, including an in-memory terminal for editor
+behavior tests without a real TTY.
 
 During an active `read_line`, Sushline may translate terminal and signal events
 into editor behavior; process-wide policy and post-read control flow remain the
 embedder's responsibility.
+
+Terminal escape bytes that are not terminfo-backed live in
+`terminal::escape`. Terminfo remains responsible for existing capabilities such
+as clear, flash, meta-key, keypad, and active-region sequences. Fixed ANSI
+helpers own cursor movement, clear-to-end strings, bracketed paste toggles,
+cursor save/restore, and fallback visible bell bytes.
+
+## Display Ownership
+
+Redisplay orchestration lives in `display.rs`. It combines prompts, buffer
+rendering, completion display state, cursor placement, and terminal writes for
+the active line. It does not own cell-width rules or escape string literals.
+
+`buffer/render.rs` is pure buffer rendering: it converts editable bytes into a
+rendered string plus point widths, including control-character and meta-byte
+display semantics. `prompt.rs` owns prompt marker parsing, including hidden
+regions. `completion/display.rs` owns completion candidate layout and
+pagination.
+
+`width.rs` centralizes shared cell-width primitives and ANSI-aware output
+measurement. It intentionally keeps prompt marker parsing, completion-visible
+width, and buffer control-character rendering as distinct semantics rather
+than folding them into one generic rule.
 
 ## Keymaps, Variables, and Inputrc
 
@@ -151,6 +169,11 @@ sorting, and append behavior.
 The editor owns the mechanics of applying completions, displaying candidates,
 menu cycling, and repeated completion state. Completion sources may be built in
 or supplied by hooks.
+
+Internally, completion dispatch stays in `completion/engine.rs`; candidate
+insertion and requoting live in `completion/insert.rs`; menu-completion state
+cycling lives in `completion/menu.rs`; display layout, filename discovery, and
+quoting helpers stay in their own sibling modules.
 
 ## History Storage and Files
 

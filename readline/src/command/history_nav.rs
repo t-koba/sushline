@@ -1,4 +1,5 @@
 use super::*;
+use crate::variables::BoolVariable;
 
 impl<T> Editor<T>
 where
@@ -192,7 +193,7 @@ where
                     if let Some(found) = self.history.history_search_bytes_with_case(
                         &query,
                         history_direction,
-                        self.variable_is_on("search-ignore-case"),
+                        self.flag(BoolVariable::SearchIgnoreCase),
                     ) {
                         self.replace_from_history(state, &found.line_bytes);
                     } else {

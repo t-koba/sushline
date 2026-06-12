@@ -9,17 +9,26 @@ pub(crate) use commands::{BIND_FUNCTION_NAMES, is_bindable_function_name};
 use parse::{parse_named_keyseq, parse_quoted_keyseq};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// KeyMapName.
 pub enum KeyMapName {
+    /// Emacs.
     Emacs,
+    /// EmacsStandard.
     EmacsStandard,
+    /// EmacsMeta.
     EmacsMeta,
+    /// EmacsCtlx.
     EmacsCtlx,
+    /// Vi.
     Vi,
+    /// ViCommand.
     ViCommand,
+    /// ViInsert.
     ViInsert,
 }
 
 impl KeyMapName {
+    /// Parse.
     pub fn parse(value: &str) -> Option<Self> {
         match value.to_ascii_lowercase().as_str() {
             "emacs" => Some(Self::Emacs),
@@ -33,6 +42,7 @@ impl KeyMapName {
         }
     }
 
+    /// Canonical.
     pub fn canonical(self) -> Self {
         match self {
             Self::Emacs => Self::EmacsStandard,
@@ -41,6 +51,7 @@ impl KeyMapName {
         }
     }
 
+    /// As str.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Emacs => "emacs",
@@ -55,21 +66,26 @@ impl KeyMapName {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// KeySequence.
 pub struct KeySequence(Vec<u8>);
 
 impl KeySequence {
+    /// New.
     pub fn new(bytes: Vec<u8>) -> Self {
         Self(bytes)
     }
 
+    /// Bytes.
     pub fn bytes(&self) -> &[u8] {
         &self.0
     }
 
+    /// Parse.
     pub fn parse(value: &str) -> Result<Self, String> {
         Self::parse_with_meta(value, true)
     }
 
+    /// Parse with meta.
     pub fn parse_with_meta(value: &str, meta_prefix: bool) -> Result<Self, String> {
         if value.starts_with('"') && value.ends_with('"') && value.len() >= 2 {
             return parse_quoted_keyseq(&value[1..value.len() - 1], meta_prefix).map(Self);
@@ -77,10 +93,12 @@ impl KeySequence {
         parse_named_keyseq(value, meta_prefix).map(Self)
     }
 
+    /// Display inputrc.
     pub fn display_inputrc(&self) -> String {
         format!("\"{}\"", self.display_inputrc_body())
     }
 
+    /// Display inputrc body.
     pub fn display_inputrc_body(&self) -> String {
         let mut out = String::new();
         for b in &self.0 {
@@ -110,62 +128,119 @@ impl KeySequence {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// EditCommand.
 pub enum EditCommand {
+    /// Abort.
     Abort,
+    /// AcceptLine.
     AcceptLine,
+    /// BackwardChar.
     BackwardChar,
+    /// BackwardDeleteChar.
     BackwardDeleteChar,
+    /// BackwardKillLine.
     BackwardKillLine,
+    /// BackwardKillWord.
     BackwardKillWord,
+    /// BackwardWord.
     BackwardWord,
+    /// CapitalizeWord.
     CapitalizeWord,
+    /// BeginningOfLine.
     BeginningOfLine,
+    /// CallLastKbdMacro.
     CallLastKbdMacro,
+    /// ClearScreen.
     ClearScreen,
+    /// CopyRegionAsKill.
     CopyRegionAsKill,
+    /// DeleteChar.
     DeleteChar,
+    /// DeleteHorizontalSpace.
     DeleteHorizontalSpace,
+    /// DigitArgument.
     DigitArgument,
+    /// DowncaseWord.
     DowncaseWord,
+    /// EndKbdMacro.
     EndKbdMacro,
+    /// EndOfLine.
     EndOfLine,
+    /// ExchangePointAndMark.
     ExchangePointAndMark,
+    /// ForwardChar.
     ForwardChar,
+    /// ForwardWord.
     ForwardWord,
+    /// HistoryBeginning.
     HistoryBeginning,
+    /// HistoryEnd.
     HistoryEnd,
+    /// HistorySearchBackward.
     HistorySearchBackward,
+    /// HistorySearchForward.
     HistorySearchForward,
+    /// KillLine.
     KillLine,
+    /// KillRegion.
     KillRegion,
+    /// KillWholeLine.
     KillWholeLine,
+    /// KillWord.
     KillWord,
+    /// UniversalArgument.
     UniversalArgument,
+    /// UnixLineDiscard.
     UnixLineDiscard,
+    /// UnixWordRubout.
     UnixWordRubout,
+    /// ViAppendEol.
     ViAppendEol,
+    /// ViAppendMode.
     ViAppendMode,
+    /// ViInsertBeg.
     ViInsertBeg,
+    /// ViInsertionMode.
     ViInsertionMode,
+    /// ViMovementMode.
     ViMovementMode,
+    /// NextHistory.
     NextHistory,
+    /// PreviousHistory.
     PreviousHistory,
+    /// QuotedInsert.
     QuotedInsert,
+    /// ReverseSearchHistory.
     ReverseSearchHistory,
+    /// RevertLine.
     RevertLine,
+    /// SelfInsert.
     SelfInsert,
+    /// SetMark.
     SetMark,
+    /// PrintLastKbdMacro.
     PrintLastKbdMacro,
+    /// StartKbdMacro.
     StartKbdMacro,
+    /// TabComplete.
     TabComplete,
+    /// TransposeChars.
     TransposeChars,
+    /// TransposeWords.
     TransposeWords,
+    /// Undo.
     Undo,
+    /// UpcaseWord.
     UpcaseWord,
+    /// Yank.
     Yank,
+    /// YankPop.
     YankPop,
+    /// Eof.
     Eof,
+    /// PrefixMeta.
     PrefixMeta,
+    /// Unknown.
     Unknown,
 }
 
@@ -228,6 +303,7 @@ impl EditCommand {
         Self::PrefixMeta,
     ];
 
+    /// Parse.
     pub fn parse(value: &str) -> Option<Self> {
         Some(match value {
             "abort" => Self::Abort,
@@ -289,6 +365,7 @@ impl EditCommand {
         })
     }
 
+    /// As str.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Abort => "abort",
@@ -352,14 +429,20 @@ impl EditCommand {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// KeyBinding.
 pub enum KeyBinding {
+    /// Command.
     Command(EditCommand),
+    /// NamedCommand.
     NamedCommand(String),
+    /// Macro.
     Macro(Vec<u8>),
+    /// ApplicationCommand.
     ApplicationCommand(String),
 }
 
 #[derive(Debug, Clone)]
+/// KeyMap.
 pub struct KeyMap {
     maps: BTreeMap<KeyMapName, BTreeMap<KeySequence, KeyBinding>>,
     current: KeyMapName,
@@ -375,15 +458,18 @@ impl Default for KeyMap {
 }
 
 impl KeyMap {
+    /// Current.
     pub fn current(&self) -> KeyMapName {
         self.current
     }
 
+    /// Set current.
     pub fn set_current(&mut self, name: KeyMapName) {
         self.current = name.canonical();
         self.maps.entry(self.current).or_default();
     }
 
+    /// Bind.
     pub fn bind(&mut self, map: KeyMapName, key: KeySequence, binding: KeyBinding) {
         self.maps
             .entry(map.canonical())
@@ -391,12 +477,14 @@ impl KeyMap {
             .insert(key, binding);
     }
 
+    /// Lookup.
     pub fn lookup(&self, map: KeyMapName, key: &[u8]) -> Option<&KeyBinding> {
         self.maps
             .get(&map.canonical())
             .and_then(|m| m.get(&KeySequence::new(key.to_vec())))
     }
 
+    /// Has prefix.
     pub fn has_prefix(&self, map: KeyMapName, prefix: &[u8]) -> bool {
         self.maps.get(&map.canonical()).is_some_and(|m| {
             m.keys()
@@ -404,6 +492,7 @@ impl KeyMap {
         })
     }
 
+    /// Longest matching prefix.
     pub fn longest_matching_prefix(
         &self,
         map: KeyMapName,
@@ -417,10 +506,12 @@ impl KeyMap {
         })
     }
 
+    /// Bindings for command.
     pub fn bindings_for_command(&self, command: EditCommand) -> Vec<(KeyMapName, KeySequence)> {
         self.bindings_for_command_name(command.as_str())
     }
 
+    /// Bindings for command name.
     pub fn bindings_for_command_name(&self, command: &str) -> Vec<(KeyMapName, KeySequence)> {
         let mut out = Vec::new();
         for (map, bindings) in &self.maps {
@@ -439,6 +530,7 @@ impl KeyMap {
         out
     }
 
+    /// Bindings for command name in map.
     pub fn bindings_for_command_name_in_map(
         &self,
         map: KeyMapName,
@@ -461,12 +553,14 @@ impl KeyMap {
             .collect()
     }
 
+    /// Unbind key.
     pub fn unbind_key(&mut self, map: KeyMapName, key: &KeySequence) -> Option<KeyBinding> {
         self.maps
             .get_mut(&map.canonical())
             .and_then(|bindings| bindings.remove(key))
     }
 
+    /// Unbind command.
     pub fn unbind_command(&mut self, command: &str) -> usize {
         let mut removed = 0;
         for bindings in self.maps.values_mut() {
@@ -481,6 +575,7 @@ impl KeyMap {
         removed
     }
 
+    /// Unbind command in map.
     pub fn unbind_command_in_map(&mut self, map: KeyMapName, command: &str) -> usize {
         let Some(bindings) = self.maps.get_mut(&map.canonical()) else {
             return 0;
@@ -494,6 +589,7 @@ impl KeyMap {
         before - bindings.len()
     }
 
+    /// Iter.
     pub fn iter(&self) -> impl Iterator<Item = (KeyMapName, &KeySequence, &KeyBinding)> {
         self.maps.iter().flat_map(|(map, bindings)| {
             bindings
@@ -502,6 +598,7 @@ impl KeyMap {
         })
     }
 
+    /// Iter map.
     pub fn iter_map(
         &self,
         map: KeyMapName,

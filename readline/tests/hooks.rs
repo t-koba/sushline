@@ -1,7 +1,4 @@
 //! Hooks contract tests.
-//!
-//! `get_variable` and `set_variable` were intentionally removed from the
-//! `Hooks` trait because sushline never called them.
 
 mod common;
 

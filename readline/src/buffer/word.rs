@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use super::LineBuffer;
 pub(super) fn is_word_char(ch: char) -> bool {
     if private_byte_value(ch).is_some() {

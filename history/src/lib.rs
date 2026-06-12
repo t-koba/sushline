@@ -1,52 +1,80 @@
+//! History storage, navigation, persistence, and expansion.
+#![warn(missing_docs)]
+
+/// Expansion.
 pub mod expansion;
 mod file;
 
 use std::borrow::Cow;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// HistoryEntry.
 pub struct HistoryEntry {
+    /// Line bytes.
     pub line_bytes: Vec<u8>,
+    /// Timestamp.
     pub timestamp: Option<String>,
+    /// Modified.
     pub modified: bool,
+    /// Undo list.
     pub undo_list: Vec<HistoryUndoEntry>,
 }
 
 impl HistoryEntry {
+    /// Line.
     pub fn line(&self) -> Cow<'_, str> {
         String::from_utf8_lossy(&self.line_bytes)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// HistoryUndoEntry.
 pub struct HistoryUndoEntry {
+    /// Start.
     pub start: usize,
+    /// Deleted.
     pub deleted: Vec<u8>,
+    /// Inserted.
     pub inserted: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// HistoryDirection.
 pub enum HistoryDirection {
+    /// Previous.
     Previous,
+    /// Next.
     Next,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// HistoryState.
 pub struct HistoryState {
+    /// Offset.
     pub offset: usize,
+    /// Length.
     pub length: usize,
+    /// Size.
     pub size: usize,
+    /// Stifled.
     pub stifled: bool,
+    /// Max entries.
     pub max_entries: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// HistorySearchMatch.
 pub struct HistorySearchMatch {
+    /// Entry index.
     pub entry_index: usize,
+    /// Byte offset.
     pub byte_offset: usize,
+    /// Line bytes.
     pub line_bytes: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Default)]
+/// History.
 pub struct History {
     entries: Vec<HistoryEntry>,
     cursor: Option<usize>,
@@ -56,19 +84,23 @@ pub struct History {
 }
 
 impl History {
+    /// New.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Push.
     pub fn push(&mut self, line: impl Into<String>) {
         let line = line.into();
         self.push_entry(line.into_bytes(), None, false);
     }
 
+    /// Push bytes.
     pub fn push_bytes(&mut self, line: Vec<u8>) {
         self.push_entry(line, None, false);
     }
 
+    /// Enforce max len.
     pub fn enforce_max_len(&mut self, max_len: Option<usize>) {
         let Some(max_len) = max_len else {
             return;
@@ -81,37 +113,45 @@ impl History {
         self.reset_cursor();
     }
 
+    /// Stifle.
     pub fn stifle(&mut self, max_entries: usize) {
         self.max_entries = Some(max_entries);
         self.enforce_max_len(Some(max_entries));
     }
 
+    /// Unstifle.
     pub fn unstifle(&mut self) -> Option<usize> {
         self.max_entries.take()
     }
 
+    /// Is stifled.
     pub fn is_stifled(&self) -> bool {
         self.max_entries.is_some()
     }
 
+    /// Max entries.
     pub fn max_entries(&self) -> Option<usize> {
         self.max_entries
     }
 
+    /// Len.
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
+    /// Is empty.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
+    /// Clear.
     pub fn clear(&mut self) {
         self.entries.clear();
         self.file_loaded_len = 0;
         self.reset_cursor();
     }
 
+    /// State.
     pub fn state(&self) -> HistoryState {
         HistoryState {
             offset: self.where_history(),
@@ -122,6 +162,7 @@ impl History {
         }
     }
 
+    /// Set state.
     pub fn set_state(&mut self, state: HistoryState) -> bool {
         if state.offset > self.entries.len() {
             return false;
@@ -130,12 +171,14 @@ impl History {
         self.set_pos(state.offset)
     }
 
+    /// Remove.
     pub fn remove(&mut self, index: usize) -> Option<HistoryEntry> {
         let removed = (index < self.entries.len()).then(|| self.entries.remove(index));
         self.reset_cursor();
         removed
     }
 
+    /// Replace.
     pub fn replace(&mut self, index: usize, line: impl Into<String>) -> Option<HistoryEntry> {
         let entry = self.entries.get_mut(index)?;
         let line = line.into();
@@ -152,6 +195,7 @@ impl History {
         Some(previous)
     }
 
+    /// Add time.
     pub fn add_time(&mut self, timestamp: impl Into<String>) -> bool {
         let Some(entry) = self.entries.last_mut() else {
             return false;
@@ -160,16 +204,19 @@ impl History {
         true
     }
 
+    /// Get.
     pub fn get(&self, index: usize) -> Option<&HistoryEntry> {
         self.entries.get(index)
     }
 
+    /// Undo list.
     pub fn undo_list(&self, index: usize) -> Option<&[HistoryUndoEntry]> {
         self.entries
             .get(index)
             .map(|entry| entry.undo_list.as_slice())
     }
 
+    /// Set undo list.
     pub fn set_undo_list(&mut self, index: usize, undo_list: Vec<HistoryUndoEntry>) -> bool {
         let Some(entry) = self.entries.get_mut(index) else {
             return false;
@@ -178,22 +225,27 @@ impl History {
         true
     }
 
+    /// Current index.
     pub fn current_index(&self) -> Option<usize> {
         self.cursor
     }
 
+    /// Entries.
     pub fn entries(&self) -> &[HistoryEntry] {
         &self.entries
     }
 
+    /// Where history.
     pub fn where_history(&self) -> usize {
         self.cursor.unwrap_or(self.entries.len())
     }
 
+    /// Current history.
     pub fn current_history(&self) -> Option<&HistoryEntry> {
         self.cursor.and_then(|idx| self.entries.get(idx))
     }
 
+    /// Set pos.
     pub fn set_pos(&mut self, pos: usize) -> bool {
         if pos > self.entries.len() {
             return false;
@@ -202,6 +254,7 @@ impl History {
         true
     }
 
+    /// Previous history.
     pub fn previous_history(&mut self) -> Option<&HistoryEntry> {
         let pos = self.where_history();
         if pos == 0 {
@@ -211,6 +264,7 @@ impl History {
         self.current_history()
     }
 
+    /// Next history.
     pub fn next_history(&mut self) -> Option<&HistoryEntry> {
         let pos = self.cursor?;
         let next = pos + 1;
@@ -222,6 +276,7 @@ impl History {
         self.current_history()
     }
 
+    /// Total bytes.
     pub fn total_bytes(&self) -> usize {
         self.entries
             .iter()
@@ -253,15 +308,18 @@ impl History {
         self.reset_cursor();
     }
 
+    /// Reset cursor.
     pub fn reset_cursor(&mut self) {
         self.cursor = None;
         self.current_edit.clear();
     }
 
+    /// Revert current edit.
     pub fn revert_current_edit(&mut self) {
         self.reset_cursor();
     }
 
+    /// Navigate bytes.
     pub fn navigate_bytes(
         &mut self,
         direction: HistoryDirection,
@@ -289,6 +347,7 @@ impl History {
         self.cursor.map(|pos| self.entries[pos].line_bytes.clone())
     }
 
+    /// Beginning bytes.
     pub fn beginning_bytes(&mut self, current: Vec<u8>) -> Option<Vec<u8>> {
         if self.entries.is_empty() {
             return None;
@@ -300,12 +359,14 @@ impl History {
         Some(self.entries[0].line_bytes.clone())
     }
 
+    /// End bytes.
     pub fn end_bytes(&mut self) -> Option<Vec<u8>> {
         self.cursor?;
         self.cursor = None;
         Some(self.current_edit.clone())
     }
 
+    /// Next after current cursor bytes.
     pub fn next_after_current_cursor_bytes(&self) -> Option<Vec<u8>> {
         let cursor = self.cursor?;
         self.entries
@@ -313,6 +374,7 @@ impl History {
             .map(|entry| entry.line_bytes.clone())
     }
 
+    /// Search prefix backward bytes.
     pub fn search_prefix_backward_bytes(
         &mut self,
         prefix: &[u8],
@@ -333,6 +395,7 @@ impl History {
         Some(self.entries[found].line_bytes.clone())
     }
 
+    /// Search prefix forward bytes.
     pub fn search_prefix_forward_bytes(&mut self, prefix: &[u8]) -> Option<Vec<u8>> {
         let cursor = self.cursor?;
 
@@ -349,6 +412,7 @@ impl History {
         Some(self.current_edit.clone())
     }
 
+    /// Search containing backward index bytes.
     pub fn search_containing_backward_index_bytes(
         &self,
         needle: &[u8],
@@ -366,6 +430,7 @@ impl History {
             .map(|(idx, entry)| (idx, entry.line_bytes.clone()))
     }
 
+    /// Search containing forward index bytes.
     pub fn search_containing_forward_index_bytes(
         &self,
         needle: &[u8],
@@ -385,6 +450,7 @@ impl History {
             .map(|(offset, entry)| (start + offset, entry.line_bytes.clone()))
     }
 
+    /// History search bytes.
     pub fn history_search_bytes(
         &mut self,
         needle: &[u8],
@@ -393,6 +459,7 @@ impl History {
         self.history_search_bytes_with_case(needle, direction, false)
     }
 
+    /// History search bytes with case.
     pub fn history_search_bytes_with_case(
         &mut self,
         needle: &[u8],
@@ -412,6 +479,7 @@ impl History {
         Some(found)
     }
 
+    /// History search prefix.
     pub fn history_search_prefix(
         &mut self,
         prefix: &str,
@@ -423,6 +491,7 @@ impl History {
         Some(found)
     }
 
+    /// History search pos.
     pub fn history_search_pos(
         &self,
         needle: &str,
@@ -504,6 +573,7 @@ impl History {
         }
     }
 
+    /// Search containing forward from cursor bytes.
     pub fn search_containing_forward_from_cursor_bytes(
         &mut self,
         needle: &[u8],
@@ -526,6 +596,7 @@ impl History {
         Some(self.entries[found].line_bytes.clone())
     }
 
+    /// Search containing backward from cursor bytes.
     pub fn search_containing_backward_from_cursor_bytes(
         &mut self,
         needle: &[u8],
@@ -545,6 +616,7 @@ impl History {
         Some(self.entries[found].line_bytes.clone())
     }
 
+    /// Get 1 based entry.
     pub fn get_1_based_entry(&self, index: usize) -> Option<&HistoryEntry> {
         index.checked_sub(1).and_then(|idx| self.entries.get(idx))
     }

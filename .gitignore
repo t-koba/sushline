@@ -2,3 +2,6 @@ target/
 *.swp
 *.swo
 .DS_Store
+
+# Local mizu harness (private)
+/.mizu/

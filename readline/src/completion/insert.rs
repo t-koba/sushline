@@ -190,13 +190,9 @@ where
             joined.push(b'}');
             joined
         };
-        if !response.options.nospace {
-            if let Some(ch) = response.options.append_character {
-                let mut buf = [0; 4];
-                joined.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
-            } else if !response.options.suppress_append {
-                joined.push(b' ');
-            }
+        if let Some(ch) = completion_trailing_char(&response.options) {
+            let mut buf = [0; 4];
+            joined.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
         }
         state
             .buffer
@@ -284,7 +280,14 @@ pub(super) fn completion_append_char(
     candidate: &CompletionCandidate,
     directory: Option<&DirectoryCompletion>,
 ) -> Option<char> {
-    if suppress_append_for_directory(candidate, directory) || options.nospace {
+    if suppress_append_for_directory(candidate, directory) {
+        return None;
+    }
+    completion_trailing_char(options)
+}
+
+fn completion_trailing_char(options: &CompletionOptions) -> Option<char> {
+    if options.nospace {
         return None;
     }
     if let Some(ch) = options.append_character {

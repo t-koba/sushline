@@ -186,7 +186,7 @@ sections.
 | `editing-mode`, `keymap` | Compatible | Selects current editing mode or target binding map. |
 | `active-region-start-color`, `active-region-end-color`, `enable-active-region` | Terminal-backed | Region display exists, `bind -v` output is GNU-shaped, and rendering is handled through the display backend. |
 | `bell-style`, `prefer-visible-bell` | Compatible | Audible/visible/none behavior is implemented through the terminal abstraction. |
-| `bind-tty-special-chars` | Compatible | TTY special bindings are applied from terminal metadata exposed by the backend; EOF binding in vi mode is covered by GNU oracle tests. |
+| `bind-tty-special-chars` | Implementation-specific | TTY special bindings are applied from terminal metadata exposed by the backend; EOF binding in vi mode is covered by GNU oracle tests. Boundary (8.3 baseline unpinned): no VLNEXT-to-quoted-insert binding, VEOF/VINTR are bound through the keymap, tty bytes rebind unconditionally each read with no preserve-user-binding guard and no stale-byte unset; contract follows operator pin. |
 | `blink-matching-paren` | Terminal-backed | Implemented for self-insert through redisplay timing and terminal output. |
 | `colored-completion-prefix`, `colored-stats`, `visible-stats` | Terminal-backed | Completion display support exists through the terminal display backend, including `LS_COLORS`-style rules used by Sushline. |
 | `comment-begin` | Compatible | Used by `insert-comment`. |

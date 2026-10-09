@@ -176,7 +176,7 @@ sections.
 | Key bindings by key name or quoted key sequence | Compatible | Function bindings and macros are supported. |
 | Escape sequences `\C-`, `\M-`, `\e`, `\\`, `\"`, `\'`, `\a`, `\b`, `\d`, `\f`, `\n`, `\r`, `\t`, `\v`, octal, hex | Compatible | Parsed through `KeySequence` and inputrc decoding. |
 | `$if`, `$else`, `$endif` | Compatible | Mode, term, version, and application-name conditions are implemented; arbitrary variable comparisons are intentionally inactive to match GNU oracle behavior. |
-| `$include` | Compatible | Implemented with relative include resolution and include-depth protection. |
+| `$include` | Implementation-specific | CWD-relative includes with tilde expansion; missing files are silently skipped. Boundary (8.3 baseline unpinned): `$VAR`/`${VAR}` expansion, `/etc/passwd` `~user` lookup, and the depth-16 cap are Sushline additions. |
 | Unsupported `$` directives | Compatible | Unknown directives are ignored. |
 | Unknown function names in key bindings | Compatible | Unknown function bindings in inputrc are ignored and later lines continue. |
 | Init file load errors during editor construction | Compatible | `Editor::new` retains the initial load error for inspection, `Editor::try_new` returns it, and explicit reload/load APIs report errors. |

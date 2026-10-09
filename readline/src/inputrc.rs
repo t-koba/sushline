@@ -62,7 +62,7 @@ impl InputrcParser {
             variables,
             binding_map: &mut binding_map,
         };
-        self.parse_str_inner(source, &mut ctx, None, 0)
+        self.parse_str_inner(source, &mut ctx, 0)
     }
 
     /// Parse file.
@@ -82,14 +82,13 @@ impl InputrcParser {
             variables,
             binding_map: &mut binding_map,
         };
-        self.parse_str_inner(&source, &mut ctx, path.parent(), 0)
+        self.parse_str_inner(&source, &mut ctx, 0)
     }
 
     fn parse_str_inner(
         &self,
         source: &str,
         ctx: &mut ParseContext<'_>,
-        _base_dir: Option<&Path>,
         include_depth: usize,
     ) -> Result<(), InputrcError> {
         if include_depth > self.max_include_depth {
@@ -148,7 +147,7 @@ impl InputrcParser {
                         let Ok(included) = fs::read_to_string(&path) else {
                             continue;
                         };
-                        self.parse_str_inner(&included, ctx, path.parent(), include_depth + 1)?;
+                        self.parse_str_inner(&included, ctx, include_depth + 1)?;
                     }
                     Some("include") => {}
                     Some(_) => {}

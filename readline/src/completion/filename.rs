@@ -39,12 +39,7 @@ pub(crate) fn complete_filenames_bytes(word: &[u8], opts: &FilenameOptions) -> C
     } else {
         word.to_vec()
     };
-    let (dir_bytes, prefix, completion_display_dir) = split_word_path_bytes(&completion_word);
-    let display_dir = if opts.expand_tilde {
-        completion_display_dir
-    } else {
-        split_word_path_bytes(word).2
-    };
+    let (dir_bytes, prefix, display_dir) = split_word_path_bytes(&completion_word);
     let Some(dir) = path_from_bytes(&dir_bytes) else {
         return filename_response(Vec::new(), 0);
     };

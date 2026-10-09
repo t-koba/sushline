@@ -145,12 +145,7 @@ pub(super) fn complete_users(word: &str, hooks: &mut impl Hooks) -> CompletionRe
         }
     }
     names.extend(system_user_names());
-    names.extend(
-        hooks
-            .user_names()
-            .into_iter()
-            .map(|name| String::from_utf8_lossy(&name).into_owned()),
-    );
+    names.extend(hook_names_as_strings(hooks.user_names()));
     let candidates = names
         .into_iter()
         .filter(|name| name.starts_with(prefix))
@@ -181,12 +176,7 @@ pub(super) fn complete_hosts(word: &str, hooks: &mut impl Hooks) -> CompletionRe
     }
     hosts.extend(system_host_names());
     hosts.extend(known_host_names());
-    hosts.extend(
-        hooks
-            .host_names()
-            .into_iter()
-            .map(|host| String::from_utf8_lossy(&host).into_owned()),
-    );
+    hosts.extend(hook_names_as_strings(hooks.host_names()));
     let candidates = hosts
         .into_iter()
         .filter(|host| host.starts_with(prefix))
@@ -196,6 +186,12 @@ pub(super) fn complete_hosts(word: &str, hooks: &mut impl Hooks) -> CompletionRe
         candidates,
         options: Default::default(),
     }
+}
+
+fn hook_names_as_strings(names: Vec<Vec<u8>>) -> impl Iterator<Item = String> {
+    names
+        .into_iter()
+        .map(|name| String::from_utf8_lossy(&name).into_owned())
 }
 
 fn passwd_user_name(line: &str) -> Option<&str> {

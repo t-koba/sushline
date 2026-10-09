@@ -56,3 +56,33 @@ fn effective_prompt_width_uses_last_line_only() {
     let (_, width) = line.effective_prompt(&state);
     assert_eq!(width, 3 + 2);
 }
+
+#[test]
+fn do_lowercase_version_self_binding_does_not_recurse() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"a".to_vec()),
+        TerminalEvent::Bytes(b"1".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"a\": do-lowercase-version\n\"1\": do-lowercase-version")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"".to_vec()));
+    assert!(
+        line.terminal.out.contains("\x07"),
+        "self-binding without case difference must ding, got {:?}",
+        line.terminal.out
+    );
+}
+
+#[test]
+fn do_lowercase_version_still_lowercases_uppercase_key() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(vec![0x1b, b'A']),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"a".to_vec()));
+}

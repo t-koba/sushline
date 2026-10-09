@@ -121,6 +121,11 @@ where
             "do-lowercase-version" => {
                 if let Some(last) = key.last().copied() {
                     let lower = last.to_ascii_lowercase();
+                    if lower == last {
+                        self.ding()?;
+                        state.after_non_kill_command();
+                        return Ok(EditorOutcome::Continue);
+                    }
                     return self.handle_bytes(state, &[lower], hooks);
                 }
                 state.after_non_kill_command();

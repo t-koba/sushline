@@ -142,7 +142,7 @@ sections.
 
 | Command(s) | Status | Notes |
 | --- | --- | --- |
-| `re-read-init-file`, `abort`, `do-lowercase-version`, `prefix-meta`, `undo`, `revert-line`, `set-mark`, `exchange-point-and-mark`, `skip-csi-sequence`, `dump-functions`, `dump-variables`, `dump-macros`, `execute-named-command`, `emacs-editing-mode`, `vi-editing-mode` | Compatible | Covered by direct editor tests and GNU oracle cases for observable line-editing behavior, including explicit inputrc file reload and dump command output. |
+| `re-read-init-file`, `abort`, `do-lowercase-version`, `prefix-meta`, `undo`, `revert-line`, `set-mark`, `exchange-point-and-mark`, `skip-csi-sequence`, `dump-functions`, `dump-variables`, `dump-macros`, `execute-named-command`, `emacs-editing-mode`, `vi-editing-mode` | Compatible | Covered by direct editor tests and GNU oracle cases for observable line-editing behavior, including explicit inputrc file reload and dump command output. `do-lowercase-version` on a key with no upper/lower difference rings the bell instead of recursing. |
 | `arrow-key-prefix` | Compatible | Accepted as a CSI-skip command and tested. |
 | `display-shell-version`, `tty-status` | Hook-backed | Version/job/terminal status come from hooks; command output behavior is tested. |
 | `shell-expand-line`, `spell-correct-word`, `edit-and-execute-command` | Hook-backed | Application expansion and spelling correction use context-carrying hooks (`expand_line`, `spell_correct`); external editing comes from `Hooks::edit_and_execute`. |

@@ -183,10 +183,7 @@ where
             joined.push(b'}');
             joined
         };
-        if let Some(ch) = completion_trailing_char(&response.options) {
-            let mut buf = [0; 4];
-            joined.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
-        }
+        extend_with_trailing_char(&mut joined, &response.options);
         state
             .buffer
             .replace_range_bytes(edit.start, edit.end, &joined);
@@ -298,21 +295,17 @@ pub(super) fn extend_replacement_with_append_char(
     candidate: &CompletionCandidate,
     directory: Option<&DirectoryCompletion>,
 ) {
-    if let Some(ch) = completion_append_char(options, candidate, directory) {
+    if suppress_append_for_directory(candidate, directory) {
+        return;
+    }
+    extend_with_trailing_char(replacement, options);
+}
+
+fn extend_with_trailing_char(replacement: &mut Vec<u8>, options: &CompletionOptions) {
+    if let Some(ch) = completion_trailing_char(options) {
         let mut buf = [0; 4];
         replacement.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
     }
-}
-
-pub(super) fn completion_append_char(
-    options: &CompletionOptions,
-    candidate: &CompletionCandidate,
-    directory: Option<&DirectoryCompletion>,
-) -> Option<char> {
-    if suppress_append_for_directory(candidate, directory) {
-        return None;
-    }
-    completion_trailing_char(options)
 }
 
 fn completion_trailing_char(options: &CompletionOptions) -> Option<char> {

@@ -88,6 +88,12 @@ pub(crate) fn append_bytes_lossless(out: &mut String, bytes: &[u8]) {
     }
 }
 
+pub(crate) fn bytes_lossless(bytes: &[u8]) -> String {
+    let mut out = String::new();
+    append_bytes_lossless(&mut out, bytes);
+    out
+}
+
 pub(crate) fn rendered_string_to_bytes(rendered: &str) -> Vec<u8> {
     let mut out = Vec::with_capacity(rendered.len());
     for ch in rendered.chars() {

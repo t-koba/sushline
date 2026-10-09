@@ -4,7 +4,7 @@
 //! Cell-width calculations go through `crate::width`; byte rendering remains
 //! owned by `buffer::render`.
 
-use crate::buffer::{RenderOptions, rendered_string_to_bytes};
+use crate::buffer::{RenderOptions, bytes_lossless, rendered_string_to_bytes};
 use crate::editor::{Editor, ReadlineError};
 use crate::keymap::KeyMapName;
 use crate::prompt::Prompt;
@@ -231,19 +231,19 @@ where
                 .variables
                 .get_bytes("vi-cmd-mode-string")
                 .map(Vec::as_slice)
-                .map(prompt_bytes_lossless)
+                .map(bytes_lossless)
                 .unwrap_or_else(|| "(cmd)".to_string()),
             KeyMapName::ViInsert => self
                 .variables
                 .get_bytes("vi-ins-mode-string")
                 .map(Vec::as_slice)
-                .map(prompt_bytes_lossless)
+                .map(bytes_lossless)
                 .unwrap_or_else(|| "(ins)".to_string()),
             _ => self
                 .variables
                 .get_bytes("emacs-mode-string")
                 .map(Vec::as_slice)
-                .map(prompt_bytes_lossless)
+                .map(bytes_lossless)
                 .unwrap_or_else(|| "@".to_string()),
         };
         Prompt::new(raw).visible().to_string()
@@ -270,18 +270,6 @@ fn active_search_prompt(state: &EditorState) -> Option<String> {
     };
     let query = String::from_utf8_lossy(&search.query);
     Some(format!("({failed}{direction})`{query}': "))
-}
-
-fn prompt_bytes_lossless(bytes: &[u8]) -> String {
-    let mut out = String::new();
-    for byte in bytes {
-        if byte.is_ascii() {
-            out.push(*byte as char);
-        } else {
-            out.push(char::from_u32(0xe000 + *byte as u32).unwrap());
-        }
-    }
-    out
 }
 
 impl<T> Editor<T>

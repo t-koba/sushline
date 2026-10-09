@@ -2,7 +2,7 @@ mod render;
 mod word;
 use crate::width::char_width;
 pub use render::RenderOptions;
-pub(crate) use render::{append_bytes_lossless, rendered_string_to_bytes};
+pub(crate) use render::{append_bytes_lossless, bytes_lossless, rendered_string_to_bytes};
 use word::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

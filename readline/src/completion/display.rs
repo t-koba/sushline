@@ -153,13 +153,15 @@ pub(crate) fn format_completion_items_with_trailing(
             line.push_str(item);
             let padding = item_width.saturating_sub(widths[idx]);
             if col + 1 < columns || keep_trailing_padding {
-                line.push_str(&" ".repeat(padding));
+                line.extend(std::iter::repeat_n(' ', padding));
             }
         }
         if keep_trailing_padding {
             lines.push(line);
         } else {
-            lines.push(line.trim_end().to_string());
+            let end = line.trim_end().len();
+            line.truncate(end);
+            lines.push(line);
         }
     }
     lines

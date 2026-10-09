@@ -137,11 +137,7 @@ where
             self.terminal.write("\r\n")?;
         }
         if self.flag(BoolVariable::HorizontalScrollMode) {
-            let column = if columns > 0 {
-                (prompt_width + point_width) % columns
-            } else {
-                prompt_width + point_width
-            };
+            let column = (prompt_width + point_width) % columns.max(1);
             state.display.rendered_rows = rendered_rows;
             state.display.rendered_cursor_row = state.display.rendered_rows;
             self.terminal.move_to_column(column as u16)?;

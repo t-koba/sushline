@@ -1,5 +1,6 @@
 use crate::state::EditorState;
 
+#[derive(Clone)]
 pub(super) struct CompletionEdit {
     pub(super) start: usize,
     pub(super) end: usize,

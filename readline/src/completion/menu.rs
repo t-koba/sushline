@@ -9,14 +9,10 @@ use crate::terminal::TerminalIo;
 use crate::variables::BoolVariable;
 
 struct MenuCompleteContext {
-    start: usize,
+    edit: CompletionEdit,
     end: usize,
     previous_match_index: Option<usize>,
     original: Vec<u8>,
-    word_bytes: Vec<u8>,
-    quote: Option<char>,
-    line: Vec<u8>,
-    point: usize,
 }
 
 fn menu_completion_type(backward: bool) -> CompletionType {
@@ -24,19 +20,6 @@ fn menu_completion_type(backward: bool) -> CompletionType {
         CompletionType::MenuCompleteBackward
     } else {
         CompletionType::MenuComplete
-    }
-}
-
-impl MenuCompleteContext {
-    fn edit(&self) -> CompletionEdit {
-        CompletionEdit {
-            start: self.start,
-            end: self.start + self.original.len(),
-            word_bytes: self.word_bytes.clone(),
-            quote: self.quote,
-            line: self.line.clone(),
-            point: self.point,
-        }
     }
 }
 
@@ -68,14 +51,10 @@ where
         }
 
         let context = MenuCompleteContext {
-            start: edit.start,
+            edit: edit.clone(),
             end: edit.end,
             previous_match_index: None,
             original: state.buffer.range_bytes(edit.start, edit.end),
-            word_bytes: edit.word_bytes.clone(),
-            quote: edit.quote,
-            line: edit.line.clone(),
-            point: edit.point,
         };
         self.menu_complete_with_context(state, response, backward, hooks, context)
     }
@@ -88,15 +67,19 @@ where
         hooks: &mut impl Hooks,
     ) -> Result<(), ReadlineError> {
         let response = previous.response;
+        let original_len = previous.original.len();
         let context = MenuCompleteContext {
-            start: previous.start,
             end: previous.end,
             previous_match_index: Some(previous.index),
             original: previous.original,
-            word_bytes: previous.word_bytes,
-            quote: previous.quote,
-            line: previous.line,
-            point: previous.point,
+            edit: CompletionEdit {
+                start: previous.start,
+                end: previous.start + original_len,
+                word_bytes: previous.word_bytes,
+                quote: previous.quote,
+                line: previous.line,
+                point: previous.point,
+            },
         };
         self.menu_complete_with_context(state, response, backward, hooks, context)
     }
@@ -127,22 +110,22 @@ where
         self.menu_complete_display(
             state,
             &response,
-            &context.word_bytes,
+            &context.edit.word_bytes,
             context.previous_match_index,
             next_index,
         )?;
         state
             .buffer
-            .replace_range_bytes(context.start, context.end, &replacement_bytes);
+            .replace_range_bytes(context.edit.start, context.end, &replacement_bytes);
         state.completion.menu_completion = Some(MenuCompletionState {
             index: next_index,
-            start: context.start,
-            end: context.start + replacement_bytes.len(),
+            start: context.edit.start,
+            end: context.edit.start + replacement_bytes.len(),
             original: context.original,
-            word_bytes: context.word_bytes,
-            quote: context.quote,
-            line: context.line,
-            point: context.point,
+            word_bytes: context.edit.word_bytes,
+            quote: context.edit.quote,
+            line: context.edit.line,
+            point: context.edit.point,
             response: response.clone(),
         });
         state.completion.last_completion = Some(response);
@@ -184,10 +167,9 @@ where
         let Some(prefix) = common_prefix_bytes(&response.candidates) else {
             return Vec::new();
         };
-        let edit = context.edit();
         self.requote_completion_bytes(
             &prefix,
-            &edit,
+            &context.edit,
             completion_type,
             response.options.quote_filename(),
             hooks,
@@ -211,11 +193,10 @@ where
                 completion_type,
             );
         }
-        let edit = context.edit();
         let candidate = &response.candidates[next_index - 1];
         let (mut replacement, filename_directory) = self.completion_replacement_with_directory(
             response,
-            &edit,
+            &context.edit,
             candidate,
             completion_type,
             hooks,

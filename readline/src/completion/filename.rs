@@ -159,18 +159,6 @@ pub(crate) fn is_executable_file(path: &Path) -> bool {
     }
 }
 
-pub(crate) fn os_string_to_completion(
-    value: std::ffi::OsString,
-) -> Option<(String, Option<Vec<u8>>)> {
-    match value.into_string() {
-        Ok(value) => Some((value, None)),
-        Err(value) => {
-            let bytes = os_str_to_completion_bytes(&value)?;
-            Some((String::from_utf8_lossy(&bytes).into_owned(), Some(bytes)))
-        }
-    }
-}
-
 #[cfg(unix)]
 pub(crate) fn os_str_to_completion_bytes(value: &std::ffi::OsStr) -> Option<Vec<u8>> {
     use std::os::unix::ffi::OsStrExt;

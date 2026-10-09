@@ -1,6 +1,6 @@
 use crate::completion::filename::{
     FilenameOptions, complete_filenames_bytes, expand_tilde, filename_matches_response,
-    filenames_response, is_executable_file, join_display_dir, os_string_to_completion,
+    filenames_response, is_executable_file, join_display_dir, os_str_to_completion_bytes,
     split_word_path_bytes,
 };
 use crate::completion::{
@@ -71,19 +71,13 @@ pub(super) fn complete_commands_bytes(word: &[u8]) -> CompletionResponse {
                 if !is_executable_file(&path) {
                     continue;
                 }
-                let Some((replacement, replacement_bytes)) =
-                    os_string_to_completion(entry.file_name())
-                else {
+                let Some(name_bytes) = os_str_to_completion_bytes(&entry.file_name()) else {
                     continue;
                 };
-                let name_bytes = replacement_bytes
-                    .as_deref()
-                    .unwrap_or(replacement.as_bytes());
                 if !name_bytes.starts_with(word) {
                     continue;
                 }
-                let replacement = replacement_bytes.unwrap_or_else(|| replacement.into_bytes());
-                candidates.push(CompletionCandidate::plain(replacement));
+                candidates.push(CompletionCandidate::plain(name_bytes));
             }
         }
     }

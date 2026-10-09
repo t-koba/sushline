@@ -208,6 +208,30 @@ fn full_write_preserves_restrictive_file_mode() {
 }
 
 #[test]
+#[cfg_attr(not(unix), ignore = "requires Unix file modes")]
+fn full_write_preserves_wider_existing_file_mode() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(&path, "one\n").unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+    let mut h = History::new();
+    h.push("two");
+    h.write_file(&path).unwrap();
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o644,
+        "full write preserves wider pre-existing mode (GNU resets to 0600; policy follows operator pin)"
+    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), "two\n");
+    History::truncate_file(&path, 1).unwrap();
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o644
+    );
+}
+
+#[test]
 fn load_file_limits_entries_and_append_new_tracks_loaded_boundary() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");

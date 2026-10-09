@@ -108,19 +108,6 @@ pub(crate) fn rendered_string_to_bytes(rendered: &str) -> Vec<u8> {
 }
 
 impl LineBuffer {
-    pub fn move_to_display_width(&mut self, target: usize) {
-        let mut width = 0;
-        for (idx, ch) in self.decoded_char_indices() {
-            let ch_width = char_width(ch);
-            if width + ch_width > target {
-                self.point = idx;
-                return;
-            }
-            width += ch_width;
-        }
-        self.point = self.bytes.len();
-    }
-
     pub fn move_screen_line(
         &mut self,
         prompt_width: usize,
@@ -189,23 +176,12 @@ impl LineBuffer {
         positions
     }
 
-    pub fn display_width_before_point(&self) -> usize {
-        self.decoded_chars_in_range(0, self.point)
-            .into_iter()
-            .map(char_width)
-            .sum()
-    }
-
     pub fn display_width(&self) -> usize {
         self.decoded_char_indices()
             .into_iter()
             .map(|(_, ch)| ch)
             .map(char_width)
             .sum()
-    }
-
-    pub fn horizontal_window(&self, max_width: usize) -> (String, usize) {
-        self.horizontal_window_with_options(max_width, None, RenderOptions::default())
     }
 
     pub fn horizontal_window_with_options(

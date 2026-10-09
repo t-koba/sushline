@@ -116,3 +116,24 @@ fn resize_columns_change_recomputes_prompt_wrap() {
     assert_eq!(narrow_rows, 1);
     assert_eq!(wide_rows, 0);
 }
+
+#[test]
+fn batched_invalid_multibyte_chunk_preserves_both_bytes() {
+    // Pin-independent lock: a single `Bytes([0xFF, 0x41])` chunk through the
+    // live dispatch preserves both bytes. Each byte is bound to `self-insert`
+    // in the default map, so `longest_matching_prefix` splits the chunk and
+    // the invalid-byte `insert_bytes` fallback keeps `0xFF`. The
+    // `handle_unbound` `>= 0x80` filter is not reached for this chunk; the
+    // same filter in search/replace accumulation still needs oracle review.
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(vec![0xFF, 0x41]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(
+        result,
+        ReadlineResult::Line(vec![0xFF, 0x41]),
+        "batched invalid chunk must preserve both bytes via split self-insert"
+    );
+}

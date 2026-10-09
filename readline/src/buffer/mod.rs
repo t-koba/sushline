@@ -378,7 +378,7 @@ impl LineBuffer {
         let Some(start) = self.prev_grapheme_boundary_checked(self.point) else {
             return false;
         };
-        self.bytes.splice(start..self.point, [b' ']);
+        self.bytes.splice(start..self.point, *b" ");
         self.point = start;
         true
     }

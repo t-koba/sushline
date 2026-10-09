@@ -798,7 +798,7 @@ fn bash_readline_and_sushline_accept_same_vi_completion_bindings() {
     fs::write(dir.path().join("alpine"), "").expect("write alpine fixture");
     let inputrc = "set editing-mode vi\nset completion-query-items 999";
 
-    for key in [b'*', b'=', b'\\'] {
+    for key in *b"*=\\" {
         let typed = format!("{}/al\x1b{}\r", dir.path().display(), key as char);
         let bash = run_bash_readline_with_inputrc_file(typed.as_bytes(), inputrc);
         let sushline = run_sushline_harness_with_inputrc(typed.as_bytes(), inputrc);

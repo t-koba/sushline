@@ -30,7 +30,7 @@ fn default_filename_completion_generates_candidates() {
 
 #[cfg(target_os = "linux")]
 #[test]
-fn filename_completion_preserves_non_utf8_names_as_ansi_c_quote() {
+fn filename_completion_preserves_non_utf8_names_as_raw_bytes() {
     use std::os::unix::ffi::OsStringExt;
     let dir = tempfile::tempdir().unwrap();
     let name = std::ffi::OsString::from_vec(vec![b'a', 0xff, b'b']);
@@ -44,8 +44,8 @@ fn filename_completion_preserves_non_utf8_names_as_ansi_c_quote() {
     assert_eq!(response.candidates.len(), 1);
     assert!(
         response.candidates[0]
-            .replacement_string()
-            .contains("$'a\\xffb'")
+            .replacement_bytes()
+            .ends_with(&[b'a', 0xff, b'b'])
     );
 }
 

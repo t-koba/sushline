@@ -205,7 +205,13 @@ fn write_atomic(
     write_tmp: impl FnOnce(&mut fs::File) -> io::Result<()>,
 ) -> io::Result<()> {
     let tmp = history_tmp_path(path);
+    let existing_permissions = fs::metadata(path)
+        .ok()
+        .map(|metadata| metadata.permissions());
     let mut file = fs::File::create(&tmp)?;
+    if let Some(permissions) = existing_permissions {
+        fs::set_permissions(&tmp, permissions)?;
+    }
     write_tmp(&mut file)
         .and_then(|()| file.sync_all())
         .and_then(|()| fs::rename(&tmp, path))

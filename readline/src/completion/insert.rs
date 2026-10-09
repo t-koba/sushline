@@ -55,7 +55,7 @@ where
                 .buffer
                 .replace_range_bytes(edit.start, edit.end, &replacement_bytes);
             let suppress_append_for_directory =
-                filename_directory.is_some() || candidate.replacement_bytes().ends_with(b"/");
+                suppress_append_for_directory(candidate, filename_directory.as_ref());
             if !suppress_append_for_directory
                 && !response.options.nospace
                 && !skipped_completed_text
@@ -278,6 +278,13 @@ fn candidate_suffix<'a>(
         .replacement_bytes()
         .strip_prefix(prefix)
         .unwrap_or_else(|| candidate.replacement_bytes())
+}
+
+pub(super) fn suppress_append_for_directory(
+    candidate: &crate::completion::CompletionCandidate,
+    directory: Option<&DirectoryCompletion>,
+) -> bool {
+    directory.is_some() || candidate.replacement_bytes().ends_with(b"/")
 }
 
 pub(super) fn append_filename_slash_for_candidate(

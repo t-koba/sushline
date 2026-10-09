@@ -1,5 +1,7 @@
 use crate::completion::display::common_prefix_bytes;
-use crate::completion::insert::append_filename_slash_for_candidate;
+use crate::completion::insert::{
+    append_filename_slash_for_candidate, suppress_append_for_directory,
+};
 use crate::completion::quoting::CompletionEdit;
 use crate::completion::{CompletionAction, CompletionResponse, CompletionType};
 use crate::editor::{Editor, ReadlineError};
@@ -229,7 +231,7 @@ where
             append_filename_slash,
         );
         let suppress_append_for_directory =
-            filename_directory.is_some() || candidate.replacement_bytes().ends_with(b"/");
+            suppress_append_for_directory(candidate, filename_directory.as_ref());
         if !suppress_append_for_directory && !response.options.nospace {
             if let Some(ch) = response.options.append_character {
                 let mut buf = [0; 4];

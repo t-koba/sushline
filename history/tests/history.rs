@@ -323,13 +323,13 @@ fn preserves_timestamped_history_file_records() {
             .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
             .collect::<Vec<_>>(),
         vec![
-            (None, "printf two".to_string()),
-            (None, "printf three".to_string())
+            (Some("#1700000001"), "printf two".to_string()),
+            (Some("#1700000002"), "printf three".to_string())
         ]
     );
     assert_eq!(
         fs::read_to_string(&path).unwrap(),
-        "printf two\nprintf three\n"
+        "#1700000001\nprintf two\n#1700000002\nprintf three\n"
     );
 
     let timestamped = dir.path().join("timestamped");
@@ -340,6 +340,34 @@ fn preserves_timestamped_history_file_records() {
         fs::read_to_string(timestamped).unwrap(),
         "#1700000000\necho one\n# not timestamp\n#1700000001\nprintf two\n#1700000002\nprintf three\n"
     );
+}
+
+#[test]
+#[cfg_attr(not(unix), ignore = "requires Unix symlinks")]
+fn full_write_preserves_symlinked_history_path() {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target-history");
+        fs::write(&target, "target-v1\n").unwrap();
+        let link = dir.path().join("link-history");
+        symlink(&target, &link).unwrap();
+
+        let mut h = History::new();
+        h.push("target-v2");
+        h.write_file(&link).unwrap();
+
+        assert!(
+            fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "full write must preserve symlink instead of replacing it"
+        );
+        assert_eq!(fs::read_to_string(&target).unwrap(), "target-v2\n");
+        assert_eq!(fs::read_to_string(&link).unwrap(), "target-v2\n");
+    }
 }
 
 #[test]

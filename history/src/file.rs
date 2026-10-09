@@ -168,7 +168,7 @@ impl History {
         let keep_from = history.entries.len().saturating_sub(max_len);
         write_atomic(path, |file| {
             for entry in &history.entries[keep_from..] {
-                write_entry(file, entry, false)?;
+                write_entry(file, entry, true)?;
             }
             Ok(())
         })
@@ -213,17 +213,18 @@ fn write_atomic(
     path: &Path,
     write_tmp: impl FnOnce(&mut fs::File) -> io::Result<()>,
 ) -> io::Result<()> {
-    let base = history_tmp_path(path);
+    let dest = effective_write_path(path);
+    let base = history_tmp_path(&dest);
     #[cfg(unix)]
     let target_mode: u32 = {
         use std::os::unix::fs::PermissionsExt;
-        fs::metadata(path)
+        fs::metadata(&dest)
             .ok()
             .map(|metadata| metadata.permissions().mode() & 0o777)
             .unwrap_or(0o600)
     };
     #[cfg(not(unix))]
-    let existing_permissions = fs::metadata(path)
+    let existing_permissions = fs::metadata(&dest)
         .ok()
         .map(|metadata| metadata.permissions());
     for _ in 0..100 {
@@ -247,7 +248,7 @@ fn write_atomic(
             let mut file = file;
             write_tmp(&mut file)?;
             file.sync_all()?;
-            fs::rename(&tmp, path)
+            fs::rename(&tmp, &dest)
         })();
         if result.is_err() {
             let _ = fs::remove_file(&tmp);
@@ -258,6 +259,25 @@ fn write_atomic(
         io::ErrorKind::AlreadyExists,
         "could not create unique history tmp file",
     ))
+}
+
+fn effective_write_path(path: &Path) -> PathBuf {
+    let is_link = fs::symlink_metadata(path)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false);
+    if !is_link {
+        return path.to_path_buf();
+    }
+    let Ok(target) = fs::read_link(path) else {
+        return path.to_path_buf();
+    };
+    if target.is_absolute() {
+        return target;
+    }
+    match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.join(target),
+        _ => target,
+    }
 }
 
 fn unique_tmp_path(base: &Path, nonce: u64) -> PathBuf {

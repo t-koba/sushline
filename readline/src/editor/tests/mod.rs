@@ -5,7 +5,7 @@ use crate::completion::display::{
 };
 use crate::completion::filename::{
     FilenameOptions, complete_directories_bytes, complete_filenames_bytes, glob_match,
-    ls_color_code_from_spec,
+    glob_match_bytes, ls_color_code_from_spec,
 };
 use crate::completion::{CompletionContext, CompletionRequest, CompletionResponse, CompletionType};
 use crate::terminal::{TerminalEvent, TerminalSize};

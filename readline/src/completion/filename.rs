@@ -461,7 +461,7 @@ pub(crate) fn glob_match(pattern: &str, value: &str) -> bool {
 }
 
 #[cfg_attr(not(unix), allow(dead_code))]
-fn glob_match_bytes(pattern: &[u8], value: &[u8]) -> bool {
+pub(crate) fn glob_match_bytes(pattern: &[u8], value: &[u8]) -> bool {
     match (pattern.split_first(), value.split_first()) {
         (None, None) => true,
         (None, Some(_)) => false,

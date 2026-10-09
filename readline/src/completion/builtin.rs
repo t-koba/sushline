@@ -331,6 +331,7 @@ pub(super) fn glob_complete_bytes(
     }
     #[cfg(unix)]
     {
+        use crate::completion::filename::glob_match_bytes;
         use std::ffi::OsString;
         use std::os::unix::ffi::{OsStrExt, OsStringExt};
         if !word.iter().any(|byte| matches!(byte, b'*' | b'?' | b'[')) {
@@ -355,7 +356,7 @@ pub(super) fn glob_complete_bytes(
                 if pattern.first() != Some(&b'.') && name_bytes.first() == Some(&b'.') {
                     continue;
                 }
-                if !glob_match_bytes_raw(pattern, name_bytes) {
+                if !glob_match_bytes(pattern, name_bytes) {
                     continue;
                 }
                 let mut replacement = display_dir.clone();
@@ -369,40 +370,4 @@ pub(super) fn glob_complete_bytes(
     {
         glob_complete(&String::from_utf8_lossy(word), hooks, variables)
     }
-}
-
-#[cfg_attr(not(unix), allow(dead_code))]
-pub(super) fn glob_match_bytes_raw(pattern: &[u8], name: &[u8]) -> bool {
-    fn rec(pattern: &[u8], name: &[u8]) -> bool {
-        match pattern.split_first() {
-            None => name.is_empty(),
-            Some((&b'*', rest)) => {
-                rec(rest, name) || (!name.is_empty() && rec(pattern, &name[1..]))
-            }
-            Some((&b'?', rest)) => !name.is_empty() && rec(rest, &name[1..]),
-            Some((&b'[', rest)) => {
-                let Some(end) = rest.iter().position(|byte| *byte == b']') else {
-                    return !name.is_empty() && name[0] == b'[' && rec(rest, &name[1..]);
-                };
-                if name.is_empty() {
-                    return false;
-                }
-                let class = &rest[..end];
-                let mut matched = false;
-                let mut idx = 0;
-                while idx < class.len() {
-                    if idx + 2 < class.len() && class[idx + 1] == b'-' {
-                        matched |= (class[idx]..=class[idx + 2]).contains(&name[0]);
-                        idx += 3;
-                    } else {
-                        matched |= class[idx] == name[0];
-                        idx += 1;
-                    }
-                }
-                matched && rec(&rest[end + 1..], &name[1..])
-            }
-            Some((&ch, rest)) => !name.is_empty() && name[0] == ch && rec(rest, &name[1..]),
-        }
-    }
-    rec(pattern, name)
 }

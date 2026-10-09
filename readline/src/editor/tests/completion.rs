@@ -352,6 +352,11 @@ fn application_command_binding_passes_readline_context_and_applies_edit() {
 
 #[test]
 fn glob_completion_matches_bracket_expressions() {
+    assert!(glob_match_bytes(b"file[0-9].rs", b"file7.rs"));
+    assert!(glob_match_bytes(b"file[!0-9].rs", b"filex.rs"));
+    assert!(!glob_match_bytes(b"file[!0-9].rs", b"file7.rs"));
+    assert!(glob_match_bytes(br"file\*.rs", br"file*.rs"));
+    assert!(!glob_match_bytes(br"file\*.rs", b"file1.rs"));
     assert!(glob_match("file[0-9].rs", "file7.rs"));
     assert!(glob_match("file[!0-9].rs", "filex.rs"));
     assert!(!glob_match("file[!0-9].rs", "file7.rs"));

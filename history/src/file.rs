@@ -287,8 +287,8 @@ fn unique_tmp_path(base: &Path, nonce: u64) -> PathBuf {
 }
 
 fn is_timestamp_record(line: &str) -> bool {
-    line.strip_prefix('#')
-        .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|byte| byte.is_ascii_digit()))
+    let bytes = line.as_bytes();
+    bytes.len() >= 2 && bytes[0] == b'#' && bytes[1].is_ascii_digit()
 }
 
 fn write_entry(

@@ -287,6 +287,26 @@ fn history_files_preserve_non_utf8_bytes() {
 }
 
 #[test]
+fn treats_digits_with_trailing_junk_as_timestamp() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(&path, "#1700000000abc\nfoo\n# not timestamp\n").unwrap();
+
+    let loaded = History::read_file(&path).unwrap();
+    assert_eq!(
+        loaded
+            .entries()
+            .iter()
+            .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
+            .collect::<Vec<_>>(),
+        vec![
+            (Some("#1700000000abc"), "foo".to_string()),
+            (None, "# not timestamp".to_string()),
+        ]
+    );
+}
+
+#[test]
 fn preserves_timestamped_history_file_records() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");

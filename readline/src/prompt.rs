@@ -34,6 +34,18 @@ impl Prompt {
     pub fn width(&self) -> usize {
         self.width
     }
+
+    /// Width after a mode/operator prefix on the final line.
+    ///
+    /// A multiline prompt starts its last line after the prefix, so only the
+    /// prompt last line counts; otherwise the prefix last-line width applies.
+    pub(crate) fn width_after_prefix(&self, prefix_width: usize) -> usize {
+        if self.visible.contains('\n') {
+            self.width
+        } else {
+            prefix_width + self.width
+        }
+    }
 }
 
 impl From<&str> for Prompt {

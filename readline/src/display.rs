@@ -84,11 +84,7 @@ where
             mode.push_str(operator);
             mode_width += last_line_width(operator);
         }
-        let width = if state.prompt.visible().contains('\n') {
-            state.prompt.width()
-        } else {
-            mode_width + state.prompt.width()
-        };
+        let width = state.prompt.width_after_prefix(mode_width);
         (format!("{mode}{}", state.prompt.visible()), width)
     }
 
@@ -290,11 +286,7 @@ where
             return Ok(());
         };
         let (_, mode_width) = self.mode_prompt_prefix();
-        let prompt_width = if state.prompt.visible().contains('\n') {
-            state.prompt.width()
-        } else {
-            mode_width + state.prompt.width()
-        };
+        let prompt_width = state.prompt.width_after_prefix(mode_width);
         let column = prompt_width
             + state
                 .buffer

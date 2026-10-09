@@ -74,3 +74,9 @@ fn control_chars_measure_zero_width() {
     assert_eq!(crate::width::char_width('\x1b'), 0);
     assert_eq!(crate::width::char_width('\x7f'), 0);
 }
+
+#[test]
+fn prefix_width_applies_only_without_prompt_newline() {
+    assert_eq!(Prompt::new("12\n345").width_after_prefix(99), 3);
+    assert_eq!(Prompt::new("XY").width_after_prefix(3), 5);
+}

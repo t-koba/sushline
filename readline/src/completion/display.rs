@@ -6,15 +6,24 @@ use std::ffi::CString;
 
 // Pure completion layout helpers.
 
-pub(crate) fn common_prefix_bytes(candidates: &[CompletionCandidate]) -> Option<Vec<u8>> {
-    let mut prefix = candidates.first()?.replacement_bytes().to_vec();
-    for candidate in &candidates[1..] {
-        let bytes = candidate.replacement_bytes();
+pub(crate) fn longest_common_bytes_prefix<'a>(
+    mut items: impl Iterator<Item = &'a [u8]>,
+) -> Option<Vec<u8>> {
+    let mut prefix = items.next()?.to_vec();
+    for bytes in items {
         while !bytes.starts_with(&prefix) {
             prefix.pop()?;
         }
     }
     (!prefix.is_empty()).then_some(prefix)
+}
+
+pub(crate) fn common_prefix_bytes(candidates: &[CompletionCandidate]) -> Option<Vec<u8>> {
+    longest_common_bytes_prefix(
+        candidates
+            .iter()
+            .map(|candidate| candidate.replacement_bytes()),
+    )
 }
 
 pub(crate) fn abbreviate_completion_prefix(items: &mut [String], prefix: &str, filenames: bool) {

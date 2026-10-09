@@ -319,11 +319,5 @@ where
 }
 
 fn common_history_completion_prefix(words: &[Vec<u8>]) -> Option<Vec<u8>> {
-    let mut prefix = words.first()?.clone();
-    for word in &words[1..] {
-        while !word.starts_with(&prefix) {
-            prefix.pop()?;
-        }
-    }
-    Some(prefix)
+    crate::completion::display::longest_common_bytes_prefix(words.iter().map(Vec::as_slice))
 }

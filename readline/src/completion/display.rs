@@ -1,3 +1,4 @@
+use crate::buffer::bytes_lossless;
 use crate::completion::{CompletionCandidate, CompletionResponse};
 use crate::width::{rendered_rows_for_output, visible_width};
 use std::cmp::Ordering;
@@ -313,8 +314,10 @@ where
                 item
             })
             .collect::<Vec<_>>();
-        let common_prefix = common_prefix_bytes(&response.candidates)
-            .map(|bytes| self.render_completion_bytes(&bytes));
+        let common_bytes = common_prefix_bytes(&response.candidates);
+        let common_prefix = common_bytes
+            .as_deref()
+            .map(|bytes| self.render_completion_bytes(bytes));
         if let Some(prefix) = common_prefix.as_deref() {
             let limit = self
                 .variables
@@ -327,11 +330,29 @@ where
                 abbreviate_completion_prefix(&mut items, prefix, response.options.filenames);
             }
         }
-        if self.variable_is_on("colored-completion-prefix")
-            && let Some(prefix) = common_prefix.as_deref()
-        {
-            for (item, candidate) in items.iter_mut().zip(response.candidates.iter()) {
-                *item = color_completion_prefix(item, &candidate.replacement_string(), prefix);
+        if self.variable_is_on("colored-completion-prefix") {
+            if response.options.filenames {
+                // Filename items are lossless (`filename_display_name`), so the
+                // prefix must be lossless too: a rendered prefix would count
+                // escape-expanded chars that never appear in the item.
+                if let Some(prefix) = common_bytes.as_deref().map(bytes_lossless).as_deref() {
+                    for (item, candidate) in items.iter_mut().zip(response.candidates.iter()) {
+                        let replacement = bytes_lossless(candidate.replacement_bytes());
+                        *item = color_completion_prefix(item, &replacement, prefix);
+                    }
+                }
+            } else if let Some(prefix) = common_prefix.as_deref() {
+                // Non-filename items are rendered, so compare against the
+                // rendered replacement: the lossy string never matches a
+                // rendered prefix once non-UTF8 bytes expand.
+                let rendered = response
+                    .candidates
+                    .iter()
+                    .map(|candidate| self.render_completion_bytes(candidate.replacement_bytes()))
+                    .collect::<Vec<_>>();
+                for (item, replacement) in items.iter_mut().zip(rendered.iter()) {
+                    *item = color_completion_prefix(item, replacement, prefix);
+                }
             }
         }
         if self.variable_is_on("visible-stats") && !response.options.filenames {

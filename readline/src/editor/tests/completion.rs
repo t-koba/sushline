@@ -451,6 +451,65 @@ fn colored_completion_prefix_marks_common_prefix() {
 }
 
 #[test]
+fn colored_completion_prefix_highlights_shared_non_utf8_prefix() {
+    let terminal = MemoryTerminal::default();
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set colored-completion-prefix on")
+        .unwrap();
+    let response = CompletionResponse {
+        candidates: vec![
+            crate::completion::CompletionCandidate {
+                replacement: vec![b'a', 0xff, b'1'],
+                display: None,
+            },
+            crate::completion::CompletionCandidate {
+                replacement: vec![b'a', 0xff, b'2'],
+                display: None,
+            },
+        ],
+        options: Default::default(),
+    };
+    line.display_completions(&response).unwrap();
+    assert!(
+        line.terminal.out.contains("\x1b["),
+        "shared non-UTF8 prefix should be highlighted: {:?}",
+        line.terminal.out
+    );
+    assert!(line.terminal.out.contains('1'));
+    assert!(line.terminal.out.contains('2'));
+}
+
+#[test]
+fn colored_completion_prefix_highlights_shared_non_utf8_filename_prefix() {
+    let terminal = MemoryTerminal::default();
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set colored-completion-prefix on")
+        .unwrap();
+    let response = CompletionResponse {
+        candidates: vec![
+            crate::completion::CompletionCandidate {
+                replacement: vec![b'a', 0xff, b'1'],
+                display: None,
+            },
+            crate::completion::CompletionCandidate {
+                replacement: vec![b'a', 0xff, b'2'],
+                display: None,
+            },
+        ],
+        options: crate::completion::CompletionOptions {
+            filenames: true,
+            ..Default::default()
+        },
+    };
+    line.display_completions(&response).unwrap();
+    assert!(
+        line.terminal.out.contains("\x1b["),
+        "shared non-UTF8 filename prefix should be highlighted: {:?}",
+        line.terminal.out
+    );
+}
+
+#[test]
 fn possible_completions_uses_query_and_visible_stats() {
     let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(b"y".to_vec())]);
     let mut line = Editor::new(Config::default(), terminal, History::new());

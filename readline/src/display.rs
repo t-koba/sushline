@@ -164,13 +164,17 @@ where
         Ok(())
     }
 
-    pub(crate) fn write_tracked(&mut self, state: &mut EditorState, text: &str) -> io::Result<()> {
-        self.terminal.write(text)?;
+    fn note_tracked_output(&self, state: &mut EditorState, text: &str) {
         let columns = self.tracked_terminal_columns(state);
         state.display.rendered_cursor_row = state
             .display
             .rendered_cursor_row
             .saturating_add(rendered_rows_for_output(text, columns));
+    }
+
+    pub(crate) fn write_tracked(&mut self, state: &mut EditorState, text: &str) -> io::Result<()> {
+        self.terminal.write(text)?;
+        self.note_tracked_output(state, text);
         Ok(())
     }
 
@@ -180,12 +184,7 @@ where
         bytes: &[u8],
     ) -> io::Result<()> {
         self.terminal.write_bytes(bytes)?;
-        let columns = self.tracked_terminal_columns(state);
-        let text = String::from_utf8_lossy(bytes);
-        state.display.rendered_cursor_row = state
-            .display
-            .rendered_cursor_row
-            .saturating_add(rendered_rows_for_output(&text, columns));
+        self.note_tracked_output(state, &String::from_utf8_lossy(bytes));
         Ok(())
     }
 

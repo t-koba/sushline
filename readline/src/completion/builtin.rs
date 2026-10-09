@@ -109,9 +109,9 @@ pub(crate) fn complete_commands_with_hooks_bytes(
     response
 }
 
-pub(super) fn complete_variables(word: &str, hooks: &mut impl Hooks) -> CompletionResponse {
-    let has_sigil = word.starts_with('$');
-    let prefix = word.strip_prefix('$').unwrap_or(word).as_bytes();
+pub(super) fn complete_variables(word: &[u8], hooks: &mut impl Hooks) -> CompletionResponse {
+    let has_sigil = word.first() == Some(&b'$');
+    let prefix = word.strip_prefix(b"$").unwrap_or(word);
     let candidates = hooks
         .variable_names()
         .into_iter()
@@ -133,20 +133,19 @@ pub(super) fn complete_variables(word: &str, hooks: &mut impl Hooks) -> Completi
     }
 }
 
-pub(super) fn complete_users(word: &str, hooks: &mut impl Hooks) -> CompletionResponse {
-    let prefix = word.strip_prefix('~').unwrap_or(word);
+pub(super) fn complete_users(word: &[u8], hooks: &mut impl Hooks) -> CompletionResponse {
+    let prefix = word.strip_prefix(b"~").unwrap_or(word);
     let mut names = Vec::new();
-    if let Ok(passwd) = fs::read_to_string("/etc/passwd") {
-        for line in passwd.lines() {
-            let Some(name) = passwd_user_name(line) else {
-                continue;
-            };
-            names.push(name.to_string());
+    if let Ok(passwd) = fs::read("/etc/passwd") {
+        for line in passwd.split(|byte| *byte == b'\n') {
+            if let Some(name) = passwd_user_name_bytes(line) {
+                names.push(name.to_vec());
+            }
         }
     }
-    names.extend(system_user_names());
-    names.extend(hook_names_as_strings(hooks.user_names()));
-    let candidates = prefixed_candidates(names, prefix, |name| format!("~{name}/").into_bytes());
+    names.extend(system_user_names_bytes());
+    names.extend(hooks.user_names());
+    let candidates = prefixed_byte_candidates(names, prefix, |name| join_user_completion(&name));
     CompletionResponse {
         candidates,
         options: CompletionOptions {
@@ -157,39 +156,41 @@ pub(super) fn complete_users(word: &str, hooks: &mut impl Hooks) -> CompletionRe
     }
 }
 
-pub(super) fn complete_hosts(word: &str, hooks: &mut impl Hooks) -> CompletionResponse {
-    let prefix = word.strip_prefix('@').unwrap_or(word);
+pub(super) fn complete_hosts(word: &[u8], hooks: &mut impl Hooks) -> CompletionResponse {
+    let prefix = word.strip_prefix(b"@").unwrap_or(word);
     let mut hosts = Vec::new();
-    if let Ok(hosts_source) = fs::read_to_string("/etc/hosts") {
-        for line in hosts_source
-            .lines()
-            .filter(|line| !line.trim_start().starts_with('#'))
-        {
-            for host in host_names_in_line(line) {
-                hosts.push(host.to_string());
+    if let Ok(hosts_source) = fs::read("/etc/hosts") {
+        for line in hosts_source.split(|byte| *byte == b'\n') {
+            if trim_ascii(line).first() == Some(&b'#') {
+                continue;
+            }
+            for host in host_names_in_line_bytes(line) {
+                hosts.push(host.to_vec());
             }
         }
     }
-    hosts.extend(system_host_names());
-    hosts.extend(known_host_names());
-    hosts.extend(hook_names_as_strings(hooks.host_names()));
-    let candidates = prefixed_candidates(hosts, prefix, String::into_bytes);
+    hosts.extend(system_host_names_bytes());
+    hosts.extend(known_host_names_bytes());
+    hosts.extend(hooks.host_names());
+    let candidates = prefixed_byte_candidates(hosts, prefix, |name| name);
     CompletionResponse {
         candidates,
         options: Default::default(),
     }
 }
 
-fn hook_names_as_strings(names: Vec<Vec<u8>>) -> impl Iterator<Item = String> {
-    names
-        .into_iter()
-        .map(|name| String::from_utf8_lossy(&name).into_owned())
+fn join_user_completion(name: &[u8]) -> Vec<u8> {
+    let mut replacement = Vec::with_capacity(name.len() + 2);
+    replacement.push(b'~');
+    replacement.extend_from_slice(name);
+    replacement.push(b'/');
+    replacement
 }
 
-fn prefixed_candidates(
-    names: Vec<String>,
-    prefix: &str,
-    replacement: impl Fn(String) -> Vec<u8>,
+fn prefixed_byte_candidates(
+    names: Vec<Vec<u8>>,
+    prefix: &[u8],
+    replacement: impl Fn(Vec<u8>) -> Vec<u8>,
 ) -> Vec<CompletionCandidate> {
     names
         .into_iter()
@@ -198,67 +199,94 @@ fn prefixed_candidates(
         .collect()
 }
 
-fn passwd_user_name(line: &str) -> Option<&str> {
-    line.split_once(':').map(|(name, _)| name)
+fn trim_ascii(line: &[u8]) -> &[u8] {
+    let start = line
+        .iter()
+        .position(|byte| !byte.is_ascii_whitespace())
+        .unwrap_or(line.len());
+    let end = line
+        .iter()
+        .rposition(|byte| !byte.is_ascii_whitespace())
+        .map(|pos| pos + 1)
+        .unwrap_or(0);
+    if start >= end { &[] } else { &line[start..end] }
 }
 
-fn host_names_in_line(line: &str) -> impl Iterator<Item = &str> {
-    line.split_whitespace().skip(1)
+fn passwd_user_name_bytes(line: &[u8]) -> Option<&[u8]> {
+    let pos = line.iter().position(|byte| *byte == b':')?;
+    Some(&line[..pos])
 }
 
-fn getent_lines(table: &str) -> Vec<String> {
+fn host_names_in_line_bytes(line: &[u8]) -> impl Iterator<Item = &[u8]> {
+    line.split(u8::is_ascii_whitespace)
+        .filter(|field| !field.is_empty())
+        .skip(1)
+}
+
+fn getent_lines_bytes(table: &str) -> Vec<Vec<u8>> {
     let Ok(output) = Command::new("getent").arg(table).output() else {
         return Vec::new();
     };
     if !output.status.success() {
         return Vec::new();
     }
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .map(str::to_string)
+    output
+        .stdout
+        .split(|byte| *byte == b'\n')
+        .map(|line| {
+            let line = line.strip_suffix(b"\r").unwrap_or(line);
+            line.to_vec()
+        })
         .collect()
 }
 
-pub(super) fn system_user_names() -> Vec<String> {
-    getent_lines("passwd")
-        .into_iter()
-        .filter_map(|line| passwd_user_name(&line).map(str::to_string))
+pub(super) fn system_user_names_bytes() -> Vec<Vec<u8>> {
+    getent_lines_bytes("passwd")
+        .iter()
+        .filter_map(|line| passwd_user_name_bytes(line).map(|name| name.to_vec()))
         .collect()
 }
 
-pub(super) fn system_host_names() -> Vec<String> {
-    getent_lines("hosts")
-        .into_iter()
+pub(super) fn system_host_names_bytes() -> Vec<Vec<u8>> {
+    getent_lines_bytes("hosts")
+        .iter()
         .flat_map(|line| {
-            host_names_in_line(&line)
-                .map(str::to_string)
+            host_names_in_line_bytes(line)
+                .map(|host| host.to_vec())
                 .collect::<Vec<_>>()
         })
         .collect()
 }
 
-pub(super) fn known_host_names() -> Vec<String> {
+pub(super) fn known_host_names_bytes() -> Vec<Vec<u8>> {
     let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
         return Vec::new();
     };
     let path = home.join(".ssh").join("known_hosts");
-    let Ok(source) = fs::read_to_string(path) else {
+    let Ok(source) = fs::read(path) else {
         return Vec::new();
     };
-    source
-        .lines()
-        .filter(|line| !line.trim_start().starts_with('#') && !line.starts_with('|'))
-        .filter_map(|line| line.split_whitespace().next())
-        .flat_map(|hosts| hosts.split(','))
-        .filter_map(|host| {
-            let host = host.trim();
-            if host.is_empty() || host.starts_with('[') {
-                None
-            } else {
-                Some(host.to_string())
+    let mut hosts = Vec::new();
+    for line in source.split(|byte| *byte == b'\n') {
+        let line = trim_ascii(line);
+        if line.is_empty() || line.starts_with(b"#") || line.starts_with(b"|") {
+            continue;
+        }
+        let Some(first) = line
+            .split(u8::is_ascii_whitespace)
+            .find(|field| !field.is_empty())
+        else {
+            continue;
+        };
+        for host in first.split(|byte| *byte == b',') {
+            let host = trim_ascii(host);
+            if host.is_empty() || host.starts_with(b"[") {
+                continue;
             }
-        })
-        .collect()
+            hosts.push(host.to_vec());
+        }
+    }
+    hosts
 }
 
 pub(crate) fn glob_complete(

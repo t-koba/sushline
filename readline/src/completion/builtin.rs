@@ -8,7 +8,6 @@ use crate::completion::{
 };
 use crate::hooks::Hooks;
 use crate::variables::Variables;
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -61,7 +60,7 @@ pub(super) fn default_application_completion(
 }
 
 pub(super) fn complete_commands_bytes(word: &[u8]) -> CompletionResponse {
-    let mut names = BTreeMap::<Vec<u8>, CompletionCandidate>::new();
+    let mut candidates = Vec::new();
     if let Some(path) = std::env::var_os("PATH") {
         for dir in std::env::split_paths(&path) {
             let Ok(entries) = fs::read_dir(dir) else {
@@ -84,14 +83,12 @@ pub(super) fn complete_commands_bytes(word: &[u8]) -> CompletionResponse {
                     continue;
                 }
                 let replacement = replacement_bytes.unwrap_or_else(|| replacement.into_bytes());
-                names
-                    .entry(replacement)
-                    .or_insert_with_key(|key| CompletionCandidate::plain(key.clone()));
+                candidates.push(CompletionCandidate::plain(replacement));
             }
         }
     }
     CompletionResponse {
-        candidates: names.into_values().collect(),
+        candidates,
         options: Default::default(),
     }
 }
@@ -137,23 +134,24 @@ pub(super) fn complete_variables(word: &str, hooks: &mut impl Hooks) -> Completi
 
 pub(super) fn complete_users(word: &str, hooks: &mut impl Hooks) -> CompletionResponse {
     let prefix = word.strip_prefix('~').unwrap_or(word);
-    let mut names = BTreeMap::<String, ()>::new();
+    let mut names = Vec::new();
     if let Ok(passwd) = fs::read_to_string("/etc/passwd") {
         for line in passwd.lines() {
             let Some((name, _)) = line.split_once(':') else {
                 continue;
             };
-            names.insert(name.to_string(), ());
+            names.push(name.to_string());
         }
     }
-    for name in system_user_names() {
-        names.insert(name, ());
-    }
-    for name in hooks.user_names() {
-        names.insert(String::from_utf8_lossy(&name).into_owned(), ());
-    }
+    names.extend(system_user_names());
+    names.extend(
+        hooks
+            .user_names()
+            .into_iter()
+            .map(|name| String::from_utf8_lossy(&name).into_owned()),
+    );
     let candidates = names
-        .into_keys()
+        .into_iter()
         .filter(|name| name.starts_with(prefix))
         .map(|name| CompletionCandidate::plain(format!("~{name}/").into_bytes()))
         .collect();
@@ -169,25 +167,27 @@ pub(super) fn complete_users(word: &str, hooks: &mut impl Hooks) -> CompletionRe
 
 pub(super) fn complete_hosts(word: &str, hooks: &mut impl Hooks) -> CompletionResponse {
     let prefix = word.strip_prefix('@').unwrap_or(word);
-    let mut hosts = BTreeMap::<String, ()>::new();
+    let mut hosts = Vec::new();
     if let Ok(hosts_source) = fs::read_to_string("/etc/hosts") {
         for line in hosts_source
             .lines()
             .filter(|line| !line.trim_start().starts_with('#'))
         {
             for host in line.split_whitespace().skip(1) {
-                hosts.insert(host.to_string(), ());
+                hosts.push(host.to_string());
             }
         }
     }
-    for host in system_host_names().into_iter().chain(known_host_names()) {
-        hosts.insert(host, ());
-    }
-    for host in hooks.host_names() {
-        hosts.insert(String::from_utf8_lossy(&host).into_owned(), ());
-    }
+    hosts.extend(system_host_names());
+    hosts.extend(known_host_names());
+    hosts.extend(
+        hooks
+            .host_names()
+            .into_iter()
+            .map(|host| String::from_utf8_lossy(&host).into_owned()),
+    );
     let candidates = hosts
-        .into_keys()
+        .into_iter()
         .filter(|host| host.starts_with(prefix))
         .map(|host| CompletionCandidate::plain(host.into_bytes()))
         .collect();

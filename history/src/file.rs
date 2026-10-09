@@ -120,7 +120,14 @@ impl History {
     ) -> io::Result<()> {
         let path = path.as_ref();
         let existed = fs::metadata(path).is_ok();
-        let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+        let mut append_opts = OpenOptions::new();
+        append_opts.create(true).append(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            append_opts.mode(0o600);
+        }
+        let mut file = append_opts.open(path)?;
         #[cfg(unix)]
         if !existed {
             use std::os::unix::fs::PermissionsExt;
@@ -222,7 +229,14 @@ fn write_atomic(
     for _ in 0..100 {
         let nonce = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
         let tmp = unique_tmp_path(&base, nonce);
-        let file = match OpenOptions::new().write(true).create_new(true).open(&tmp) {
+        let mut tmp_opts = OpenOptions::new();
+        tmp_opts.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            tmp_opts.mode(0o600);
+        }
+        let file = match tmp_opts.open(&tmp) {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error),

@@ -796,3 +796,35 @@ fn yank_with_empty_ring_bells_and_preserves_line() {
     assert_eq!(result, ReadlineResult::Line(Vec::new()));
     assert!(line.terminal().out.contains('\x07'), "empty yank must bell");
 }
+
+#[test]
+fn yank_pop_consumes_numeric_argument() {
+    // M-2 yank-pop must not leak the prefix into the next command:
+    // the following backward-char moves one step, so Q lands before f.
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abcdef".to_vec()),
+        TerminalEvent::Bytes(b"\x1b2\x1d".to_vec()),
+        TerminalEvent::Bytes(vec![0x02]),
+        TerminalEvent::Bytes(b"Q\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-]\": yank-pop").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"abcdeQf".to_vec()));
+}
+
+#[test]
+fn yank_with_empty_ring_consumes_numeric_argument() {
+    // M-2 C-y on an empty ring bells and must not leak the prefix:
+    // the following backward-char moves one step, so Q lands before f.
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abcdef".to_vec()),
+        TerminalEvent::Bytes(b"\x1b2\x19".to_vec()),
+        TerminalEvent::Bytes(vec![0x02]),
+        TerminalEvent::Bytes(b"Q\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"abcdeQf".to_vec()));
+    assert!(line.terminal().out.contains('\x07'), "empty yank must bell");
+}

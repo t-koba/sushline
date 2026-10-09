@@ -67,6 +67,7 @@ impl EditorState {
     pub(crate) fn yank(&mut self) -> bool {
         self.kill.last_was_kill = false;
         let Some(index) = self.kill.kill_ring.len().checked_sub(1) else {
+            self.numeric_arg.take();
             self.kill.last_yank = None;
             return false;
         };
@@ -76,6 +77,7 @@ impl EditorState {
 
     pub(crate) fn yank_pop(&mut self) -> bool {
         self.kill.last_was_kill = false;
+        self.numeric_arg.take();
         let Some(last_yank) = self.kill.last_yank else {
             return false;
         };
@@ -147,6 +149,7 @@ impl EditorState {
             return true;
         }
         let Some(index) = self.kill.kill_ring.len().checked_sub(1) else {
+            self.numeric_arg.take();
             self.kill.last_yank = None;
             return false;
         };

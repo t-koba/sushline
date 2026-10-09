@@ -335,14 +335,26 @@ fn default_variable_strings(config: &Config) -> BTreeMap<String, String> {
 }
 
 fn locale_uses_meta() -> bool {
-    for key in ["LC_ALL", "LC_CTYPE", "LANG"] {
-        if let Ok(value) = std::env::var(key)
-            && locale_value_uses_meta(&value)
-        {
-            return true;
-        }
-    }
-    false
+    let lc_all = std::env::var("LC_ALL").ok();
+    let lc_ctype = std::env::var("LC_CTYPE").ok();
+    let lang = std::env::var("LANG").ok();
+    select_lc_ctype(lc_all.as_deref(), lc_ctype.as_deref(), lang.as_deref())
+        .map(locale_value_uses_meta)
+        .unwrap_or(false)
+}
+
+/// Effective LC_CTYPE value by POSIX precedence: first non-empty of
+/// LC_ALL, LC_CTYPE, LANG. Pure helper so precedence is unit-testable
+/// without mutating the process environment.
+fn select_lc_ctype<'a>(
+    lc_all: Option<&'a str>,
+    lc_ctype: Option<&'a str>,
+    lang: Option<&'a str>,
+) -> Option<&'a str> {
+    [lc_all, lc_ctype, lang]
+        .into_iter()
+        .flatten()
+        .find(|value| !value.is_empty())
 }
 
 fn locale_value_uses_meta(value: &str) -> bool {
@@ -404,5 +416,19 @@ mod tests {
             assert!(variables.flag(*variable), "{}", variable.name());
             assert_eq!(variables.flag(*variable), variables.is_on(variable.name()));
         }
+    }
+
+    #[test]
+    fn lc_all_c_wins_over_lang_utf8_for_meta_defaults() {
+        let selected = select_lc_ctype(Some("C"), None, Some("en_US.UTF-8"));
+        assert_eq!(selected, Some("C"));
+        assert!(!selected.map(locale_value_uses_meta).unwrap_or(false));
+    }
+
+    #[test]
+    fn empty_lc_all_falls_through_to_lang_utf8_for_meta_defaults() {
+        let selected = select_lc_ctype(Some(""), None, Some("en_US.UTF-8"));
+        assert_eq!(selected, Some("en_US.UTF-8"));
+        assert!(selected.map(locale_value_uses_meta).unwrap_or(false));
     }
 }

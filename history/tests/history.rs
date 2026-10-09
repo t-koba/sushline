@@ -689,6 +689,54 @@ fn history_expansion_only_allows_readline_colonless_word_designators() {
 }
 
 #[test]
+fn caret_word_designator_errors_on_single_word_event() {
+    let mut history = History::new();
+    history.push("ls");
+    let histchars = HistoryChars::parse("!^#");
+    let policy = HistoryExpansionPolicy::default();
+
+    // GNU defines `^` as word 1 with no single-word fallback (the zeroth-word
+    // fallback is documented only for `$`), so `^` errors like numeric `:1`.
+    for (typed, spec) in [
+        (b"!!:^".as_slice(), "^"),
+        (b"!!^".as_slice(), "^"),
+        (b"!!:1".as_slice(), "1"),
+    ] {
+        assert_eq!(
+            expand_history(typed, &history, histchars, &policy, |_| false),
+            Err(HistoryExpansionError::BadWordSpecifier(spec.to_string())),
+            "{}",
+            String::from_utf8_lossy(typed)
+        );
+    }
+
+    // Documented single-word successes stay intact.
+    for (typed, expected) in [
+        ("!!:$", b"ls".as_slice()),
+        ("!!:0", b"ls".as_slice()),
+        ("!!:*", b"".as_slice()),
+    ] {
+        assert_eq!(
+            expand_history(typed.as_bytes(), &history, histchars, &policy, |_| false).unwrap(),
+            expected.to_vec(),
+            "{typed}"
+        );
+    }
+
+    // Two-word control: `^`, `:1`, and `$` agree on the first argument.
+    history.clear();
+    history.push("echo hi");
+    for typed in [b"!!:^".as_slice(), b"!!:1".as_slice(), b"!!:$".as_slice()] {
+        assert_eq!(
+            expand_history(typed, &history, histchars, &policy, |_| false).unwrap(),
+            b"hi".to_vec(),
+            "{}",
+            String::from_utf8_lossy(typed)
+        );
+    }
+}
+
+#[test]
 fn history_expansion_honors_readline_backslash_inhibition() {
     let mut history = History::new();
     history.push("echo alpha");

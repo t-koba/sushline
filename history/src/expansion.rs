@@ -509,7 +509,14 @@ fn select_history_words(
     let last = words.len().saturating_sub(1);
     let idx_for = |token: &[u8]| -> Result<usize, HistoryExpansionError> {
         match token {
-            b"^" => Ok(1.min(last)),
+            b"^" => {
+                if last < 1 {
+                    return Err(HistoryExpansionError::BadWordSpecifier(
+                        String::from_utf8_lossy(spec).into_owned(),
+                    ));
+                }
+                Ok(1)
+            }
             b"$" => Ok(last),
             b"" => Ok(0),
             _ => {

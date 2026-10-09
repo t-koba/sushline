@@ -672,7 +672,7 @@ where
         op: ViOperator,
         start: usize,
         inclusive: bool,
-    ) {
+    ) -> bool {
         let mut end = state.buffer.point();
         if inclusive {
             if end >= start {
@@ -681,7 +681,12 @@ where
         } else if end > start && matches!(op, ViOperator::Delete) {
             end = state.buffer.next_nonblank_from(end);
         }
-        self.apply_vi_operator_range_bounds(state, op, start.min(end), start.max(end));
+        let (lo, hi) = (start.min(end), start.max(end));
+        if lo == hi {
+            return false;
+        }
+        self.apply_vi_operator_range_bounds(state, op, lo, hi);
+        true
     }
 
     pub(crate) fn apply_vi_operator_range_bounds(
@@ -692,10 +697,6 @@ where
         end: usize,
     ) {
         if start == end {
-            if matches!(op, ViOperator::Change) {
-                state.record_undo();
-                self.keymap.set_current(KeyMapName::ViInsert);
-            }
             return;
         }
         match op {

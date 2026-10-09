@@ -12,7 +12,9 @@ where
         inclusive: bool,
     ) {
         if let Some((op, start, mut change)) = op_start {
-            self.apply_vi_operator_range(state, op, start, inclusive);
+            if !self.apply_vi_operator_range(state, op, start, inclusive) {
+                return;
+            }
             change.extend_from_slice(key);
             state.finish_vi_operator_change(op, change);
         }

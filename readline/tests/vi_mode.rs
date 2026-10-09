@@ -297,3 +297,22 @@ fn vi_operator_pending_state_is_visible_in_prompt() {
     assert_eq!(result, ReadlineResult::Line("two".as_bytes().to_vec()));
     assert!(line.terminal().out.contains("CMD:d> "));
 }
+
+#[test]
+fn vi_zero_width_change_does_not_enter_insert() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(b"\x1b".to_vec()),
+        TerminalEvent::Bytes(b"0".to_vec()),
+        TerminalEvent::Bytes(b"c".to_vec()),
+        TerminalEvent::Bytes(b"0".to_vec()),
+        TerminalEvent::Bytes(b"i".to_vec()),
+        TerminalEvent::Bytes(b"X".to_vec()),
+        TerminalEvent::Bytes(b"\x1b".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set editing-mode vi").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line("Xabc".as_bytes().to_vec()));
+}

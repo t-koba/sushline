@@ -798,6 +798,21 @@ fn yank_with_empty_ring_bells_and_preserves_line() {
 }
 
 #[test]
+fn delete_horizontal_space_consumes_numeric_argument() {
+    // M-2 M-\\ ignores its prefix and must not leak it: the following
+    // backward-char moves one step, so Q lands before f.
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abcdef".to_vec()),
+        TerminalEvent::Bytes(b"\x1b2\x1b\\".to_vec()),
+        TerminalEvent::Bytes(vec![0x02]),
+        TerminalEvent::Bytes(b"Q\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"abcdeQf".to_vec()));
+}
+
+#[test]
 fn yank_pop_consumes_numeric_argument() {
     // M-2 yank-pop must not leak the prefix into the next command:
     // the following backward-char moves one step, so Q lands before f.

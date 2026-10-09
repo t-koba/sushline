@@ -228,17 +228,15 @@ where
         hooks: &mut impl Hooks,
         next_byte: Option<u8>,
     ) -> (Vec<u8>, Option<DirectoryCompletion>) {
-        let filename_directory = response
-            .options
-            .filenames
-            .then(|| {
-                filename_directory_completion(
-                    &edit.word_bytes,
-                    candidate.replacement_bytes(),
-                    &self.filename_options(),
-                )
-            })
-            .flatten();
+        let filename_directory = if response.options.filenames {
+            filename_directory_completion(
+                &edit.word_bytes,
+                candidate.replacement_bytes(),
+                &self.filename_options(),
+            )
+        } else {
+            None
+        };
         let mut raw = candidate.replacement_bytes().to_vec();
         if append_filename_slash_for_candidate(candidate, filename_directory.as_ref(), next_byte) {
             raw.push(b'/');
@@ -254,10 +252,7 @@ where
     }
 }
 
-fn candidate_suffix<'a>(
-    candidate: &'a crate::completion::CompletionCandidate,
-    prefix: &[u8],
-) -> &'a [u8] {
+fn candidate_suffix<'a>(candidate: &'a CompletionCandidate, prefix: &[u8]) -> &'a [u8] {
     candidate
         .replacement_bytes()
         .strip_prefix(prefix)
@@ -297,14 +292,14 @@ fn completion_trailing_char(options: &CompletionOptions) -> Option<char> {
 }
 
 pub(super) fn suppress_append_for_directory(
-    candidate: &crate::completion::CompletionCandidate,
+    candidate: &CompletionCandidate,
     directory: Option<&DirectoryCompletion>,
 ) -> bool {
     directory.is_some() || candidate.replacement_bytes().ends_with(b"/")
 }
 
 pub(super) fn append_filename_slash_for_candidate(
-    candidate: &crate::completion::CompletionCandidate,
+    candidate: &CompletionCandidate,
     directory: Option<&DirectoryCompletion>,
     next_byte: Option<u8>,
 ) -> bool {

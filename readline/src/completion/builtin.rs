@@ -300,17 +300,12 @@ pub(crate) fn glob_complete(
                 else {
                     continue;
                 };
-                let mut prefixed = display_dir.as_bytes().to_vec();
-                let replacement = match completion_bytes {
-                    Some(bytes) => {
-                        prefixed.extend_from_slice(&bytes);
-                        prefixed
-                    }
-                    None => {
-                        prefixed.extend_from_slice(completion_name.as_bytes());
-                        prefixed
-                    }
-                };
+                let mut replacement = display_dir.as_bytes().to_vec();
+                replacement.extend_from_slice(
+                    completion_bytes
+                        .as_deref()
+                        .unwrap_or(completion_name.as_bytes()),
+                );
                 candidates.push(CompletionCandidate::plain(replacement));
             }
         }

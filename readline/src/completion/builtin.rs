@@ -1,7 +1,8 @@
 use crate::completion::filename::{
-    FilenameOptions, complete_filenames_bytes, expand_tilde, glob_match, glob_match_os,
-    is_executable_file, join_display_dir, os_name_is_hidden, os_string_to_completion,
-    os_string_to_display, split_word_path, split_word_path_bytes,
+    FilenameOptions, complete_filenames_bytes, expand_tilde, filename_matches_response,
+    filenames_response, glob_match, glob_match_os, is_executable_file, join_display_dir,
+    os_name_is_hidden, os_string_to_completion, os_string_to_display, split_word_path,
+    split_word_path_bytes,
 };
 use crate::completion::{
     CompletionCandidate, CompletionOptions, CompletionRequest, CompletionResponse,
@@ -251,25 +252,6 @@ pub(super) fn known_host_names() -> Vec<String> {
             }
         })
         .collect()
-}
-
-fn filenames_response(candidates: Vec<CompletionCandidate>) -> CompletionResponse {
-    CompletionResponse {
-        candidates,
-        options: CompletionOptions {
-            filenames: true,
-            ..Default::default()
-        },
-    }
-}
-
-fn filename_matches_response(matches: Vec<Vec<u8>>) -> CompletionResponse {
-    filenames_response(
-        matches
-            .into_iter()
-            .map(CompletionCandidate::plain)
-            .collect(),
-    )
 }
 
 pub(crate) fn glob_complete(

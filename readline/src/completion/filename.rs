@@ -1,4 +1,4 @@
-use crate::completion::CompletionResponse;
+use crate::completion::{CompletionCandidate, CompletionResponse};
 use crate::variables::Variables;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -80,8 +80,21 @@ pub(crate) fn complete_filenames_bytes(word: &[u8], opts: &FilenameOptions) -> C
     filename_response(candidates, directory_candidate_count)
 }
 
+pub(crate) fn filenames_response(candidates: Vec<CompletionCandidate>) -> CompletionResponse {
+    filename_response(candidates, 0)
+}
+
+pub(crate) fn filename_matches_response(matches: Vec<Vec<u8>>) -> CompletionResponse {
+    filenames_response(
+        matches
+            .into_iter()
+            .map(CompletionCandidate::plain)
+            .collect(),
+    )
+}
+
 fn filename_response(
-    candidates: Vec<crate::completion::CompletionCandidate>,
+    candidates: Vec<CompletionCandidate>,
     directory_candidate_count: usize,
 ) -> CompletionResponse {
     let single_directory = candidates.len() == 1 && directory_candidate_count == 1;

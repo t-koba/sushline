@@ -4,7 +4,7 @@ use super::*;
 fn edits_unicode_buffer_by_graphemes() {
     let mut b = LineBuffer::from("a界b");
     assert_eq!(b.len_chars(), "a界b".len());
-    assert_eq!(b.display_width(), 4);
+    assert_eq!(b.render_text(None, RenderOptions::default()).0, "a界b");
     b.move_backward();
     b.backward_delete_char();
     assert_eq!(b.as_string(), "ab");

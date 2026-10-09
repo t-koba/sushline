@@ -72,16 +72,21 @@ pub(super) fn complete_commands_bytes(word: &[u8]) -> CompletionResponse {
                 if !is_executable_file(&path) {
                     continue;
                 }
-                let os_name = entry.file_name();
-                let name = os_string_completion_bytes(&os_name);
-                if name.starts_with(word)
-                    && let Some((replacement, replacement_bytes)) = os_string_to_completion(os_name)
-                {
-                    let replacement = replacement_bytes.unwrap_or_else(|| replacement.into_bytes());
-                    names
-                        .entry(replacement)
-                        .or_insert_with_key(|key| CompletionCandidate::plain(key.clone()));
+                let Some((replacement, replacement_bytes)) =
+                    os_string_to_completion(entry.file_name())
+                else {
+                    continue;
+                };
+                let name_bytes = replacement_bytes
+                    .as_deref()
+                    .unwrap_or(replacement.as_bytes());
+                if !name_bytes.starts_with(word) {
+                    continue;
                 }
+                let replacement = replacement_bytes.unwrap_or_else(|| replacement.into_bytes());
+                names
+                    .entry(replacement)
+                    .or_insert_with_key(|key| CompletionCandidate::plain(key.clone()));
             }
         }
     }
@@ -89,17 +94,6 @@ pub(super) fn complete_commands_bytes(word: &[u8]) -> CompletionResponse {
         candidates: names.into_values().collect(),
         options: Default::default(),
     }
-}
-
-#[cfg(unix)]
-pub(super) fn os_string_completion_bytes(value: &std::ffi::OsStr) -> Vec<u8> {
-    use std::os::unix::ffi::OsStrExt;
-    value.as_bytes().to_vec()
-}
-
-#[cfg(not(unix))]
-pub(super) fn os_string_completion_bytes(value: &std::ffi::OsStr) -> Vec<u8> {
-    value.to_string_lossy().as_bytes().to_vec()
 }
 
 pub(crate) fn complete_commands_with_hooks_bytes(

@@ -1,4 +1,3 @@
-use crate::completion::display::common_prefix_bytes;
 use crate::completion::insert::extend_with_trailing_char;
 use crate::completion::quoting::CompletionEdit;
 use crate::completion::{CompletionAction, CompletionResponse, CompletionType};
@@ -152,16 +151,8 @@ where
         hooks: &mut impl Hooks,
         completion_type: CompletionType,
     ) -> Vec<u8> {
-        let Some(prefix) = common_prefix_bytes(&response.candidates) else {
-            return Vec::new();
-        };
-        self.requote_completion_bytes(
-            &prefix,
-            &context.edit,
-            completion_type,
-            response.options.quote_filename(),
-            hooks,
-        )
+        self.requote_common_prefix(response, &context.edit, completion_type, hooks)
+            .unwrap_or_default()
     }
 
     fn menu_complete_replacement(

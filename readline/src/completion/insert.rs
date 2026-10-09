@@ -66,14 +66,9 @@ where
                         && attempt.point == before_point
                         && attempt.line == before_line
                 });
-            if let Some(prefix_bytes) = common_prefix_bytes(&response.candidates) {
-                let mut replacement_bytes = self.requote_completion_bytes(
-                    &prefix_bytes,
-                    edit,
-                    completion_type,
-                    response.options.quote_filename(),
-                    hooks,
-                );
+            if let Some(mut replacement_bytes) =
+                self.requote_common_prefix(&response, edit, completion_type, hooks)
+            {
                 if skip_completed_text {
                     let suffix = completion_suffix_bytes(edit, state);
                     replacement_bytes = skip_completed_suffix_bytes(&replacement_bytes, &suffix);
@@ -211,6 +206,23 @@ where
             _ if quote_filename => quote_filename_bytes(value),
             _ => value.to_vec(),
         }
+    }
+
+    pub(super) fn requote_common_prefix(
+        &self,
+        response: &CompletionResponse,
+        edit: &CompletionEdit,
+        completion_type: CompletionType,
+        hooks: &mut impl Hooks,
+    ) -> Option<Vec<u8>> {
+        let prefix = common_prefix_bytes(&response.candidates)?;
+        Some(self.requote_completion_bytes(
+            &prefix,
+            edit,
+            completion_type,
+            response.options.quote_filename(),
+            hooks,
+        ))
     }
 
     pub(super) fn completion_replacement_with_directory(

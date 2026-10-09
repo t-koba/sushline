@@ -36,21 +36,6 @@ pub(crate) fn visible_width(value: &str) -> usize {
     width
 }
 
-/// Returns terminal-visible characters after removing CSI, OSC, and bare ESC
-/// escape sequences.
-pub(crate) fn terminal_visible_chars(output: &str) -> Vec<char> {
-    let mut chars = output.chars().peekable();
-    let mut visible = Vec::new();
-    while let Some(ch) = chars.next() {
-        if ch == '\x1b' {
-            consume_escape_tail(&mut chars);
-        } else {
-            visible.push(ch);
-        }
-    }
-    visible
-}
-
 /// Consumes the tail of a terminal escape sequence after the leading ESC.
 /// CSI (`ESC [`) runs to the first `@`..=`~` byte, OSC (`ESC ]`) runs to BEL
 /// or `ESC \`, and any other ESC consumes one following byte when present.
@@ -104,7 +89,12 @@ pub(crate) fn measured_rows_for_output(output: &str, columns: usize) -> (u16, bo
     let mut col = 0usize;
     let mut saw_visible_cell = false;
     let mut ended_with_newline = false;
-    for ch in terminal_visible_chars(output) {
+    let mut chars = output.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            consume_escape_tail(&mut chars);
+            continue;
+        }
         if ch == '\n' {
             row += 1;
             col = 0;

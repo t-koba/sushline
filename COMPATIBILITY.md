@@ -195,7 +195,7 @@ sections.
 | `disable-completion`, `show-all-if-ambiguous`, `show-all-if-unmodified`, `skip-completed-text`, `menu-complete-display-prefix` | Compatible | Used by completion engine and covered by focused tests. |
 | `convert-meta`, `input-meta`, `meta-flag`, `output-meta`, `enable-meta-key`, `force-meta-prefix` | Terminal-backed | Meta input/output behavior is mediated by Sushline's terminal/backend model and covered by variable tests. |
 | `echo-control-characters`, `byte-oriented` | Terminal-backed | Affects Sushline display rendering and is covered by variable/display tests. |
-| `enable-bracketed-paste`, `enable-keypad` | Compatible | Applied during terminal preparation/depreparation and tested. |
+| `enable-bracketed-paste`, `enable-keypad` | Compatible | Applied during terminal preparation/depreparation and tested. With `enable-bracketed-paste off`, injected `ESC[200~`/`ESC[201~` sequences are ignored instead of entering paste mode (fail-closed; GNU dispatch gating unverified, 8.3 baseline unpinned). |
 | `emacs-mode-string`, `vi-cmd-mode-string`, `vi-ins-mode-string`, `show-mode-in-prompt` | Compatible | Used by prompt rendering and tested. |
 | `history-preserve-point`, `history-size`, `mark-modified-lines`, `revert-all-at-newline`, `search-ignore-case`, `horizontal-scroll-mode`, `isearch-terminators`, `keyseq-timeout` | Compatible | Implemented in editor/history/display/input paths and covered by focused tests. |
 | `histchars`, `history-word-delimiters`, `history-search-delimiter-chars`, `history-no-expand-chars`, `history-quotes-inhibit-expansion` | Compatible | Parsed and used to build `HistoryExpansionPolicy` for editor history expansion. |

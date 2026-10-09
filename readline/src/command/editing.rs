@@ -1,6 +1,7 @@
 use super::*;
 use crate::completion::CompletionType;
 use crate::hooks::{LineExpansionContext, SpellCorrectionContext};
+use crate::variables::BoolVariable;
 
 impl<T> Editor<T>
 where
@@ -223,9 +224,16 @@ where
     ) -> Result<EditorOutcome, ReadlineError> {
         match command {
             "bracketed-paste-begin" => {
-                state.paste.bracketed_paste = true;
-                state.paste.bracketed_paste_start = Some(state.buffer.point());
-                state.paste.bracketed_paste_pending.clear();
+                // Fail closed when the embedder declines bracketed-paste
+                // semantics: ignore injected begin sequences instead of
+                // entering paste mode (terminal DEC mode is also left off).
+                if !self.flag(BoolVariable::EnableBracketedPaste) {
+                    state.consume_numeric_arg_unless_prefix();
+                } else {
+                    state.paste.bracketed_paste = true;
+                    state.paste.bracketed_paste_start = Some(state.buffer.point());
+                    state.paste.bracketed_paste_pending.clear();
+                }
             }
             "delete-char-or-list" => {
                 if state.buffer.point() >= state.buffer.len_chars() {

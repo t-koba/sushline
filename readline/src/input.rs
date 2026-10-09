@@ -408,6 +408,16 @@ where
         state: &mut EditorState,
         bytes: &[u8],
     ) -> Result<EditorOutcome, ReadlineError> {
+        // Fail closed when bracketed paste is off: swallow injected bracket
+        // end (and unbound begin) sequences so they leave no literal trace.
+        // Bound begin sequences are already gated at dispatch; this covers
+        // the unbound end marker, which has no keymap binding.
+        if !self.flag(BoolVariable::EnableBracketedPaste)
+            && matches!(bytes, b"\x1b[200~" | b"\x1b[201~")
+        {
+            state.consume_numeric_arg_unless_prefix();
+            return Ok(EditorOutcome::Continue);
+        }
         if state.input.pending_replace {
             state.input.pending_replace = false;
             state.consume_numeric_arg_unless_prefix();

@@ -189,6 +189,34 @@ fn show_mode_in_prompt_adds_mode_string() {
 }
 
 #[test]
+fn bracketed_paste_off_ignores_split_bracket_sequence_without_mark() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\x1b[200~".to_vec()),
+        TerminalEvent::Bytes(b"a".to_vec()),
+        TerminalEvent::Bytes(b"\x1b[201~".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set enable-bracketed-paste off")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"a".to_vec()));
+    assert!(!line.terminal().out.contains("\x1b[?2004h"));
+    // Control byte would be literal inside a paste; outside it is a command.
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\x1b[200~".to_vec()),
+        TerminalEvent::Bytes(vec![0x01]),
+        TerminalEvent::Bytes(b"\x1b[201~".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set enable-bracketed-paste off")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(Vec::new()));
+}
+
+#[test]
 fn bracketed_paste_variable_enables_terminal_mode_and_pastes_literal_text() {
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"\x1b[200~".to_vec()),

@@ -949,3 +949,61 @@ fn supports_history_library_position_and_search_operations() {
     assert_eq!(pos.entry_index, 0);
     assert_eq!(pos.line_bytes, b"alpha one");
 }
+
+#[test]
+fn quick_substitution_is_inhibited_by_single_quote_state() {
+    let mut history = History::new();
+    history.push("echo alpha");
+    let histchars = HistoryChars::parse("!^#");
+
+    // Baseline: no quote state expands, with and without trailing `^`.
+    assert_eq!(
+        expand_history(
+            b"^alpha^beta^",
+            &history,
+            histchars,
+            &HistoryExpansionPolicy::default(),
+            |_| false
+        )
+        .unwrap(),
+        b"echo beta".to_vec()
+    );
+    assert_eq!(
+        expand_history(
+            b"^alpha^beta",
+            &history,
+            histchars,
+            &HistoryExpansionPolicy::default(),
+            |_| false
+        )
+        .unwrap(),
+        b"echo beta".to_vec()
+    );
+
+    // GNU Readline 8.3: single-quote state inhibits quick substitution even
+    // when `quotes_inhibit_expansion` is off; the line passes through unchanged.
+    for quotes_inhibit in [false, true] {
+        let policy = HistoryExpansionPolicy {
+            quote_state: Some(b'\''),
+            quotes_inhibit_expansion: quotes_inhibit,
+            ..HistoryExpansionPolicy::default()
+        };
+        for line in [b"^alpha^beta^".as_slice(), b"^alpha^beta".as_slice()] {
+            assert_eq!(
+                expand_history(line, &history, histchars, &policy, |_| false).unwrap(),
+                line.to_vec(),
+                "quotes_inhibit={quotes_inhibit}",
+            );
+        }
+    }
+
+    // Double-quote state does not inhibit quick substitution.
+    let policy = HistoryExpansionPolicy {
+        quote_state: Some(b'"'),
+        ..HistoryExpansionPolicy::default()
+    };
+    assert_eq!(
+        expand_history(b"^alpha^beta^", &history, histchars, &policy, |_| false).unwrap(),
+        b"echo beta".to_vec()
+    );
+}

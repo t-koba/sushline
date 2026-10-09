@@ -118,7 +118,10 @@ pub fn expand_history_with_status(
 ) -> Result<HistoryExpansion, HistoryExpansionError> {
     let expansion = histchars.expansion as u8;
     let quick = histchars.quick_substitution as u8;
+    // GNU Readline 8.3: a leading quick-substitution marker is not history
+    // expansion while the embedder reports single-quote state.
     if policy.quick_substitution
+        && policy.quote_state != Some(b'\'')
         && line.first() == Some(&quick)
         && let Some(old_end) = line[1..]
             .iter()

@@ -67,7 +67,7 @@ where
                     state.buffer.insert_char(' ');
                 }
             }
-        } else if !response.candidates.is_empty() {
+        } else {
             let before_line = state.buffer.as_bytes().to_vec();
             let before_point = state.buffer.byte_point();
             let repeated_unmodified_completion = state

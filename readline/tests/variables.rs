@@ -217,6 +217,20 @@ fn bracketed_paste_off_ignores_split_bracket_sequence_without_mark() {
 }
 
 #[test]
+fn bracketed_paste_preserves_trailing_bytes_in_same_chunk() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\x1b[200~".to_vec()),
+        TerminalEvent::Bytes(b"hi\x1b[201~X".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set enable-bracketed-paste on")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"hiX".to_vec()));
+}
+
+#[test]
 fn bracketed_paste_variable_enables_terminal_mode_and_pastes_literal_text() {
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"\x1b[200~".to_vec()),

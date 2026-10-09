@@ -56,7 +56,7 @@ where
             return self.handle_named_command(state, bytes, hooks);
         }
         if state.paste.bracketed_paste {
-            return Ok(self.handle_bracketed_paste_input(state, bytes));
+            return self.handle_bracketed_paste_input(state, bytes, hooks);
         }
         if let Some(outcome) = self.handle_pending_vi_mark(state, bytes)? {
             return Ok(outcome);
@@ -107,22 +107,24 @@ where
         &mut self,
         state: &mut EditorState,
         bytes: &[u8],
-    ) -> EditorOutcome {
+        hooks: &mut impl Hooks,
+    ) -> Result<EditorOutcome, ReadlineError> {
         let mut combined = std::mem::take(&mut state.paste.bracketed_paste_pending);
         combined.extend_from_slice(bytes);
         let end_seq = b"\x1b[201~";
-        let paste_ends = combined
+        let end_pos = combined
             .windows(end_seq.len())
-            .any(|window| window == end_seq);
-        let payload_len = combined
-            .windows(end_seq.len())
-            .position(|window| window == end_seq)
-            .unwrap_or_else(|| {
-                combined
-                    .len()
-                    .saturating_sub(end_seq.len().saturating_sub(1))
-            });
+            .position(|window| window == end_seq);
+        let paste_ends = end_pos.is_some();
+        let payload_len = end_pos.unwrap_or_else(|| {
+            combined
+                .len()
+                .saturating_sub(end_seq.len().saturating_sub(1))
+        });
         let payload = combined[..payload_len].to_vec();
+        let remainder = end_pos
+            .map(|pos| combined[pos + end_seq.len()..].to_vec())
+            .unwrap_or_default();
         if payload_len < combined.len() && !paste_ends {
             state
                 .paste
@@ -141,8 +143,11 @@ where
             state.paste.bracketed_paste = false;
             state.paste.bracketed_paste_start = None;
             state.paste.bracketed_paste_pending.clear();
+            if !remainder.is_empty() {
+                return self.handle_bytes(state, &remainder, hooks);
+            }
         }
-        EditorOutcome::Continue
+        Ok(EditorOutcome::Continue)
     }
 
     fn handle_replace_input(&mut self, state: &mut EditorState, bytes: &[u8]) -> EditorOutcome {

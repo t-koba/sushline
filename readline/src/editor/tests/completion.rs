@@ -362,6 +362,10 @@ fn glob_completion_matches_bracket_expressions() {
     assert!(!glob_match("file[!0-9].rs", "file7.rs"));
     assert!(glob_match("[[:alpha:]][[:digit:]]", "a7"));
     assert!(!glob_match("[![:digit:]]", "7"));
+    assert!(glob_match_bytes(b"[[:alpha:]][[:digit:]]", b"a7"));
+    assert!(!glob_match_bytes(b"[![:digit:]]", b"7"));
+    assert!(glob_match_bytes(b"*[[:lower:]]*", b"abc"));
+    assert!(glob_match_bytes(b"[[:lower:]]", b"a"));
     assert!(glob_match(r"file\*.rs", "file*.rs"));
     assert!(!glob_match(r"file\*.rs", "file1.rs"));
 }

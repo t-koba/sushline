@@ -449,6 +449,16 @@ fn match_bracket_class_bytes(pattern_after_open: &[u8], value: u8) -> Option<(bo
         if ch == b']' && saw_member {
             return Some((matched != negated, &pattern_after_open[idx + 1..]));
         }
+        if ch == b'['
+            && pattern_after_open.get(idx + 1) == Some(&b':')
+            && let Some((class_matched, next_idx)) =
+                match_posix_character_class_bytes(pattern_after_open, idx, value)
+        {
+            saw_member = true;
+            matched |= class_matched;
+            idx = next_idx;
+            continue;
+        }
         saw_member = true;
         if idx + 2 < pattern_after_open.len()
             && pattern_after_open[idx + 1] == b'-'
@@ -461,6 +471,38 @@ fn match_bracket_class_bytes(pattern_after_open: &[u8], value: u8) -> Option<(bo
             matched |= ch == value;
             idx += 1;
         }
+    }
+    None
+}
+
+fn match_posix_character_class_bytes(
+    pattern: &[u8],
+    idx: usize,
+    value: u8,
+) -> Option<(bool, usize)> {
+    let mut end = idx + 2;
+    while end + 1 < pattern.len() {
+        if pattern[end] == b':' && pattern[end + 1] == b']' {
+            let name = &pattern[idx + 2..end];
+            let matched = match name {
+                b"alnum" => value.is_ascii_alphanumeric(),
+                b"alpha" => value.is_ascii_alphabetic(),
+                b"ascii" => value.is_ascii(),
+                b"blank" => matches!(value, b' ' | b'\t'),
+                b"cntrl" => value.is_ascii_control(),
+                b"digit" => value.is_ascii_digit(),
+                b"graph" => !value.is_ascii_whitespace() && !value.is_ascii_control(),
+                b"lower" => value.is_ascii_lowercase(),
+                b"print" => !value.is_ascii_control(),
+                b"punct" => value.is_ascii_punctuation(),
+                b"space" => value.is_ascii_whitespace(),
+                b"upper" => value.is_ascii_uppercase(),
+                b"xdigit" => value.is_ascii_hexdigit(),
+                _ => return None,
+            };
+            return Some((matched, end + 2));
+        }
+        end += 1;
     }
     None
 }

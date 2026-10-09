@@ -47,18 +47,17 @@ where
             if skip_completed_text {
                 replacement_bytes = skip_completed_suffix_bytes(&replacement_bytes, &suffix);
             }
-            state
-                .buffer
-                .replace_range_bytes(edit.start, edit.end, &replacement_bytes);
-            if !skipped_completed_text
-                && let Some(ch) = completion_append_char(
+            if !skipped_completed_text {
+                extend_replacement_with_append_char(
+                    &mut replacement_bytes,
                     &response.options,
                     candidate,
                     filename_directory.as_ref(),
-                )
-            {
-                state.buffer.insert_char(ch);
+                );
             }
+            state
+                .buffer
+                .replace_range_bytes(edit.start, edit.end, &replacement_bytes);
         } else {
             let before_line = state.buffer.as_bytes().to_vec();
             let before_point = state.buffer.byte_point();
@@ -291,6 +290,18 @@ fn candidate_suffix<'a>(
         .replacement_bytes()
         .strip_prefix(prefix)
         .unwrap_or_else(|| candidate.replacement_bytes())
+}
+
+pub(super) fn extend_replacement_with_append_char(
+    replacement: &mut Vec<u8>,
+    options: &CompletionOptions,
+    candidate: &CompletionCandidate,
+    directory: Option<&DirectoryCompletion>,
+) {
+    if let Some(ch) = completion_append_char(options, candidate, directory) {
+        let mut buf = [0; 4];
+        replacement.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
+    }
 }
 
 pub(super) fn completion_append_char(

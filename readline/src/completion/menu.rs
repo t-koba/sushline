@@ -1,5 +1,5 @@
 use crate::completion::display::common_prefix_bytes;
-use crate::completion::insert::completion_append_char;
+use crate::completion::insert::extend_replacement_with_append_char;
 use crate::completion::quoting::CompletionEdit;
 use crate::completion::{CompletionAction, CompletionResponse, CompletionType};
 use crate::editor::{Editor, ReadlineError};
@@ -221,12 +221,12 @@ where
             hooks,
             state.buffer.as_bytes().get(context.end).copied(),
         );
-        if let Some(ch) =
-            completion_append_char(&response.options, candidate, filename_directory.as_ref())
-        {
-            let mut buf = [0; 4];
-            replacement.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
-        }
+        extend_replacement_with_append_char(
+            &mut replacement,
+            &response.options,
+            candidate,
+            filename_directory.as_ref(),
+        );
         replacement
     }
 

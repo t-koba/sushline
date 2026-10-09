@@ -229,9 +229,8 @@ where
             hooks,
             append_filename_slash,
         );
-        let suppress_append_for_directory = filename_directory.is_some()
-            || candidate.replacement_bytes().ends_with(b"/")
-            || append_filename_slash;
+        let suppress_append_for_directory =
+            filename_directory.is_some() || candidate.replacement_bytes().ends_with(b"/");
         if !suppress_append_for_directory && !response.options.nospace {
             if let Some(ch) = response.options.append_character {
                 let mut buf = [0; 4];

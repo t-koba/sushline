@@ -82,6 +82,22 @@ pub(crate) fn terminal_visible_chars(output: &str) -> Vec<char> {
     visible
 }
 
+/// Advances one cell across a wrapped line, returning added rows and new column.
+pub(crate) fn advance_cell(col: usize, width: usize, columns: usize) -> (usize, usize) {
+    let mut col = col;
+    let mut rows = 0usize;
+    if width > 0 && col + width > columns {
+        rows += 1;
+        col = 0;
+    }
+    col += width;
+    if col >= columns {
+        rows += col / columns;
+        col %= columns;
+    }
+    (rows, col)
+}
+
 /// Returns how many terminal rows a rendered output string occupies.
 pub(crate) fn rendered_rows_for_output(output: &str, columns: usize) -> u16 {
     let columns = columns.max(1);
@@ -93,16 +109,9 @@ pub(crate) fn rendered_rows_for_output(output: &str, columns: usize) -> u16 {
             col = 0;
             continue;
         }
-        let width = char_width(ch);
-        if width > 0 && col + width > columns {
-            row += 1;
-            col = 0;
-        }
-        col += width;
-        if col >= columns {
-            row += col / columns;
-            col %= columns;
-        }
+        let (added, next) = advance_cell(col, char_width(ch), columns);
+        row += added;
+        col = next;
     }
     row as u16
 }
@@ -121,13 +130,7 @@ pub(crate) fn output_ends_at_wrap_boundary(output: &str, columns: usize) -> bool
         }
         ended_with_newline = false;
         let width = char_width(ch);
-        if width > 0 && col + width > columns {
-            col = 0;
-        }
-        col += width;
-        if col >= columns {
-            col %= columns;
-        }
+        (_, col) = advance_cell(col, width, columns);
         saw_visible_cell |= width > 0;
     }
     saw_visible_cell && !ended_with_newline && col == 0

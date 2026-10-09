@@ -6,7 +6,7 @@
 #![allow(missing_docs)]
 
 use super::{LineBuffer, private_byte_char, private_byte_value};
-use crate::width::char_width;
+use crate::width::{advance_cell, char_width};
 use std::borrow::Cow;
 
 #[derive(Debug, Clone)]
@@ -174,16 +174,9 @@ impl LineBuffer {
                     col = 0;
                     continue;
                 }
-                let width = char_width(rendered);
-                if width > 0 && col + width > columns {
-                    row += 1;
-                    col = 0;
-                }
-                col += width;
-                if col >= columns {
-                    row += col / columns;
-                    col %= columns;
-                }
+                let (added, next) = advance_cell(col, char_width(rendered), columns);
+                row += added;
+                col = next;
             }
             positions.push((self.next_char_boundary(idx), (row, col)));
         }

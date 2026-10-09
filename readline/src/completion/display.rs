@@ -134,12 +134,8 @@ pub(crate) fn format_completion_items_with_trailing(
     if items.is_empty() {
         return Vec::new();
     }
-    let item_width = items
-        .iter()
-        .map(|item| visible_width(item))
-        .max()
-        .unwrap_or(0)
-        + 2;
+    let widths: Vec<usize> = items.iter().map(|item| visible_width(item)).collect();
+    let item_width = widths.iter().copied().max().unwrap_or(0) + 2;
     let columns = (display_width / item_width.max(1)).max(1);
     let rows = items.len().div_ceil(columns);
     let mut lines = Vec::with_capacity(rows);
@@ -155,7 +151,7 @@ pub(crate) fn format_completion_items_with_trailing(
                 continue;
             };
             line.push_str(item);
-            let padding = item_width.saturating_sub(visible_width(item));
+            let padding = item_width.saturating_sub(widths[idx]);
             if col + 1 < columns || keep_trailing_padding {
                 line.push_str(&" ".repeat(padding));
             }

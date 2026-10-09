@@ -144,17 +144,6 @@ where
         }
     }
 
-    fn menu_complete_prefix_replacement(
-        &self,
-        response: &CompletionResponse,
-        context: &MenuCompleteContext,
-        hooks: &mut impl Hooks,
-        completion_type: CompletionType,
-    ) -> Vec<u8> {
-        self.requote_common_prefix(response, &context.edit, completion_type, hooks)
-            .unwrap_or_default()
-    }
-
     fn menu_complete_replacement(
         &self,
         response: &CompletionResponse,
@@ -165,12 +154,9 @@ where
         completion_type: CompletionType,
     ) -> Vec<u8> {
         if next_index == 0 {
-            return self.menu_complete_prefix_replacement(
-                response,
-                context,
-                hooks,
-                completion_type,
-            );
+            return self
+                .requote_common_prefix(response, &context.edit, completion_type, hooks)
+                .unwrap_or_default();
         }
         let candidate = &response.candidates[next_index - 1];
         let (mut replacement, is_directory) = self.completion_replacement_with_directory(

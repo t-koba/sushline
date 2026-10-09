@@ -124,6 +124,11 @@ During an active `read_line`, Sushline may translate terminal and signal events
 into editor behavior; process-wide policy and post-read control flow remain the
 embedder's responsibility.
 
+Idle and input-available policy (GNU `rl_event_hook` / `rl_input_available_hook` /
+keyboard-input timeout) belongs to the embedder's `TerminalIo::read_event`
+timeout/poll plus per-iteration `Hooks::check_signals`; Sushline performs no
+implicit idle callback, and `keyseq-timeout` drives the `read_event` timeout.
+
 Terminal escape bytes that are not terminfo-backed live in
 `terminal::escape`. Terminfo remains responsible for existing capabilities such
 as clear, flash, meta-key, keypad, and active-region sequences. Fixed ANSI

@@ -1,5 +1,5 @@
 use crate::completion::display::common_prefix_bytes;
-use crate::completion::insert::extend_replacement_with_append_char;
+use crate::completion::insert::extend_with_trailing_char;
 use crate::completion::quoting::CompletionEdit;
 use crate::completion::{CompletionAction, CompletionResponse, CompletionType};
 use crate::editor::{Editor, ReadlineError};
@@ -182,7 +182,7 @@ where
             );
         }
         let candidate = &response.candidates[next_index - 1];
-        let (mut replacement, filename_directory) = self.completion_replacement_with_directory(
+        let (mut replacement, is_directory) = self.completion_replacement_with_directory(
             response,
             &context.edit,
             candidate,
@@ -190,12 +190,9 @@ where
             hooks,
             state.buffer.as_bytes().get(context.end).copied(),
         );
-        extend_replacement_with_append_char(
-            &mut replacement,
-            &response.options,
-            candidate,
-            filename_directory.as_ref(),
-        );
+        if !is_directory {
+            extend_with_trailing_char(&mut replacement, &response.options);
+        }
         replacement
     }
 

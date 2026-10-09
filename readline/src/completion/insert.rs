@@ -1,5 +1,5 @@
 use crate::completion::display::common_prefix_bytes;
-use crate::completion::filename::{DirectoryCompletion, filename_directory_completion};
+use crate::completion::filename::filename_directory_completion;
 use crate::completion::quoting::*;
 use crate::completion::{
     CompletionAction, CompletionCandidate, CompletionOptions, CompletionResponse, CompletionType,
@@ -34,26 +34,20 @@ where
         if response.candidates.len() == 1 {
             let candidate = &response.candidates[0];
             let suffix = completion_suffix_bytes(edit, state);
-            let (mut replacement_bytes, filename_directory) = self
-                .completion_replacement_with_directory(
-                    &response,
-                    edit,
-                    candidate,
-                    completion_type,
-                    hooks,
-                    suffix.first().copied(),
-                );
+            let (mut replacement_bytes, is_directory) = self.completion_replacement_with_directory(
+                &response,
+                edit,
+                candidate,
+                completion_type,
+                hooks,
+                suffix.first().copied(),
+            );
             let skipped_completed_text = skip_completed_text && !suffix.is_empty();
             if skip_completed_text {
                 replacement_bytes = skip_completed_suffix_bytes(&replacement_bytes, &suffix);
             }
-            if !skipped_completed_text {
-                extend_replacement_with_append_char(
-                    &mut replacement_bytes,
-                    &response.options,
-                    candidate,
-                    filename_directory.as_ref(),
-                );
+            if !skipped_completed_text && !is_directory {
+                extend_with_trailing_char(&mut replacement_bytes, &response.options);
             }
             state
                 .buffer
@@ -227,7 +221,7 @@ where
         completion_type: CompletionType,
         hooks: &mut impl Hooks,
         next_byte: Option<u8>,
-    ) -> (Vec<u8>, Option<DirectoryCompletion>) {
+    ) -> (Vec<u8>, bool) {
         let filename_directory = if response.options.filenames {
             filename_directory_completion(
                 &edit.word_bytes,
@@ -252,7 +246,9 @@ where
             response.options.quote_filename(),
             hooks,
         );
-        (replacement, filename_directory)
+        let is_directory =
+            filename_directory.is_some() || candidate.replacement_bytes().ends_with(b"/");
+        (replacement, is_directory)
     }
 }
 
@@ -263,19 +259,7 @@ fn candidate_suffix<'a>(candidate: &'a CompletionCandidate, prefix: &[u8]) -> &'
         .unwrap_or_else(|| candidate.replacement_bytes())
 }
 
-pub(super) fn extend_replacement_with_append_char(
-    replacement: &mut Vec<u8>,
-    options: &CompletionOptions,
-    candidate: &CompletionCandidate,
-    directory: Option<&DirectoryCompletion>,
-) {
-    if directory.is_some() || candidate.replacement_bytes().ends_with(b"/") {
-        return;
-    }
-    extend_with_trailing_char(replacement, options);
-}
-
-fn extend_with_trailing_char(replacement: &mut Vec<u8>, options: &CompletionOptions) {
+pub(super) fn extend_with_trailing_char(replacement: &mut Vec<u8>, options: &CompletionOptions) {
     let trailing = if options.nospace {
         None
     } else if let Some(ch) = options.append_character {

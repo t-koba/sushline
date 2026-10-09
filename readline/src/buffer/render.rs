@@ -32,7 +32,7 @@ impl Default for RenderOptions<'static> {
     }
 }
 
-pub(super) fn rendered_char_width(ch: char, options: RenderOptions<'_>) -> usize {
+pub(super) fn rendered_char_width(ch: char, options: &RenderOptions<'_>) -> usize {
     display_char(
         ch,
         options.echo_control,
@@ -220,7 +220,7 @@ impl LineBuffer {
         let mut start = self.point;
         let mut width = 0;
         while let Some(prev) = self.prev_grapheme_boundary_checked(start) {
-            let ch_width = self.rendered_slice_width(prev, start, options.clone());
+            let ch_width = self.rendered_slice_width(prev, start, &options);
             if width + ch_width > max_width.saturating_sub(1) {
                 break;
             }
@@ -231,7 +231,7 @@ impl LineBuffer {
         let mut total_width = width;
         while end < self.bytes.len() {
             let next = self.next_grapheme_boundary(end);
-            let ch_width = self.rendered_slice_width(end, next, options.clone());
+            let ch_width = self.rendered_slice_width(end, next, &options);
             if total_width + ch_width > max_width {
                 break;
             }
@@ -337,10 +337,10 @@ impl LineBuffer {
         (total_row, point_row, point_col)
     }
 
-    fn rendered_slice_width(&self, start: usize, end: usize, options: RenderOptions<'_>) -> usize {
+    fn rendered_slice_width(&self, start: usize, end: usize, options: &RenderOptions<'_>) -> usize {
         self.decoded_chars_in_range(start, end)
             .into_iter()
-            .map(|ch| rendered_char_width(ch, options.clone()))
+            .map(|ch| rendered_char_width(ch, options))
             .sum()
     }
 

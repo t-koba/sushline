@@ -27,13 +27,15 @@ where
         normalize_terminal_size(size)
     }
 
+    /// Terminal columns, always at least one (normalized sizes never report zero).
     pub(crate) fn tracked_terminal_columns(&self, state: &EditorState) -> usize {
-        state
+        (state
             .display
             .last_terminal_size
             .map(normalize_terminal_size)
             .unwrap_or_else(|| self.usable_terminal_size())
-            .columns as usize
+            .columns as usize)
+            .max(1)
     }
 
     pub(crate) fn completion_display_width(&self) -> usize {
@@ -139,7 +141,7 @@ where
             self.terminal.write("\r\n")?;
         }
         if self.flag(BoolVariable::HorizontalScrollMode) {
-            let column = (prompt_width + point_width) % columns.max(1);
+            let column = (prompt_width + point_width) % columns;
             state.display.rendered_rows = rendered_rows;
             state.display.rendered_cursor_row = state.display.rendered_rows;
             self.terminal.move_to_column(column as u16)?;

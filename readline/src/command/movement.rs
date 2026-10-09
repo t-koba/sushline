@@ -149,7 +149,7 @@ where
                 state.after_non_kill_command();
             }
             "next-screen-line" => {
-                let columns = self.tracked_terminal_columns(state).max(1);
+                let columns = self.tracked_terminal_columns(state);
                 let prompt_width = self.current_prompt_width(state);
                 let count = repeat_count(state.numeric_arg.take()) as isize;
                 state
@@ -158,7 +158,7 @@ where
                 state.after_non_kill_command();
             }
             "previous-screen-line" => {
-                let columns = self.tracked_terminal_columns(state).max(1);
+                let columns = self.tracked_terminal_columns(state);
                 let prompt_width = self.current_prompt_width(state);
                 let count = repeat_count(state.numeric_arg.take()) as isize;
                 state

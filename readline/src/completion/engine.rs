@@ -204,15 +204,16 @@ where
         hooks: &mut impl Hooks,
     ) -> CompletionResponse {
         let kind = request.context.completion_type;
+        let word_lossy = String::from_utf8_lossy(&request.context.word);
         let mut response = match kind {
             CompletionType::Command | CompletionType::PossibleCommandCompletions => {
                 complete_commands_with_hooks_bytes(&request.context.word, hooks)
             }
             CompletionType::Username | CompletionType::PossibleUsernameCompletions => {
-                complete_users(&String::from_utf8_lossy(&request.context.word), hooks)
+                complete_users(&word_lossy, hooks)
             }
             CompletionType::Variable | CompletionType::PossibleVariableCompletions => {
-                complete_variables(&String::from_utf8_lossy(&request.context.word), hooks)
+                complete_variables(&word_lossy, hooks)
             }
             CompletionType::Filename | CompletionType::PossibleFilenameCompletions => {
                 complete_filenames_bytes(&request.context.word, &self.filename_options())
@@ -230,7 +231,7 @@ where
                 glob_complete_bytes(&request.context.word, hooks, &self.variables)
             }
             CompletionType::Hostname | CompletionType::PossibleHostnameCompletions => {
-                complete_hosts(&String::from_utf8_lossy(&request.context.word), hooks)
+                complete_hosts(&word_lossy, hooks)
             }
             CompletionType::DynamicHistory => CompletionResponse::default(),
             CompletionType::ViComplete => unreachable!("vi-complete is normalized before dispatch"),

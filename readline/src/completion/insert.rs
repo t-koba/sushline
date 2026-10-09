@@ -219,25 +219,6 @@ where
         }
     }
 
-    pub(super) fn filename_directory_completion_for_candidate(
-        &self,
-        response: &CompletionResponse,
-        edit: &CompletionEdit,
-        candidate: &crate::completion::CompletionCandidate,
-    ) -> Option<DirectoryCompletion> {
-        response
-            .options
-            .filenames
-            .then(|| {
-                filename_directory_completion(
-                    &edit.word_bytes,
-                    candidate.replacement_bytes(),
-                    &self.filename_options(),
-                )
-            })
-            .flatten()
-    }
-
     pub(super) fn completion_replacement_with_directory(
         &self,
         response: &CompletionResponse,
@@ -247,8 +228,17 @@ where
         hooks: &mut impl Hooks,
         next_byte: Option<u8>,
     ) -> (Vec<u8>, Option<DirectoryCompletion>) {
-        let filename_directory =
-            self.filename_directory_completion_for_candidate(response, edit, candidate);
+        let filename_directory = response
+            .options
+            .filenames
+            .then(|| {
+                filename_directory_completion(
+                    &edit.word_bytes,
+                    candidate.replacement_bytes(),
+                    &self.filename_options(),
+                )
+            })
+            .flatten();
         let mut raw = candidate.replacement_bytes().to_vec();
         if append_filename_slash_for_candidate(candidate, filename_directory.as_ref(), next_byte) {
             raw.push(b'/');

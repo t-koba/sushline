@@ -117,12 +117,7 @@ where
         let (prompt, prompt_width) = self.effective_prompt(state);
         self.terminal
             .write_bytes(&rendered_string_to_bytes(&prompt))?;
-        let size = state
-            .display
-            .last_terminal_size
-            .map(normalize_terminal_size)
-            .unwrap_or_else(|| self.usable_terminal_size());
-        let columns = size.columns as usize;
+        let columns = self.tracked_terminal_columns(state);
         let (buffer, point_width) = if self.flag(BoolVariable::HorizontalScrollMode) {
             state.buffer.horizontal_window_with_options(
                 columns.saturating_sub(prompt_width).max(1),

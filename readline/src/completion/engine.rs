@@ -158,8 +158,7 @@ where
                 || response.options.dirnames
                 || response.options.plusdirs)
         {
-            let options = response.options.clone();
-            response = CompletionResponse::default();
+            let options = std::mem::take(&mut response.options);
             if options.bashdefault
                 && let Some(application_response) = hooks.default_complete(&request)
             {

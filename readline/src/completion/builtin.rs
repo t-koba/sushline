@@ -216,8 +216,8 @@ pub(super) fn complete_hosts(word: &str, hooks: &mut impl Hooks) -> CompletionRe
     }
 }
 
-pub(super) fn system_user_names() -> Vec<String> {
-    let Ok(output) = Command::new("getent").arg("passwd").output() else {
+fn getent_lines(table: &str) -> Vec<String> {
+    let Ok(output) = Command::new("getent").arg(table).output() else {
         return Vec::new();
     };
     if !output.status.success() {
@@ -225,19 +225,20 @@ pub(super) fn system_user_names() -> Vec<String> {
     }
     String::from_utf8_lossy(&output.stdout)
         .lines()
+        .map(str::to_string)
+        .collect()
+}
+
+pub(super) fn system_user_names() -> Vec<String> {
+    getent_lines("passwd")
+        .into_iter()
         .filter_map(|line| line.split_once(':').map(|(name, _)| name.to_string()))
         .collect()
 }
 
 pub(super) fn system_host_names() -> Vec<String> {
-    let Ok(output) = Command::new("getent").arg("hosts").output() else {
-        return Vec::new();
-    };
-    if !output.status.success() {
-        return Vec::new();
-    }
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
+    getent_lines("hosts")
+        .into_iter()
         .flat_map(|line| {
             line.split_whitespace()
                 .skip(1)

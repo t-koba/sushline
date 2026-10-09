@@ -305,7 +305,8 @@ fn write_entry(
 
 fn read_history_records(file: fs::File) -> io::Result<Vec<(Vec<u8>, Option<String>)>> {
     let mut records = Vec::new();
-    let mut pending_timestamp = None;
+    let mut pending_timestamp: Option<String> = None;
+    let mut delimited_lines: Vec<Vec<u8>> = Vec::new();
     let mut reader = io::BufReader::new(file);
     let mut line = Vec::new();
     while reader.read_until(b'\n', &mut line)? != 0 {
@@ -318,12 +319,31 @@ fn read_history_records(file: fs::File) -> io::Result<Vec<(Vec<u8>, Option<Strin
         if let Ok(text) = std::str::from_utf8(&line)
             && is_timestamp_record(text)
         {
+            if !delimited_lines.is_empty() {
+                let joined = delimited_lines.join(&b'\n');
+                delimited_lines.clear();
+                records.push((joined, pending_timestamp.take()));
+            }
             pending_timestamp = Some(text.to_string());
             line.clear();
             continue;
         }
-        records.push((std::mem::take(&mut line), pending_timestamp.take()));
+        if pending_timestamp.is_some() || !delimited_lines.is_empty() {
+            // Timestamp-delimited entry: physical lines up to the next
+            // timestamp belong to one entry; blank lines are preserved.
+            delimited_lines.push(std::mem::take(&mut line));
+        } else {
+            // Plain file without timestamps: one physical line per entry;
+            // blank lines carry no entry.
+            if !line.is_empty() {
+                records.push((std::mem::take(&mut line), None));
+            }
+        }
         line.clear();
+    }
+    if !delimited_lines.is_empty() {
+        let joined = delimited_lines.join(&b'\n');
+        records.push((joined, pending_timestamp.take()));
     }
     Ok(records)
 }

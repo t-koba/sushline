@@ -271,6 +271,51 @@ fn history_files_write_readline_compatible_raw_multiline_entries() {
 }
 
 #[test]
+fn history_files_join_timestamp_delimited_multiline_and_preserve_blanks() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(
+        &path,
+        "#1700000000\nline one\n\nline two\n#1700000001\nnext\n",
+    )
+    .unwrap();
+
+    let loaded = History::read_file(&path).unwrap();
+    assert_eq!(
+        loaded
+            .entries()
+            .iter()
+            .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
+            .collect::<Vec<_>>(),
+        vec![
+            (Some("#1700000000"), "line one\n\nline two".to_string()),
+            (Some("#1700000001"), "next".to_string()),
+        ]
+    );
+
+    // Round-trip preserves the delimited byte layout.
+    let reread = History::read_file(&path).unwrap();
+    assert_eq!(reread.entries().len(), 2);
+    assert_eq!(reread.entries()[0].line_bytes, b"line one\n\nline two");
+
+    // Without timestamps there is no delimiter: blank is dropped and lines split.
+    fs::write(&path, "line one\n\nline two\nnext\n").unwrap();
+    let plain = History::read_file(&path).unwrap();
+    assert_eq!(
+        plain
+            .entries()
+            .iter()
+            .map(|entry| entry.line().into_owned())
+            .collect::<Vec<_>>(),
+        vec![
+            "line one".to_string(),
+            "line two".to_string(),
+            "next".to_string()
+        ]
+    );
+}
+
+#[test]
 fn history_files_preserve_non_utf8_bytes() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");
@@ -299,10 +344,7 @@ fn treats_digits_with_trailing_junk_as_timestamp() {
             .iter()
             .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
             .collect::<Vec<_>>(),
-        vec![
-            (Some("#1700000000abc"), "foo".to_string()),
-            (None, "# not timestamp".to_string()),
-        ]
+        vec![(Some("#1700000000abc"), "foo\n# not timestamp".to_string()),]
     );
 }
 
@@ -324,15 +366,14 @@ fn preserves_timestamped_history_file_records() {
             .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
             .collect::<Vec<_>>(),
         vec![
-            (Some("#1700000000"), "echo one".to_string()),
-            (None, "# not timestamp".to_string()),
+            (Some("#1700000000"), "echo one\n# not timestamp".to_string()),
             (Some("#1700000001"), "printf two".to_string()),
         ]
     );
 
     loaded.push("printf three");
     loaded.add_time("#1700000002");
-    loaded.append_file_with_timestamps(&path, 3, true).unwrap();
+    loaded.append_file_with_timestamps(&path, 2, true).unwrap();
     History::truncate_file(&path, 2).unwrap();
 
     let truncated = History::read_file(&path).unwrap();
@@ -403,10 +444,7 @@ fn reads_history_file_ranges_and_controls_timestamp_writes() {
             .iter()
             .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
             .collect::<Vec<_>>(),
-        vec![
-            (Some("#1700000001"), "two".to_string()),
-            (None, "three".to_string()),
-        ]
+        vec![(Some("#1700000001"), "two\nthree".to_string()),]
     );
 
     let single = History::read_file_range(&path, 1, Some(2)).unwrap();
@@ -416,7 +454,7 @@ fn reads_history_file_ranges_and_controls_timestamp_writes() {
             .iter()
             .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
             .collect::<Vec<_>>(),
-        vec![(Some("#1700000001"), "two".to_string())]
+        vec![(Some("#1700000001"), "two\nthree".to_string())]
     );
 
     let to_end = History::read_file_range(&path, 1, None).unwrap();
@@ -426,7 +464,7 @@ fn reads_history_file_ranges_and_controls_timestamp_writes() {
             .iter()
             .map(|entry| entry.line().into_owned())
             .collect::<Vec<_>>(),
-        vec!["two".to_string(), "three".to_string()]
+        vec!["two\nthree".to_string()]
     );
 
     let reversed_range = History::read_file_range(&path, 1, Some(0)).unwrap();
@@ -436,7 +474,7 @@ fn reads_history_file_ranges_and_controls_timestamp_writes() {
             .iter()
             .map(|entry| entry.line().into_owned())
             .collect::<Vec<_>>(),
-        vec!["two".to_string(), "three".to_string()]
+        vec!["two\nthree".to_string()]
     );
 
     let no_timestamps = dir.path().join("no-timestamps");

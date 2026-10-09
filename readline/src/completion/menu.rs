@@ -19,6 +19,19 @@ struct MenuCompleteContext {
     point: usize,
 }
 
+impl MenuCompleteContext {
+    fn edit(&self) -> CompletionEdit {
+        CompletionEdit {
+            start: self.start,
+            end: self.start + self.original.len(),
+            word_bytes: self.word_bytes.clone(),
+            quote: self.quote,
+            line: self.line.clone(),
+            point: self.point,
+        }
+    }
+}
+
 impl<T> Editor<T>
 where
     T: TerminalIo,
@@ -171,14 +184,7 @@ where
         let Some(prefix) = common_prefix_bytes(&response.candidates) else {
             return Vec::new();
         };
-        let edit = CompletionEdit {
-            start: context.start,
-            end: context.start + context.original.len(),
-            word_bytes: context.word_bytes.clone(),
-            quote: context.quote,
-            line: context.line.clone(),
-            point: context.point,
-        };
+        let edit = context.edit();
         self.requote_completion_bytes(
             &prefix,
             &edit,
@@ -205,14 +211,7 @@ where
                 completion_type,
             );
         }
-        let edit = CompletionEdit {
-            start: context.start,
-            end: context.start + context.original.len(),
-            word_bytes: context.word_bytes.clone(),
-            quote: context.quote,
-            line: context.line.clone(),
-            point: context.point,
-        };
+        let edit = context.edit();
         let candidate = &response.candidates[next_index - 1];
         let filename_directory =
             self.filename_directory_completion_for_candidate(response, &edit, candidate);

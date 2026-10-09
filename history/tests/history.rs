@@ -1007,3 +1007,41 @@ fn quick_substitution_is_inhibited_by_single_quote_state() {
         b"echo beta".to_vec()
     );
 }
+
+#[test]
+fn timestamped_reads_strip_leading_blanks_and_drop_blank_only_gaps() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+
+    // Leading blank after a timestamp is stripped like Bash.
+    std::fs::write(&path, "#1700000000\n\nfoo\n#1700000001\nbar\n").unwrap();
+    let loaded = History::read_file(&path).unwrap();
+    assert_eq!(
+        loaded
+            .entries()
+            .iter()
+            .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
+            .collect::<Vec<_>>(),
+        vec![
+            (Some("#1700000000"), "foo".to_string()),
+            (Some("#1700000001"), "bar".to_string()),
+        ]
+    );
+
+    // A gap of only blank lines between timestamps drops the phantom entry.
+    std::fs::write(&path, "#1700000000\n\n\n#1700000001\nfoo\n").unwrap();
+    let loaded = History::read_file(&path).unwrap();
+    assert_eq!(
+        loaded
+            .entries()
+            .iter()
+            .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
+            .collect::<Vec<_>>(),
+        vec![(Some("#1700000001"), "foo".to_string()),]
+    );
+
+    // Internal and trailing blanks are still preserved.
+    std::fs::write(&path, "#1700000000\nline one\n\nline two\n").unwrap();
+    let loaded = History::read_file(&path).unwrap();
+    assert_eq!(loaded.entries()[0].line_bytes, b"line one\n\nline two");
+}

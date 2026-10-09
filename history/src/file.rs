@@ -320,9 +320,17 @@ fn read_history_records(file: fs::File) -> io::Result<Vec<(Vec<u8>, Option<Strin
             && is_timestamp_record(text)
         {
             if !delimited_lines.is_empty() {
-                let joined = delimited_lines.join(&b'\n');
+                let start = delimited_lines
+                    .iter()
+                    .position(|entry| !entry.is_empty())
+                    .unwrap_or(delimited_lines.len());
+                if start < delimited_lines.len() {
+                    let joined = delimited_lines[start..].join(&b'\n');
+                    records.push((joined, pending_timestamp.take()));
+                } else {
+                    pending_timestamp.take();
+                }
                 delimited_lines.clear();
-                records.push((joined, pending_timestamp.take()));
             }
             pending_timestamp = Some(text.to_string());
             line.clear();
@@ -342,8 +350,14 @@ fn read_history_records(file: fs::File) -> io::Result<Vec<(Vec<u8>, Option<Strin
         line.clear();
     }
     if !delimited_lines.is_empty() {
-        let joined = delimited_lines.join(&b'\n');
-        records.push((joined, pending_timestamp.take()));
+        let start = delimited_lines
+            .iter()
+            .position(|entry| !entry.is_empty())
+            .unwrap_or(delimited_lines.len());
+        if start < delimited_lines.len() {
+            let joined = delimited_lines[start..].join(&b'\n');
+            records.push((joined, pending_timestamp.take()));
+        }
     }
     Ok(records)
 }

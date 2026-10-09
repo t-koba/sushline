@@ -110,12 +110,7 @@ pub(super) fn quote_filename_bytes(bytes: &[u8]) -> Vec<u8> {
     out
 }
 
-pub(super) fn skip_completed_suffix_bytes(
-    replacement: &[u8],
-    edit: &CompletionEdit,
-    state: &EditorState,
-) -> Vec<u8> {
-    let suffix = completion_suffix_bytes(edit, state);
+pub(super) fn skip_completed_suffix_bytes(replacement: &[u8], suffix: &[u8]) -> Vec<u8> {
     if suffix.is_empty() {
         return replacement.to_vec();
     }

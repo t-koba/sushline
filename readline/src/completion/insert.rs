@@ -50,7 +50,7 @@ where
             let mut replacement_bytes = replacement_bytes;
             let skipped_completed_text = skip_completed_text && !suffix.is_empty();
             if skip_completed_text {
-                replacement_bytes = skip_completed_suffix_bytes(&replacement_bytes, edit, state);
+                replacement_bytes = skip_completed_suffix_bytes(&replacement_bytes, &suffix);
             }
             state
                 .buffer
@@ -90,8 +90,8 @@ where
                     hooks,
                 );
                 if skip_completed_text {
-                    replacement_bytes =
-                        skip_completed_suffix_bytes(&replacement_bytes, edit, state);
+                    let suffix = completion_suffix_bytes(edit, state);
+                    replacement_bytes = skip_completed_suffix_bytes(&replacement_bytes, &suffix);
                 }
                 state
                     .buffer

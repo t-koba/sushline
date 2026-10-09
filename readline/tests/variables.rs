@@ -153,6 +153,31 @@ fn blink_matching_paren_uses_rendered_control_char_width() {
 }
 
 #[test]
+fn blink_matching_paren_moves_up_on_wrapped_lines() {
+    let mut events = vec![TerminalEvent::Bytes(b"(".to_vec())];
+    for _ in 0..8 {
+        events.push(TerminalEvent::Bytes(b"a".to_vec()));
+    }
+    events.push(TerminalEvent::Bytes(b")".to_vec()));
+    events.push(TerminalEvent::Bytes(b"\r".to_vec()));
+    let mut terminal = MemoryTerminal::with_events(events);
+    terminal.columns = 10;
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set blink-matching-paren on")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"(aaaaaaaa)".to_vec()));
+    // Prompt `> ` is 2 cells; `(` sits at (row 0, col 2) while point after `)`
+    // is on row 1, so blink must move up one row before moving to column 2.
+    assert_eq!(line.terminal().moved_up.last(), Some(&1));
+    let moved = &line.terminal().moved_columns;
+    assert!(
+        moved.len() >= 4 && moved[moved.len() - 4..] == [2, 0, 0, 2],
+        "blink then final render should be [2, 0, 0, 2], got {moved:?}"
+    );
+}
+
+#[test]
 fn show_mode_in_prompt_adds_mode_string() {
     let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(b"\r".to_vec())]);
     let mut line = Editor::new(Config::default(), terminal, History::new());

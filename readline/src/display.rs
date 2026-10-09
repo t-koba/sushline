@@ -288,12 +288,32 @@ where
             return Ok(());
         };
         let prompt_width = self.current_prompt_width(state);
-        let column = prompt_width
-            + state
+        let columns = self.tracked_terminal_columns(state);
+        if self.flag(BoolVariable::HorizontalScrollMode) {
+            let column = prompt_width
+                + state
+                    .buffer
+                    .rendered_width_until(match_pos, &self.render_options());
+            self.terminal.write(escape::SAVE_CURSOR)?;
+            self.terminal.move_to_column(column as u16)?;
+            self.terminal.flush()?;
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            self.terminal.write(escape::RESTORE_CURSOR)?;
+            return Ok(());
+        }
+        let (match_row, match_col) =
+            state
                 .buffer
-                .rendered_width_until(match_pos, &self.render_options());
+                .rendered_position(match_pos, prompt_width, columns, self.render_options());
+        let (_, point_row, _) =
+            state
+                .buffer
+                .rendered_rows_and_point(prompt_width, columns, self.render_options());
         self.terminal.write(escape::SAVE_CURSOR)?;
-        self.terminal.move_to_column(column as u16)?;
+        if point_row > match_row {
+            self.terminal.move_up((point_row - match_row) as u16)?;
+        }
+        self.terminal.move_to_column(match_col as u16)?;
         self.terminal.flush()?;
         std::thread::sleep(std::time::Duration::from_millis(500));
         self.terminal.write(escape::RESTORE_CURSOR)?;

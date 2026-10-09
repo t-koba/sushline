@@ -313,6 +313,21 @@ impl LineBuffer {
         (total_row, point_row, point_col)
     }
 
+    /// Screen (row, column) for a buffer byte index, wrapping at `columns`.
+    pub fn rendered_position(
+        &self,
+        target: usize,
+        prompt_width: usize,
+        columns: usize,
+        options: RenderOptions<'_>,
+    ) -> (usize, usize) {
+        let positions = self.screen_positions(prompt_width, columns.max(1), options);
+        positions
+            .iter()
+            .find_map(|(idx, pos)| (*idx == target.min(self.bytes.len())).then_some(*pos))
+            .unwrap_or((0, prompt_width % columns.max(1)))
+    }
+
     pub(crate) fn rendered_width_until(&self, end: usize, options: &RenderOptions<'_>) -> usize {
         self.rendered_slice_width(0, end.min(self.bytes.len()), options)
     }

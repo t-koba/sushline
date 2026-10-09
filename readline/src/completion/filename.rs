@@ -118,7 +118,7 @@ pub(super) fn split_word_path(word: &str) -> (PathBuf, &str, String) {
     (parent, prefix, display_dir)
 }
 
-fn split_word_path_bytes(word: &[u8]) -> (Vec<u8>, &[u8], Vec<u8>) {
+pub(super) fn split_word_path_bytes(word: &[u8]) -> (Vec<u8>, &[u8], Vec<u8>) {
     if word.ends_with(b"/") {
         return (word.to_vec(), &b""[..], word.to_vec());
     }

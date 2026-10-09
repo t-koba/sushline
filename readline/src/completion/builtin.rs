@@ -1,7 +1,7 @@
 use crate::completion::filename::{
     FilenameOptions, complete_filenames_bytes, expand_tilde, glob_match, glob_match_os,
     is_executable_file, os_name_is_hidden, os_string_to_completion, os_string_to_display,
-    split_word_path,
+    split_word_path, split_word_path_bytes,
 };
 use crate::completion::{
     CompletionCandidate, CompletionOptions, CompletionRequest, CompletionResponse,
@@ -337,16 +337,7 @@ pub(super) fn glob_complete_bytes(
         if !word.iter().any(|byte| matches!(byte, b'*' | b'?' | b'[')) {
             return complete_filenames_bytes(word, &FilenameOptions::from_variables(variables));
         }
-        let slash = word.iter().rposition(|byte| *byte == b'/');
-        let (dir_bytes, pattern, display_dir) = if let Some(pos) = slash {
-            (
-                word[..pos].to_vec(),
-                &word[pos + 1..],
-                word[..=pos].to_vec(),
-            )
-        } else {
-            (b".".to_vec(), word, Vec::new())
-        };
+        let (dir_bytes, pattern, display_dir) = split_word_path_bytes(word);
         let dir = PathBuf::from(OsString::from_vec(dir_bytes));
         let mut candidates = Vec::new();
         if let Ok(entries) = fs::read_dir(&dir) {

@@ -96,40 +96,35 @@ pub(crate) fn advance_cell(col: usize, width: usize, columns: usize) -> (usize, 
     (rows, col)
 }
 
-/// Returns how many terminal rows a rendered output string occupies.
-pub(crate) fn rendered_rows_for_output(output: &str, columns: usize) -> u16 {
+/// Measures rendered output once, returning terminal rows and whether output
+/// ends exactly at the wrap boundary.
+pub(crate) fn measured_rows_for_output(output: &str, columns: usize) -> (u16, bool) {
     let columns = columns.max(1);
     let mut row = 0usize;
-    let mut col = 0usize;
-    for ch in terminal_visible_chars(output) {
-        if ch == '\n' {
-            row += 1;
-            col = 0;
-            continue;
-        }
-        let (added, next) = advance_cell(col, char_width(ch), columns);
-        row += added;
-        col = next;
-    }
-    row as u16
-}
-
-/// Returns whether rendered output ends exactly at the terminal wrap boundary.
-pub(crate) fn output_ends_at_wrap_boundary(output: &str, columns: usize) -> bool {
-    let columns = columns.max(1);
     let mut col = 0usize;
     let mut saw_visible_cell = false;
     let mut ended_with_newline = false;
     for ch in terminal_visible_chars(output) {
         if ch == '\n' {
+            row += 1;
             col = 0;
             ended_with_newline = true;
             continue;
         }
         ended_with_newline = false;
         let width = char_width(ch);
-        (_, col) = advance_cell(col, width, columns);
+        let (added, next) = advance_cell(col, width, columns);
+        row += added;
+        col = next;
         saw_visible_cell |= width > 0;
     }
-    saw_visible_cell && !ended_with_newline && col == 0
+    (
+        row as u16,
+        saw_visible_cell && !ended_with_newline && col == 0,
+    )
+}
+
+/// Returns how many terminal rows a rendered output string occupies.
+pub(crate) fn rendered_rows_for_output(output: &str, columns: usize) -> u16 {
+    measured_rows_for_output(output, columns).0
 }

@@ -11,7 +11,7 @@ use crate::prompt::Prompt;
 use crate::state::{EditorState, SearchDirection};
 use crate::terminal::{TerminalIo, TerminalSize, escape};
 use crate::variables::BoolVariable;
-use crate::width::{output_ends_at_wrap_boundary, rendered_rows_for_output, visible_width};
+use crate::width::{measured_rows_for_output, rendered_rows_for_output, visible_width};
 use std::borrow::Cow;
 use std::io;
 
@@ -131,8 +131,8 @@ where
             .write_bytes(&rendered_string_to_bytes(&buffer))?;
         self.terminal.clear_after_cursor()?;
         let rendered_output = format!("{prompt}{buffer}");
-        let ends_at_wrap_boundary = output_ends_at_wrap_boundary(&rendered_output, columns);
-        let rendered_rows = rendered_rows_for_output(&rendered_output, columns);
+        let (rendered_rows, ends_at_wrap_boundary) =
+            measured_rows_for_output(&rendered_output, columns);
         if ends_at_wrap_boundary {
             self.terminal.write("\r\n")?;
         }

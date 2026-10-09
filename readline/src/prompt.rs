@@ -56,8 +56,7 @@ impl From<&[u8]> for Prompt {
 
 fn strip_readline_markers(raw: &str) -> (String, usize) {
     let mut visible = String::new();
-    let mut width = 0;
-    let mut current_line_width = 0;
+    let mut line_width = 0;
     let mut non_printing = false;
     let mut chars = raw.chars().peekable();
 
@@ -84,13 +83,7 @@ fn strip_readline_markers(raw: &str) -> (String, usize) {
                 }
                 Some('e' | 'E') => {
                     chars.next();
-                    push_prompt_char(
-                        '\x1b',
-                        non_printing,
-                        &mut visible,
-                        &mut current_line_width,
-                        &mut width,
-                    );
+                    push_prompt_char('\x1b', non_printing, &mut visible, &mut line_width);
                     continue;
                 }
                 Some(c) if c.is_ascii_digit() && c < '8' => {
@@ -108,13 +101,7 @@ fn strip_readline_markers(raw: &str) -> (String, usize) {
                         consumed += 1;
                     }
                     if let Some(decoded) = char::from_u32(value) {
-                        push_prompt_char(
-                            decoded,
-                            non_printing,
-                            &mut visible,
-                            &mut current_line_width,
-                            &mut width,
-                        );
+                        push_prompt_char(decoded, non_printing, &mut visible, &mut line_width);
                     }
                     continue;
                 }
@@ -122,35 +109,21 @@ fn strip_readline_markers(raw: &str) -> (String, usize) {
             }
         }
 
-        push_prompt_char(
-            ch,
-            non_printing,
-            &mut visible,
-            &mut current_line_width,
-            &mut width,
-        );
+        push_prompt_char(ch, non_printing, &mut visible, &mut line_width);
     }
 
-    (visible, width)
+    (visible, line_width)
 }
 
-fn push_prompt_char(
-    ch: char,
-    non_printing: bool,
-    visible: &mut String,
-    current_line_width: &mut usize,
-    width: &mut usize,
-) {
+fn push_prompt_char(ch: char, non_printing: bool, visible: &mut String, line_width: &mut usize) {
     visible.push(ch);
     if non_printing {
         return;
     }
     if ch == '\n' {
-        *current_line_width = 0;
-        *width = 0;
+        *line_width = 0;
     } else {
-        *current_line_width += char_width(ch);
-        *width = *current_line_width;
+        *line_width += char_width(ch);
     }
 }
 

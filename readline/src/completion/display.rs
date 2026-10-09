@@ -7,8 +7,7 @@ use std::ffi::CString;
 // Pure completion layout helpers.
 
 pub(crate) fn common_prefix_bytes(candidates: &[CompletionCandidate]) -> Option<Vec<u8>> {
-    let first = candidates.first()?.replacement_bytes().to_vec();
-    let mut prefix = first;
+    let mut prefix = candidates.first()?.replacement_bytes().to_vec();
     for candidate in &candidates[1..] {
         let bytes = candidate.replacement_bytes();
         while !bytes.starts_with(&prefix) {

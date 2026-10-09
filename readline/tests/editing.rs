@@ -427,6 +427,29 @@ fn editing_word_breaks_hook_preserves_non_utf8_break_byte() {
 }
 
 #[test]
+fn editing_word_breaks_hook_preserves_multibyte_break() {
+    struct MultibyteBreakHook;
+
+    impl Hooks for MultibyteBreakHook {
+        fn editing_word_breaks(&mut self) -> Option<Vec<u8>> {
+            Some("é".as_bytes().to_vec())
+        }
+    }
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(vec![b'a', 0xc3, 0xa9, b'b']),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = MultibyteBreakHook;
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": backward-kill-word")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Line(vec![b'a', 0xc3, 0xa9]));
+}
+
+#[test]
 fn hook_backed_commands_use_application_supplied_behavior() {
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"echo".to_vec()),

@@ -92,6 +92,45 @@ pub(crate) fn bytes_lossless(bytes: &[u8]) -> String {
     out
 }
 
+fn break_sequence_len(first: u8) -> usize {
+    match first {
+        0x00..=0x7f => 1,
+        0xc2..=0xdf => 2,
+        0xe0..=0xef => 3,
+        0xf0..=0xf4 => 4,
+        _ => 1,
+    }
+}
+
+pub(crate) fn append_bytes_decoded_lossless(out: &mut String, bytes: &[u8]) {
+    let mut idx = 0;
+    while idx < bytes.len() {
+        let first = bytes[idx];
+        let needed = break_sequence_len(first);
+        if needed > 1
+            && idx + needed <= bytes.len()
+            && let Ok(text) = std::str::from_utf8(&bytes[idx..idx + needed])
+            && let Some(ch) = text.chars().next()
+        {
+            out.push(ch);
+            idx += needed;
+            continue;
+        }
+        if first.is_ascii() {
+            out.push(first as char);
+        } else {
+            out.push(private_byte_char(first));
+        }
+        idx += 1;
+    }
+}
+
+pub(crate) fn bytes_decoded_lossless(bytes: &[u8]) -> String {
+    let mut out = String::new();
+    append_bytes_decoded_lossless(&mut out, bytes);
+    out
+}
+
 pub(crate) fn rendered_string_to_bytes(rendered: &str) -> Vec<u8> {
     let mut out = Vec::with_capacity(rendered.len());
     for ch in rendered.chars() {

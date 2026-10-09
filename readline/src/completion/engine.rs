@@ -195,7 +195,7 @@ where
     pub(crate) fn editing_word_breaks(&self, hooks: &mut impl Hooks) -> Option<String> {
         hooks
             .editing_word_breaks()
-            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+            .map(|bytes| crate::buffer::bytes_lossless(&bytes))
     }
 
     pub(crate) fn default_completion(

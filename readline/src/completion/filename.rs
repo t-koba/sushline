@@ -579,7 +579,7 @@ fn match_posix_character_class(chars: &[char], idx: usize, value: char) -> Optio
     None
 }
 
-fn expand_tilde_bytes(line: &[u8]) -> Vec<u8> {
+pub(crate) fn expand_tilde_bytes(line: &[u8]) -> Vec<u8> {
     expand_tilde_word_bytes(line).unwrap_or_else(|| line.to_vec())
 }
 
@@ -643,77 +643,4 @@ fn user_home_dir_bytes(user: &[u8]) -> Option<Vec<u8>> {
 #[cfg(not(unix))]
 fn user_home_dir_bytes(_user: &[u8]) -> Option<Vec<u8>> {
     None
-}
-
-pub(crate) fn expand_tilde(line: &str) -> String {
-    let Some(home) = std::env::var_os("HOME") else {
-        return line.to_string();
-    };
-    let home = home.to_string_lossy();
-    if line == "~" {
-        return home.into_owned();
-    }
-    if let Some(rest) = line.strip_prefix("~/") {
-        return format!("{home}/{rest}");
-    }
-    if let Some(rest) = line.strip_prefix('~') {
-        let (user, suffix) = rest.split_once('/').unwrap_or((rest, ""));
-        if !user.is_empty()
-            && let Some(user_home) = user_home_dir(user)
-        {
-            return if suffix.is_empty() {
-                user_home
-            } else {
-                format!("{user_home}/{suffix}")
-            };
-        }
-    }
-    line.split_whitespace()
-        .map(|word| {
-            if word == "~" {
-                home.to_string()
-            } else if let Some(rest) = word.strip_prefix("~/") {
-                format!("{home}/{rest}")
-            } else if let Some(rest) = word.strip_prefix('~') {
-                let (user, suffix) = rest.split_once('/').unwrap_or((rest, ""));
-                if !user.is_empty()
-                    && let Some(user_home) = user_home_dir(user)
-                {
-                    if suffix.is_empty() {
-                        user_home
-                    } else {
-                        format!("{user_home}/{suffix}")
-                    }
-                } else {
-                    word.to_string()
-                }
-            } else {
-                word.to_string()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn user_home_dir(user: &str) -> Option<String> {
-    if let Ok(passwd) = fs::read_to_string("/etc/passwd") {
-        for line in passwd.lines() {
-            let mut fields = line.split(':');
-            if fields.next() == Some(user) {
-                return fields.nth(4).map(str::to_string);
-            }
-        }
-    }
-    let output = Command::new("getent")
-        .arg("passwd")
-        .arg(user)
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .next()
-        .and_then(|line| line.split(':').nth(5).map(str::to_string))
 }

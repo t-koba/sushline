@@ -524,3 +524,24 @@ fn page_completions_negative_answer_suppresses_display() {
     assert!(line.terminal.out.contains("Display all 2 possibilities?"));
     assert!(!line.terminal.out.contains("alpha "));
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn visible_stats_marker_uses_raw_bytes_for_non_utf8_paths() {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let name = std::ffi::OsString::from_vec(vec![b'v', 0xff]);
+    let path = dir.path().join(&name);
+    std::fs::write(&path, "").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut replacement = dir.path().as_os_str().as_bytes().to_vec();
+    replacement.push(b'/');
+    replacement.extend_from_slice(&[b'v', 0xff]);
+    assert_eq!(visible_stats_marker_bytes(&replacement), Some('*'));
+    let mut with_slash = replacement.clone();
+    with_slash.push(b'/');
+    assert_eq!(visible_stats_marker_bytes(&with_slash), Some('*'));
+    let dir_name = dir.path().as_os_str().as_bytes().to_vec();
+    assert_eq!(visible_stats_marker_bytes(&dir_name), Some('/'));
+}

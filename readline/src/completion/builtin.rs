@@ -1,7 +1,7 @@
 use crate::completion::filename::{
-    FilenameOptions, complete_filenames_bytes, expand_tilde, filename_matches_response,
+    FilenameOptions, complete_filenames_bytes, expand_tilde_bytes, filename_matches_response,
     filenames_response, is_executable_file, join_display_dir, os_str_to_completion_bytes,
-    split_word_path_bytes,
+    path_from_bytes, split_word_path_bytes,
 };
 use crate::completion::{
     CompletionCandidate, CompletionOptions, CompletionRequest, CompletionResponse,
@@ -9,23 +9,33 @@ use crate::completion::{
 use crate::hooks::Hooks;
 use crate::variables::Variables;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
-pub(super) fn visible_stats_marker(replacement: &str) -> Option<char> {
-    let expanded = expand_tilde(replacement.trim_end_matches('/'));
-    let path = Path::new(&expanded);
+pub(crate) fn visible_stats_marker_bytes(replacement: &[u8]) -> Option<char> {
+    let trimmed = trim_trailing_slashes(replacement);
+    let expanded = expand_tilde_bytes(trimmed);
+    let path = path_from_bytes(&expanded)?;
     let metadata = path.symlink_metadata().ok()?;
     let file_type = metadata.file_type();
     if file_type.is_dir() {
         Some('/')
     } else if file_type.is_symlink() {
         Some('@')
-    } else if is_executable_file(path) {
+    } else if is_executable_file(&path) {
         Some('*')
     } else {
         visible_stats_marker_for_platform(&file_type)
     }
+}
+
+fn trim_trailing_slashes(replacement: &[u8]) -> &[u8] {
+    let end = replacement
+        .iter()
+        .rposition(|byte| *byte != b'/')
+        .map(|pos| pos + 1)
+        .unwrap_or(0);
+    &replacement[..end]
 }
 
 #[cfg(unix)]

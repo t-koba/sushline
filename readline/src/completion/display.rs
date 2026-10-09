@@ -201,7 +201,7 @@ fn ls_color_named_code(name: &str) -> Option<String> {
 
 // Editor-backed completion display and paging.
 
-use crate::completion::builtin::visible_stats_marker;
+use crate::completion::builtin::visible_stats_marker_bytes;
 use crate::completion::filename::{
     FilenameOptions, filename_directory_completion, filename_display_name,
 };
@@ -305,7 +305,7 @@ where
                 if self.variable_is_on("visible-stats")
                     && response.options.filenames
                     && !item.contains("\x1b[")
-                    && let Some(marker) = visible_stats_marker(&candidate.replacement_string())
+                    && let Some(marker) = visible_stats_marker_bytes(candidate.replacement_bytes())
                     && !item.ends_with(marker)
                 {
                     item.push(marker);

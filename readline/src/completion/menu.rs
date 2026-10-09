@@ -1,5 +1,5 @@
 use crate::completion::display::common_prefix_bytes;
-use crate::completion::insert::{append_filename_slash_for_candidate, completion_append_char};
+use crate::completion::insert::completion_append_char;
 use crate::completion::quoting::CompletionEdit;
 use crate::completion::{CompletionAction, CompletionResponse, CompletionType};
 use crate::editor::{Editor, ReadlineError};
@@ -213,20 +213,13 @@ where
         }
         let edit = context.edit();
         let candidate = &response.candidates[next_index - 1];
-        let filename_directory =
-            self.filename_directory_completion_for_candidate(response, &edit, candidate);
-        let append_filename_slash = append_filename_slash_for_candidate(
-            candidate,
-            filename_directory.as_ref(),
-            state.buffer.as_bytes().get(context.end).copied(),
-        );
-        let mut replacement = self.completion_candidate_replacement_bytes(
-            candidate,
+        let (mut replacement, filename_directory) = self.completion_replacement_with_directory(
+            response,
             &edit,
+            candidate,
             completion_type,
-            response.options.quote_filename(),
             hooks,
-            append_filename_slash,
+            state.buffer.as_bytes().get(context.end).copied(),
         );
         if let Some(ch) =
             completion_append_char(&response.options, candidate, filename_directory.as_ref())

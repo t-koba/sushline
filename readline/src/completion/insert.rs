@@ -34,21 +34,15 @@ where
         if response.candidates.len() == 1 {
             let candidate = &response.candidates[0];
             let suffix = completion_suffix_bytes(edit, state);
-            let filename_directory =
-                self.filename_directory_completion_for_candidate(&response, edit, candidate);
-            let append_filename_slash = append_filename_slash_for_candidate(
-                candidate,
-                filename_directory.as_ref(),
-                suffix.first().copied(),
-            );
-            let mut replacement_bytes = self.completion_candidate_replacement_bytes(
-                candidate,
-                edit,
-                completion_type,
-                response.options.quote_filename(),
-                hooks,
-                append_filename_slash,
-            );
+            let (mut replacement_bytes, filename_directory) = self
+                .completion_replacement_with_directory(
+                    &response,
+                    edit,
+                    candidate,
+                    completion_type,
+                    hooks,
+                    suffix.first().copied(),
+                );
             let skipped_completed_text = skip_completed_text && !suffix.is_empty();
             if skip_completed_text {
                 replacement_bytes = skip_completed_suffix_bytes(&replacement_bytes, &suffix);
@@ -246,6 +240,30 @@ where
                 )
             })
             .flatten()
+    }
+
+    pub(super) fn completion_replacement_with_directory(
+        &self,
+        response: &CompletionResponse,
+        edit: &CompletionEdit,
+        candidate: &CompletionCandidate,
+        completion_type: CompletionType,
+        hooks: &mut impl Hooks,
+        next_byte: Option<u8>,
+    ) -> (Vec<u8>, Option<DirectoryCompletion>) {
+        let filename_directory =
+            self.filename_directory_completion_for_candidate(response, edit, candidate);
+        let append_filename_slash =
+            append_filename_slash_for_candidate(candidate, filename_directory.as_ref(), next_byte);
+        let replacement = self.completion_candidate_replacement_bytes(
+            candidate,
+            edit,
+            completion_type,
+            response.options.quote_filename(),
+            hooks,
+            append_filename_slash,
+        );
+        (replacement, filename_directory)
     }
 
     pub(super) fn completion_candidate_replacement_bytes(

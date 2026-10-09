@@ -164,12 +164,14 @@ where
             {
                 response = application_response;
             }
-            if response.candidates.is_empty() && options.default {
-                response =
-                    complete_filenames_bytes(&request.context.word, &self.filename_options());
-            } else if response.candidates.is_empty() && options.dirnames {
-                response =
-                    complete_directories_bytes(&request.context.word, &self.filename_options());
+            if response.candidates.is_empty() {
+                if options.default {
+                    response =
+                        complete_filenames_bytes(&request.context.word, &self.filename_options());
+                } else if options.dirnames {
+                    response =
+                        complete_directories_bytes(&request.context.word, &self.filename_options());
+                }
             }
             merge_completion_options(&mut response.options, options);
         }

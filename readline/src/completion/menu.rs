@@ -19,6 +19,14 @@ struct MenuCompleteContext {
     point: usize,
 }
 
+fn menu_completion_type(backward: bool) -> CompletionType {
+    if backward {
+        CompletionType::MenuCompleteBackward
+    } else {
+        CompletionType::MenuComplete
+    }
+}
+
 impl MenuCompleteContext {
     fn edit(&self) -> CompletionEdit {
         CompletionEdit {
@@ -54,11 +62,7 @@ where
             return Ok(());
         }
         if response.candidates.len() == 1 {
-            let completion_type = if backward {
-                CompletionType::MenuCompleteBackward
-            } else {
-                CompletionType::MenuComplete
-            };
+            let completion_type = menu_completion_type(backward);
             self.insert_completion_response(state, response, edit, completion_type, hooks)?;
             return Ok(());
         }
@@ -111,11 +115,7 @@ where
             backward,
             context.previous_match_index,
         );
-        let completion_type = if backward {
-            CompletionType::MenuCompleteBackward
-        } else {
-            CompletionType::MenuComplete
-        };
+        let completion_type = menu_completion_type(backward);
         let replacement_bytes = self.menu_complete_replacement(
             &response,
             &context,

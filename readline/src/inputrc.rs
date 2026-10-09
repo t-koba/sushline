@@ -226,7 +226,6 @@ pub fn parse_binding_line_in_map(
         return Err(format!("unknown readline command: {value}"));
     };
     keymap.bind(map, seq, binding);
-    // Ok.
     Ok(())
 }
 
@@ -555,7 +554,6 @@ fn decode_inputrc_bytes(value: &str, meta_prefix: bool) -> Result<Vec<u8>, Strin
         .and_then(|value| value.strip_suffix('"'))
         .ok_or_else(|| "expected quoted string".to_string())?;
     let keyseq = KeySequence::parse_with_meta(&format!("\"{inner}\""), meta_prefix)?;
-    // Ok.
     Ok(keyseq.bytes().to_vec())
 }
 

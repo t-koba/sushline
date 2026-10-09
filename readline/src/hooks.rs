@@ -247,7 +247,6 @@ pub(crate) fn derive_words_from_spans(
     if !validate_token_spans(line, &spans) {
         return None;
     }
-    // Some.
     Some(
         spans
             .into_iter()

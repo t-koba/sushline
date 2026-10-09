@@ -284,7 +284,6 @@ fn enable_readline_mode(saved: &mut Option<libc::termios>) -> io::Result<()> {
     if rc != 0 {
         return Err(io::Error::last_os_error());
     }
-    // Ok.
     Ok(())
 }
 
@@ -297,7 +296,6 @@ fn restore_readline_mode(saved: &mut Option<libc::termios>) -> io::Result<()> {
     if rc != 0 {
         return Err(io::Error::last_os_error());
     }
-    // Ok.
     Ok(())
 }
 
@@ -516,7 +514,6 @@ fn read_raw_event(timeout: Option<Duration>) -> io::Result<TerminalEvent> {
     if read == 0 {
         return Ok(TerminalEvent::Timeout);
     }
-    // Ok.
     Ok(TerminalEvent::Bytes(buf[..read as usize].to_vec()))
 }
 
@@ -555,7 +552,6 @@ fn query_terminal_size_fd(fd: std::os::fd::RawFd) -> io::Result<TerminalSize> {
         return Err(io::Error::last_os_error());
     }
     let winsize = unsafe { winsize.assume_init() };
-    // Ok.
     Ok(TerminalSize {
         columns: winsize.ws_col,
         rows: winsize.ws_row,

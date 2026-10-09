@@ -262,7 +262,6 @@ fn read_history_records(file: fs::File) -> io::Result<Vec<(Vec<u8>, Option<Strin
         records.push((std::mem::take(&mut line), pending_timestamp.take()));
         line.clear();
     }
-    // Ok.
     Ok(records)
 }
 

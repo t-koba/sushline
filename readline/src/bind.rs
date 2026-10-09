@@ -560,7 +560,6 @@ fn unquote_value(value: &str) -> Result<String, BindError> {
             message: "trailing escape in quoted application command".to_string(),
         });
     }
-    // Ok.
     Ok(out)
 }
 

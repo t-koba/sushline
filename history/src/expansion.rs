@@ -252,7 +252,6 @@ pub fn expand_history_with_status(
         out.extend_from_slice(&event);
         idx = next;
     }
-    // Ok.
     Ok(HistoryExpansion {
         line: out,
         print_only,
@@ -547,7 +546,6 @@ fn select_history_words(
         }
         return Ok(join_words(&words[start..=end]));
     }
-    // Ok.
     Ok(words[idx_for(spec)?].clone())
 }
 
@@ -581,7 +579,6 @@ fn apply_history_modifier(
     policy: &HistoryExpansionPolicy,
     print_only: &mut bool,
 ) -> Result<(Vec<u8>, usize), HistoryExpansionError> {
-    // Ok.
     Ok(match input.get(idx).copied() {
         Some(b'h') => (history_head(line), idx + 1),
         Some(b't') => (history_tail(line), idx + 1),
@@ -734,7 +731,6 @@ fn apply_substitution_modifier(
         replace_once_checked(line, &old, &new)
     }
     .ok_or(HistoryExpansionError::SubstitutionFailed)?;
-    // Ok.
     Ok((replaced, idx, (old, new)))
 }
 
@@ -766,7 +762,6 @@ fn apply_substitution_modifier_each_word(
     idx = next_idx;
     let replaced = replace_each_word_once_checked(line, &old, &new, policy)
         .ok_or(HistoryExpansionError::SubstitutionFailed)?;
-    // Ok.
     Ok((replaced, idx, (old, new)))
 }
 
@@ -830,7 +825,6 @@ pub fn history_arg_extract(
     if first > last || first >= words.len() {
         return None;
     }
-    // Some.
     Some(join_words(&words[first..=last.min(words.len() - 1)]))
 }
 
@@ -1016,7 +1010,6 @@ fn shell_group_end(line: &[u8], idx: usize) -> Option<usize> {
         }
         cursor += 1;
     }
-    // Some.
     Some(line.len())
 }
 
@@ -1057,7 +1050,6 @@ fn paired_group_end(line: &[u8], mut cursor: usize, open: u8, close: u8) -> Opti
         }
         cursor += 1;
     }
-    // Some.
     Some(line.len())
 }
 
@@ -1110,7 +1102,6 @@ fn replace_once_checked(line: &[u8], old: &[u8], new: &[u8]) -> Option<Vec<u8>> 
     out.extend_from_slice(&line[..pos]);
     out.extend_from_slice(new);
     out.extend_from_slice(&line[pos + old.len()..]);
-    // Some.
     Some(out)
 }
 
@@ -1140,7 +1131,6 @@ fn replace_all_checked(line: &[u8], old: &[u8], new: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
     out.extend_from_slice(rest);
-    // Some.
     Some(out)
 }
 

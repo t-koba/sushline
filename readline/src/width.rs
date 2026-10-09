@@ -9,12 +9,6 @@ pub(crate) fn char_width(ch: char) -> usize {
     unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0)
 }
 
-/// Returns the sum of `char_width` for all characters in `value`.
-#[allow(dead_code)]
-pub(crate) fn str_width(value: &str) -> usize {
-    value.chars().map(char_width).sum()
-}
-
 /// Returns visible width after removing readline hidden prompt markers and
 /// terminal escape sequences.
 pub(crate) fn visible_width(value: &str) -> usize {

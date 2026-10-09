@@ -31,12 +31,13 @@ where
         let skip_completed_text = self.variable_is_on("skip-completed-text");
         if response.candidates.len() == 1 {
             let candidate = &response.candidates[0];
+            let suffix = completion_suffix_bytes(edit, state);
             let filename_directory =
                 self.filename_directory_completion_for_candidate(&response, edit, candidate);
             let append_filename_slash = append_filename_slash_for_candidate(
                 candidate,
                 filename_directory.as_ref(),
-                completion_suffix_bytes(edit, state).first().copied(),
+                suffix.first().copied(),
             );
             let replacement_bytes = self.completion_candidate_replacement_bytes(
                 candidate,
@@ -47,8 +48,7 @@ where
                 append_filename_slash,
             );
             let mut replacement_bytes = replacement_bytes;
-            let skipped_completed_text =
-                skip_completed_text && !completion_suffix_bytes(edit, state).is_empty();
+            let skipped_completed_text = skip_completed_text && !suffix.is_empty();
             if skip_completed_text {
                 replacement_bytes = skip_completed_suffix_bytes(&replacement_bytes, edit, state);
             }

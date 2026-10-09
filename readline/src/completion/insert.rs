@@ -238,7 +238,11 @@ where
             None
         };
         let mut raw = candidate.replacement_bytes().to_vec();
-        if append_filename_slash_for_candidate(candidate, filename_directory.as_ref(), next_byte) {
+        if filename_directory.as_ref().is_some_and(|directory| {
+            directory.append_slash
+                && !candidate.replacement_bytes().ends_with(b"/")
+                && next_byte != Some(b'/')
+        }) {
             raw.push(b'/');
         }
         let replacement = self.requote_completion_bytes(
@@ -285,16 +289,4 @@ fn extend_with_trailing_char(replacement: &mut Vec<u8>, options: &CompletionOpti
         let mut buf = [0; 4];
         replacement.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
     }
-}
-
-pub(super) fn append_filename_slash_for_candidate(
-    candidate: &CompletionCandidate,
-    directory: Option<&DirectoryCompletion>,
-    next_byte: Option<u8>,
-) -> bool {
-    directory.is_some_and(|directory| {
-        directory.append_slash
-            && !candidate.replacement_bytes().ends_with(b"/")
-            && next_byte != Some(b'/')
-    })
 }

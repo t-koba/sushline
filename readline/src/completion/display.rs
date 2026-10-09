@@ -31,18 +31,19 @@ pub(crate) fn abbreviate_completion_prefix(items: &mut [String], prefix: &str, f
     }
 }
 
+fn completion_sort_key(candidate: &CompletionCandidate) -> &[u8] {
+    candidate
+        .display
+        .as_deref()
+        .map(str::as_bytes)
+        .unwrap_or_else(|| candidate.replacement_bytes())
+}
+
 pub(crate) fn sort_completion_response(response: &mut CompletionResponse) {
     if !response.options.nosort {
-        response
-            .candidates
-            .sort_by(|a, b| match (a.display.as_deref(), b.display.as_deref()) {
-                (Some(a), Some(b)) => compare_with_current_locale(a.as_bytes(), b.as_bytes()),
-                (Some(a), None) => compare_with_current_locale(a.as_bytes(), b.replacement_bytes()),
-                (None, Some(b)) => compare_with_current_locale(a.replacement_bytes(), b.as_bytes()),
-                (None, None) => {
-                    compare_with_current_locale(a.replacement_bytes(), b.replacement_bytes())
-                }
-            });
+        response.candidates.sort_by(|a, b| {
+            compare_with_current_locale(completion_sort_key(a), completion_sort_key(b))
+        });
     }
     let mut seen = HashSet::new();
     response

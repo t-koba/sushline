@@ -3,8 +3,6 @@
 //! This module owns conversion from buffer bytes to display strings and point
 //! widths, including control-character and meta-byte display semantics.
 
-#![allow(missing_docs)]
-
 use super::{LineBuffer, private_byte_char, private_byte_value};
 use crate::width::{advance_cell, char_width};
 use std::borrow::Cow;
@@ -108,6 +106,7 @@ pub(crate) fn rendered_string_to_bytes(rendered: &str) -> Vec<u8> {
 }
 
 impl LineBuffer {
+    /// Move screen line.
     pub fn move_screen_line(
         &mut self,
         prompt_width: usize,
@@ -176,6 +175,7 @@ impl LineBuffer {
         positions
     }
 
+    /// Display width.
     pub fn display_width(&self) -> usize {
         self.decoded_char_indices()
             .into_iter()
@@ -184,6 +184,7 @@ impl LineBuffer {
             .sum()
     }
 
+    /// Horizontal window with options.
     pub fn horizontal_window_with_options(
         &self,
         max_width: usize,
@@ -236,6 +237,7 @@ impl LineBuffer {
         (visible, width)
     }
 
+    /// As string with active region.
     pub fn as_string_with_active_region(&self, mark: Option<usize>) -> String {
         let Some((start, end)) = self.region(mark, true) else {
             return self.as_string();
@@ -256,6 +258,7 @@ impl LineBuffer {
         out
     }
 
+    /// Render text.
     pub fn render_text(&self, mark: Option<usize>, options: RenderOptions<'_>) -> (String, usize) {
         let region = self.region(mark, options.active_region);
         let mut out = String::new();
@@ -289,6 +292,7 @@ impl LineBuffer {
         (out, point_width)
     }
 
+    /// Render text bytes.
     pub fn render_text_bytes(
         &self,
         mark: Option<usize>,
@@ -298,6 +302,7 @@ impl LineBuffer {
         (rendered_string_to_bytes(&rendered), point)
     }
 
+    /// Rendered rows and point.
     pub fn rendered_rows_and_point(
         &self,
         prompt_width: usize,

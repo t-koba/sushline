@@ -1,5 +1,3 @@
-#![allow(missing_docs)]
-
 use super::LineBuffer;
 pub(super) fn is_word_char(ch: char) -> bool {
     if private_byte_value(ch).is_some() {
@@ -239,6 +237,7 @@ pub(super) fn is_grapheme_extend(ch: char) -> bool {
 pub(super) const DEFAULT_COMPLETION_BREAK_CHARS: &[u8] = b" \t\n'\"`$|&;<>(){}";
 
 impl LineBuffer {
+    /// Copy backward word.
     pub fn copy_backward_word(&mut self, break_chars: Option<&str>) -> Vec<u8> {
         self.copy_backward_word_by(word_matcher(break_chars))
     }
@@ -263,6 +262,7 @@ impl LineBuffer {
         self.range_bytes(start, end)
     }
 
+    /// Copy forward word.
     pub fn copy_forward_word(&mut self, break_chars: Option<&str>) -> Vec<u8> {
         self.copy_forward_word_by(word_matcher(break_chars))
     }
@@ -287,6 +287,7 @@ impl LineBuffer {
         self.range_bytes(start, end)
     }
 
+    /// Kill to start.
     pub fn kill_to_start(&mut self) -> Vec<u8> {
         let killed = self.bytes[..self.point].to_vec();
         self.bytes.drain(..self.point);
@@ -294,12 +295,14 @@ impl LineBuffer {
         killed
     }
 
+    /// Kill to end.
     pub fn kill_to_end(&mut self) -> Vec<u8> {
         let killed = self.bytes[self.point..].to_vec();
         self.bytes.truncate(self.point);
         killed
     }
 
+    /// Kill whole line.
     pub fn kill_whole_line(&mut self) -> Vec<u8> {
         let killed = self.bytes.clone();
         self.bytes.clear();
@@ -307,10 +310,12 @@ impl LineBuffer {
         killed
     }
 
+    /// Backward kill word.
     pub fn backward_kill_word(&mut self, break_chars: Option<&str>) -> Vec<u8> {
         self.backward_kill_word_by(word_matcher(break_chars))
     }
 
+    /// Unix word rubout.
     pub fn unix_word_rubout(&mut self) -> Vec<u8> {
         let end = self.point;
         while let Some((prev, ch)) = self.prev_char(self.point) {
@@ -337,12 +342,14 @@ impl LineBuffer {
         self.delete_range_bytes(self.point, end)
     }
 
+    /// Backward kill filename word.
     pub fn backward_kill_filename_word(&mut self) -> Vec<u8> {
         let end = self.point;
         self.backward_filename_word();
         self.delete_range_bytes(self.point, end)
     }
 
+    /// Kill word.
     pub fn kill_word(&mut self, break_chars: Option<&str>) -> Vec<u8> {
         self.kill_word_by(word_matcher(break_chars))
     }
@@ -356,6 +363,7 @@ impl LineBuffer {
         self.delete_range_bytes(start, self.point)
     }
 
+    /// Delete horizontal space.
     pub fn delete_horizontal_space(&mut self) {
         let mut start = self.point;
         while let Some((prev, ch)) = self.prev_char(start) {
@@ -374,30 +382,36 @@ impl LineBuffer {
         let _ = self.delete_range_bytes(start, end);
     }
 
+    /// Upcase word.
     pub fn upcase_word(&mut self, break_chars: Option<&str>) -> bool {
         self.map_next_word_by(word_matcher(break_chars), |ch| ch.to_uppercase().collect())
     }
 
+    /// Upcase previous word preserving point.
     pub fn upcase_previous_word_preserving_point(&mut self, break_chars: Option<&str>) -> bool {
         self.map_previous_word_preserving_point_by(word_matcher(break_chars), |ch| {
             ch.to_uppercase().collect()
         })
     }
 
+    /// Downcase word.
     pub fn downcase_word(&mut self, break_chars: Option<&str>) -> bool {
         self.map_next_word_by(word_matcher(break_chars), |ch| ch.to_lowercase().collect())
     }
 
+    /// Downcase previous word preserving point.
     pub fn downcase_previous_word_preserving_point(&mut self, break_chars: Option<&str>) -> bool {
         self.map_previous_word_preserving_point_by(word_matcher(break_chars), |ch| {
             ch.to_lowercase().collect()
         })
     }
 
+    /// Capitalize word.
     pub fn capitalize_word(&mut self, break_chars: Option<&str>) -> bool {
         self.capitalize_word_by(word_matcher(break_chars))
     }
 
+    /// Capitalize previous word preserving point.
     pub fn capitalize_previous_word_preserving_point(&mut self, break_chars: Option<&str>) -> bool {
         self.capitalize_previous_word_preserving_point_by(word_matcher(break_chars))
     }
@@ -439,6 +453,7 @@ impl LineBuffer {
         true
     }
 
+    /// Transpose words.
     pub fn transpose_words(&mut self, break_chars: Option<&str>) -> bool {
         self.transpose_words_by(word_matcher(break_chars))
     }
@@ -474,6 +489,7 @@ impl LineBuffer {
         true
     }
 
+    /// Transpose command words.
     pub fn transpose_command_words(&mut self) -> bool {
         let Some((left_start, left_end)) = self.previous_command_word_bounds(self.point) else {
             return false;
@@ -502,6 +518,7 @@ impl LineBuffer {
         true
     }
 
+    /// Toggle case at point.
     pub fn toggle_case_at_point(&mut self) -> bool {
         let Some(ch) = self.char_at_point() else {
             return false;
@@ -520,6 +537,7 @@ impl LineBuffer {
         true
     }
 
+    /// Forward word.
     pub fn forward_word(&mut self, break_chars: Option<&str>) -> bool {
         self.forward_word_by(word_matcher(break_chars))
     }
@@ -544,6 +562,7 @@ impl LineBuffer {
         self.point != start
     }
 
+    /// Forward bigword.
     pub fn forward_bigword(&mut self) -> bool {
         let start = self.point;
         while let Some(ch) = self.char_at(self.point) {
@@ -561,6 +580,7 @@ impl LineBuffer {
         self.point != start
     }
 
+    /// Forward bigword end.
     pub fn forward_bigword_end(&mut self) -> bool {
         let start = self.point;
         while let Some(ch) = self.char_at(self.point) {
@@ -578,6 +598,7 @@ impl LineBuffer {
         self.point != start
     }
 
+    /// Vi forward word.
     pub fn vi_forward_word(&mut self, break_chars: Option<&str>) -> bool {
         self.vi_forward_word_by(word_matcher(break_chars))
     }
@@ -616,6 +637,7 @@ impl LineBuffer {
         self.point != start
     }
 
+    /// Backward bigword.
     pub fn backward_bigword(&mut self) -> bool {
         let start = self.point;
         while let Some((prev, ch)) = self.prev_char(self.point) {
@@ -633,6 +655,7 @@ impl LineBuffer {
         self.point != start
     }
 
+    /// End word.
     pub fn end_word(&mut self, break_chars: Option<&str>) -> bool {
         self.end_word_by(word_matcher(break_chars))
     }
@@ -660,6 +683,7 @@ impl LineBuffer {
         self.point != start
     }
 
+    /// End bigword.
     pub fn end_bigword(&mut self) -> bool {
         let start = self.point;
         if self
@@ -683,6 +707,7 @@ impl LineBuffer {
         self.point != start
     }
 
+    /// Backward filename word.
     pub fn backward_filename_word(&mut self) -> bool {
         let start = self.point;
         while let Some((prev, ch)) = self.prev_char(self.point) {
@@ -700,6 +725,7 @@ impl LineBuffer {
         self.point != start
     }
 
+    /// Forward command word.
     pub fn forward_command_word(&mut self) -> bool {
         let start = self.point;
         let mut idx = self.point.min(self.bytes.len());
@@ -716,6 +742,7 @@ impl LineBuffer {
         self.point != start
     }
 
+    /// Backward command word.
     pub fn backward_command_word(&mut self) -> bool {
         let start = self.point;
         let mut idx = self.point.min(self.bytes.len());
@@ -732,18 +759,21 @@ impl LineBuffer {
         self.point != start
     }
 
+    /// Kill command word.
     pub fn kill_command_word(&mut self) -> Vec<u8> {
         let start = self.point;
         self.forward_command_word();
         self.delete_range_bytes(start, self.point)
     }
 
+    /// Backward kill command word.
     pub fn backward_kill_command_word(&mut self) -> Vec<u8> {
         let end = self.point;
         self.backward_command_word();
         self.delete_range_bytes(self.point, end)
     }
 
+    /// Move to first nonblank.
     pub fn move_to_first_nonblank(&mut self) {
         self.point = self
             .decoded_char_indices()
@@ -752,6 +782,7 @@ impl LineBuffer {
             .unwrap_or(self.bytes.len());
     }
 
+    /// Find forward.
     pub fn find_forward(&self, target: char, from_next: bool) -> Option<usize> {
         let start = if from_next {
             self.next_char_boundary(self.point)
@@ -761,6 +792,7 @@ impl LineBuffer {
         self.find_forward_from(target, start)
     }
 
+    /// Find forward from.
     pub fn find_forward_from(&self, target: char, start: usize) -> Option<usize> {
         let mut idx = self.clamp_boundary(start);
         while let Some((next, ch)) = self.decoded_char_at(idx) {
@@ -772,6 +804,7 @@ impl LineBuffer {
         None
     }
 
+    /// Find backward.
     pub fn find_backward(&self, target: char, from_previous: bool) -> Option<usize> {
         let end = if from_previous {
             self.prev_char_boundary_checked(self.point).unwrap_or(0)
@@ -781,6 +814,7 @@ impl LineBuffer {
         self.find_backward_from(target, end)
     }
 
+    /// Find backward from.
     pub fn find_backward_from(&self, target: char, end: usize) -> Option<usize> {
         let end = self.next_char_boundary(self.clamp_boundary(end));
         let mut found = None;
@@ -795,6 +829,7 @@ impl LineBuffer {
         found
     }
 
+    /// Word before point.
     pub fn word_before_point(&self, break_chars: Option<&[u8]>) -> Vec<u8> {
         let mut start = self.point;
         while let Some((prev, ch)) = self.prev_char(start) {
@@ -810,10 +845,12 @@ impl LineBuffer {
         self.range_bytes(start, self.point)
     }
 
+    /// Completion word bounds.
     pub fn completion_word_bounds(&self, break_chars: Option<&[u8]>) -> (usize, usize) {
         self.completion_word_bounds_at(self.point, break_chars)
     }
 
+    /// Vi completion word bounds.
     pub fn vi_completion_word_bounds(&self, break_chars: Option<&[u8]>) -> (usize, usize) {
         let break_chars = break_chars.unwrap_or(DEFAULT_COMPLETION_BREAK_CHARS);
         let mut point = self.point;
@@ -864,6 +901,7 @@ impl LineBuffer {
         (start, point.min(self.bytes.len()))
     }
 
+    /// Backward word.
     pub fn backward_word(&mut self, break_chars: Option<&str>) -> bool {
         self.backward_word_by(word_matcher(break_chars))
     }

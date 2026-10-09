@@ -272,22 +272,18 @@ pub(super) fn extend_replacement_with_append_char(
 }
 
 fn extend_with_trailing_char(replacement: &mut Vec<u8>, options: &CompletionOptions) {
-    if let Some(ch) = completion_trailing_char(options) {
-        let mut buf = [0; 4];
-        replacement.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
-    }
-}
-
-fn completion_trailing_char(options: &CompletionOptions) -> Option<char> {
-    if options.nospace {
-        return None;
-    }
-    if let Some(ch) = options.append_character {
+    let trailing = if options.nospace {
+        None
+    } else if let Some(ch) = options.append_character {
         Some(ch)
     } else if !options.suppress_append {
         Some(' ')
     } else {
         None
+    };
+    if let Some(ch) = trailing {
+        let mut buf = [0; 4];
+        replacement.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
     }
 }
 

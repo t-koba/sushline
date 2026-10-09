@@ -79,8 +79,8 @@ pub(super) fn complete_commands_bytes(word: &[u8]) -> CompletionResponse {
                 {
                     let replacement = replacement_bytes.unwrap_or_else(|| replacement.into_bytes());
                     names
-                        .entry(replacement.clone())
-                        .or_insert_with(|| CompletionCandidate::plain(replacement));
+                        .entry(replacement)
+                        .or_insert_with_key(|key| CompletionCandidate::plain(key.clone()));
                 }
             }
         }

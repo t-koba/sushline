@@ -458,6 +458,9 @@ pub(super) fn run_pty_steps_with_size_until(
     stop_marker: &str,
 ) -> String {
     command.env("TERM", "xterm-256color");
+    // portable-pty uses $HOME as the child cwd; the sandbox HOME may not
+    // exist (ENOENT on spawn), and oracle cases use absolute paths only.
+    command.cwd("/");
     let pty_system = NativePtySystem::default();
     let pair = pty_system.openpty(size).expect("open pty");
 
@@ -549,6 +552,9 @@ pub(super) fn run_pty_with_size_until_after_prompt(
     mut after_prompt: Option<impl FnOnce()>,
 ) -> String {
     command.env("TERM", "xterm-256color");
+    // portable-pty uses $HOME as the child cwd; the sandbox HOME may not
+    // exist (ENOENT on spawn), and oracle cases use absolute paths only.
+    command.cwd("/");
     let pty_system = NativePtySystem::default();
     let pair = pty_system.openpty(size).expect("open pty");
 

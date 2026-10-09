@@ -183,8 +183,11 @@ navigation, expansion helpers, and byte-preserving file reads operate on that
 state.
 
 History file writes use last-writer-wins with no locking. Full writes
-and truncation write to a temporary path and rename it into place; append writes
-only the selected entry range. Concurrent-writer merging is embedder policy.
+and truncation write through a unique sibling temporary file created with
+exclusive creation and renamed into place; append writes
+only the selected entry range. New history files default to owner-only (`0600`)
+permissions on Unix, and full writes keep the existing file mode without ever
+widening it past that default. Concurrent-writer merging is embedder policy.
 The editor can add accepted lines automatically when configured, but long-term
 save timing remains controlled by the embedder.
 

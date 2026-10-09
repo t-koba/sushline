@@ -132,6 +132,54 @@ fn failed_full_write_cleans_up_sibling_tmp() {
         !dir.path().join("history.tmp").exists(),
         "failed write must not leak sibling tmp"
     );
+    assert!(
+        fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .all(|entry| {
+                !entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("history.tmp.")
+            }),
+        "failed write must not leak unique sibling tmp"
+    );
+}
+
+#[test]
+#[cfg_attr(not(unix), ignore = "requires Unix file modes")]
+fn full_write_creates_restrictive_file_mode_for_missing_path() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    let mut h = History::new();
+    h.push("secret one");
+    h.write_file(&path).unwrap();
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), "secret one\n");
+    let append_only = dir.path().join("append-only");
+    let mut a = History::new();
+    a.push("appended secret");
+    a.append_file(&append_only, 0).unwrap();
+    assert_eq!(
+        fs::metadata(&append_only).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert!(
+        fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .all(|entry| {
+                !entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("history.tmp.")
+            }),
+        "successful write must not leak sibling tmp"
+    );
 }
 
 #[test]

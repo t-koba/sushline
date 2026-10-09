@@ -2,6 +2,9 @@ use super::{History, HistoryEntry};
 use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 impl History {
     /// Default file path.
@@ -116,7 +119,13 @@ impl History {
         write_timestamps: bool,
     ) -> io::Result<()> {
         let path = path.as_ref();
+        let existed = fs::metadata(path).is_ok();
         let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+        #[cfg(unix)]
+        if !existed {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+        }
         for entry in self.entries.iter().skip(from) {
             write_entry(&mut file, entry, write_timestamps)?;
         }
@@ -204,23 +213,57 @@ fn write_atomic(
     path: &Path,
     write_tmp: impl FnOnce(&mut fs::File) -> io::Result<()>,
 ) -> io::Result<()> {
-    let tmp = history_tmp_path(path);
+    let base = history_tmp_path(path);
+    #[cfg(unix)]
+    let target_mode: u32 = {
+        use std::os::unix::fs::PermissionsExt;
+        fs::metadata(path)
+            .ok()
+            .map(|metadata| metadata.permissions().mode() & 0o777)
+            .unwrap_or(0o600)
+    };
+    #[cfg(not(unix))]
     let existing_permissions = fs::metadata(path)
         .ok()
         .map(|metadata| metadata.permissions());
-    let mut file = fs::File::create(&tmp)?;
-    let result = (|| {
-        if let Some(permissions) = existing_permissions {
-            fs::set_permissions(&tmp, permissions)?;
+    for _ in 0..100 {
+        let nonce = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let tmp = unique_tmp_path(&base, nonce);
+        let file = match OpenOptions::new().write(true).create_new(true).open(&tmp) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        };
+        let result = (|| {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&tmp, fs::Permissions::from_mode(target_mode))?;
+            }
+            #[cfg(not(unix))]
+            if let Some(ref permissions) = existing_permissions {
+                fs::set_permissions(&tmp, permissions.clone())?;
+            }
+            let mut file = file;
+            write_tmp(&mut file)?;
+            file.sync_all()?;
+            fs::rename(&tmp, path)
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&tmp);
         }
-        write_tmp(&mut file)?;
-        file.sync_all()?;
-        fs::rename(&tmp, path)
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&tmp);
+        return result;
     }
-    result
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "could not create unique history tmp file",
+    ))
+}
+
+fn unique_tmp_path(base: &Path, nonce: u64) -> PathBuf {
+    let mut name = base.as_os_str().to_owned();
+    name.push(format!(".{}-{nonce}", std::process::id()));
+    PathBuf::from(name)
 }
 
 fn is_timestamp_record(line: &str) -> bool {

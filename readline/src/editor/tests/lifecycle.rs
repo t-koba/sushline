@@ -86,3 +86,33 @@ fn do_lowercase_version_still_lowercases_uppercase_key() {
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
     assert_eq!(result, ReadlineResult::Line(b"a".to_vec()));
 }
+
+#[test]
+fn resize_columns_change_recomputes_prompt_wrap() {
+    let line = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
+    let output = "a".repeat(30);
+
+    let mut narrow = EditorState::new(Prompt::new("> "), None);
+    narrow.display.last_terminal_size = Some(TerminalSize {
+        columns: 20,
+        rows: 24,
+    });
+    let mut wide = EditorState::new(Prompt::new("> "), None);
+    wide.display.last_terminal_size = Some(TerminalSize {
+        columns: 80,
+        rows: 24,
+    });
+
+    // Resize plumbing follows the latest size for both shrink and grow.
+    assert_eq!(line.tracked_terminal_columns(&narrow), 20);
+    assert_eq!(line.tracked_terminal_columns(&wide), 80);
+
+    // Per-render measurement recomputes wrap from those columns, matching
+    // unconditional recompute semantics without a cached newlines array.
+    let (narrow_rows, _) =
+        crate::width::measured_rows_for_output(&output, line.tracked_terminal_columns(&narrow));
+    let (wide_rows, _) =
+        crate::width::measured_rows_for_output(&output, line.tracked_terminal_columns(&wide));
+    assert_eq!(narrow_rows, 1);
+    assert_eq!(wide_rows, 0);
+}

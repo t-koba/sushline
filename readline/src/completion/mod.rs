@@ -88,6 +88,14 @@ pub struct CompletionCandidate {
 }
 
 impl CompletionCandidate {
+    /// Plain candidate without separate display text.
+    pub(crate) fn plain(replacement: Vec<u8>) -> Self {
+        Self {
+            replacement,
+            display: None,
+        }
+    }
+
     /// Replacement bytes.
     pub fn replacement_bytes(&self) -> &[u8] {
         &self.replacement

@@ -80,10 +80,7 @@ pub(super) fn complete_commands_bytes(word: &[u8]) -> CompletionResponse {
                     let replacement = replacement_bytes.unwrap_or_else(|| replacement.into_bytes());
                     names
                         .entry(replacement.clone())
-                        .or_insert(CompletionCandidate {
-                            replacement,
-                            display: None,
-                        });
+                        .or_insert_with_key(|key| CompletionCandidate::plain(key.clone()));
                 }
             }
         }
@@ -115,10 +112,7 @@ pub(crate) fn complete_commands_with_hooks_bytes(
             .command_names()
             .into_iter()
             .filter(|name| name.starts_with(word))
-            .map(|name| CompletionCandidate {
-                replacement: name,
-                display: None,
-            }),
+            .map(CompletionCandidate::plain),
     );
     response
 }
@@ -130,16 +124,15 @@ pub(super) fn complete_variables(word: &str, hooks: &mut impl Hooks) -> Completi
         .variable_names()
         .into_iter()
         .filter(|name| name.starts_with(prefix))
-        .map(|name| CompletionCandidate {
-            replacement: if has_sigil {
+        .map(|name| {
+            CompletionCandidate::plain(if has_sigil {
                 let mut replacement = Vec::with_capacity(name.len() + 1);
                 replacement.push(b'$');
                 replacement.extend(name);
                 replacement
             } else {
                 name
-            },
-            display: None,
+            })
         })
         .collect();
     CompletionResponse {
@@ -168,10 +161,7 @@ pub(super) fn complete_users(word: &str, hooks: &mut impl Hooks) -> CompletionRe
     let candidates = names
         .into_keys()
         .filter(|name| name.starts_with(prefix))
-        .map(|name| CompletionCandidate {
-            replacement: format!("~{name}/").into_bytes(),
-            display: None,
-        })
+        .map(|name| CompletionCandidate::plain(format!("~{name}/").into_bytes()))
         .collect();
     CompletionResponse {
         candidates,
@@ -205,10 +195,7 @@ pub(super) fn complete_hosts(word: &str, hooks: &mut impl Hooks) -> CompletionRe
     let candidates = hosts
         .into_keys()
         .filter(|host| host.starts_with(prefix))
-        .map(|host| CompletionCandidate {
-            replacement: host.into_bytes(),
-            display: None,
-        })
+        .map(|host| CompletionCandidate::plain(host.into_bytes()))
         .collect();
     CompletionResponse {
         candidates,
@@ -286,10 +273,7 @@ fn filename_matches_response(matches: Vec<Vec<u8>>) -> CompletionResponse {
     filenames_response(
         matches
             .into_iter()
-            .map(|replacement| CompletionCandidate {
-                replacement,
-                display: None,
-            })
+            .map(CompletionCandidate::plain)
             .collect(),
     )
 }
@@ -328,11 +312,10 @@ pub(crate) fn glob_complete(
                     prefixed.extend_from_slice(bytes);
                     *bytes = prefixed;
                 }
-                candidates.push(CompletionCandidate {
-                    replacement: replacement_bytes
+                candidates.push(CompletionCandidate::plain(
+                    replacement_bytes
                         .unwrap_or_else(|| format!("{display_dir}{completion_name}").into_bytes()),
-                    display: None,
-                });
+                ));
             }
         }
     }
@@ -381,10 +364,7 @@ pub(super) fn glob_complete_bytes(
                 }
                 let mut replacement = display_dir.clone();
                 replacement.extend_from_slice(name_bytes);
-                candidates.push(CompletionCandidate {
-                    replacement,
-                    display: None,
-                });
+                candidates.push(CompletionCandidate::plain(replacement));
             }
         }
         filenames_response(candidates)

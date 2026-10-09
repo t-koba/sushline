@@ -313,6 +313,10 @@ impl LineBuffer {
         (total_row, point_row, point_col)
     }
 
+    pub(crate) fn rendered_width_until(&self, end: usize, options: &RenderOptions<'_>) -> usize {
+        self.rendered_slice_width(0, end.min(self.bytes.len()), options)
+    }
+
     fn rendered_slice_width(&self, start: usize, end: usize, options: &RenderOptions<'_>) -> usize {
         self.decoded_chars_in_range(start, end)
             .into_iter()

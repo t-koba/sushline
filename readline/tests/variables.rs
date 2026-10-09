@@ -129,6 +129,30 @@ fn less_common_variables_have_observable_side_effects() {
 }
 
 #[test]
+fn blink_matching_paren_uses_rendered_control_char_width() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(vec![0x16]),
+        TerminalEvent::Bytes(vec![0x01]),
+        TerminalEvent::Bytes(b"(".to_vec()),
+        TerminalEvent::Bytes(b")".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set blink-matching-paren on")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(vec![0x01, b'(', b')']));
+    // Prompt `> ` is 2 cells and `\x01` renders as `^A` (2 cells), so `(` sits at column 4.
+    // Blink moves there between the final render's reset to column 0 and its move
+    // to the end of `^A()` (column 6).
+    let moved = &line.terminal().moved_columns;
+    assert!(
+        moved.len() >= 3 && moved[moved.len() - 3..] == [4, 0, 6],
+        "blink then final render should be [4, 0, 6], got {moved:?}"
+    );
+}
+
+#[test]
 fn show_mode_in_prompt_adds_mode_string() {
     let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(b"\r".to_vec())]);
     let mut line = Editor::new(Config::default(), terminal, History::new());

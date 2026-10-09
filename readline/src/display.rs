@@ -284,7 +284,10 @@ where
             return Ok(());
         };
         let prompt_width = visible_width(self.mode_prompt_prefix().as_str()) + state.prompt.width();
-        let column = prompt_width + state.buffer.display_width_until(match_pos);
+        let column = prompt_width
+            + state
+                .buffer
+                .rendered_width_until(match_pos, &self.render_options());
         self.terminal.write(escape::SAVE_CURSOR)?;
         self.terminal.move_to_column(column as u16)?;
         self.terminal.flush()?;

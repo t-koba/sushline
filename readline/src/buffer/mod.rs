@@ -1,6 +1,5 @@
 mod render;
 mod word;
-use crate::width::char_width;
 pub use render::RenderOptions;
 pub(crate) use render::{append_bytes_lossless, bytes_lossless, rendered_string_to_bytes};
 use word::*;
@@ -269,13 +268,6 @@ impl LineBuffer {
             .into_iter()
             .map(|(_, ch)| ch)
             .collect()
-    }
-
-    pub(crate) fn display_width_until(&self, end: usize) -> usize {
-        self.decoded_char_indices_in_range(0, end.min(self.bytes.len()))
-            .into_iter()
-            .map(|(_, ch)| char_width(ch))
-            .sum()
     }
 
     pub(crate) fn matching_open_paren_before_point(&self) -> Option<usize> {

@@ -249,33 +249,18 @@ where
     ) -> (Vec<u8>, Option<DirectoryCompletion>) {
         let filename_directory =
             self.filename_directory_completion_for_candidate(response, edit, candidate);
-        let append_filename_slash =
-            append_filename_slash_for_candidate(candidate, filename_directory.as_ref(), next_byte);
-        let replacement = self.completion_candidate_replacement_bytes(
-            candidate,
+        let mut raw = candidate.replacement_bytes().to_vec();
+        if append_filename_slash_for_candidate(candidate, filename_directory.as_ref(), next_byte) {
+            raw.push(b'/');
+        }
+        let replacement = self.requote_completion_bytes(
+            &raw,
             edit,
             completion_type,
             response.options.quote_filename(),
             hooks,
-            append_filename_slash,
         );
         (replacement, filename_directory)
-    }
-
-    pub(super) fn completion_candidate_replacement_bytes(
-        &self,
-        candidate: &crate::completion::CompletionCandidate,
-        edit: &CompletionEdit,
-        completion_type: CompletionType,
-        quote_filename: bool,
-        hooks: &mut impl Hooks,
-        append_filename_slash: bool,
-    ) -> Vec<u8> {
-        let mut replacement = candidate.replacement_bytes().to_vec();
-        if append_filename_slash {
-            replacement.push(b'/');
-        }
-        self.requote_completion_bytes(&replacement, edit, completion_type, quote_filename, hooks)
     }
 }
 

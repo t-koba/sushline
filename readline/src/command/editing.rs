@@ -25,14 +25,18 @@ where
                                 killed.extend(part);
                             }
                         }
-                        state.push_kill(killed, KillDirection::Forward);
+                        state.push_kill(killed, KillDirection::Forward, self.kill_append_allowed());
                     } else {
                         for _ in 0..count {
                             if let Some(part) = state.buffer.backward_delete_char_bytes() {
                                 killed.splice(0..0, part);
                             }
                         }
-                        state.push_kill(killed, KillDirection::Backward);
+                        state.push_kill(
+                            killed,
+                            KillDirection::Backward,
+                            self.kill_append_allowed(),
+                        );
                     }
                 } else if state.overwrite_mode {
                     state.buffer.backward_replace_char_with_space();

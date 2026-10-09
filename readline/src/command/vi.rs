@@ -321,9 +321,9 @@ where
                 state.record_undo();
                 if key == b"S" {
                     let killed = state.buffer.kill_whole_line();
-                    state.push_kill(killed, KillDirection::Forward);
+                    state.push_kill(killed, KillDirection::Forward, self.kill_append_allowed());
                 } else if let Some(killed) = state.buffer.delete_char_bytes() {
-                    state.push_kill(killed, KillDirection::Forward);
+                    state.push_kill(killed, KillDirection::Forward, self.kill_append_allowed());
                 }
                 self.keymap.set_current(KeyMapName::ViInsert);
                 state.begin_vi_insert_change(key);
@@ -334,13 +334,14 @@ where
                     let text = state
                         .buffer
                         .range_bytes(state.buffer.point(), state.buffer.len_chars());
-                    state.push_kill(text, KillDirection::Forward);
+                    state.push_kill(text, KillDirection::Forward, self.kill_append_allowed());
                     state.after_non_kill_command();
                     return Ok(EditorOutcome::Continue);
                 }
+                let allow_append = self.kill_append_allowed();
                 self.handle_vi_doubled_operator(state, ViOperator::Yank, key, |_line, state| {
                     let text = state.buffer.as_bytes().to_vec();
-                    state.push_kill(text, KillDirection::Forward);
+                    state.push_kill(text, KillDirection::Forward, allow_append);
                     state.buffer.move_beginning();
                 });
                 state.after_non_kill_command();
@@ -703,14 +704,14 @@ where
             ViOperator::Delete | ViOperator::Change => {
                 state.record_undo();
                 let killed = state.buffer.delete_range_bytes(start, end);
-                state.push_kill(killed, KillDirection::Forward);
+                state.push_kill(killed, KillDirection::Forward, self.kill_append_allowed());
                 if matches!(op, ViOperator::Change) {
                     self.keymap.set_current(KeyMapName::ViInsert);
                 }
             }
             ViOperator::Yank => {
                 let text = state.buffer.range_bytes(start, end);
-                state.push_kill(text, KillDirection::Forward);
+                state.push_kill(text, KillDirection::Forward, self.kill_append_allowed());
                 state.buffer.set_point(start);
             }
         }

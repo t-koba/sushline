@@ -27,8 +27,16 @@ pub(crate) enum KillDirection {
     Backward,
 }
 
+/// Maximum kill-ring slots, matching GNU `DEFAULT_MAX_KILLS`.
+pub(crate) const MAX_KILLS: usize = 10;
+
 impl EditorState {
-    pub(crate) fn push_kill(&mut self, text: impl Into<Vec<u8>>, direction: KillDirection) {
+    pub(crate) fn push_kill(
+        &mut self,
+        text: impl Into<Vec<u8>>,
+        direction: KillDirection,
+        allow_append: bool,
+    ) {
         let text = text.into();
         self.kill.last_yank = None;
         if text.is_empty() {
@@ -37,7 +45,8 @@ impl EditorState {
         }
         self.store_active_vi_register(&text);
 
-        if self.kill.last_was_kill
+        if allow_append
+            && self.kill.last_was_kill
             && let Some(last) = self.kill.kill_ring.last_mut()
         {
             match direction {
@@ -47,6 +56,9 @@ impl EditorState {
                 }
             }
         } else {
+            if self.kill.kill_ring.len() >= MAX_KILLS {
+                self.kill.kill_ring.remove(0);
+            }
             self.kill.kill_ring.push(text);
         }
         self.kill.last_was_kill = true;
@@ -137,5 +149,49 @@ impl EditorState {
             return;
         };
         self.yank_from_index(index);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::prompt::Prompt;
+
+    fn fresh_state() -> EditorState {
+        EditorState::new(Prompt::new(""), None)
+    }
+
+    #[test]
+    fn emacs_consecutive_kills_append() {
+        let mut state = fresh_state();
+        state.push_kill(b"foo".to_vec(), KillDirection::Forward, true);
+        state.push_kill(b"bar".to_vec(), KillDirection::Forward, true);
+        assert_eq!(state.kill.kill_ring.len(), 1);
+        assert_eq!(state.kill.kill_ring[0], b"foobar".to_vec());
+    }
+
+    #[test]
+    fn vi_consecutive_kills_stay_separate() {
+        let mut state = fresh_state();
+        state.push_kill(b"foo".to_vec(), KillDirection::Forward, false);
+        // GNU vi mode never coalesces: second kill starts a new slot even
+        // though the previous command was a kill.
+        state.push_kill(b"bar".to_vec(), KillDirection::Forward, false);
+        assert_eq!(state.kill.kill_ring.len(), 2);
+        assert_eq!(state.kill.kill_ring[0], b"foo".to_vec());
+        assert_eq!(state.kill.kill_ring[1], b"bar".to_vec());
+    }
+
+    #[test]
+    fn ring_caps_at_ten_and_evicts_oldest() {
+        let mut state = fresh_state();
+        for i in 0..11 {
+            state.kill.last_was_kill = false;
+            state.push_kill(vec![b'a' + (i % 26) as u8], KillDirection::Forward, true);
+        }
+        assert_eq!(state.kill.kill_ring.len(), MAX_KILLS);
+        // Oldest entry (`a`) evicted; newest ten remain.
+        assert_eq!(state.kill.kill_ring[0], vec![b'b']);
+        assert_eq!(state.kill.kill_ring[MAX_KILLS - 1], vec![b'k']);
     }
 }

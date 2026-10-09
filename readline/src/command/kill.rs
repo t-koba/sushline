@@ -16,17 +16,17 @@ where
                 state.record_undo();
                 if state.numeric_arg.take().unwrap_or(1) < 0 {
                     let killed = state.buffer.kill_to_end();
-                    state.push_kill(killed, KillDirection::Forward);
+                    state.push_kill(killed, KillDirection::Forward, self.kill_append_allowed());
                 } else {
                     let killed = state.buffer.kill_to_start();
-                    state.push_kill(killed, KillDirection::Backward);
+                    state.push_kill(killed, KillDirection::Backward, self.kill_append_allowed());
                 };
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::UnixWordRubout => {
                 state.record_undo();
                 let killed = state.buffer.unix_word_rubout();
-                state.push_kill(killed, KillDirection::Backward);
+                state.push_kill(killed, KillDirection::Backward, self.kill_append_allowed());
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::BackwardKillWord => {
@@ -44,12 +44,16 @@ where
                     (KillDirection::Backward, KillDirection::Forward),
                     &mut killed,
                 );
-                state.push_kill(killed, direction);
+                state.push_kill(killed, direction, self.kill_append_allowed());
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::CopyRegionAsKill => {
                 if let Some((start, end)) = state.region_bounds() {
-                    state.push_kill(state.buffer.range_bytes(start, end), KillDirection::Forward);
+                    state.push_kill(
+                        state.buffer.range_bytes(start, end),
+                        KillDirection::Forward,
+                        self.kill_append_allowed(),
+                    );
                 } else {
                     state.after_non_kill_command();
                 }
@@ -59,10 +63,10 @@ where
                 state.record_undo();
                 if state.numeric_arg.take().unwrap_or(1) < 0 {
                     let killed = state.buffer.kill_to_start();
-                    state.push_kill(killed, KillDirection::Backward);
+                    state.push_kill(killed, KillDirection::Backward, self.kill_append_allowed());
                 } else {
                     let killed = state.buffer.kill_to_end();
-                    state.push_kill(killed, KillDirection::Forward);
+                    state.push_kill(killed, KillDirection::Forward, self.kill_append_allowed());
                 }
                 Ok(EditorOutcome::Continue)
             }
@@ -71,7 +75,7 @@ where
                     state.record_undo();
                     let killed = state.buffer.delete_range_bytes(start, end);
                     state.mark = None;
-                    state.push_kill(killed, KillDirection::Forward);
+                    state.push_kill(killed, KillDirection::Forward, self.kill_append_allowed());
                 } else {
                     state.after_non_kill_command();
                 }
@@ -80,7 +84,7 @@ where
             EditCommand::KillWholeLine => {
                 state.record_undo();
                 let killed = state.buffer.kill_whole_line();
-                state.push_kill(killed, KillDirection::Forward);
+                state.push_kill(killed, KillDirection::Forward, self.kill_append_allowed());
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::KillWord => {
@@ -98,13 +102,13 @@ where
                     (KillDirection::Forward, KillDirection::Backward),
                     &mut killed,
                 );
-                state.push_kill(killed, direction);
+                state.push_kill(killed, direction, self.kill_append_allowed());
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::UnixLineDiscard => {
                 state.record_undo();
                 let killed = state.buffer.kill_to_start();
-                state.push_kill(killed, KillDirection::Backward);
+                state.push_kill(killed, KillDirection::Backward, self.kill_append_allowed());
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::Yank => {
@@ -137,12 +141,12 @@ where
             "copy-backward-word" => {
                 let word_breaks = self.editing_word_breaks(hooks);
                 let text = state.buffer.copy_backward_word(word_breaks.as_deref());
-                state.push_kill(text, KillDirection::Backward);
+                state.push_kill(text, KillDirection::Backward, self.kill_append_allowed());
             }
             "copy-forward-word" => {
                 let word_breaks = self.editing_word_breaks(hooks);
                 let text = state.buffer.copy_forward_word(word_breaks.as_deref());
-                state.push_kill(text, KillDirection::Forward);
+                state.push_kill(text, KillDirection::Forward, self.kill_append_allowed());
             }
             "insert-last-argument" | "yank-last-arg" => {
                 state.record_undo();
@@ -185,7 +189,7 @@ where
                     }
                     KillDirection::Backward
                 };
-                state.push_kill(killed, direction);
+                state.push_kill(killed, direction, self.kill_append_allowed());
             }
             "shell-kill-word" => {
                 state.record_undo();
@@ -206,17 +210,17 @@ where
                     }
                     KillDirection::Forward
                 };
-                state.push_kill(killed, direction);
+                state.push_kill(killed, direction, self.kill_append_allowed());
             }
             "unix-filename-rubout" => {
                 state.record_undo();
                 let killed = state.buffer.backward_kill_filename_word();
-                state.push_kill(killed, KillDirection::Backward);
+                state.push_kill(killed, KillDirection::Backward, self.kill_append_allowed());
             }
             "vi-unix-word-rubout" => {
                 state.record_undo();
                 let killed = state.buffer.backward_kill_word(None);
-                state.push_kill(killed, KillDirection::Backward);
+                state.push_kill(killed, KillDirection::Backward, self.kill_append_allowed());
             }
             _ => unreachable!("named command group mismatch"),
         }

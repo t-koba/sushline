@@ -425,6 +425,22 @@ where
         }
     }
 
+    pub(crate) fn effective_editing_mode_is_vi(&self) -> bool {
+        self.variables
+            .get("editing-mode")
+            .map(String::as_str)
+            .unwrap_or(match self.config.editing_mode {
+                crate::config::EditingMode::Emacs => "emacs",
+                crate::config::EditingMode::Vi => "vi",
+            })
+            == "vi"
+    }
+
+    /// Whether consecutive kills may coalesce; GNU appends only outside vi mode.
+    pub(crate) fn kill_append_allowed(&self) -> bool {
+        !self.effective_editing_mode_is_vi()
+    }
+
     pub(crate) fn variable_is_on(&self, name: &str) -> bool {
         self.variables.is_on(name)
     }

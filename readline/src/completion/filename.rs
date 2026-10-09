@@ -63,11 +63,15 @@ pub(crate) fn complete_filenames_bytes(word: &[u8], opts: &FilenameOptions) -> C
             let name = filename_display_name(&name_bytes);
             let mut replacement_bytes = display_dir.clone();
             replacement_bytes.extend_from_slice(&name_bytes);
-            let mut display = (!display_dir.is_empty()).then(|| name.clone());
-            if let Some(directory) = directory_completion(&entry.path(), opts) {
+            let path = entry.path();
+            let directory = directory_completion(&path, opts);
+            if directory.is_some() {
                 directory_candidate_count += 1;
-                display = Some(directory_display(&name, &entry.path(), opts, &directory));
             }
+            let display = match directory.as_ref() {
+                Some(directory) => Some(directory_display(&name, &path, opts, directory)),
+                None => (!display_dir.is_empty()).then_some(name),
+            };
             candidates.push(crate::completion::CompletionCandidate {
                 replacement: replacement_bytes,
                 display,

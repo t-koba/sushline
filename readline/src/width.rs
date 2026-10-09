@@ -28,8 +28,9 @@ pub(crate) fn visible_width(value: &str) -> usize {
             continue;
         }
         if ch == '\x1b' && chars.peek() == Some(&'[') {
+            chars.next();
             for ch in chars.by_ref() {
-                if ch.is_ascii_alphabetic() {
+                if ('@'..='~').contains(&ch) {
                     break;
                 }
             }

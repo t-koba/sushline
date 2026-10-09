@@ -341,19 +341,7 @@ fn read_history_records(file: fs::File) -> io::Result<Vec<(Vec<u8>, Option<Strin
         if let Ok(text) = std::str::from_utf8(&line)
             && is_timestamp_record(text)
         {
-            if !delimited_lines.is_empty() {
-                let start = delimited_lines
-                    .iter()
-                    .position(|entry| !entry.is_empty())
-                    .unwrap_or(delimited_lines.len());
-                if start < delimited_lines.len() {
-                    let joined = delimited_lines[start..].join(&b'\n');
-                    records.push((joined, pending_timestamp.take()));
-                } else {
-                    pending_timestamp.take();
-                }
-                delimited_lines.clear();
-            }
+            flush_delimited_lines(&mut delimited_lines, &mut pending_timestamp, &mut records);
             pending_timestamp = Some(text.to_string());
             line.clear();
             continue;
@@ -371,17 +359,29 @@ fn read_history_records(file: fs::File) -> io::Result<Vec<(Vec<u8>, Option<Strin
         }
         line.clear();
     }
-    if !delimited_lines.is_empty() {
-        let start = delimited_lines
-            .iter()
-            .position(|entry| !entry.is_empty())
-            .unwrap_or(delimited_lines.len());
-        if start < delimited_lines.len() {
-            let joined = delimited_lines[start..].join(&b'\n');
-            records.push((joined, pending_timestamp.take()));
-        }
-    }
+    flush_delimited_lines(&mut delimited_lines, &mut pending_timestamp, &mut records);
     Ok(records)
+}
+
+fn flush_delimited_lines(
+    delimited_lines: &mut Vec<Vec<u8>>,
+    pending_timestamp: &mut Option<String>,
+    records: &mut Vec<(Vec<u8>, Option<String>)>,
+) {
+    if delimited_lines.is_empty() {
+        return;
+    }
+    let start = delimited_lines
+        .iter()
+        .position(|entry| !entry.is_empty())
+        .unwrap_or(delimited_lines.len());
+    if start < delimited_lines.len() {
+        let joined = delimited_lines[start..].join(&b'\n');
+        records.push((joined, pending_timestamp.take()));
+    } else {
+        pending_timestamp.take();
+    }
+    delimited_lines.clear();
 }
 
 fn history_tmp_path(path: &Path) -> std::path::PathBuf {

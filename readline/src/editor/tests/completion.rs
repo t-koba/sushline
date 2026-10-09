@@ -540,6 +540,36 @@ fn prefix_display_length_abbreviates_shared_non_utf8_filename_prefix() {
 }
 
 #[test]
+fn prefix_display_length_abbreviates_dir_prefixed_non_utf8_filename_prefix() {
+    let terminal = MemoryTerminal::default();
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set completion-prefix-display-length 1")
+        .unwrap();
+    let response = CompletionResponse {
+        candidates: vec![
+            crate::completion::CompletionCandidate {
+                replacement: vec![b'd', b'i', b'r', b'/', b'a', 0xff, b'X', b'1'],
+                display: None,
+            },
+            crate::completion::CompletionCandidate {
+                replacement: vec![b'd', b'i', b'r', b'/', b'a', 0xff, b'X', b'2'],
+                display: None,
+            },
+        ],
+        options: crate::completion::CompletionOptions {
+            filenames: true,
+            ..Default::default()
+        },
+    };
+    line.display_completions(&response).unwrap();
+    assert!(
+        line.terminal.out.contains("..."),
+        "shared dir-prefixed non-UTF8 filename prefix should abbreviate: {:?}",
+        line.terminal.out
+    );
+}
+
+#[test]
 fn possible_completions_uses_query_and_visible_stats() {
     let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(b"y".to_vec())]);
     let mut line = Editor::new(Config::default(), terminal, History::new());

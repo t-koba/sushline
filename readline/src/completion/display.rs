@@ -1,4 +1,3 @@
-use crate::buffer::bytes_lossless;
 use crate::completion::{CompletionCandidate, CompletionResponse};
 use crate::width::{rendered_rows_for_output, visible_width};
 use std::cmp::Ordering;
@@ -327,10 +326,11 @@ where
             .unwrap_or(0);
         if prefix_limit > 0 {
             if response.options.filenames {
-                // Filename items are lossless (`filename_display_name`), so the
-                // prefix must be lossless too: a rendered prefix never matches
-                // a lossless item once non-UTF8 bytes expand.
-                if let Some(prefix) = common_bytes.as_deref().map(bytes_lossless)
+                // Filename items are basenames (`filename_display_name`), so
+                // the prefix must be in the same domain: the full-path common
+                // prefix never matches basename items once a directory is
+                // shared, and its length over-counts the directory part.
+                if let Some(prefix) = common_bytes.as_deref().map(filename_display_name)
                     && prefix.chars().count() > prefix_limit
                 {
                     abbreviate_completion_prefix(&mut items, &prefix, response.options.filenames);
@@ -343,12 +343,14 @@ where
         }
         if self.variable_is_on("colored-completion-prefix") {
             if response.options.filenames {
-                // Filename items are lossless (`filename_display_name`), so the
-                // prefix must be lossless too: a rendered prefix would count
-                // escape-expanded chars that never appear in the item.
-                if let Some(prefix) = common_bytes.as_deref().map(bytes_lossless).as_deref() {
+                // Filename items are basenames (`filename_display_name`), so
+                // both prefix and replacement must be basenames too: full-path
+                // strings would over-count the shared directory when slicing
+                // the item.
+                if let Some(prefix) = common_bytes.as_deref().map(filename_display_name) {
+                    let prefix = prefix.as_str();
                     for (item, candidate) in items.iter_mut().zip(response.candidates.iter()) {
-                        let replacement = bytes_lossless(candidate.replacement_bytes());
+                        let replacement = filename_display_name(candidate.replacement_bytes());
                         *item = color_completion_prefix(item, &replacement, prefix);
                     }
                 }

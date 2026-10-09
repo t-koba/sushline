@@ -1,13 +1,13 @@
 use crate::state::EditorState;
 
-#[derive(Clone)]
-pub(super) struct CompletionEdit {
-    pub(super) start: usize,
-    pub(super) end: usize,
-    pub(super) word_bytes: Vec<u8>,
-    pub(super) quote: Option<char>,
-    pub(super) line: Vec<u8>,
-    pub(super) point: usize,
+#[derive(Clone, Debug)]
+pub(crate) struct CompletionEdit {
+    pub(crate) start: usize,
+    pub(crate) end: usize,
+    pub(crate) word_bytes: Vec<u8>,
+    pub(crate) quote: Option<char>,
+    pub(crate) line: Vec<u8>,
+    pub(crate) point: usize,
 }
 
 pub(super) fn completion_edit(

@@ -66,21 +66,13 @@ where
         backward: bool,
         hooks: &mut impl Hooks,
     ) -> Result<(), ReadlineError> {
-        let response = previous.response;
-        let original_len = previous.original.len();
         let context = MenuCompleteContext {
             end: previous.end,
             previous_match_index: Some(previous.index),
             original: previous.original,
-            edit: CompletionEdit {
-                start: previous.start,
-                end: previous.start + original_len,
-                word_bytes: previous.word_bytes,
-                quote: previous.quote,
-                line: previous.line,
-                point: previous.point,
-            },
+            edit: previous.edit,
         };
+        let response = previous.response;
         self.menu_complete_with_context(state, response, backward, hooks, context)
     }
 
@@ -119,13 +111,9 @@ where
             .replace_range_bytes(context.edit.start, context.end, &replacement_bytes);
         state.completion.menu_completion = Some(MenuCompletionState {
             index: next_index,
-            start: context.edit.start,
             end: context.edit.start + replacement_bytes.len(),
             original: context.original,
-            word_bytes: context.edit.word_bytes,
-            quote: context.edit.quote,
-            line: context.edit.line,
-            point: context.edit.point,
+            edit: context.edit,
             response: response.clone(),
         });
         state.completion.last_completion = Some(response);

@@ -265,7 +265,7 @@ pub(super) fn extend_replacement_with_append_char(
     candidate: &CompletionCandidate,
     directory: Option<&DirectoryCompletion>,
 ) {
-    if suppress_append_for_directory(candidate, directory) {
+    if directory.is_some() || candidate.replacement_bytes().ends_with(b"/") {
         return;
     }
     extend_with_trailing_char(replacement, options);
@@ -285,13 +285,6 @@ fn extend_with_trailing_char(replacement: &mut Vec<u8>, options: &CompletionOpti
         let mut buf = [0; 4];
         replacement.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
     }
-}
-
-pub(super) fn suppress_append_for_directory(
-    candidate: &CompletionCandidate,
-    directory: Option<&DirectoryCompletion>,
-) -> bool {
-    directory.is_some() || candidate.replacement_bytes().ends_with(b"/")
 }
 
 pub(super) fn append_filename_slash_for_candidate(

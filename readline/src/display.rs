@@ -285,8 +285,7 @@ where
         let Some(match_pos) = state.buffer.matching_open_paren_before_point() else {
             return Ok(());
         };
-        let (_, mode_width) = self.mode_prompt_prefix();
-        let prompt_width = state.prompt.width_after_prefix(mode_width);
+        let prompt_width = self.current_prompt_width(state);
         let column = prompt_width
             + state
                 .buffer

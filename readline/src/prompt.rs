@@ -56,21 +56,53 @@ impl From<&[u8]> for Prompt {
 
 fn strip_readline_markers(raw: &str) -> (String, usize) {
     let mut visible = String::new();
+    let mut measurable = String::new();
+    let mut hidden_soh = false;
+    let mut hidden_bracket = false;
     let mut chars = raw.chars().peekable();
 
+    let push_decoded = |ch: char,
+                        visible: &mut String,
+                        measurable: &mut String,
+                        hidden_soh: bool,
+                        hidden_bracket: bool| {
+        visible.push(ch);
+        // Newlines still break lines even inside hidden regions.
+        if ch == '\n' || (!hidden_soh && !hidden_bracket) {
+            measurable.push(ch);
+        }
+    };
+
     while let Some(ch) = chars.next() {
-        if ch == '\x01' || ch == '\x02' {
+        if ch == '\x01' {
+            hidden_soh = true;
+            continue;
+        }
+        if ch == '\x02' {
+            hidden_soh = false;
             continue;
         }
         if ch == '\\' {
             match chars.peek().copied() {
-                Some('[') | Some(']') => {
+                Some('[') => {
                     chars.next();
+                    hidden_bracket = true;
+                    continue;
+                }
+                Some(']') => {
+                    chars.next();
+                    hidden_bracket = false;
                     continue;
                 }
                 Some('e' | 'E') => {
                     chars.next();
-                    visible.push('\x1b');
+                    push_decoded(
+                        '\x1b',
+                        &mut visible,
+                        &mut measurable,
+                        hidden_soh,
+                        hidden_bracket,
+                    );
                     continue;
                 }
                 Some(c) if c.is_ascii_digit() && c < '8' => {
@@ -88,7 +120,13 @@ fn strip_readline_markers(raw: &str) -> (String, usize) {
                         consumed += 1;
                     }
                     if let Some(decoded) = char::from_u32(value) {
-                        visible.push(decoded);
+                        push_decoded(
+                            decoded,
+                            &mut visible,
+                            &mut measurable,
+                            hidden_soh,
+                            hidden_bracket,
+                        );
                     }
                     continue;
                 }
@@ -96,10 +134,16 @@ fn strip_readline_markers(raw: &str) -> (String, usize) {
             }
         }
 
-        visible.push(ch);
+        push_decoded(
+            ch,
+            &mut visible,
+            &mut measurable,
+            hidden_soh,
+            hidden_bracket,
+        );
     }
 
-    let width = last_line_width(&visible);
+    let width = last_line_width(&measurable);
     (visible, width)
 }
 

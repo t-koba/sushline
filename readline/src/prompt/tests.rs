@@ -56,3 +56,21 @@ fn last_line_width_ignores_earlier_lines_and_ansi() {
     assert_eq!(crate::width::last_line_width("\x1b[31mab\x1b[0m\ncde"), 3);
     assert_eq!(crate::width::last_line_width(""), 0);
 }
+
+#[test]
+fn generic_hidden_markers_are_zero_width_for_any_bytes() {
+    let p = Prompt::new("\x01ABC\x02hi");
+    assert_eq!(p.visible(), "ABChi");
+    assert_eq!(p.width(), 2);
+    let q = Prompt::new("\\[ABC\\]hi");
+    assert_eq!(q.visible(), "ABChi");
+    assert_eq!(q.width(), 2);
+}
+
+#[test]
+fn control_chars_measure_zero_width() {
+    assert_eq!(crate::width::char_width('\x00'), 0);
+    assert_eq!(crate::width::char_width('\n'), 0);
+    assert_eq!(crate::width::char_width('\x1b'), 0);
+    assert_eq!(crate::width::char_width('\x7f'), 0);
+}

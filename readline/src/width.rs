@@ -5,7 +5,13 @@
 //! parsing. The rules differ and should not be collapsed into one function.
 
 /// Returns the terminal cell width of a Unicode scalar value.
+///
+/// Control characters are explicitly zero width so measurement does not
+/// depend on upstream width-table churn (`None` vs `Some(1)`).
 pub(crate) fn char_width(ch: char) -> usize {
+    if ch.is_control() {
+        return 0;
+    }
     unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0)
 }
 

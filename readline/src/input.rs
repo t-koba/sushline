@@ -419,17 +419,7 @@ where
             return Ok(EditorOutcome::Continue);
         }
         if state.input.pending_replace {
-            state.input.pending_replace = false;
-            state.consume_numeric_arg_unless_prefix();
-            let replacement = replacement_unit(bytes);
-            if !replacement.is_empty() {
-                let point = state.buffer.point();
-                state.record_undo();
-                state.buffer.replace_char_at_point_bytes(&replacement);
-                state.buffer.set_point(point);
-                state.after_non_kill_command();
-            }
-            return Ok(EditorOutcome::Continue);
+            return Ok(self.handle_replace_input(state, bytes));
         }
 
         if matches!(self.keymap.current(), KeyMapName::ViCommand) {

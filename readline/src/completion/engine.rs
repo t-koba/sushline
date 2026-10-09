@@ -236,7 +236,8 @@ where
             CompletionType::Complete
             | CompletionType::MenuComplete
             | CompletionType::MenuCompleteBackward
-            | CompletionType::InsertCompletions => {
+            | CompletionType::InsertCompletions
+            | CompletionType::PossibleCompletions => {
                 default_application_completion(request, hooks, &self.variables)
             }
             CompletionType::GlobCompleteWord
@@ -246,9 +247,6 @@ where
             }
             CompletionType::Hostname | CompletionType::PossibleHostnameCompletions => {
                 complete_hosts(&String::from_utf8_lossy(&request.context.word), hooks)
-            }
-            CompletionType::PossibleCompletions => {
-                default_application_completion(request, hooks, &self.variables)
             }
             CompletionType::DynamicHistory => CompletionResponse::default(),
             CompletionType::ViComplete => unreachable!("vi-complete is normalized before dispatch"),

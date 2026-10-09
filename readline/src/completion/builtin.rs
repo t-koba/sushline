@@ -306,16 +306,18 @@ pub(crate) fn glob_complete(
                 else {
                     continue;
                 };
-                let mut replacement_bytes = completion_bytes;
-                if let Some(bytes) = replacement_bytes.as_mut() {
-                    let mut prefixed = display_dir.as_bytes().to_vec();
-                    prefixed.extend_from_slice(bytes);
-                    *bytes = prefixed;
-                }
-                candidates.push(CompletionCandidate::plain(
-                    replacement_bytes
-                        .unwrap_or_else(|| format!("{display_dir}{completion_name}").into_bytes()),
-                ));
+                let mut prefixed = display_dir.as_bytes().to_vec();
+                let replacement = match completion_bytes {
+                    Some(bytes) => {
+                        prefixed.extend_from_slice(&bytes);
+                        prefixed
+                    }
+                    None => {
+                        prefixed.extend_from_slice(completion_name.as_bytes());
+                        prefixed
+                    }
+                };
+                candidates.push(CompletionCandidate::plain(replacement));
             }
         }
     }

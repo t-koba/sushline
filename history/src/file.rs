@@ -21,9 +21,7 @@ impl History {
     pub fn read_file(path: impl AsRef<Path>) -> io::Result<Self> {
         let file = fs::File::open(path)?;
         let mut history = Self::new();
-        for (line, timestamp) in read_history_records(file)? {
-            history.push_entry(line, timestamp, false);
-        }
+        history.import_records(read_history_records(file)?);
         history.file_loaded_len = history.entries.len();
         Ok(history)
     }
@@ -36,14 +34,7 @@ impl History {
     ) -> io::Result<Self> {
         let file = fs::File::open(path)?;
         let mut history = Self::new();
-        let count = range_count(from, to);
-        for (line, timestamp) in read_history_records(file)?
-            .into_iter()
-            .skip(from)
-            .take(count)
-        {
-            history.push_entry(line, timestamp, false);
-        }
+        history.import_records(read_history_range_records(file, from, to)?);
         history.file_loaded_len = history.entries.len();
         Ok(history)
     }
@@ -60,9 +51,7 @@ impl History {
         max_entries: Option<usize>,
     ) -> io::Result<()> {
         let file = fs::File::open(path)?;
-        for (line, timestamp) in read_history_records(file)? {
-            self.push_entry(line, timestamp, false);
-        }
+        self.import_records(read_history_records(file)?);
         self.enforce_max_len(max_entries);
         self.file_loaded_len = self.entries.len();
         Ok(())
@@ -77,14 +66,7 @@ impl History {
         max_entries: Option<usize>,
     ) -> io::Result<()> {
         let file = fs::File::open(path)?;
-        let count = range_count(from, to);
-        for (line, timestamp) in read_history_records(file)?
-            .into_iter()
-            .skip(from)
-            .take(count)
-        {
-            self.push_entry(line, timestamp, false);
-        }
+        self.import_records(read_history_range_records(file, from, to)?);
         self.enforce_max_len(max_entries);
         self.file_loaded_len = self.entries.len();
         Ok(())
@@ -107,11 +89,7 @@ impl History {
         write_timestamps: bool,
     ) -> io::Result<()> {
         let path = path.as_ref();
-        let tmp = history_tmp_path(path);
-        let mut file = fs::File::create(&tmp)?;
-        self.write_entries(&mut file, write_timestamps)
-            .and_then(|()| file.sync_all())
-            .and_then(|()| fs::rename(&tmp, path))
+        write_atomic(path, |file| self.write_entries(file, write_timestamps))
     }
 
     /// Append default file.
@@ -179,13 +157,12 @@ impl History {
         let path = path.as_ref();
         let history = Self::read_file(path)?;
         let keep_from = history.entries.len().saturating_sub(max_len);
-        let tmp = history_tmp_path(path);
-        let mut file = fs::File::create(&tmp)?;
-        for entry in &history.entries[keep_from..] {
-            write_entry(&mut file, entry, false)?;
-        }
-        file.sync_all()?;
-        fs::rename(&tmp, path)
+        write_atomic(path, |file| {
+            for entry in &history.entries[keep_from..] {
+                write_entry(file, entry, false)?;
+            }
+            Ok(())
+        })
     }
 
     fn write_entries(&self, file: &mut fs::File, write_timestamps: bool) -> io::Result<()> {
@@ -194,6 +171,25 @@ impl History {
         }
         Ok(())
     }
+
+    fn import_records(&mut self, records: Vec<(Vec<u8>, Option<String>)>) {
+        for (line, timestamp) in records {
+            self.push_entry(line, timestamp, false);
+        }
+    }
+}
+
+fn read_history_range_records(
+    file: fs::File,
+    from: usize,
+    to: Option<usize>,
+) -> io::Result<Vec<(Vec<u8>, Option<String>)>> {
+    let count = range_count(from, to);
+    Ok(read_history_records(file)?
+        .into_iter()
+        .skip(from)
+        .take(count)
+        .collect())
 }
 
 fn range_count(from: usize, to: Option<usize>) -> usize {
@@ -202,6 +198,17 @@ fn range_count(from: usize, to: Option<usize>) -> usize {
         Some(to) if to < from => usize::MAX,
         Some(to) => to.saturating_sub(from).max(1),
     }
+}
+
+fn write_atomic(
+    path: &Path,
+    write_tmp: impl FnOnce(&mut fs::File) -> io::Result<()>,
+) -> io::Result<()> {
+    let tmp = history_tmp_path(path);
+    let mut file = fs::File::create(&tmp)?;
+    write_tmp(&mut file)
+        .and_then(|()| file.sync_all())
+        .and_then(|()| fs::rename(&tmp, path))
 }
 
 fn is_timestamp_record(line: &str) -> bool {

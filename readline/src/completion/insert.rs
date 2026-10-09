@@ -39,7 +39,7 @@ where
                 filename_directory.as_ref(),
                 suffix.first().copied(),
             );
-            let replacement_bytes = self.completion_candidate_replacement_bytes(
+            let mut replacement_bytes = self.completion_candidate_replacement_bytes(
                 candidate,
                 edit,
                 completion_type,
@@ -47,7 +47,6 @@ where
                 hooks,
                 append_filename_slash,
             );
-            let mut replacement_bytes = replacement_bytes;
             let skipped_completed_text = skip_completed_text && !suffix.is_empty();
             if skip_completed_text {
                 replacement_bytes = skip_completed_suffix_bytes(&replacement_bytes, &suffix);

@@ -146,11 +146,7 @@ pub(super) fn complete_users(word: &str, hooks: &mut impl Hooks) -> CompletionRe
     }
     names.extend(system_user_names());
     names.extend(hook_names_as_strings(hooks.user_names()));
-    let candidates = names
-        .into_iter()
-        .filter(|name| name.starts_with(prefix))
-        .map(|name| CompletionCandidate::plain(format!("~{name}/").into_bytes()))
-        .collect();
+    let candidates = prefixed_candidates(names, prefix, |name| format!("~{name}/").into_bytes());
     CompletionResponse {
         candidates,
         options: CompletionOptions {
@@ -177,11 +173,7 @@ pub(super) fn complete_hosts(word: &str, hooks: &mut impl Hooks) -> CompletionRe
     hosts.extend(system_host_names());
     hosts.extend(known_host_names());
     hosts.extend(hook_names_as_strings(hooks.host_names()));
-    let candidates = hosts
-        .into_iter()
-        .filter(|host| host.starts_with(prefix))
-        .map(|host| CompletionCandidate::plain(host.into_bytes()))
-        .collect();
+    let candidates = prefixed_candidates(hosts, prefix, String::into_bytes);
     CompletionResponse {
         candidates,
         options: Default::default(),
@@ -192,6 +184,18 @@ fn hook_names_as_strings(names: Vec<Vec<u8>>) -> impl Iterator<Item = String> {
     names
         .into_iter()
         .map(|name| String::from_utf8_lossy(&name).into_owned())
+}
+
+fn prefixed_candidates(
+    names: Vec<String>,
+    prefix: &str,
+    replacement: impl Fn(String) -> Vec<u8>,
+) -> Vec<CompletionCandidate> {
+    names
+        .into_iter()
+        .filter(|name| name.starts_with(prefix))
+        .map(|name| CompletionCandidate::plain(replacement(name)))
+        .collect()
 }
 
 fn passwd_user_name(line: &str) -> Option<&str> {

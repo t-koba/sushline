@@ -138,7 +138,7 @@ pub(super) fn complete_users(word: &str, hooks: &mut impl Hooks) -> CompletionRe
     let mut names = Vec::new();
     if let Ok(passwd) = fs::read_to_string("/etc/passwd") {
         for line in passwd.lines() {
-            let Some((name, _)) = line.split_once(':') else {
+            let Some(name) = passwd_user_name(line) else {
                 continue;
             };
             names.push(name.to_string());
@@ -174,7 +174,7 @@ pub(super) fn complete_hosts(word: &str, hooks: &mut impl Hooks) -> CompletionRe
             .lines()
             .filter(|line| !line.trim_start().starts_with('#'))
         {
-            for host in line.split_whitespace().skip(1) {
+            for host in host_names_in_line(line) {
                 hosts.push(host.to_string());
             }
         }
@@ -198,6 +198,14 @@ pub(super) fn complete_hosts(word: &str, hooks: &mut impl Hooks) -> CompletionRe
     }
 }
 
+fn passwd_user_name(line: &str) -> Option<&str> {
+    line.split_once(':').map(|(name, _)| name)
+}
+
+fn host_names_in_line(line: &str) -> impl Iterator<Item = &str> {
+    line.split_whitespace().skip(1)
+}
+
 fn getent_lines(table: &str) -> Vec<String> {
     let Ok(output) = Command::new("getent").arg(table).output() else {
         return Vec::new();
@@ -214,7 +222,7 @@ fn getent_lines(table: &str) -> Vec<String> {
 pub(super) fn system_user_names() -> Vec<String> {
     getent_lines("passwd")
         .into_iter()
-        .filter_map(|line| line.split_once(':').map(|(name, _)| name.to_string()))
+        .filter_map(|line| passwd_user_name(&line).map(str::to_string))
         .collect()
 }
 
@@ -222,8 +230,7 @@ pub(super) fn system_host_names() -> Vec<String> {
     getent_lines("hosts")
         .into_iter()
         .flat_map(|line| {
-            line.split_whitespace()
-                .skip(1)
+            host_names_in_line(&line)
                 .map(str::to_string)
                 .collect::<Vec<_>>()
         })

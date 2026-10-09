@@ -1,5 +1,5 @@
 use super::*;
-use crate::completion::builtin::{complete_commands_with_hooks_bytes, glob_complete};
+use crate::completion::builtin::{complete_commands_with_hooks_bytes, glob_complete_bytes};
 use crate::completion::display::{
     color_completion_prefix, common_prefix_bytes, format_completion_items_with_trailing,
 };

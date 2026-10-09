@@ -1,7 +1,6 @@
 use crate::completion::filename::{
     FilenameOptions, complete_filenames_bytes, expand_tilde, filename_matches_response,
-    filenames_response, glob_match, glob_match_os, is_executable_file, join_display_dir,
-    os_name_is_hidden, os_string_to_completion, os_string_to_display, split_word_path,
+    filenames_response, is_executable_file, join_display_dir, os_string_to_completion,
     split_word_path_bytes,
 };
 use crate::completion::{
@@ -289,87 +288,40 @@ pub(super) fn known_host_names_bytes() -> Vec<Vec<u8>> {
     hosts
 }
 
-pub(crate) fn glob_complete(
-    word: &str,
-    hooks: &mut impl Hooks,
-    variables: &Variables,
-) -> CompletionResponse {
-    if let Some(matches) = hooks.glob_expand(word.as_bytes()) {
-        return filename_matches_response(matches);
-    }
-    if !word.contains(['*', '?', '[']) {
-        return complete_filenames_bytes(
-            word.as_bytes(),
-            &FilenameOptions::from_variables(variables),
-        );
-    }
-    let (dir, pattern, display_dir) = split_word_path(word);
-    let mut candidates = Vec::new();
-    if let Ok(entries) = fs::read_dir(&dir) {
-        for entry in entries.flatten() {
-            let os_name = entry.file_name();
-            let name = os_string_to_display(&os_name);
-            if !pattern.starts_with('.') && os_name_is_hidden(&os_name) {
-                continue;
-            }
-            if glob_match_os(pattern, &os_name) || glob_match(pattern, &name) {
-                let Some((completion_name, completion_bytes)) = os_string_to_completion(os_name)
-                else {
-                    continue;
-                };
-                let replacement = join_display_dir(
-                    display_dir.as_bytes(),
-                    completion_bytes
-                        .as_deref()
-                        .unwrap_or(completion_name.as_bytes()),
-                );
-                candidates.push(CompletionCandidate::plain(replacement));
-            }
-        }
-    }
-    filenames_response(candidates)
-}
-
-pub(super) fn glob_complete_bytes(
+pub(crate) fn glob_complete_bytes(
     word: &[u8],
     hooks: &mut impl Hooks,
     variables: &Variables,
 ) -> CompletionResponse {
+    use crate::completion::filename::{
+        glob_match_bytes, os_str_to_completion_bytes, path_from_bytes,
+    };
     if let Some(matches) = hooks.glob_expand(word) {
         return filename_matches_response(matches);
     }
-    if let Ok(word) = std::str::from_utf8(word) {
-        return glob_complete(word, hooks, variables);
+    if !word.iter().any(|byte| matches!(byte, b'*' | b'?' | b'[')) {
+        return complete_filenames_bytes(word, &FilenameOptions::from_variables(variables));
     }
-    #[cfg(unix)]
-    {
-        use crate::completion::filename::glob_match_bytes;
-        use std::ffi::OsString;
-        use std::os::unix::ffi::{OsStrExt, OsStringExt};
-        if !word.iter().any(|byte| matches!(byte, b'*' | b'?' | b'[')) {
-            return complete_filenames_bytes(word, &FilenameOptions::from_variables(variables));
-        }
-        let (dir_bytes, pattern, display_dir) = split_word_path_bytes(word);
-        let dir = PathBuf::from(OsString::from_vec(dir_bytes));
-        let mut candidates = Vec::new();
-        if let Ok(entries) = fs::read_dir(&dir) {
-            for entry in entries.flatten() {
-                let os_name = entry.file_name();
-                let name_bytes = os_name.as_os_str().as_bytes();
-                if pattern.first() != Some(&b'.') && name_bytes.first() == Some(&b'.') {
-                    continue;
-                }
-                if !glob_match_bytes(pattern, name_bytes) {
-                    continue;
-                }
-                let replacement = join_display_dir(&display_dir, name_bytes);
-                candidates.push(CompletionCandidate::plain(replacement));
+    let (dir_bytes, pattern, display_dir) = split_word_path_bytes(word);
+    let Some(dir) = path_from_bytes(&dir_bytes) else {
+        return filenames_response(Vec::new());
+    };
+    let mut candidates = Vec::new();
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let os_name = entry.file_name();
+            let Some(name_bytes) = os_str_to_completion_bytes(&os_name) else {
+                continue;
+            };
+            if pattern.first() != Some(&b'.') && name_bytes.first() == Some(&b'.') {
+                continue;
             }
+            if !glob_match_bytes(pattern, &name_bytes) {
+                continue;
+            }
+            let replacement = join_display_dir(&display_dir, &name_bytes);
+            candidates.push(CompletionCandidate::plain(replacement));
         }
-        filenames_response(candidates)
     }
-    #[cfg(not(unix))]
-    {
-        glob_complete(&String::from_utf8_lossy(word), hooks, variables)
-    }
+    filenames_response(candidates)
 }

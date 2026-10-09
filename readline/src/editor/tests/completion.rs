@@ -373,8 +373,8 @@ fn glob_completion_hides_dotfiles_unless_pattern_starts_with_dot() {
     std::fs::write(dir.path().join("visible"), "").unwrap();
     let line = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
     let mut hooks = ();
-    let response = glob_complete(
-        &format!("{}/*", dir.path().display()),
+    let response = glob_complete_bytes(
+        format!("{}/*", dir.path().display()).as_bytes(),
         &mut hooks,
         line.variables(),
     );
@@ -384,8 +384,8 @@ fn glob_completion_hides_dotfiles_unless_pattern_starts_with_dot() {
             .iter()
             .all(|candidate| !candidate.replacement.ends_with(b".secret"))
     );
-    let response = glob_complete(
-        &format!("{}/.*", dir.path().display()),
+    let response = glob_complete_bytes(
+        format!("{}/.*", dir.path().display()).as_bytes(),
         &mut hooks,
         line.variables(),
     );

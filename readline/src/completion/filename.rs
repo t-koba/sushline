@@ -108,29 +108,7 @@ fn filename_response(
     }
 }
 
-pub(super) fn split_word_path(word: &str) -> (PathBuf, &str, String) {
-    if word.ends_with('/') {
-        return (PathBuf::from(word), "", word.to_string());
-    }
-    let path = Path::new(word);
-    let parent = path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."));
-    let prefix = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("");
-    let display_dir = path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .map(|p| format!("{}/", p.display()))
-        .unwrap_or_default();
-    (parent, prefix, display_dir)
-}
-
-pub(super) fn split_word_path_bytes(word: &[u8]) -> (Vec<u8>, &[u8], Vec<u8>) {
+pub(crate) fn split_word_path_bytes(word: &[u8]) -> (Vec<u8>, &[u8], Vec<u8>) {
     if word.ends_with(b"/") {
         return (word.to_vec(), &b""[..], word.to_vec());
     }
@@ -193,33 +171,15 @@ pub(crate) fn os_string_to_completion(
     }
 }
 
-pub(crate) fn os_string_to_display(value: &std::ffi::OsStr) -> String {
-    value
-        .to_os_string()
-        .into_string()
-        .unwrap_or_else(os_string_lossy)
-}
-
 #[cfg(unix)]
-fn os_string_lossy(value: std::ffi::OsString) -> String {
-    use std::os::unix::ffi::OsStringExt;
-    String::from_utf8_lossy(&value.into_vec()).into_owned()
-}
-
-#[cfg(unix)]
-fn os_str_to_completion_bytes(value: &std::ffi::OsStr) -> Option<Vec<u8>> {
+pub(crate) fn os_str_to_completion_bytes(value: &std::ffi::OsStr) -> Option<Vec<u8>> {
     use std::os::unix::ffi::OsStrExt;
     Some(value.as_bytes().to_vec())
 }
 
 #[cfg(not(unix))]
-fn os_str_to_completion_bytes(value: &std::ffi::OsStr) -> Option<Vec<u8>> {
+pub(crate) fn os_str_to_completion_bytes(value: &std::ffi::OsStr) -> Option<Vec<u8>> {
     value.to_str().map(|value| value.as_bytes().to_vec())
-}
-
-#[cfg(not(unix))]
-fn os_string_lossy(value: std::ffi::OsString) -> String {
-    value.to_string_lossy().into_owned()
 }
 
 fn ls_color_code_for_candidate(name: &str, path: &Path, fallback_kind: &str) -> Option<String> {
@@ -350,14 +310,14 @@ fn completion_replacement_path(word: &[u8], replacement: &[u8]) -> Option<PathBu
 }
 
 #[cfg(unix)]
-fn path_from_bytes(bytes: &[u8]) -> Option<PathBuf> {
+pub(crate) fn path_from_bytes(bytes: &[u8]) -> Option<PathBuf> {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;
     Some(PathBuf::from(OsString::from_vec(bytes.to_vec())))
 }
 
 #[cfg(not(unix))]
-fn path_from_bytes(bytes: &[u8]) -> Option<PathBuf> {
+pub(crate) fn path_from_bytes(bytes: &[u8]) -> Option<PathBuf> {
     std::str::from_utf8(bytes).ok().map(PathBuf::from)
 }
 
@@ -422,28 +382,6 @@ fn completion_tolower_byte(byte: u8) -> u8 {
 #[cfg(not(unix))]
 fn completion_tolower_byte(byte: u8) -> u8 {
     byte.to_ascii_lowercase()
-}
-
-#[cfg(unix)]
-pub(crate) fn os_name_is_hidden(name: &std::ffi::OsStr) -> bool {
-    use std::os::unix::ffi::OsStrExt;
-    name.as_bytes().first().is_some_and(|byte| *byte == b'.')
-}
-
-#[cfg(not(unix))]
-pub(crate) fn os_name_is_hidden(name: &std::ffi::OsStr) -> bool {
-    name.to_string_lossy().starts_with('.')
-}
-
-#[cfg(unix)]
-pub(crate) fn glob_match_os(pattern: &str, name: &std::ffi::OsStr) -> bool {
-    use std::os::unix::ffi::OsStrExt;
-    glob_match_bytes(pattern.as_bytes(), name.as_bytes())
-}
-
-#[cfg(not(unix))]
-pub(crate) fn glob_match_os(pattern: &str, name: &std::ffi::OsStr) -> bool {
-    glob_match(pattern, &name.to_string_lossy())
 }
 
 pub(crate) fn glob_match(pattern: &str, value: &str) -> bool {

@@ -271,20 +271,26 @@ pub(super) fn known_host_names() -> Vec<String> {
         .collect()
 }
 
-fn filename_matches_response(matches: Vec<Vec<u8>>) -> CompletionResponse {
+fn filenames_response(candidates: Vec<CompletionCandidate>) -> CompletionResponse {
     CompletionResponse {
-        candidates: matches
+        candidates,
+        options: CompletionOptions {
+            filenames: true,
+            ..Default::default()
+        },
+    }
+}
+
+fn filename_matches_response(matches: Vec<Vec<u8>>) -> CompletionResponse {
+    filenames_response(
+        matches
             .into_iter()
             .map(|replacement| CompletionCandidate {
                 replacement,
                 display: None,
             })
             .collect(),
-        options: CompletionOptions {
-            filenames: true,
-            ..Default::default()
-        },
-    }
+    )
 }
 
 pub(crate) fn glob_complete(
@@ -329,13 +335,7 @@ pub(crate) fn glob_complete(
             }
         }
     }
-    CompletionResponse {
-        candidates,
-        options: CompletionOptions {
-            filenames: true,
-            ..Default::default()
-        },
-    }
+    filenames_response(candidates)
 }
 
 pub(super) fn glob_complete_bytes(
@@ -386,13 +386,7 @@ pub(super) fn glob_complete_bytes(
                 });
             }
         }
-        CompletionResponse {
-            candidates,
-            options: CompletionOptions {
-                filenames: true,
-                ..Default::default()
-            },
-        }
+        filenames_response(candidates)
     }
     #[cfg(not(unix))]
     {

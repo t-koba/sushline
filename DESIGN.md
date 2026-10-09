@@ -182,10 +182,11 @@ stifling state, and the loaded-file boundary used by append-new writes. Search,
 navigation, expansion helpers, and byte-preserving file reads operate on that
 state.
 
-History file writes are serialized through a side lock file on Unix. Full writes
+History file writes use last-writer-wins with no locking. Full writes
 and truncation write to a temporary path and rename it into place; append writes
-only the selected entry range. The editor can add accepted lines automatically
-when configured, but long-term save timing remains controlled by the embedder.
+only the selected entry range. Concurrent-writer merging is embedder policy.
+The editor can add accepted lines automatically when configured, but long-term
+save timing remains controlled by the embedder.
 
 ## Embedding Interface
 

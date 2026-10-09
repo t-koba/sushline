@@ -107,13 +107,11 @@ impl History {
         write_timestamps: bool,
     ) -> io::Result<()> {
         let path = path.as_ref();
-        with_history_lock(path, || {
-            let tmp = history_tmp_path(path);
-            let mut file = fs::File::create(&tmp)?;
-            self.write_entries(&mut file, write_timestamps)
-                .and_then(|()| file.sync_all())
-                .and_then(|()| fs::rename(&tmp, path))
-        })
+        let tmp = history_tmp_path(path);
+        let mut file = fs::File::create(&tmp)?;
+        self.write_entries(&mut file, write_timestamps)
+            .and_then(|()| file.sync_all())
+            .and_then(|()| fs::rename(&tmp, path))
     }
 
     /// Append default file.
@@ -140,13 +138,11 @@ impl History {
         write_timestamps: bool,
     ) -> io::Result<()> {
         let path = path.as_ref();
-        with_history_lock(path, || {
-            let mut file = OpenOptions::new().create(true).append(true).open(path)?;
-            for entry in self.entries.iter().skip(from) {
-                write_entry(&mut file, entry, write_timestamps)?;
-            }
-            file.sync_all()
-        })
+        let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+        for entry in self.entries.iter().skip(from) {
+            write_entry(&mut file, entry, write_timestamps)?;
+        }
+        file.sync_all()
     }
 
     /// Append new to default file.
@@ -181,17 +177,15 @@ impl History {
     /// Truncate file.
     pub fn truncate_file(path: impl AsRef<Path>, max_len: usize) -> io::Result<()> {
         let path = path.as_ref();
-        with_history_lock(path, || {
-            let history = Self::read_file(path)?;
-            let keep_from = history.entries.len().saturating_sub(max_len);
-            let tmp = history_tmp_path(path);
-            let mut file = fs::File::create(&tmp)?;
-            for entry in &history.entries[keep_from..] {
-                write_entry(&mut file, entry, false)?;
-            }
-            file.sync_all()?;
-            fs::rename(&tmp, path)
-        })
+        let history = Self::read_file(path)?;
+        let keep_from = history.entries.len().saturating_sub(max_len);
+        let tmp = history_tmp_path(path);
+        let mut file = fs::File::create(&tmp)?;
+        for entry in &history.entries[keep_from..] {
+            write_entry(&mut file, entry, false)?;
+        }
+        file.sync_all()?;
+        fs::rename(&tmp, path)
     }
 
     fn write_entries(&self, file: &mut fs::File, write_timestamps: bool) -> io::Result<()> {
@@ -261,58 +255,4 @@ fn history_tmp_path(path: &Path) -> std::path::PathBuf {
             .map(|ext| format!("{ext}."))
             .unwrap_or_default()
     ))
-}
-
-fn history_lock_path(path: &Path) -> std::path::PathBuf {
-    path.with_extension(format!(
-        "{}lock",
-        path.extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| format!("{ext}."))
-            .unwrap_or_default()
-    ))
-}
-
-fn with_history_lock<R>(path: &Path, op: impl FnOnce() -> io::Result<R>) -> io::Result<R> {
-    let lock_path = history_lock_path(path);
-    let lock = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(lock_path)?;
-    lock_file(&lock)?;
-    let result = op();
-    let unlock_result = unlock_file(&lock);
-    match (result, unlock_result) {
-        (Ok(value), Ok(())) => Ok(value),
-        (Err(err), _) => Err(err),
-        (Ok(_), Err(err)) => Err(err),
-    }
-}
-
-#[cfg(unix)]
-fn lock_file(file: &fs::File) -> io::Result<()> {
-    use std::os::fd::AsRawFd;
-    let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
-    (rc == 0).then_some(()).ok_or_else(io::Error::last_os_error)
-}
-
-#[cfg(unix)]
-fn unlock_file(file: &fs::File) -> io::Result<()> {
-    use std::os::fd::AsRawFd;
-    let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
-    (rc == 0).then_some(()).ok_or_else(io::Error::last_os_error)
-}
-
-#[cfg(not(unix))]
-fn lock_file(_file: &fs::File) -> io::Result<()> {
-    // Ok.
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn unlock_file(_file: &fs::File) -> io::Result<()> {
-    // Ok.
-    Ok(())
 }

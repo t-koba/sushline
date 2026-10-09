@@ -27,24 +27,8 @@ pub(crate) fn visible_width(value: &str) -> usize {
         if hidden {
             continue;
         }
-        if ch == '\x1b' && chars.peek() == Some(&'[') {
-            chars.next();
-            for ch in chars.by_ref() {
-                if ('@'..='~').contains(&ch) {
-                    break;
-                }
-            }
-        } else if ch == '\x1b' && chars.peek() == Some(&']') {
-            chars.next();
-            let mut previous = '\0';
-            for ch in chars.by_ref() {
-                if ch == '\x07' || (previous == '\x1b' && ch == '\\') {
-                    break;
-                }
-                previous = ch;
-            }
-        } else if ch == '\x1b' {
-            chars.next();
+        if ch == '\x1b' {
+            consume_escape_tail(&mut chars);
         } else {
             width += char_width(ch);
         }
@@ -58,14 +42,29 @@ pub(crate) fn terminal_visible_chars(output: &str) -> Vec<char> {
     let mut chars = output.chars().peekable();
     let mut visible = Vec::new();
     while let Some(ch) = chars.next() {
-        if ch == '\x1b' && chars.peek() == Some(&'[') {
+        if ch == '\x1b' {
+            consume_escape_tail(&mut chars);
+        } else {
+            visible.push(ch);
+        }
+    }
+    visible
+}
+
+/// Consumes the tail of a terminal escape sequence after the leading ESC.
+/// CSI (`ESC [`) runs to the first `@`..=`~` byte, OSC (`ESC ]`) runs to BEL
+/// or `ESC \`, and any other ESC consumes one following byte when present.
+fn consume_escape_tail(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
+    match chars.peek().copied() {
+        Some('[') => {
             chars.next();
             for ch in chars.by_ref() {
                 if ('@'..='~').contains(&ch) {
                     break;
                 }
             }
-        } else if ch == '\x1b' && chars.peek() == Some(&']') {
+        }
+        Some(']') => {
             chars.next();
             let mut previous = '\0';
             for ch in chars.by_ref() {
@@ -74,13 +73,11 @@ pub(crate) fn terminal_visible_chars(output: &str) -> Vec<char> {
                 }
                 previous = ch;
             }
-        } else if ch == '\x1b' {
-            let _ = chars.next();
-        } else {
-            visible.push(ch);
+        }
+        _ => {
+            chars.next();
         }
     }
-    visible
 }
 
 /// Advances one cell across a wrapped line, returning added rows and new column.

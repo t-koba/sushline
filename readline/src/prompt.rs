@@ -1,4 +1,4 @@
-use crate::width::char_width;
+use crate::width::visible_width;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Prompt.
@@ -56,34 +56,21 @@ impl From<&[u8]> for Prompt {
 
 fn strip_readline_markers(raw: &str) -> (String, usize) {
     let mut visible = String::new();
-    let mut line_width = 0;
-    let mut non_printing = false;
     let mut chars = raw.chars().peekable();
 
     while let Some(ch) = chars.next() {
-        if ch == '\x01' {
-            non_printing = true;
-            continue;
-        }
-        if ch == '\x02' {
-            non_printing = false;
+        if ch == '\x01' || ch == '\x02' {
             continue;
         }
         if ch == '\\' {
             match chars.peek().copied() {
-                Some('[') => {
+                Some('[') | Some(']') => {
                     chars.next();
-                    non_printing = true;
-                    continue;
-                }
-                Some(']') => {
-                    chars.next();
-                    non_printing = false;
                     continue;
                 }
                 Some('e' | 'E') => {
                     chars.next();
-                    push_prompt_char('\x1b', non_printing, &mut visible, &mut line_width);
+                    visible.push('\x1b');
                     continue;
                 }
                 Some(c) if c.is_ascii_digit() && c < '8' => {
@@ -101,7 +88,7 @@ fn strip_readline_markers(raw: &str) -> (String, usize) {
                         consumed += 1;
                     }
                     if let Some(decoded) = char::from_u32(value) {
-                        push_prompt_char(decoded, non_printing, &mut visible, &mut line_width);
+                        visible.push(decoded);
                     }
                     continue;
                 }
@@ -109,22 +96,11 @@ fn strip_readline_markers(raw: &str) -> (String, usize) {
             }
         }
 
-        push_prompt_char(ch, non_printing, &mut visible, &mut line_width);
+        visible.push(ch);
     }
 
-    (visible, line_width)
-}
-
-fn push_prompt_char(ch: char, non_printing: bool, visible: &mut String, line_width: &mut usize) {
-    visible.push(ch);
-    if non_printing {
-        return;
-    }
-    if ch == '\n' {
-        *line_width = 0;
-    } else {
-        *line_width += char_width(ch);
-    }
+    let width = visible.rsplit('\n').next().map(visible_width).unwrap_or(0);
+    (visible, width)
 }
 
 #[cfg(test)]

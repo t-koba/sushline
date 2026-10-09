@@ -38,3 +38,14 @@ fn complex_sush_prompt_ignores_nonprinting_ansi_and_counts_emoji_width() {
     assert!(p.visible().contains("\x1b[01;32m"));
     assert_eq!(p.width(), "u@h:main🌵~/repo(debug)🍣".width());
 }
+
+#[test]
+fn unwrapped_ansi_prompt_is_forgiving_zero_width() {
+    let prompt = Prompt::new("\x1b[31mhi");
+    assert_eq!(prompt.visible(), "\x1b[31mhi");
+    assert_eq!(prompt.width(), 2);
+    assert_eq!(
+        prompt.width(),
+        crate::width::visible_width(prompt.visible())
+    );
+}

@@ -100,11 +100,6 @@ impl CompletionCandidate {
     pub fn replacement_bytes(&self) -> &[u8] {
         &self.replacement
     }
-
-    /// Replacement string.
-    pub fn replacement_string(&self) -> String {
-        String::from_utf8_lossy(&self.replacement).into_owned()
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

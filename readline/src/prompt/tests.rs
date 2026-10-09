@@ -49,3 +49,10 @@ fn unwrapped_ansi_prompt_is_forgiving_zero_width() {
         crate::width::visible_width(prompt.visible())
     );
 }
+
+#[test]
+fn last_line_width_ignores_earlier_lines_and_ansi() {
+    assert_eq!(crate::width::last_line_width("ab\ncde"), 3);
+    assert_eq!(crate::width::last_line_width("\x1b[31mab\x1b[0m\ncde"), 3);
+    assert_eq!(crate::width::last_line_width(""), 0);
+}

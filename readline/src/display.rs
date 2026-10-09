@@ -11,7 +11,7 @@ use crate::prompt::Prompt;
 use crate::state::{EditorState, SearchDirection};
 use crate::terminal::{TerminalIo, TerminalSize, escape};
 use crate::variables::BoolVariable;
-use crate::width::{measured_rows_for_output, rendered_rows_for_output, visible_width};
+use crate::width::{last_line_width, measured_rows_for_output, rendered_rows_for_output};
 use std::borrow::Cow;
 use std::io;
 
@@ -65,10 +65,10 @@ where
 
     pub(crate) fn effective_prompt(&self, state: &EditorState) -> (String, usize) {
         if let Some(prompt) = active_search_prompt(state) {
-            let width = visible_width(&prompt);
+            let width = last_line_width(&prompt);
             return (prompt, width);
         }
-        let mut mode = self.mode_prompt_prefix();
+        let (mut mode, mut mode_width) = self.mode_prompt_prefix();
         if self.flag(BoolVariable::MarkModifiedLines)
             && self
                 .history
@@ -76,13 +76,19 @@ where
                 .is_some_and(|entry| entry.line_bytes != state.buffer.as_bytes())
         {
             mode.push('*');
+            mode_width += 1;
         }
         if self.flag(BoolVariable::ShowModeInPrompt)
             && let Some(operator) = state.vi_operator_prompt()
         {
             mode.push_str(operator);
+            mode_width += last_line_width(operator);
         }
-        let width = visible_width(&mode) + state.prompt.width();
+        let width = if state.prompt.visible().contains('\n') {
+            state.prompt.width()
+        } else {
+            mode_width + state.prompt.width()
+        };
         (format!("{mode}{}", state.prompt.visible()), width)
     }
 
@@ -217,9 +223,9 @@ where
         Ok(())
     }
 
-    pub(super) fn mode_prompt_prefix(&self) -> String {
+    pub(super) fn mode_prompt_prefix(&self) -> (String, usize) {
         if !self.flag(BoolVariable::ShowModeInPrompt) {
-            return String::new();
+            return (String::new(), 0);
         }
         let raw = match self.keymap.current() {
             KeyMapName::ViCommand => self
@@ -241,7 +247,8 @@ where
                 .map(bytes_lossless)
                 .unwrap_or_else(|| "@".to_string()),
         };
-        Prompt::new(raw).visible().to_string()
+        let prompt = Prompt::new(raw);
+        (prompt.visible().to_string(), prompt.width())
     }
 }
 
@@ -282,7 +289,12 @@ where
         let Some(match_pos) = state.buffer.matching_open_paren_before_point() else {
             return Ok(());
         };
-        let prompt_width = visible_width(self.mode_prompt_prefix().as_str()) + state.prompt.width();
+        let (_, mode_width) = self.mode_prompt_prefix();
+        let prompt_width = if state.prompt.visible().contains('\n') {
+            state.prompt.width()
+        } else {
+            mode_width + state.prompt.width()
+        };
         let column = prompt_width
             + state
                 .buffer

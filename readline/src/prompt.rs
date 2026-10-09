@@ -1,4 +1,4 @@
-use crate::width::visible_width;
+use crate::width::last_line_width;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Prompt.
@@ -99,7 +99,7 @@ fn strip_readline_markers(raw: &str) -> (String, usize) {
         visible.push(ch);
     }
 
-    let width = visible.rsplit('\n').next().map(visible_width).unwrap_or(0);
+    let width = last_line_width(&visible);
     (visible, width)
 }
 

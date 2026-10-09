@@ -36,6 +36,11 @@ pub(crate) fn visible_width(value: &str) -> usize {
     width
 }
 
+/// Returns visible width of the last `\\n`-separated line.
+pub(crate) fn last_line_width(value: &str) -> usize {
+    value.rsplit('\n').next().map(visible_width).unwrap_or(0)
+}
+
 /// Consumes the tail of a terminal escape sequence after the leading ESC.
 /// CSI (`ESC [`) runs to the first `@`..=`~` byte, OSC (`ESC ]`) runs to BEL
 /// or `ESC \`, and any other ESC consumes one following byte when present.

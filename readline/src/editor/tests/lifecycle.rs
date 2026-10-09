@@ -37,3 +37,22 @@ fn every_readline_command_is_in_typed_or_named_dispatch_table() {
         );
     }
 }
+
+#[test]
+fn effective_prompt_width_uses_last_line_only() {
+    let mut line = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
+    line.load_inputrc_str("set show-mode-in-prompt on").unwrap();
+    line.variables_mut()
+        .insert("emacs-mode-string".to_string(), "ab\ncde".to_string());
+
+    // Multiline prompt: mode lines do not contribute to the last line.
+    let state = EditorState::new(Prompt::new("12\n345"), None);
+    let (text, width) = line.effective_prompt(&state);
+    assert_eq!(text, "ab\ncde12\n345");
+    assert_eq!(width, 3);
+
+    // Single-line prompt: only the mode last line contributes.
+    let state = EditorState::new(Prompt::new("XY"), None);
+    let (_, width) = line.effective_prompt(&state);
+    assert_eq!(width, 3 + 2);
+}

@@ -87,6 +87,26 @@ impl EditorState {
         self.after_non_kill_command();
     }
 
+    /// Drop a pending numeric argument once a complete command has run.
+    /// Prefix/pending input (meta/CSI/quote/replace/named/vi-search/mark/
+    /// register/operator) keeps the argument for the command it prefixes.
+    pub(crate) fn consume_numeric_arg_unless_prefix(&mut self) {
+        if self.input.prefix_meta
+            || self.input.skipping_csi
+            || self.input.quoted_insert
+            || self.input.pending_replace
+            || self.input.named_command.is_some()
+            || self.vi.pending_char_search.is_some()
+            || self.vi.pending_vi_mark.is_some()
+            || self.vi.pending_vi_register
+            || self.vi.vi_operator.is_some()
+        {
+            return;
+        }
+        self.numeric_arg.take();
+        self.numeric_arg_sign_only = false;
+    }
+
     pub(crate) fn after_self_insert(&mut self) {
         self.kill.last_yank = None;
         self.search.reverse_search = None;

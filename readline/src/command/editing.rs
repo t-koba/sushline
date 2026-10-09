@@ -82,7 +82,6 @@ where
             }
             EditCommand::DeleteHorizontalSpace => {
                 state.record_undo();
-                state.numeric_arg.take();
                 state.buffer.delete_horizontal_space();
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)

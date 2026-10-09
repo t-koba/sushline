@@ -843,3 +843,89 @@ fn yank_with_empty_ring_consumes_numeric_argument() {
     assert_eq!(result, ReadlineResult::Line(b"abcdeQf".to_vec()));
     assert!(line.terminal().out.contains('\x07'), "empty yank must bell");
 }
+
+#[test]
+fn ignored_prefix_commands_consume_numeric_argument() {
+    // One probe per ignored-argument class (movement/kill/history/editing):
+    // each command is a no-op here and must consume M-2 so the following
+    // backward-char moves one step and Q lands before f.
+    let cases: &[(&str, Vec<u8>, Option<&str>)] = &[
+        // C-x C-x exchange-point-and-mark with no mark (movement).
+        ("exchange", b"\x1b2\x18\x18".to_vec(), None),
+        // M-& tilde-expand with no tilde word (editing).
+        ("tilde", b"\x1b2\x1b&".to_vec(), None),
+        // M-< history-beginning with empty history (history nav).
+        ("history", b"\x1b2\x1b<".to_vec(), None),
+        // M-w copy-region-as-kill with no region (kill).
+        (
+            "copy-region",
+            b"\x1b2\x1bw".to_vec(),
+            Some("\"\\ew\": copy-region-as-kill"),
+        ),
+    ];
+    for (name, prefix, inputrc) in cases {
+        let terminal = MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(b"abcdef".to_vec()),
+            TerminalEvent::Bytes(prefix.clone()),
+            TerminalEvent::Bytes(vec![0x02]),
+            TerminalEvent::Bytes(b"Q\r".to_vec()),
+        ]);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        if let Some(bindings) = inputrc {
+            line.load_inputrc_str(bindings).unwrap();
+        }
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        assert_eq!(
+            result,
+            ReadlineResult::Line(b"abcdeQf".to_vec()),
+            "case {name} leaked its numeric argument"
+        );
+    }
+}
+
+#[test]
+fn clearing_prefix_commands_consume_numeric_argument() {
+    // revert-line and undo empty the line; a leaked M-2 would double the
+    // following self-insert (QQ instead of Q).
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abcdef".to_vec()),
+        TerminalEvent::Bytes(b"\x1b2\x1br".to_vec()),
+        TerminalEvent::Bytes(b"Q\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"Q".to_vec()));
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abcdef".to_vec()),
+        TerminalEvent::Bytes(b"\x1b2\x1f".to_vec()),
+        TerminalEvent::Bytes(b"Q\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"Q".to_vec()));
+}
+
+#[test]
+fn numeric_argument_survives_prefix_commands() {
+    // M-2 C-q x repeats the quoted literal.
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\x1b2\x11".to_vec()),
+        TerminalEvent::Bytes(b"x".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"xx".to_vec()));
+
+    // M-2 C-f still moves two steps.
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abcdef".to_vec()),
+        TerminalEvent::Bytes(vec![0x01]),
+        TerminalEvent::Bytes(b"\x1b2\x06".to_vec()),
+        TerminalEvent::Bytes(b"Q\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"abQcdef".to_vec()));
+}

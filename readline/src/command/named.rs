@@ -122,10 +122,13 @@ where
             }
             self.complete(state, key, entry.completion_type, hooks)?;
             state.after_non_kill_command();
+            state.consume_numeric_arg_unless_prefix();
             return Ok(EditorOutcome::Continue);
         }
 
-        match named_command_group(command) {
+        // `vi-arg-digit` builds the pending argument like DigitArgument.
+        let builds_arg = command == "vi-arg-digit";
+        let outcome = match named_command_group(command) {
             NamedCommandGroup::HistoryNav => {
                 self.apply_named_history_nav_command(state, command, key, hooks)
             }
@@ -141,6 +144,10 @@ where
             }
             NamedCommandGroup::Vi => self.apply_vi_named_command(state, command, key, hooks),
             NamedCommandGroup::Misc => self.apply_named_misc_command(state, command, key, hooks),
+        };
+        if !builds_arg {
+            state.consume_numeric_arg_unless_prefix();
         }
+        outcome
     }
 }

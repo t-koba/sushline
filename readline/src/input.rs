@@ -147,6 +147,7 @@ where
 
     fn handle_replace_input(&mut self, state: &mut EditorState, bytes: &[u8]) -> EditorOutcome {
         state.input.pending_replace = false;
+        state.consume_numeric_arg_unless_prefix();
         let replacement = replacement_unit(bytes);
         if !replacement.is_empty() {
             let point = state.buffer.point();
@@ -197,6 +198,7 @@ where
         if text.is_ascii() {
             return false;
         }
+        state.consume_numeric_arg_unless_prefix();
         if !state.undo.last_undo_was_insert {
             state.record_undo();
         }
@@ -337,8 +339,10 @@ where
                 }
             }
             state.after_non_kill_command();
+            state.consume_numeric_arg_unless_prefix();
         } else {
             self.ding()?;
+            state.consume_numeric_arg_unless_prefix();
         }
 
         Ok(Some(EditorOutcome::Continue))
@@ -356,14 +360,17 @@ where
 
         let Ok(text) = std::str::from_utf8(bytes) else {
             self.ding()?;
+            state.consume_numeric_arg_unless_prefix();
             return Ok(Some(EditorOutcome::Continue));
         };
 
         if let Some(ch) = text.chars().find(|ch| !ch.is_control()) {
             state.vi.active_vi_register = Some(ch);
             state.after_non_kill_command();
+            state.consume_numeric_arg_unless_prefix();
         } else {
             self.ding()?;
+            state.consume_numeric_arg_unless_prefix();
         }
 
         Ok(Some(EditorOutcome::Continue))
@@ -384,6 +391,7 @@ where
                 self.finish_vi_motion_operator(state, op_start, bytes, true);
                 state.vi.last_char_search = Some((search, ch));
                 state.after_non_kill_command();
+                state.consume_numeric_arg_unless_prefix();
             } else {
                 state.cancel_pending_command();
             }
@@ -402,6 +410,7 @@ where
     ) -> Result<EditorOutcome, ReadlineError> {
         if state.input.pending_replace {
             state.input.pending_replace = false;
+            state.consume_numeric_arg_unless_prefix();
             let replacement = replacement_unit(bytes);
             if !replacement.is_empty() {
                 let point = state.buffer.point();
@@ -446,6 +455,9 @@ where
                 self.insert_literal(state, &insertable, true);
             }
         }
+        // Unbound input with nothing insertable still ends the argument:
+        // insert_literal already consumed it on the insert paths above.
+        state.consume_numeric_arg_unless_prefix();
         Ok(EditorOutcome::Continue)
     }
 

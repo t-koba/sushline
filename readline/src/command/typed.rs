@@ -103,13 +103,14 @@ where
         key: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
-        if !matches!(
+        let builds_arg = matches!(
             command,
             EditCommand::DigitArgument | EditCommand::UniversalArgument
-        ) {
+        );
+        if !builds_arg {
             state.completion.menu_completion = None;
         }
-        match typed_command_group(command) {
+        let outcome = match typed_command_group(command) {
             TypedCommandGroup::Movement => self.apply_movement_command(state, command, key, hooks),
             TypedCommandGroup::Editing => self.apply_editing_command(state, command, key, hooks),
             TypedCommandGroup::Kill => self.apply_kill_command(state, command, key, hooks),
@@ -119,6 +120,10 @@ where
                 self.apply_completion_command(state, command, key, hooks)
             }
             TypedCommandGroup::Misc => self.apply_misc_command(state, command, key, hooks),
+        };
+        if !builds_arg {
+            state.consume_numeric_arg_unless_prefix();
         }
+        outcome
     }
 }

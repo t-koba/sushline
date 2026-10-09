@@ -70,8 +70,8 @@ where
         if state.input.pending_replace {
             return Ok(self.handle_replace_input(state, bytes));
         }
-        if self.handle_numeric_argument_continuation(state, bytes) {
-            return Ok(EditorOutcome::Continue);
+        if let Some(outcome) = self.handle_numeric_argument_continuation(state, bytes, hooks)? {
+            return Ok(outcome);
         }
         if self.handle_multibyte_insert(state, bytes) {
             return Ok(EditorOutcome::Continue);
@@ -219,15 +219,31 @@ where
         &mut self,
         state: &mut EditorState,
         bytes: &[u8],
-    ) -> bool {
+        hooks: &mut impl Hooks,
+    ) -> Result<Option<EditorOutcome>, ReadlineError> {
         if state.numeric_arg.is_none() {
-            return false;
+            return Ok(None);
         }
-        if !matches!(bytes, [b'0'..=b'9'] | [b'-']) {
-            return false;
+        // Fragmentation-invariant: a batched chunk may carry a digit run
+        // plus the terminating sequence (e.g. `1\x1bl` after `M--`).
+        // Consume the leading run digit-by-digit like the one-byte path,
+        // then dispatch any remainder so batched and split reads agree.
+        let run = bytes
+            .iter()
+            .take_while(|byte| matches!(byte, b'0'..=b'9' | b'-'))
+            .count();
+        if run == 0 {
+            return Ok(None);
         }
-        update_numeric_argument(state, bytes);
-        true
+        for index in 0..run {
+            update_numeric_argument(state, &bytes[index..index + 1]);
+        }
+        if run < bytes.len() {
+            let remainder = bytes[run..].to_vec();
+            let outcome = self.handle_bytes(state, &remainder, hooks)?;
+            return Ok(Some(outcome));
+        }
+        Ok(Some(EditorOutcome::Continue))
     }
 
     fn handle_key_dispatch(

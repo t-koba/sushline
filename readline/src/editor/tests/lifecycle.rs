@@ -118,6 +118,37 @@ fn resize_columns_change_recomputes_prompt_wrap() {
 }
 
 #[test]
+fn batched_numeric_continuation_matches_fragmented_reads() {
+    // Live batching may deliver `1\x1bl` (digit run plus terminator)
+    // in one `Bytes` chunk after `M--`; the one-byte path saw `1` then
+    // `ESC l` separately. Both must yield `FOO bar`.
+    for terminal in [
+        // Fragmented (one `read` per byte, pre-batch shape).
+        super::MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(b"FOO BAR".to_vec()),
+            TerminalEvent::Bytes(vec![0x1b, b'-']),
+            TerminalEvent::Bytes(b"1".to_vec()),
+            TerminalEvent::Bytes(vec![0x1b, b'l']),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+        ]),
+        // Batched (one `read` returns run plus terminator).
+        super::MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(b"FOO BAR".to_vec()),
+            TerminalEvent::Bytes(vec![0x1b, b'-', b'1', 0x1b, b'l']),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+        ]),
+    ] {
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        assert_eq!(
+            result,
+            ReadlineResult::Line(b"FOO bar".to_vec()),
+            "batched and fragmented numeric continuations must agree"
+        );
+    }
+}
+
+#[test]
 fn batched_invalid_multibyte_chunk_preserves_both_bytes() {
     // Pin-independent lock: a single `Bytes([0xFF, 0x41])` chunk through the
     // live dispatch preserves both bytes. Each byte is bound to `self-insert`

@@ -120,6 +120,21 @@ fn reads_writes_appends_and_truncates_history_files() {
 }
 
 #[test]
+fn failed_full_write_cleans_up_sibling_tmp() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::create_dir(&path).unwrap();
+
+    let mut h = History::new();
+    h.push("one");
+    assert!(h.write_file(&path).is_err());
+    assert!(
+        !dir.path().join("history.tmp").exists(),
+        "failed write must not leak sibling tmp"
+    );
+}
+
+#[test]
 #[cfg_attr(not(unix), ignore = "requires Unix file modes")]
 fn full_write_preserves_restrictive_file_mode() {
     use std::os::unix::fs::PermissionsExt;

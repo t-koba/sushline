@@ -209,12 +209,18 @@ fn write_atomic(
         .ok()
         .map(|metadata| metadata.permissions());
     let mut file = fs::File::create(&tmp)?;
-    if let Some(permissions) = existing_permissions {
-        fs::set_permissions(&tmp, permissions)?;
+    let result = (|| {
+        if let Some(permissions) = existing_permissions {
+            fs::set_permissions(&tmp, permissions)?;
+        }
+        write_tmp(&mut file)?;
+        file.sync_all()?;
+        fs::rename(&tmp, path)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
     }
-    write_tmp(&mut file)
-        .and_then(|()| file.sync_all())
-        .and_then(|()| fs::rename(&tmp, path))
+    result
 }
 
 fn is_timestamp_record(line: &str) -> bool {

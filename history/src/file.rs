@@ -129,7 +129,7 @@ impl History {
         for entry in self.entries.iter().skip(from) {
             write_entry(&mut file, entry, write_timestamps)?;
         }
-        file.sync_all()
+        sync_best_effort(&file)
     }
 
     /// Append new to default file.
@@ -214,6 +214,9 @@ fn write_atomic(
     write_tmp: impl FnOnce(&mut fs::File) -> io::Result<()>,
 ) -> io::Result<()> {
     let dest = effective_write_path(path);
+    if dest_is_non_regular(&dest) {
+        return write_in_place(path, write_tmp);
+    }
     let base = history_tmp_path(&dest);
     #[cfg(unix)]
     let target_mode: u32 = {
@@ -259,6 +262,35 @@ fn write_atomic(
         io::ErrorKind::AlreadyExists,
         "could not create unique history tmp file",
     ))
+}
+
+fn sync_best_effort(file: &fs::File) -> io::Result<()> {
+    match file.sync_all() {
+        Ok(()) => Ok(()),
+        // Special files such as /dev/null reject fsync with EINVAL; writes
+        // already discarded successfully, so treat sync as best-effort.
+        Err(error) if error.kind() == io::ErrorKind::InvalidInput => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+fn dest_is_non_regular(dest: &Path) -> bool {
+    fs::metadata(dest)
+        .map(|metadata| !metadata.file_type().is_file())
+        .unwrap_or(false)
+}
+
+fn write_in_place(
+    path: &Path,
+    write_tmp: impl FnOnce(&mut fs::File) -> io::Result<()>,
+) -> io::Result<()> {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)?;
+    write_tmp(&mut file)?;
+    sync_best_effort(&file)
 }
 
 fn effective_write_path(path: &Path) -> PathBuf {

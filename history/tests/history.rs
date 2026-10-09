@@ -432,6 +432,33 @@ fn full_write_preserves_symlinked_history_path() {
 }
 
 #[test]
+#[cfg_attr(not(unix), ignore = "requires Unix symlinks and /dev/null")]
+fn symlinked_special_history_discards_and_preserves_link() {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::tempdir().unwrap();
+        let link = dir.path().join("history");
+        symlink("/dev/null", &link).unwrap();
+
+        let mut h = History::new();
+        h.push("hello");
+        h.write_file(&link).unwrap();
+        h.append_file(&link, 0).unwrap();
+        History::truncate_file(&link, 10).unwrap();
+
+        assert!(
+            fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "special-file writes must preserve the symlink"
+        );
+        assert!(!dir.path().join("history.tmp").exists());
+    }
+}
+
+#[test]
 fn reads_history_file_ranges_and_controls_timestamp_writes() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");

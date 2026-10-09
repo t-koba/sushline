@@ -271,25 +271,29 @@ pub(super) fn known_host_names() -> Vec<String> {
         .collect()
 }
 
+fn filename_matches_response(matches: Vec<Vec<u8>>) -> CompletionResponse {
+    CompletionResponse {
+        candidates: matches
+            .into_iter()
+            .map(|replacement| CompletionCandidate {
+                replacement,
+                display: None,
+            })
+            .collect(),
+        options: CompletionOptions {
+            filenames: true,
+            ..Default::default()
+        },
+    }
+}
+
 pub(crate) fn glob_complete(
     word: &str,
     hooks: &mut impl Hooks,
     variables: &Variables,
 ) -> CompletionResponse {
     if let Some(matches) = hooks.glob_expand(word.as_bytes()) {
-        return CompletionResponse {
-            candidates: matches
-                .into_iter()
-                .map(|replacement| CompletionCandidate {
-                    replacement,
-                    display: None,
-                })
-                .collect(),
-            options: CompletionOptions {
-                filenames: true,
-                ..Default::default()
-            },
-        };
+        return filename_matches_response(matches);
     }
     if !word.contains(['*', '?', '[']) {
         return complete_filenames_bytes(
@@ -340,19 +344,7 @@ pub(super) fn glob_complete_bytes(
     variables: &Variables,
 ) -> CompletionResponse {
     if let Some(matches) = hooks.glob_expand(word) {
-        return CompletionResponse {
-            candidates: matches
-                .into_iter()
-                .map(|replacement| CompletionCandidate {
-                    replacement,
-                    display: None,
-                })
-                .collect(),
-            options: CompletionOptions {
-                filenames: true,
-                ..Default::default()
-            },
-        };
+        return filename_matches_response(matches);
     }
     if let Ok(word) = std::str::from_utf8(word) {
         return glob_complete(word, hooks, variables);

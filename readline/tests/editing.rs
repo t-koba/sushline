@@ -929,3 +929,61 @@ fn numeric_argument_survives_prefix_commands() {
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
     assert_eq!(result, ReadlineResult::Line(b"abQcdef".to_vec()));
 }
+
+#[test]
+fn search_exits_consume_numeric_argument() {
+    // M-2 before incremental/non-incremental search is consumed on entry,
+    // so no exit branch (accept or abort) may leak it: the following
+    // backward-char moves one step and Q lands before f.
+    // Reverse search: ESC accepts the line, C-g aborts to the original line.
+    for exit in [vec![0x1b], vec![0x07]] {
+        let name = if exit == vec![0x1b] {
+            "reverse-accept"
+        } else {
+            "reverse-abort"
+        };
+        let mut history = History::new();
+        history.push("alpha one");
+        let terminal = MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(b"abcdef".to_vec()),
+            TerminalEvent::Bytes(b"\x1b2\x12".to_vec()),
+            TerminalEvent::Bytes(exit),
+            TerminalEvent::Bytes(vec![0x02]),
+            TerminalEvent::Bytes(b"Q\r".to_vec()),
+        ]);
+        let mut line = Editor::new(Config::default(), terminal, history);
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        assert_eq!(
+            result,
+            ReadlineResult::Line(b"abcdeQf".to_vec()),
+            "case {name} leaked its numeric argument"
+        );
+    }
+    // Non-incremental search bound to C-o: ESC/C-g abort, Enter accepts.
+    for exit in [vec![0x1b], vec![0x07], b"\r".to_vec()] {
+        let name = match exit.as_slice() {
+            [0x1b] => "nonincremental-abort-esc",
+            [0x07] => "nonincremental-abort",
+            _ => "nonincremental-accept",
+        };
+        let mut history = History::new();
+        history.push("alpha one");
+        let terminal = MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(b"abcdef".to_vec()),
+            TerminalEvent::Bytes(b"\x1b2".to_vec()),
+            TerminalEvent::Bytes(vec![0x0f]),
+            TerminalEvent::Bytes(exit),
+            TerminalEvent::Bytes(vec![0x02]),
+            TerminalEvent::Bytes(b"Q\r".to_vec()),
+        ]);
+        let mut line = Editor::new(Config::default(), terminal, history);
+        line.load_inputrc_str("\"\\C-o\": non-incremental-reverse-search-history")
+            .unwrap();
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        assert_eq!(
+            result,
+            ReadlineResult::Line(b"abcdeQf".to_vec()),
+            "case {name} leaked its numeric argument"
+        );
+    }
+}

@@ -1,7 +1,7 @@
 use crate::completion::filename::{
     FilenameOptions, complete_filenames_bytes, expand_tilde, glob_match, glob_match_os,
-    is_executable_file, os_name_is_hidden, os_string_to_completion, os_string_to_display,
-    split_word_path, split_word_path_bytes,
+    is_executable_file, join_display_dir, os_name_is_hidden, os_string_to_completion,
+    os_string_to_display, split_word_path, split_word_path_bytes,
 };
 use crate::completion::{
     CompletionCandidate, CompletionOptions, CompletionRequest, CompletionResponse,
@@ -300,8 +300,8 @@ pub(crate) fn glob_complete(
                 else {
                     continue;
                 };
-                let mut replacement = display_dir.as_bytes().to_vec();
-                replacement.extend_from_slice(
+                let replacement = join_display_dir(
+                    display_dir.as_bytes(),
                     completion_bytes
                         .as_deref()
                         .unwrap_or(completion_name.as_bytes()),
@@ -345,8 +345,7 @@ pub(super) fn glob_complete_bytes(
                 if !glob_match_bytes(pattern, name_bytes) {
                     continue;
                 }
-                let mut replacement = display_dir.clone();
-                replacement.extend_from_slice(name_bytes);
+                let replacement = join_display_dir(&display_dir, name_bytes);
                 candidates.push(CompletionCandidate::plain(replacement));
             }
         }

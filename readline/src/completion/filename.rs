@@ -61,8 +61,7 @@ pub(crate) fn complete_filenames_bytes(word: &[u8], opts: &FilenameOptions) -> C
                 continue;
             }
             let name = filename_display_name(&name_bytes);
-            let mut replacement_bytes = display_dir.clone();
-            replacement_bytes.extend_from_slice(&name_bytes);
+            let replacement_bytes = join_display_dir(&display_dir, &name_bytes);
             let path = entry.path();
             let directory = directory_completion(&path, opts);
             if directory.is_some() {
@@ -133,6 +132,13 @@ pub(super) fn split_word_path_bytes(word: &[u8]) -> (Vec<u8>, &[u8], Vec<u8>) {
         );
     }
     (b".".to_vec(), word, Vec::new())
+}
+
+pub(crate) fn join_display_dir(display_dir: &[u8], name: &[u8]) -> Vec<u8> {
+    let mut replacement = Vec::with_capacity(display_dir.len() + name.len());
+    replacement.extend_from_slice(display_dir);
+    replacement.extend_from_slice(name);
+    replacement
 }
 
 pub(crate) fn complete_directories_bytes(

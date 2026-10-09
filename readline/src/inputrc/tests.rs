@@ -204,3 +204,38 @@ fn include_paths_accept_quotes_and_environment_expansion() {
     }
     assert_eq!(variables["completion-ignore-case"], "on");
 }
+
+#[test]
+fn unknown_tilde_user_include_is_silently_skipped() {
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    InputrcParser::new()
+        .parse_str(
+            "$include ~sushline-nonexistent-user-xyz/definitely-not-present.inputrc\n\"\\C-o\": end-of-line",
+            &Config::default(),
+            &mut keymap,
+            &mut variables,
+        )
+        .unwrap();
+
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
+        Some(&KeyBinding::Command(EditCommand::EndOfLine))
+    );
+}
+
+#[test]
+fn cyclic_include_hits_depth_protection() {
+    let dir = tempfile::tempdir().unwrap();
+    let loop_file = dir.path().join("loop.inputrc");
+    fs::write(&loop_file, format!("$include {}", loop_file.display())).unwrap();
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    let err = InputrcParser::new()
+        .parse_file(&loop_file, &Config::default(), &mut keymap, &mut variables)
+        .expect_err("cyclic $include must hit depth protection");
+    assert!(
+        err.message.contains("include depth exceeded"),
+        "unexpected error: {err:?}"
+    );
+}

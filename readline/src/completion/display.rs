@@ -62,10 +62,21 @@ fn compare_with_current_locale(a: &[u8], b: &[u8]) -> Ordering {
     ordering.then_with(|| a.cmp(b))
 }
 
-pub(crate) fn merge_extended_completion_options(
+pub(crate) fn merge_completion_options(
     target: &mut crate::completion::CompletionOptions,
     source: crate::completion::CompletionOptions,
 ) {
+    target.nospace |= source.nospace;
+    target.noquote |= source.noquote;
+    target.nosort |= source.nosort;
+    target.filenames |= source.filenames;
+    target.fullquote |= source.fullquote;
+    target.plusdirs |= source.plusdirs;
+    target.default |= source.default;
+    target.bashdefault |= source.bashdefault;
+    target.dirnames |= source.dirnames;
+    target.suppress_append |= source.suppress_append;
+    target.append_character = target.append_character.or(source.append_character);
     target.replacement_prefix = target
         .replacement_prefix
         .take()

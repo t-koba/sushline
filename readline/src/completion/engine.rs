@@ -4,29 +4,12 @@ use crate::completion::filename::{
     FilenameOptions, complete_directories_bytes, complete_filenames_bytes,
 };
 use crate::completion::quoting::*;
-use crate::completion::{
-    CompletionContext, CompletionOptions, CompletionRequest, CompletionResponse, CompletionType,
-};
+use crate::completion::{CompletionContext, CompletionRequest, CompletionResponse, CompletionType};
 use crate::editor::{Editor, ReadlineError};
 use crate::hooks::Hooks;
 use crate::keymap::KeyMapName;
 use crate::state::EditorState;
 use crate::terminal::TerminalIo;
-
-fn merge_completion_options(target: &mut CompletionOptions, source: CompletionOptions) {
-    target.nospace |= source.nospace;
-    target.noquote |= source.noquote;
-    target.nosort |= source.nosort;
-    target.filenames |= source.filenames;
-    target.fullquote |= source.fullquote;
-    target.plusdirs |= source.plusdirs;
-    target.default |= source.default;
-    target.bashdefault |= source.bashdefault;
-    target.dirnames |= source.dirnames;
-    target.suppress_append |= source.suppress_append;
-    target.append_character = target.append_character.or(source.append_character);
-    merge_extended_completion_options(target, source);
-}
 
 impl<T> Editor<T>
 where

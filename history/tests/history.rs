@@ -209,7 +209,7 @@ fn full_write_preserves_restrictive_file_mode() {
 
 #[test]
 #[cfg_attr(not(unix), ignore = "requires Unix file modes")]
-fn full_write_preserves_wider_existing_file_mode() {
+fn full_write_resets_wider_existing_file_mode_to_owner_only() {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");
@@ -220,14 +220,15 @@ fn full_write_preserves_wider_existing_file_mode() {
     h.write_file(&path).unwrap();
     assert_eq!(
         fs::metadata(&path).unwrap().permissions().mode() & 0o777,
-        0o644,
-        "full write preserves wider pre-existing mode (GNU resets to 0600; policy follows operator pin)"
+        0o600,
+        "full write resets wider pre-existing mode to GNU owner-only 0600"
     );
     assert_eq!(fs::read_to_string(&path).unwrap(), "two\n");
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
     History::truncate_file(&path, 1).unwrap();
     assert_eq!(
         fs::metadata(&path).unwrap().permissions().mode() & 0o777,
-        0o644
+        0o600
     );
 }
 

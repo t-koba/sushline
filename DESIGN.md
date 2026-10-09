@@ -184,11 +184,10 @@ state.
 
 History file writes use last-writer-wins with no locking. Full writes
 and truncation write through a unique sibling temporary file created with
-exclusive creation and renamed into place; append writes
-only the selected entry range. New history files default to owner-only (`0600`)
-permissions on Unix, and full writes preserve the existing file mode (so a
-pre-existing `0644` stays `0644`); full and append writes fsync best-effort
-(tolerating `EINVAL` for special files such as `/dev/null`). Concurrent-writer merging is embedder policy.
+exclusive creation, set owner-only (`0600`) on Unix, and renamed into place;
+append writes only the selected entry range. Full writes reset the mode to
+`0600` on Unix even when the destination pre-existed with a wider mode, and
+all writes are close-only with no fsync, matching GNU. Concurrent-writer merging is embedder policy.
 The editor can add accepted lines automatically when configured, but long-term
 save timing remains controlled by the embedder.
 

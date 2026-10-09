@@ -129,7 +129,8 @@ impl History {
         for entry in self.entries.iter().skip(from) {
             write_entry(&mut file, entry, write_timestamps)?;
         }
-        sync_best_effort(&file)
+        // Close-only durability matches GNU: no fsync, close surfaces writes.
+        Ok(())
     }
 
     /// Append new to default file.
@@ -218,18 +219,6 @@ fn write_atomic(
         return write_in_place(path, write_tmp);
     }
     let base = history_tmp_path(&dest);
-    #[cfg(unix)]
-    let target_mode: u32 = {
-        use std::os::unix::fs::PermissionsExt;
-        fs::metadata(&dest)
-            .ok()
-            .map(|metadata| metadata.permissions().mode() & 0o777)
-            .unwrap_or(0o600)
-    };
-    #[cfg(not(unix))]
-    let existing_permissions = fs::metadata(&dest)
-        .ok()
-        .map(|metadata| metadata.permissions());
     for _ in 0..100 {
         let nonce = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
         let tmp = unique_tmp_path(&base, nonce);
@@ -242,15 +231,11 @@ fn write_atomic(
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                fs::set_permissions(&tmp, fs::Permissions::from_mode(target_mode))?;
-            }
-            #[cfg(not(unix))]
-            if let Some(ref permissions) = existing_permissions {
-                fs::set_permissions(&tmp, permissions.clone())?;
+                fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600))?;
             }
             let mut file = file;
             write_tmp(&mut file)?;
-            file.sync_all()?;
+            // Close-only durability matches GNU: no fsync before rename.
             fs::rename(&tmp, &dest)
         })();
         if result.is_err() {
@@ -262,16 +247,6 @@ fn write_atomic(
         io::ErrorKind::AlreadyExists,
         "could not create unique history tmp file",
     ))
-}
-
-fn sync_best_effort(file: &fs::File) -> io::Result<()> {
-    match file.sync_all() {
-        Ok(()) => Ok(()),
-        // Special files such as /dev/null reject fsync with EINVAL; writes
-        // already discarded successfully, so treat sync as best-effort.
-        Err(error) if error.kind() == io::ErrorKind::InvalidInput => Ok(()),
-        Err(error) => Err(error),
-    }
 }
 
 fn dest_is_non_regular(dest: &Path) -> bool {
@@ -290,7 +265,8 @@ fn write_in_place(
         .truncate(true)
         .open(path)?;
     write_tmp(&mut file)?;
-    sync_best_effort(&file)
+    // Close-only durability matches GNU: no fsync for non-regular destinations.
+    Ok(())
 }
 
 fn effective_write_path(path: &Path) -> PathBuf {

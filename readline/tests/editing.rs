@@ -752,3 +752,47 @@ fn search_ignore_case_affects_incremental_search() {
         ReadlineResult::Line("Alpha One".as_bytes().to_vec())
     );
 }
+
+#[test]
+fn yank_pop_without_prior_yank_bells_and_preserves_line() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(vec![0x1d]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-]\": yank-pop").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"abc".to_vec()));
+    assert!(
+        line.terminal().out.contains('\x07'),
+        "stray yank-pop must bell"
+    );
+}
+
+#[test]
+fn yank_pop_after_valid_yank_replaces_text_without_bell() {
+    let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(
+        b"one\x15two\x15X\x19\x1d\r".to_vec(),
+    )]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-]\": yank-pop").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"Xtwoone".to_vec()));
+    assert!(
+        !line.terminal().out.contains('\x07'),
+        "valid yank-pop must not bell"
+    );
+}
+
+#[test]
+fn yank_with_empty_ring_bells_and_preserves_line() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(vec![0x19]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(Vec::new()));
+    assert!(line.terminal().out.contains('\x07'), "empty yank must bell");
+}

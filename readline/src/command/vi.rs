@@ -383,11 +383,14 @@ where
             }
             "vi-put" => {
                 state.record_undo();
-                if key == b"P" {
-                    state.vi_put_before();
+                let yanked = if key == b"P" {
+                    state.vi_put_before()
                 } else {
                     state.buffer.move_forward();
-                    state.vi_put();
+                    state.vi_put()
+                };
+                if !yanked {
+                    self.ding()?;
                 }
                 state.vi.last_vi_change = Some(state.vi_key_sequence_for_change(key));
             }
@@ -409,7 +412,9 @@ where
             }
             "vi-yank-pop" => {
                 state.record_undo();
-                state.yank_pop();
+                if !state.yank_pop() {
+                    self.ding()?;
+                }
             }
             _ => unreachable!("named vi edit command mismatch"),
         }

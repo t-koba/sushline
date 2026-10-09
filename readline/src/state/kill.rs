@@ -64,23 +64,24 @@ impl EditorState {
         self.kill.last_was_kill = true;
     }
 
-    pub(crate) fn yank(&mut self) {
+    pub(crate) fn yank(&mut self) -> bool {
         self.kill.last_was_kill = false;
         let Some(index) = self.kill.kill_ring.len().checked_sub(1) else {
             self.kill.last_yank = None;
-            return;
+            return false;
         };
         self.yank_from_index(index);
+        true
     }
 
-    pub(crate) fn yank_pop(&mut self) {
+    pub(crate) fn yank_pop(&mut self) -> bool {
         self.kill.last_was_kill = false;
         let Some(last_yank) = self.kill.last_yank else {
-            return;
+            return false;
         };
         if self.kill.kill_ring.is_empty() {
             self.kill.last_yank = None;
-            return;
+            return false;
         }
 
         let next_index = if last_yank.kill_index == 0 {
@@ -96,6 +97,7 @@ impl EditorState {
             end: last_yank.start + text.len(),
             kill_index: next_index,
         });
+        true
     }
 
     pub(crate) fn yank_from_index(&mut self, index: usize) {
@@ -111,7 +113,7 @@ impl EditorState {
         });
     }
 
-    pub(crate) fn vi_put(&mut self) {
+    pub(crate) fn vi_put(&mut self) -> bool {
         self.kill.last_was_kill = false;
         if let Some(register) = self.vi.active_vi_register.take()
             && let Some(text) = self
@@ -124,12 +126,12 @@ impl EditorState {
                 state.buffer.insert_bytes(&text);
             });
             self.kill.last_yank = None;
-            return;
+            return true;
         }
-        self.yank();
+        self.yank()
     }
 
-    pub(crate) fn vi_put_before(&mut self) {
+    pub(crate) fn vi_put_before(&mut self) -> bool {
         self.kill.last_was_kill = false;
         if let Some(register) = self.vi.active_vi_register.take()
             && let Some(text) = self
@@ -142,13 +144,14 @@ impl EditorState {
                 state.buffer.insert_bytes(&text);
             });
             self.kill.last_yank = None;
-            return;
+            return true;
         }
         let Some(index) = self.kill.kill_ring.len().checked_sub(1) else {
             self.kill.last_yank = None;
-            return;
+            return false;
         };
         self.yank_from_index(index);
+        true
     }
 }
 

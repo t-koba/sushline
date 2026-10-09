@@ -113,12 +113,16 @@ where
             }
             EditCommand::Yank => {
                 state.record_undo();
-                state.yank();
+                if !state.yank() {
+                    self.ding()?;
+                }
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::YankPop => {
                 state.record_undo();
-                state.yank_pop();
+                if !state.yank_pop() {
+                    self.ding()?;
+                }
                 Ok(EditorOutcome::Continue)
             }
             _ => unreachable!("command group mismatch"),

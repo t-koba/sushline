@@ -1158,3 +1158,39 @@ fn bash_readline_and_sushline_handle_same_vi_eof_maybe() {
         "bash={bash}\nsushline={sushline}"
     );
 }
+
+#[test]
+fn bash_readline_and_sushline_yank_pop_bell_matches() {
+    let inputrc = r#""\C-]": yank-pop"#;
+    for keys in [
+        b"abc\x1d\r".as_slice(),
+        b"one\x15two\x15X\x19\x02\x1d\r".as_slice(),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "keys={keys:?}\nbash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bell_count(&bash),
+            "keys={keys:?}\nbash={bash}\nsushline={sushline}"
+        );
+        assert!(bell_count(&bash) > 0, "bash={bash}");
+    }
+    let keys = b"one\x15two\x15X\x19\x1d\r";
+    let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(
+        bell_count(&sushline),
+        bell_count(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+}

@@ -150,22 +150,17 @@ where
 
         let prefix = common_prefix_bytes(&response.candidates).unwrap_or_default();
         let quote_filename = response.options.quote_filename();
-        let mut braced = Vec::new();
-        braced.extend_from_slice(&prefix);
-        braced.push(b'{');
-        for (idx, candidate) in response.candidates.iter().enumerate() {
-            if idx > 0 {
-                braced.push(b',');
-            }
-            let suffix = candidate
-                .replacement_bytes()
-                .strip_prefix(prefix.as_slice())
-                .unwrap_or_else(|| candidate.replacement_bytes());
-            braced.extend_from_slice(suffix);
-        }
-        braced.push(b'}');
-
         let mut joined = if edit.quote.is_some() {
+            let mut braced = Vec::with_capacity(prefix.len() + 2);
+            braced.extend_from_slice(&prefix);
+            braced.push(b'{');
+            for (idx, candidate) in response.candidates.iter().enumerate() {
+                if idx > 0 {
+                    braced.push(b',');
+                }
+                braced.extend_from_slice(candidate_suffix(candidate, &prefix));
+            }
+            braced.push(b'}');
             self.requote_completion_bytes(
                 &braced,
                 &edit,
@@ -174,26 +169,20 @@ where
                 hooks,
             )
         } else {
-            self.requote_completion_bytes(
+            let mut joined = self.requote_completion_bytes(
                 &prefix,
                 &edit,
                 CompletionType::Complete,
                 quote_filename,
                 hooks,
-            )
-        };
-        if edit.quote.is_none() {
+            );
             joined.push(b'{');
             for (idx, candidate) in response.candidates.iter().enumerate() {
                 if idx > 0 {
                     joined.push(b',');
                 }
-                let suffix = candidate
-                    .replacement_bytes()
-                    .strip_prefix(prefix.as_slice())
-                    .unwrap_or_else(|| candidate.replacement_bytes());
                 joined.extend(self.requote_completion_bytes(
-                    suffix,
+                    candidate_suffix(candidate, &prefix),
                     &edit,
                     CompletionType::Complete,
                     quote_filename,
@@ -201,7 +190,8 @@ where
                 ));
             }
             joined.push(b'}');
-        }
+            joined
+        };
         if !response.options.nospace {
             if let Some(ch) = response.options.append_character {
                 let mut buf = [0; 4];
@@ -279,6 +269,16 @@ where
         }
         self.requote_completion_bytes(&replacement, edit, completion_type, quote_filename, hooks)
     }
+}
+
+fn candidate_suffix<'a>(
+    candidate: &'a crate::completion::CompletionCandidate,
+    prefix: &[u8],
+) -> &'a [u8] {
+    candidate
+        .replacement_bytes()
+        .strip_prefix(prefix)
+        .unwrap_or_else(|| candidate.replacement_bytes())
 }
 
 pub(super) fn append_filename_slash_for_candidate(

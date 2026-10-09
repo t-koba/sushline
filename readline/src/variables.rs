@@ -52,7 +52,7 @@ pub(crate) enum BoolVariable {
 impl BoolVariable {
     pub(crate) const COUNT: usize = 21;
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn name(self) -> &'static str {
         match self {
             Self::BindTtySpecialChars => "bind-tty-special-chars",
@@ -180,14 +180,9 @@ impl Variables {
         self.bytes.insert(name, value);
     }
 
-    /// Contains.
-    pub fn contains(&self, name: &str) -> bool {
-        self.strings.contains_key(name)
-    }
-
     /// Contains key.
     pub fn contains_key(&self, name: &str) -> bool {
-        self.contains(name)
+        self.strings.contains_key(name)
     }
 
     /// Iter.

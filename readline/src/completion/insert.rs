@@ -1,7 +1,9 @@
 use crate::completion::display::common_prefix_bytes;
 use crate::completion::filename::{DirectoryCompletion, filename_directory_completion};
 use crate::completion::quoting::*;
-use crate::completion::{CompletionAction, CompletionResponse, CompletionType};
+use crate::completion::{
+    CompletionAction, CompletionCandidate, CompletionOptions, CompletionResponse, CompletionType,
+};
 use crate::editor::{Editor, ReadlineError};
 use crate::hooks::{Hooks, QuoteContext};
 use crate::state::{CompletionAttemptState, EditorState};
@@ -54,17 +56,14 @@ where
             state
                 .buffer
                 .replace_range_bytes(edit.start, edit.end, &replacement_bytes);
-            let suppress_append_for_directory =
-                suppress_append_for_directory(candidate, filename_directory.as_ref());
-            if !suppress_append_for_directory
-                && !response.options.nospace
-                && !skipped_completed_text
+            if !skipped_completed_text
+                && let Some(ch) = completion_append_char(
+                    &response.options,
+                    candidate,
+                    filename_directory.as_ref(),
+                )
             {
-                if let Some(ch) = response.options.append_character {
-                    state.buffer.insert_char(ch);
-                } else if !response.options.suppress_append {
-                    state.buffer.insert_char(' ');
-                }
+                state.buffer.insert_char(ch);
             }
         } else {
             let before_line = state.buffer.as_bytes().to_vec();
@@ -278,6 +277,23 @@ fn candidate_suffix<'a>(
         .replacement_bytes()
         .strip_prefix(prefix)
         .unwrap_or_else(|| candidate.replacement_bytes())
+}
+
+pub(super) fn completion_append_char(
+    options: &CompletionOptions,
+    candidate: &CompletionCandidate,
+    directory: Option<&DirectoryCompletion>,
+) -> Option<char> {
+    if suppress_append_for_directory(candidate, directory) || options.nospace {
+        return None;
+    }
+    if let Some(ch) = options.append_character {
+        Some(ch)
+    } else if !options.suppress_append {
+        Some(' ')
+    } else {
+        None
+    }
 }
 
 pub(super) fn suppress_append_for_directory(

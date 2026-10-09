@@ -318,15 +318,26 @@ where
         let common_prefix = common_bytes
             .as_deref()
             .map(|bytes| self.render_completion_bytes(bytes));
-        if let Some(prefix) = common_prefix.as_deref() {
-            let limit = self
-                .variables
-                .get("completion-prefix-display-length")
-                .and_then(|value| value.parse::<isize>().ok())
-                .filter(|value| *value > 0)
-                .map(|value| value as usize)
-                .unwrap_or(0);
-            if limit > 0 && prefix.chars().count() > limit {
+        let prefix_limit = self
+            .variables
+            .get("completion-prefix-display-length")
+            .and_then(|value| value.parse::<isize>().ok())
+            .filter(|value| *value > 0)
+            .map(|value| value as usize)
+            .unwrap_or(0);
+        if prefix_limit > 0 {
+            if response.options.filenames {
+                // Filename items are lossless (`filename_display_name`), so the
+                // prefix must be lossless too: a rendered prefix never matches
+                // a lossless item once non-UTF8 bytes expand.
+                if let Some(prefix) = common_bytes.as_deref().map(bytes_lossless)
+                    && prefix.chars().count() > prefix_limit
+                {
+                    abbreviate_completion_prefix(&mut items, &prefix, response.options.filenames);
+                }
+            } else if let Some(prefix) = common_prefix.as_deref()
+                && prefix.chars().count() > prefix_limit
+            {
                 abbreviate_completion_prefix(&mut items, prefix, response.options.filenames);
             }
         }

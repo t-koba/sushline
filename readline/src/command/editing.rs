@@ -270,7 +270,6 @@ where
                 state.after_non_kill_command();
             }
             "vi-overstrike" => {
-                state.numeric_arg.take();
                 state.overwrite_mode = true;
                 self.keymap.set_current(KeyMapName::ViInsert);
                 state.begin_vi_insert_change(key);

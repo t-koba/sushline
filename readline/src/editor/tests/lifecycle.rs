@@ -516,3 +516,39 @@ fn batched_named_command_enter_matches_fragmented_reads() {
         "batched and fragmented named-command Enter must agree"
     );
 }
+
+#[test]
+fn batched_vi_pending_invalid_chunk_matches_fragmented_reads() {
+    // Pending vi mark consumes one unit; an invalid byte dings and trailing
+    // bytes are separate input. Batched [0xFF,i,Z] must agree with split
+    // [0xFF],[i],[Z] reads (both accept "Zabc").
+    fn run(events: Vec<TerminalEvent>) -> ReadlineResult {
+        let terminal = super::MemoryTerminal::with_events(events);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str("set editing-mode vi").unwrap();
+        line.read_line(Prompt::new("> "), &mut ()).unwrap()
+    }
+    let fragmented = run(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"0".to_vec()),
+        TerminalEvent::Bytes(b"m".to_vec()),
+        TerminalEvent::Bytes(vec![0xFF]),
+        TerminalEvent::Bytes(b"i".to_vec()),
+        TerminalEvent::Bytes(b"Z".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let batched = run(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"0".to_vec()),
+        TerminalEvent::Bytes(b"m".to_vec()),
+        TerminalEvent::Bytes(vec![0xFF, b'i', b'Z']),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    assert_eq!(fragmented, ReadlineResult::Line(b"Zabc".to_vec()));
+    assert_eq!(
+        batched, fragmented,
+        "batched and fragmented vi pending invalid chunks must agree"
+    );
+}

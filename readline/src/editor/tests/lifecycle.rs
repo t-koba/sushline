@@ -665,3 +665,41 @@ fn batched_vi_char_search_invalid_chunk_matches_fragmented_reads() {
         "batched and fragmented vi char-search invalid chunks must agree"
     );
 }
+
+#[test]
+fn batched_named_command_invalid_chunk_matches_fragmented_reads() {
+    // Named-command query drops invalid bytes; trailing ASCII plus Enter
+    // in one chunk must execute like split reads. Batched [0xFF,
+    // "beginning-of-line", CR] must agree with split [0xFF],
+    // ["beginning-of-line"], [CR] reads (both accept "Xabc").
+    fn run(events: Vec<TerminalEvent>) -> ReadlineResult {
+        let terminal = super::MemoryTerminal::with_events(events);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str("\"\\C-o\": execute-named-command")
+            .unwrap();
+        line.read_line(Prompt::new("> "), &mut ()).unwrap()
+    }
+    let fragmented = run(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(vec![0xFF]),
+        TerminalEvent::Bytes(b"beginning-of-line".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+        TerminalEvent::Bytes(b"X".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut batched_query = vec![0xFF];
+    batched_query.extend_from_slice(b"beginning-of-line\r");
+    let batched = run(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(batched_query),
+        TerminalEvent::Bytes(b"X".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    assert_eq!(fragmented, ReadlineResult::Line(b"Xabc".to_vec()));
+    assert_eq!(
+        batched, fragmented,
+        "batched and fragmented named-command invalid chunks must agree"
+    );
+}

@@ -532,4 +532,20 @@ fn bash_readline_and_sushline_isearch_terminators_terminate_without_execute() {
         accepted_line(&bash),
         "bash={bash}\nsushline={sushline}"
     );
+
+    // A case-insensitive match leaves point at the match start.
+    let inputrc = "set search-ignore-case on";
+    let keys = b"\x12TWO\n!\r";
+    let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &history);
+    let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+    assert_eq!(
+        accepted_line(&bash),
+        Some("alpha !two".to_string()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
 }

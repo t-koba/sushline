@@ -1383,3 +1383,23 @@ fn isearch_terminators_terminate_without_execute_and_cr_accepts() {
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
     assert_eq!(result, ReadlineResult::Line(b"!draft".to_vec()));
 }
+
+#[test]
+fn isearch_terminator_point_respects_search_ignore_case() {
+    // Case-insensitive terminator point (patch 0 Bash 5.3 PTY oracle):
+    // uppercase `TWO` matches `two` at 6, so `!` inserts mid-line.
+    let mut history = History::new();
+    history.push("alpha one");
+    history.push("alpha two");
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\x12".to_vec()),
+        TerminalEvent::Bytes(b"TWO".to_vec()),
+        TerminalEvent::Bytes(b"\n".to_vec()),
+        TerminalEvent::Bytes(b"!".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, history);
+    line.load_inputrc_str("set search-ignore-case on").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"alpha !two".to_vec()));
+}

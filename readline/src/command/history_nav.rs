@@ -70,6 +70,7 @@ where
             }
             EditCommand::ReverseSearchHistory => {
                 state.search.quoted_pending = false;
+                state.search.non_incremental_search = None;
                 let original_point = state.buffer.point();
                 let original_history_pos = self.history.where_history();
                 state.search.reverse_search = Some(ReverseSearchState {
@@ -134,6 +135,7 @@ where
             }
             "forward-search-history" => {
                 state.search.quoted_pending = false;
+                state.search.non_incremental_search = None;
                 let original_point = state.buffer.point();
                 let original_history_pos = self.history.where_history();
                 state.search.reverse_search = Some(ReverseSearchState {
@@ -177,6 +179,7 @@ where
             }
             "non-incremental-forward-search-history" | "non-incremental-reverse-search-history" => {
                 state.search.quoted_pending = false;
+                state.search.reverse_search = None;
                 state.search.non_incremental_search = Some(NonIncrementalSearchState {
                     query: Vec::new(),
                     direction: if command == "non-incremental-forward-search-history" {
@@ -186,6 +189,7 @@ where
                     },
                     original_line: state.buffer.as_bytes().to_vec(),
                     original_history_pos: self.history.where_history(),
+                    vi: false,
                 });
                 state.after_non_kill_command();
             }

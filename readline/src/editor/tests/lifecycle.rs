@@ -720,11 +720,13 @@ fn vi_search_again_steps_exclusively_past_matches_with_bell() {
         (result, line.terminal.out.clone())
     }
     // `n` steps from "alpha two" to "alpha one"; second `n` exhausts matches.
+    // GNU vi `/` is non-incremental: the first Enter executes the query
+    // (prompt `/alpha` hidden until then) and the final Enter accepts.
     let (result, out) = run(vec![
         TerminalEvent::Bytes(vec![0x1b]),
         TerminalEvent::Bytes(b"/".to_vec()),
         TerminalEvent::Bytes(b"alpha".to_vec()),
-        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
         TerminalEvent::Bytes(b"n".to_vec()),
         TerminalEvent::Bytes(b"n".to_vec()),
         TerminalEvent::Bytes(b"\r".to_vec()),
@@ -740,7 +742,7 @@ fn vi_search_again_steps_exclusively_past_matches_with_bell() {
         TerminalEvent::Bytes(vec![0x1b]),
         TerminalEvent::Bytes(b"/".to_vec()),
         TerminalEvent::Bytes(b"alpha".to_vec()),
-        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
         TerminalEvent::Bytes(b"N".to_vec()),
         TerminalEvent::Bytes(b"\r".to_vec()),
     ]);
@@ -821,10 +823,10 @@ fn incremental_no_match_bells_per_keystroke_without_extra_at_terminate() {
 }
 
 #[test]
-fn vi_no_match_terminate_bells_once_and_keeps_original() {
-    // Vi `/` stays silent per keystroke and bells once at terminate,
-    // matching the single bell of the GNU non-incremental execute. The
-    // line stays the original: no query-as-line.
+fn vi_no_match_execute_bells_once_and_keeps_original() {
+    // GNU vi `/` is non-incremental (patch 0 Bash 5.3 PTY oracle): the
+    // query stays in the `/query` prompt until Enter executes, and a
+    // failed or empty execute bells once while the line stays original.
     fn run(events: Vec<TerminalEvent>) -> (ReadlineResult, String) {
         let terminal = super::MemoryTerminal::with_events(events);
         let mut history = History::new();
@@ -839,26 +841,54 @@ fn vi_no_match_terminate_bells_once_and_keeps_original() {
         TerminalEvent::Bytes(vec![0x1b]),
         TerminalEvent::Bytes(b"/".to_vec()),
         TerminalEvent::Bytes(b"zzz".to_vec()),
-        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
         TerminalEvent::Bytes(b"\r".to_vec()),
     ]);
     assert_eq!(result, ReadlineResult::Line(b"".to_vec()));
     assert_eq!(
         out.bytes().filter(|byte| *byte == b'\x07').count(),
         1,
-        "vi no-match terminate must bell exactly once, got {out:?}"
+        "vi no-match execute must bell exactly once, got {out:?}"
     );
-    // A matching vi query stays silent at terminate.
+    assert!(
+        out.contains("/zzz"),
+        "vi prompt must show `/zzz` while querying, got {out:?}"
+    );
+    // A matching vi query stays silent at execute.
     let (result, out) = run(vec![
         TerminalEvent::Bytes(vec![0x1b]),
         TerminalEvent::Bytes(b"/".to_vec()),
         TerminalEvent::Bytes(b"alpha".to_vec()),
-        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
         TerminalEvent::Bytes(b"\r".to_vec()),
     ]);
     assert_eq!(result, ReadlineResult::Line(b"alpha two".to_vec()));
     assert!(
         !out.contains("\x07"),
-        "vi matching terminate must not bell, got {out:?}"
+        "vi matching execute must not bell, got {out:?}"
+    );
+    assert!(
+        out.contains("/alpha"),
+        "vi prompt must show `/alpha` while querying, got {out:?}"
+    );
+    // Emacs non-incremental search shows `:` while querying.
+    let terminal = super::MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\x1bp".to_vec()),
+        TerminalEvent::Bytes(b"alpha".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut history = History::new();
+    history.push("alpha one");
+    history.push("alpha two");
+    let mut line = Editor::new(Config::default(), terminal, history);
+    line.load_inputrc_str("\"\\ep\": non-incremental-reverse-search-history")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"alpha two".to_vec()));
+    assert!(
+        line.terminal.out.contains(":alpha"),
+        "emacs non-incremental prompt must show `:alpha`, got {:?}",
+        line.terminal.out
     );
 }

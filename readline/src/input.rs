@@ -632,10 +632,9 @@ where
             );
             self.apply_search_match(state, &search);
             // GNU per-keystroke bell (patch 0 Bash 5.3 PTY oracle): each
-            // failing query extension rings once in emacs incremental
-            // search. Vi `/`/`?` stay silent per keystroke and bell once
-            // at terminate instead, matching the single bell of the GNU
-            // non-incremental execute.
+            // failing emacs incremental query extension rings once.
+            // Vi `/`/`?` are non-incremental (separate state) and bell
+            // once at execute instead.
             if !found && !search.query.is_empty() && !search.exclude_cursor {
                 self.ding()?;
             }
@@ -692,10 +691,8 @@ where
                 if let Some(index) = search.match_index {
                     self.history.set_pos(index);
                 }
-                // Vi no-match terminate bells once (GNU single execute
-                // bell); emacs already belled per keystroke, so it stays
-                // silent here. The line stays the original in both modes:
-                // no query-as-line.
+                // No-match terminate keeps the original line (no
+                // query-as-line); emacs already belled per keystroke.
                 if search.match_line.is_none() && !search.query.is_empty() && search.exclude_cursor
                 {
                     self.ding()?;
@@ -735,8 +732,7 @@ where
                     self.flag(BoolVariable::SearchIgnoreCase),
                 );
                 self.apply_search_match(state, &search);
-                // A repeat with no further match keeps the line and bells
-                // (both emacs and vi incremental repeats).
+                // A repeat with no further match keeps the line and bells.
                 if !found && !search.query.is_empty() {
                     self.ding()?;
                 }
@@ -771,10 +767,9 @@ where
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
         // GNU incremental search appends printable input to the query even
-        // when the active keymap binds it (vi command `a`/`l`/`p`/`h`, space
-        // as forward-char, ...): only controls/escape sequences terminate
-        // and execute. Bypass the keymap for chunks without ASCII controls
-        // so vi `/` `?` queries match the patch 0 Bash 5.3 PTY oracle.
+        // when the active keymap binds it: only controls/escape sequences
+        // terminate and execute. Bypass the keymap for chunks without
+        // ASCII controls.
         if !bytes.is_empty() && !bytes.iter().any(|byte| byte.is_ascii_control()) {
             let input = bytes.to_vec();
             search.query.extend(input);
@@ -865,7 +860,7 @@ where
                 }
                 if state.search.quoted_pending {
                     let single = [bytes[pos]];
-                    let outcome = self.handle_non_incremental_single(state, &single);
+                    let outcome = self.handle_non_incremental_single(state, &single)?;
                     if !matches!(outcome, EditorOutcome::Continue) {
                         return Ok(outcome);
                     }
@@ -873,7 +868,7 @@ where
                     continue;
                 }
                 let single = [bytes[pos]];
-                let outcome = self.handle_non_incremental_single(state, &single);
+                let outcome = self.handle_non_incremental_single(state, &single)?;
                 if !matches!(outcome, EditorOutcome::Continue) {
                     return Ok(outcome);
                 }
@@ -881,36 +876,36 @@ where
             }
             return Ok(EditorOutcome::Continue);
         }
-        Ok(self.handle_non_incremental_single(state, bytes))
+        self.handle_non_incremental_single(state, bytes)
     }
 
     fn handle_non_incremental_single(
         &mut self,
         state: &mut EditorState,
         bytes: &[u8],
-    ) -> EditorOutcome {
+    ) -> Result<EditorOutcome, ReadlineError> {
         // Search-scoped quote: consume the next byte literally.
         if state.search.quoted_pending {
             state.search.quoted_pending = false;
             let Some(mut search) = state.search.non_incremental_search.take() else {
-                return EditorOutcome::Continue;
+                return Ok(EditorOutcome::Continue);
             };
             search.query.extend_from_slice(bytes);
             state.search.non_incremental_search = Some(search);
-            return EditorOutcome::Continue;
+            return Ok(EditorOutcome::Continue);
         }
         // Non-incremental searches quote only ^V/^Q (CHANGES 8.3 2.i:
         // "in the former case" = incremental allows any binding).
         if matches!(bytes, [0x16] | [0x11]) {
             let Some(search) = state.search.non_incremental_search.take() else {
-                return EditorOutcome::Continue;
+                return Ok(EditorOutcome::Continue);
             };
             state.search.non_incremental_search = Some(search);
             state.search.quoted_pending = true;
-            return EditorOutcome::Continue;
+            return Ok(EditorOutcome::Continue);
         }
-        let Some(mut search) = state.search.non_incremental_search.take() else {
-            return EditorOutcome::Continue;
+        let Some(search) = state.search.non_incremental_search.take() else {
+            return Ok(EditorOutcome::Continue);
         };
         match bytes {
             b"\r" | b"\n" => {
@@ -920,41 +915,63 @@ where
                 } else {
                     search.query.clone()
                 };
-                if !query.is_empty() {
+                // GNU bells once on empty or failed execute (patch 0 Bash
+                // 5.3 PTY oracle: `:`, `/`, `?` with `zzz` or empty all
+                // bell and clear back to the original line).
+                if query.is_empty() {
+                    self.ding()?;
+                    state.after_non_kill_command();
+                    return Ok(EditorOutcome::Continue);
+                }
+                let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
+                // Vi `/` skips the history cursor like the incremental
+                // cursor-skip oracle: backward covers
+                // entries[..original_pos], so a matching cursor finds the
+                // older entry. Emacs stays inclusive; forward already
+                // starts after the cursor in both modes.
+                let found = if search.vi && matches!(search.direction, SearchDirection::Backward) {
+                    let end = search
+                        .original_history_pos
+                        .min(self.history.entries().len());
+                    search_history_backward(&self.history, &query, Some(end), ignore_case)
+                } else {
                     let direction = match search.direction {
                         SearchDirection::Backward => HistoryDirection::Previous,
                         SearchDirection::Forward => HistoryDirection::Next,
                     };
-                    if let Some(found) = self.history.history_search_bytes_with_case(
-                        &query,
-                        direction,
-                        self.flag(BoolVariable::SearchIgnoreCase),
-                    ) {
-                        self.replace_from_history(state, &found.line_bytes);
-                    } else {
-                        self.history.set_pos(search.original_history_pos);
-                    }
-                    state.search.last_search = Some(query);
-                    state.search.last_search_direction = Some(search.direction);
+                    self.history
+                        .history_search_bytes_with_case(&query, direction, ignore_case)
+                        .map(|found| (found.entry_index, found.line_bytes.clone()))
+                };
+                if let Some((index, line)) = found {
+                    self.history.set_pos(index);
+                    self.replace_from_history(state, &line);
+                } else {
+                    self.history.set_pos(search.original_history_pos);
+                    self.ding()?;
                 }
+                state.search.last_search = Some(query);
+                state.search.last_search_direction = Some(search.direction);
                 state.after_non_kill_command();
-                EditorOutcome::Continue
+                Ok(EditorOutcome::Continue)
             }
             &[0x07] | &[0x1b] => {
                 state.search.quoted_pending = false;
                 state.buffer = LineBuffer::from_bytes(search.original_line.clone());
                 self.history.set_pos(search.original_history_pos);
                 state.after_non_kill_command();
-                EditorOutcome::Continue
+                Ok(EditorOutcome::Continue)
             }
             &[0x7f] => {
+                let mut search = search;
                 search.query.pop();
                 state.search.non_incremental_search = Some(search);
-                EditorOutcome::Continue
+                Ok(EditorOutcome::Continue)
             }
             _ => {
                 // Fragmentation-invariant: keep ASCII non-controls even for
                 // invalid chunks, matching split reads.
+                let mut search = search;
                 search.query.extend(
                     bytes
                         .iter()
@@ -962,7 +979,7 @@ where
                         .filter(|byte| !byte.is_ascii_control()),
                 );
                 state.search.non_incremental_search = Some(search);
-                EditorOutcome::Continue
+                Ok(EditorOutcome::Continue)
             }
         }
     }

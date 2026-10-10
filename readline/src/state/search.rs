@@ -27,6 +27,29 @@ pub(crate) struct NonIncrementalSearchState {
     pub(crate) direction: SearchDirection,
     pub(crate) original_line: Vec<u8>,
     pub(crate) original_history_pos: usize,
+    /// True for vi `/`/`?` (prompts `/`/`?`, cursor-exclusive backward
+    /// search); false for emacs non-incremental search (prompt `:`).
+    pub(crate) vi: bool,
+}
+
+impl NonIncrementalSearchState {
+    pub(crate) fn prompt_char(&self) -> char {
+        if !self.vi {
+            return ':';
+        }
+        match self.direction {
+            SearchDirection::Backward => '/',
+            SearchDirection::Forward => '?',
+        }
+    }
+
+    pub(crate) fn prompt_text(&self) -> String {
+        format!(
+            "{}{}",
+            self.prompt_char(),
+            String::from_utf8_lossy(&self.query)
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]

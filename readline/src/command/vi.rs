@@ -453,26 +453,23 @@ where
                     state.after_non_kill_command();
                     return Ok(EditorOutcome::Continue);
                 }
+                // GNU vi `/`/`?` is non-incremental (patch 0 Bash 5.3 PTY
+                // oracle): the prompt shows `/query`/`?query`, the line stays
+                // hidden until Enter executes, and a second Enter accepts.
                 state.search.quoted_pending = false;
-                let original_point = state.buffer.point();
+                state.search.reverse_search = None;
                 let original_history_pos = self.history.where_history();
-                state.search.reverse_search = Some(ReverseSearchState {
+                state.search.non_incremental_search = Some(NonIncrementalSearchState {
                     query: Vec::new(),
-                    match_line: None,
-                    match_index: None,
                     direction: if key == b"?" {
                         SearchDirection::Forward
                     } else {
                         SearchDirection::Backward
                     },
                     original_line: state.buffer.as_bytes().to_vec(),
-                    original_point,
                     original_history_pos,
-                    exclude_cursor: true,
+                    vi: true,
                 });
-                // Keep the just-started search: `after_non_kill_command`
-                // clears `reverse_search`, so reset only the kill flags like
-                // the emacs incremental-search starters do.
                 state.kill.last_was_kill = false;
                 state.kill.last_yank = None;
             }

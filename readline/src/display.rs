@@ -70,6 +70,11 @@ where
             let width = last_line_width(&prompt);
             return (prompt, width);
         }
+        if let Some(search) = state.search.non_incremental_search.as_ref() {
+            let prompt = search.prompt_text();
+            let width = last_line_width(&prompt);
+            return (prompt, width);
+        }
         let (mut mode, mut mode_width) = self.mode_prompt_prefix();
         if self.flag(BoolVariable::MarkModifiedLines)
             && self
@@ -122,6 +127,25 @@ where
         self.terminal
             .write_bytes(&rendered_string_to_bytes(&prompt))?;
         let columns = self.tracked_terminal_columns(state);
+        // GNU non-incremental search (emacs `:` and vi `/`/`?`, patch 0
+        // Bash 5.3 PTY oracle) replaces the line with the search prompt
+        // while the query is entered; the match appears only after Enter
+        // executes. Render prompt-only here so the original line stays
+        // hidden until execute/abort.
+        if state.search.non_incremental_search.is_some() {
+            self.terminal.clear_after_cursor()?;
+            let rendered_output = prompt.clone();
+            let (rendered_rows, ends_at_wrap_boundary) =
+                measured_rows_for_output(&rendered_output, columns);
+            if ends_at_wrap_boundary {
+                self.terminal.write("\r\n")?;
+            }
+            state.display.rendered_rows = rendered_rows;
+            state.display.rendered_cursor_row = state.display.rendered_rows;
+            self.terminal
+                .move_to_column((prompt_width % columns.max(1)) as u16)?;
+            return self.terminal.flush();
+        }
         let (buffer, point_width) = if self.flag(BoolVariable::HorizontalScrollMode) {
             state.buffer.horizontal_window_with_options(
                 columns.saturating_sub(prompt_width).max(1),

@@ -1506,10 +1506,11 @@ fn forward_isearch_terminator_point_matches_oracle() {
 
 #[test]
 fn vi_search_starts_from_history_cursor_with_literal_query() {
-    // Vi `/` searches backward and `?` searches forward from the history
-    // cursor, inclusively (patch 0 Bash 5.3 PTY oracle). Query letters must
-    // append literally even though `a`/`l`/`p`/`h` and space are vi command
-    // bindings: `kk` lands on `beta`, so `/alpha` finds `alpha one` while
+    // GNU vi `/` searches backward and `?` searches forward as
+    // non-incremental search (patch 0 Bash 5.3 PTY oracle): the prompt
+    // shows `/query`/`?query`, Enter executes, and backward search skips
+    // the history cursor. `kk` lands on `beta`, so `/alpha` finds
+    // `alpha one` while
     // `?alpha` finds `alpha two`; from the end `/alpha` finds `alpha two`
     // and `?alpha` finds nothing and keeps the empty line.
     for (key, from_mid, expected) in [

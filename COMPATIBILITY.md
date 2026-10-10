@@ -84,7 +84,7 @@ sections.
 | Command(s) | Status | Notes |
 | --- | --- | --- |
 | `accept-line`, `previous-history`, `next-history`, `beginning-of-history`, `end-of-history` | Compatible | Implemented in the editor/history integration and covered by tests. |
-| `reverse-search-history`, `forward-search-history`, `non-incremental-reverse-search-history`, `non-incremental-forward-search-history`, `non-incremental-forward-search-history-again`, `non-incremental-reverse-search-history-again` | Compatible | Search direction, repeat, case control, abort, accept, and search-string quoting are covered (incremental honors any `quoted-insert` binding, non-incremental quotes `^V`/`^Q`). |
+| `reverse-search-history`, `forward-search-history`, `non-incremental-reverse-search-history`, `non-incremental-forward-search-history`, `non-incremental-forward-search-history-again`, `non-incremental-reverse-search-history-again` | Compatible | Search direction, repeat, case control, abort, accept, execute bells, and search-string quoting are covered (incremental honors any `quoted-insert` binding, non-incremental quotes `^V`/`^Q`). Non-incremental prompts replace the line while querying (`:` for emacs, `/`/`?` for vi `vi-search`); Enter executes and a second Enter accepts. |
 | `history-search-backward`, `history-search-forward`, `history-substring-search-backward`, `history-substring-search-forward` | Compatible | Prefix and substring history search are implemented and tested. |
 | `history-expand-line`, `magic-space` | Compatible | Core expansion is built in and honors `histchars` and history expansion policy variables. |
 | `history-and-alias-expand-line`, `alias-expand-line` | Hook-backed | History expansion is built in; alias expansion uses `Hooks::expand_aliases` because aliases are owned by the embedding application. |
@@ -159,7 +159,7 @@ sections.
 | Command(s) | Status | Notes |
 | --- | --- | --- |
 | `vi-append-eol`, `vi-append-mode`, `vi-insert-beg`, `vi-insertion-mode`, `vi-movement-mode`, `vi-editing-mode` | Compatible | Covered by vi/editor tests for the scoped behavior. |
-| `vi-arg-digit`, `vi-search`, `vi-search-again`, `vi-char-search` | Compatible | Covered by vi/oracle tests for numeric and search behavior. |
+| `vi-arg-digit`, `vi-search`, `vi-search-again`, `vi-char-search` | Compatible | `vi-search` (`/` backward, `?` forward) is non-incremental like GNU: `/query`/`?query` prompts, cursor-exclusive backward execute with a single bell on empty/failed execute, and `n`/`N` repeat. Covered by vi/oracle tests. |
 | `vi-bWord`, `vi-backward-bigword`, `vi-back-to-indent`, `vi-first-print`, `vi-backward-word`, `vi-bword`, `vi-prev-word`, `vi-column`, `vi-eWord`, `vi-end-bigword`, `vi-end-word`, `vi-eword`, `vi-fWord`, `vi-forward-bigword`, `vi-forward-word`, `vi-fword`, `vi-next-word`, `vi-match` | Compatible | Covered by GNU oracle cases for punctuation words, bigwords, counts, operator-specific `w`/`W` behavior, first-print, column, and bracket matching. |
 | `vi-change-case`, `vi-change-char`, `vi-replace`, `vi-change-to`, `vi-delete`, `vi-delete-to`, `vi-subst`, `vi-yank-to` | Compatible | Operator, change, replacement, and redo cases are covered by vi/oracle tests. |
 | `vi-overstrike`, `vi-overstrike-delete`, `vi-rubout`, `vi-put`, `vi-redo`, `vi-undo`, `vi-yank-pop` | Compatible | Covered by vi/editor tests for the scoped behavior. |

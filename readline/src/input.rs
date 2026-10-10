@@ -73,9 +73,10 @@ where
         if let Some(outcome) = self.handle_numeric_argument_continuation(state, bytes, hooks)? {
             return Ok(outcome);
         }
-        if self.handle_multibyte_insert(state, bytes) {
-            return Ok(EditorOutcome::Continue);
-        }
+        // Fragmentation-invariant: batched bytes take the same per-byte
+        // SelfInsert path as split reads (longest-match split in
+        // handle_key_dispatch), so mixed control/multibyte chunks cannot
+        // swallow bindings and macro/overwrite stay consistent.
         self.handle_key_dispatch(state, bytes, hooks)
     }
 
@@ -191,28 +192,6 @@ where
         }
         state.record_vi_insert_bytes(bytes);
         state.after_self_insert();
-    }
-
-    fn handle_multibyte_insert(&mut self, state: &mut EditorState, bytes: &[u8]) -> bool {
-        if bytes.len() <= 1 || matches!(self.keymap.current(), KeyMapName::ViCommand) {
-            return false;
-        }
-        let Ok(text) = std::str::from_utf8(bytes) else {
-            return false;
-        };
-        if text.is_ascii() {
-            return false;
-        }
-        state.consume_numeric_arg_unless_prefix();
-        if !state.undo.last_undo_was_insert {
-            state.record_undo();
-        }
-        for ch in text.chars().filter(|ch| !ch.is_control()) {
-            state.buffer.insert_char(ch);
-        }
-        state.record_vi_insert_bytes(bytes);
-        state.after_self_insert();
-        true
     }
 
     fn handle_numeric_argument_continuation(
@@ -466,11 +445,13 @@ where
             if inserted {
                 return Ok(EditorOutcome::Continue);
             }
-        } else if bytes.iter().any(|byte| *byte >= 0x80) {
+        } else if bytes.iter().any(|byte| !byte.is_ascii_control()) {
+            // Fragmentation-invariant: preserve ASCII non-controls in invalid
+            // chunks, matching split reads that see each byte separately.
             let insertable = bytes
                 .iter()
                 .copied()
-                .filter(|byte| *byte >= 0x80)
+                .filter(|byte| !byte.is_ascii_control())
                 .collect::<Vec<_>>();
             if !insertable.is_empty() {
                 self.insert_literal(state, &insertable, true);
@@ -570,17 +551,13 @@ where
             }
             return self.handle_bytes(state, bytes, hooks);
         }
-        let input = if let Ok(text) = std::str::from_utf8(bytes) {
-            text.bytes()
-                .filter(|byte| !byte.is_ascii_control())
-                .collect::<Vec<_>>()
-        } else {
-            bytes
-                .iter()
-                .copied()
-                .filter(|byte| *byte >= 0x80)
-                .collect::<Vec<_>>()
-        };
+        // Fragmentation-invariant: keep ASCII non-controls even when the
+        // chunk as a whole is invalid UTF-8, matching split reads.
+        let input = bytes
+            .iter()
+            .copied()
+            .filter(|byte| !byte.is_ascii_control())
+            .collect::<Vec<_>>();
         if !input.is_empty() {
             search.query.extend(input);
             search.match_index = None;
@@ -652,15 +629,14 @@ where
                 EditorOutcome::Continue
             }
             _ => {
-                if let Ok(text) = std::str::from_utf8(bytes) {
-                    search
-                        .query
-                        .extend(text.bytes().filter(|byte| !byte.is_ascii_control()));
-                } else {
-                    search
-                        .query
-                        .extend(bytes.iter().copied().filter(|byte| *byte >= 0x80));
-                }
+                // Fragmentation-invariant: keep ASCII non-controls even for
+                // invalid chunks, matching split reads.
+                search.query.extend(
+                    bytes
+                        .iter()
+                        .copied()
+                        .filter(|byte| !byte.is_ascii_control()),
+                );
                 state.search.non_incremental_search = Some(search);
                 EditorOutcome::Continue
             }

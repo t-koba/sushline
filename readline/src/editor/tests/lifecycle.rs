@@ -168,3 +168,101 @@ fn batched_invalid_multibyte_chunk_preserves_both_bytes() {
         "batched invalid chunk must preserve both bytes via split self-insert"
     );
 }
+
+#[test]
+fn batched_mixed_control_and_multibyte_matches_fragmented_reads() {
+    // Live batching may deliver `a`, `C-a` (beginning-of-line) and `é`
+    // in one `Bytes` chunk; the one-byte path saw them separately. Both
+    // must dispatch `C-a` as a command instead of swallowing it in a
+    // bulk multibyte insert, yielding `éa`.
+    let mixed = [b"a".as_slice(), &[0x01], "é".as_bytes()].concat();
+    for terminal in [
+        super::MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(b"a".to_vec()),
+            TerminalEvent::Bytes(vec![0x01]),
+            TerminalEvent::Bytes("é".as_bytes().to_vec()),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+        ]),
+        super::MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(mixed),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+        ]),
+    ] {
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        assert_eq!(
+            result,
+            ReadlineResult::Line("éa".as_bytes().to_vec()),
+            "batched and fragmented mixed control/multibyte must agree"
+        );
+    }
+}
+
+#[test]
+fn batched_invalid_search_chunk_preserves_ascii_like_fragmented_reads() {
+    // Incremental search accumulation must keep ASCII non-controls even
+    // when the chunk as a whole is invalid UTF-8. History holds `[0xFF]`
+    // and `A`; batched `[0xFF, A]` must query both bytes (no match,
+    // original line) exactly like split `[0xFF]` + `[A]` reads.
+    fn history_with_invalid_entry() -> History {
+        let mut history = History::new();
+        history.push_bytes(vec![0xFF]);
+        history.push("A");
+        history
+    }
+    for terminal in [
+        super::MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(vec![0x12]),
+            TerminalEvent::Bytes(vec![0xFF, b'A']),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+        ]),
+        super::MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(vec![0x12]),
+            TerminalEvent::Bytes(vec![0xFF]),
+            TerminalEvent::Bytes(vec![b'A']),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+        ]),
+    ] {
+        let mut line = Editor::new(Config::default(), terminal, history_with_invalid_entry());
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        assert_eq!(
+            result,
+            ReadlineResult::Line(b"".to_vec()),
+            "batched and fragmented invalid search chunks must agree"
+        );
+    }
+}
+
+#[test]
+fn batched_invalid_non_incremental_search_chunk_matches_fragmented_reads() {
+    // Same ASCII-preservation rule for non-incremental search accumulation.
+    fn history_with_invalid_entry() -> History {
+        let mut history = History::new();
+        history.push_bytes(vec![0xFF]);
+        history.push("A");
+        history
+    }
+    for terminal in [
+        super::MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(vec![0x1b, b'p']),
+            TerminalEvent::Bytes(vec![0xFF, b'A']),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+        ]),
+        super::MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(vec![0x1b, b'p']),
+            TerminalEvent::Bytes(vec![0xFF]),
+            TerminalEvent::Bytes(vec![b'A']),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+        ]),
+    ] {
+        let mut line = Editor::new(Config::default(), terminal, history_with_invalid_entry());
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        assert_eq!(
+            result,
+            ReadlineResult::Line(b"".to_vec()),
+            "batched and fragmented non-incremental search must agree"
+        );
+    }
+}

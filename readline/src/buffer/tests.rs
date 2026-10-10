@@ -152,3 +152,22 @@ fn tab_cursor_column_agrees_between_render_and_positions() {
     assert_eq!((last_row, point_row), (0, 0));
     assert_eq!(point_col, 15 + point_width);
 }
+
+#[test]
+fn tab_basis_agrees_after_newline_and_in_hscroll_window() {
+    // Multiline: TAB after `\\n` restarts at column 0, matching
+    // `screen_positions` (8 spaces), not the pre-newline width (6).
+    let b = LineBuffer::from("ab\n\t");
+    let (rendered, _) = b.render_text(None, RenderOptions::default(), 0);
+    assert_eq!(rendered, "ab\r\n        ");
+    let (_, _, point_col) = b.rendered_rows_and_point(0, 80, RenderOptions::default());
+    assert_eq!(point_col, 8);
+    // H-scroll window sizing is cumulative window-relative: `a\\tb`
+    // renders 9 cells (1 + 7 + 1) and reports the same point width.
+    let mut w = LineBuffer::from("a\tb");
+    w.move_end();
+    let (visible, point_width) =
+        w.horizontal_window_with_options(80, None, RenderOptions::default());
+    assert_eq!(visible, "a       b");
+    assert_eq!(point_width, 9);
+}

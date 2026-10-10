@@ -442,6 +442,49 @@ fn batched_vi_mark_remainder_matches_fragmented_reads() {
 }
 
 #[test]
+fn batched_vi_register_remainder_matches_fragmented_reads() {
+    // `pending_vi_register` consumes one register name; trailing bytes are
+    // separate input. `vi-set-register` is not a GNU-bindable name (bash
+    // `bind -l` omits it, pinned by bind_golden), so bind `Q` directly
+    // through the keymap instead of inputrc. Batched [a,i,Z] must select
+    // register a then enter insert like split reads.
+    fn run(events: Vec<TerminalEvent>) -> ReadlineResult {
+        let terminal = super::MemoryTerminal::with_events(events);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str("set editing-mode vi").unwrap();
+        line.keymap.bind(
+            crate::keymap::KeyMapName::ViCommand,
+            crate::keymap::KeySequence::new(b"Q".to_vec()),
+            crate::keymap::KeyBinding::NamedCommand("vi-set-register".to_string()),
+        );
+        line.read_line(Prompt::new("> "), &mut ()).unwrap()
+    }
+    let fragmented = run(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"0".to_vec()),
+        TerminalEvent::Bytes(b"Q".to_vec()),
+        TerminalEvent::Bytes(b"a".to_vec()),
+        TerminalEvent::Bytes(b"i".to_vec()),
+        TerminalEvent::Bytes(b"Z".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let batched = run(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"0".to_vec()),
+        TerminalEvent::Bytes(b"Q".to_vec()),
+        TerminalEvent::Bytes(b"aiZ".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    assert_eq!(fragmented, ReadlineResult::Line(b"Zabc".to_vec()));
+    assert_eq!(
+        batched, fragmented,
+        "batched and fragmented vi register remainder must agree"
+    );
+}
+
+#[test]
 fn batched_named_command_enter_matches_fragmented_reads() {
     // Named-command text mixed with Enter in one chunk must execute like
     // split reads instead of swallowing the terminator as query text.

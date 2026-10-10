@@ -246,7 +246,7 @@ where
                 TerminalEvent::Timeout => {
                     if !state.input.pending_key.is_empty() {
                         let pending = std::mem::take(&mut state.input.pending_key);
-                        let outcome = self.handle_unbound(&mut state, &pending)?;
+                        let outcome = self.handle_unbound(&mut state, &pending, hooks)?;
                         if !matches!(outcome, EditorOutcome::Continue) {
                             return self.finish_outcome(&mut state, outcome);
                         }

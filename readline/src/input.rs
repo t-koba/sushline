@@ -58,17 +58,17 @@ where
         if state.paste.bracketed_paste {
             return self.handle_bracketed_paste_input(state, bytes, hooks);
         }
-        if let Some(outcome) = self.handle_pending_vi_mark(state, bytes)? {
+        if let Some(outcome) = self.handle_pending_vi_mark(state, bytes, hooks)? {
             return Ok(outcome);
         }
-        if let Some(outcome) = self.handle_pending_vi_register(state, bytes)? {
+        if let Some(outcome) = self.handle_pending_vi_register(state, bytes, hooks)? {
             return Ok(outcome);
         }
-        if let Some(outcome) = self.handle_pending_char_search(state, bytes)? {
+        if let Some(outcome) = self.handle_pending_char_search(state, bytes, hooks)? {
             return Ok(outcome);
         }
         if state.input.pending_replace {
-            return Ok(self.handle_replace_input(state, bytes));
+            return self.handle_replace_input(state, bytes, hooks);
         }
         if let Some(outcome) = self.handle_numeric_argument_continuation(state, bytes, hooks)? {
             return Ok(outcome);
@@ -151,22 +151,39 @@ where
         Ok(EditorOutcome::Continue)
     }
 
-    fn handle_replace_input(&mut self, state: &mut EditorState, bytes: &[u8]) -> EditorOutcome {
+    fn handle_replace_input(
+        &mut self,
+        state: &mut EditorState,
+        bytes: &[u8],
+        hooks: &mut impl Hooks,
+    ) -> Result<EditorOutcome, ReadlineError> {
+        // Fragmentation-invariant: only the first unit is the replacement;
+        // trailing bytes are separate input like split reads.
+        if bytes.is_empty() {
+            state.input.pending_replace = false;
+            state.consume_numeric_arg_unless_prefix();
+            return Ok(EditorOutcome::Continue);
+        }
+        let consumed = first_unit_len(bytes).min(bytes.len()).max(1);
+        let (first, rest) = bytes.split_at(consumed);
         state.input.pending_replace = false;
         state.consume_numeric_arg_unless_prefix();
-        let replacement = replacement_unit(bytes);
+        let replacement = replacement_unit(first);
         if !replacement.is_empty() {
             let point = state.buffer.point();
             state.record_undo();
             state.buffer.replace_char_at_point_bytes(&replacement);
             state.buffer.set_point(point);
             if let Some(mut change) = state.vi.vi_insert_change.take() {
-                change.extend_from_slice(bytes);
+                change.extend_from_slice(first);
                 state.vi.last_vi_change = Some(change);
             }
             state.after_non_kill_command();
         }
-        EditorOutcome::Continue
+        if rest.is_empty() {
+            return Ok(EditorOutcome::Continue);
+        }
+        self.handle_bytes(state, rest, hooks)
     }
 
     fn insert_literal(&mut self, state: &mut EditorState, bytes: &[u8], record_macro: bool) {
@@ -255,7 +272,7 @@ where
             return Ok(EditorOutcome::Continue);
         }
 
-        self.handle_unbound(state, &pending)
+        self.handle_unbound(state, &pending, hooks)
     }
 
     pub(super) fn replay_vi_change(
@@ -310,14 +327,33 @@ where
         &mut self,
         state: &mut EditorState,
         bytes: &[u8],
+        hooks: &mut impl Hooks,
     ) -> Result<Option<EditorOutcome>, ReadlineError> {
         let Some(action) = state.vi.pending_vi_mark.take() else {
             return Ok(None);
         };
 
+        // Fragmentation-invariant: only the first unit answers the pending
+        // mark; trailing bytes are separate input like split reads.
+        let consumed = first_unit_len(bytes).min(bytes.len()).max(1);
+        let (first, rest) = bytes.split_at(consumed);
+        let outcome = self.handle_pending_vi_mark_single(state, action, first)?;
+        if !rest.is_empty() {
+            let remainder_outcome = self.handle_bytes(state, rest, hooks)?;
+            return Ok(Some(remainder_outcome));
+        }
+        Ok(Some(outcome))
+    }
+
+    fn handle_pending_vi_mark_single(
+        &mut self,
+        state: &mut EditorState,
+        action: ViMarkAction,
+        bytes: &[u8],
+    ) -> Result<EditorOutcome, ReadlineError> {
         let Ok(text) = std::str::from_utf8(bytes) else {
             self.ding()?;
-            return Ok(Some(EditorOutcome::Continue));
+            return Ok(EditorOutcome::Continue);
         };
 
         if let Some(ch) = text.chars().find(|ch| !ch.is_control()) {
@@ -343,23 +379,41 @@ where
             state.consume_numeric_arg_unless_prefix();
         }
 
-        Ok(Some(EditorOutcome::Continue))
+        Ok(EditorOutcome::Continue)
     }
 
     pub(super) fn handle_pending_vi_register(
         &mut self,
         state: &mut EditorState,
         bytes: &[u8],
+        hooks: &mut impl Hooks,
     ) -> Result<Option<EditorOutcome>, ReadlineError> {
         if !state.vi.pending_vi_register {
             return Ok(None);
         }
         state.vi.pending_vi_register = false;
 
+        // Fragmentation-invariant: only the first unit selects the register;
+        // trailing bytes are separate input like split reads.
+        let consumed = first_unit_len(bytes).min(bytes.len()).max(1);
+        let (first, rest) = bytes.split_at(consumed);
+        let outcome = self.handle_pending_vi_register_single(state, first)?;
+        if !rest.is_empty() {
+            let remainder_outcome = self.handle_bytes(state, rest, hooks)?;
+            return Ok(Some(remainder_outcome));
+        }
+        Ok(Some(outcome))
+    }
+
+    fn handle_pending_vi_register_single(
+        &mut self,
+        state: &mut EditorState,
+        bytes: &[u8],
+    ) -> Result<EditorOutcome, ReadlineError> {
         let Ok(text) = std::str::from_utf8(bytes) else {
             self.ding()?;
             state.consume_numeric_arg_unless_prefix();
-            return Ok(Some(EditorOutcome::Continue));
+            return Ok(EditorOutcome::Continue);
         };
 
         if let Some(ch) = text.chars().find(|ch| !ch.is_control()) {
@@ -371,22 +425,27 @@ where
             state.consume_numeric_arg_unless_prefix();
         }
 
-        Ok(Some(EditorOutcome::Continue))
+        Ok(EditorOutcome::Continue)
     }
 
     pub(super) fn handle_pending_char_search(
         &mut self,
         state: &mut EditorState,
         bytes: &[u8],
+        hooks: &mut impl Hooks,
     ) -> Result<Option<EditorOutcome>, ReadlineError> {
         let Some(search) = state.vi.pending_char_search.take() else {
             return Ok(None);
         };
         let op_start = state.vi.pending_char_search_operator.take();
 
-        if let Some(ch) = char_search_key(bytes) {
+        // Fragmentation-invariant: only the first unit is the search key;
+        // trailing bytes are separate input like split reads.
+        let consumed = first_unit_len(bytes).min(bytes.len()).max(1);
+        let (first, rest) = bytes.split_at(consumed);
+        if let Some(ch) = char_search_key(first) {
             if self.apply_char_search(state, search, ch)? {
-                self.finish_vi_motion_operator(state, op_start, bytes, true);
+                self.finish_vi_motion_operator(state, op_start, first, true);
                 state.vi.last_char_search = Some((search, ch));
                 state.after_non_kill_command();
                 state.consume_numeric_arg_unless_prefix();
@@ -398,6 +457,10 @@ where
             self.ding()?;
         }
 
+        if !rest.is_empty() {
+            let remainder_outcome = self.handle_bytes(state, rest, hooks)?;
+            return Ok(Some(remainder_outcome));
+        }
         Ok(Some(EditorOutcome::Continue))
     }
 
@@ -405,6 +468,7 @@ where
         &mut self,
         state: &mut EditorState,
         bytes: &[u8],
+        hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
         // Fail closed when bracketed paste is off: swallow injected bracket
         // end (and unbound begin) sequences so they leave no literal trace.
@@ -417,7 +481,7 @@ where
             return Ok(EditorOutcome::Continue);
         }
         if state.input.pending_replace {
-            return Ok(self.handle_replace_input(state, bytes));
+            return self.handle_replace_input(state, bytes, hooks);
         }
 
         if matches!(self.keymap.current(), KeyMapName::ViCommand) {
@@ -732,6 +796,47 @@ where
         bytes: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
+        // Fragmentation-invariant: a batched chunk may mix query text with
+        // the terminating Enter/ESC/DEL, so dispatch per unit like split
+        // reads instead of swallowing embedded controls as query text.
+        if bytes.len() > 1 {
+            let mut pos = 0;
+            while pos < bytes.len() {
+                if state.input.named_command.is_none() {
+                    return self.handle_bytes(state, &bytes[pos..], hooks);
+                }
+                let remaining = &bytes[pos..];
+                // Single-byte controls first, matching the one-byte path.
+                if remaining.len() == 1
+                    || matches!(remaining[0], b'\r' | b'\n' | 0x07 | 0x1b | 0x7f)
+                {
+                    let single = [remaining[0]];
+                    let outcome = self.handle_named_command_single(state, &single, hooks)?;
+                    if !matches!(outcome, EditorOutcome::Continue) {
+                        return Ok(outcome);
+                    }
+                    pos += 1;
+                    continue;
+                }
+                let consumed = first_unit_len(remaining).min(remaining.len()).max(1);
+                let outcome =
+                    self.handle_named_command_single(state, &remaining[..consumed], hooks)?;
+                if !matches!(outcome, EditorOutcome::Continue) {
+                    return Ok(outcome);
+                }
+                pos += consumed;
+            }
+            return Ok(EditorOutcome::Continue);
+        }
+        self.handle_named_command_single(state, bytes, hooks)
+    }
+
+    fn handle_named_command_single(
+        &mut self,
+        state: &mut EditorState,
+        bytes: &[u8],
+        hooks: &mut impl Hooks,
+    ) -> Result<EditorOutcome, ReadlineError> {
         match bytes {
             b"\r" | b"\n" => {
                 let command = state.input.named_command.take().unwrap_or_default();
@@ -749,6 +854,9 @@ where
                 Ok(EditorOutcome::Continue)
             }
             _ => {
+                if state.input.named_command.is_none() {
+                    return self.handle_bytes(state, bytes, hooks);
+                }
                 if let Ok(text) = std::str::from_utf8(bytes)
                     && let Some(command) = state.input.named_command.as_mut()
                 {
@@ -758,6 +866,27 @@ where
             }
         }
     }
+}
+
+fn first_unit_len(bytes: &[u8]) -> usize {
+    if bytes.is_empty() {
+        return 0;
+    }
+    if bytes[0] < 0x80 {
+        return 1;
+    }
+    for len in 1..=4.min(bytes.len()) {
+        if let Ok(text) = std::str::from_utf8(&bytes[..len])
+            && let Some(ch) = text.chars().next()
+        {
+            // Earliest valid prefix ends exactly at the first char boundary;
+            // longer valid prefixes still start with the same char.
+            if text.chars().count() >= 1 {
+                return ch.len_utf8();
+            }
+        }
+    }
+    1
 }
 
 fn replacement_unit(bytes: &[u8]) -> Vec<u8> {

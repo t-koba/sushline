@@ -334,3 +334,142 @@ fn batched_non_incremental_query_plus_enter_matches_fragmented_reads() {
         );
     }
 }
+
+#[test]
+fn batched_vi_replace_remainder_matches_fragmented_reads() {
+    // `r` consumes one replacement char; trailing bytes are separate input.
+    // Batched [X,d,l] must replace with X then delete like split reads
+    // (both accept "bc"), instead of dropping the trailing operator.
+    fn run(events: Vec<TerminalEvent>) -> ReadlineResult {
+        let terminal = super::MemoryTerminal::with_events(events);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str("set editing-mode vi").unwrap();
+        line.read_line(Prompt::new("> "), &mut ()).unwrap()
+    }
+    let fragmented = run(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"0".to_vec()),
+        TerminalEvent::Bytes(b"r".to_vec()),
+        TerminalEvent::Bytes(b"X".to_vec()),
+        TerminalEvent::Bytes(b"d".to_vec()),
+        TerminalEvent::Bytes(b"l".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let batched = run(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"0".to_vec()),
+        TerminalEvent::Bytes(b"r".to_vec()),
+        TerminalEvent::Bytes(b"Xdl".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    assert_eq!(fragmented, ReadlineResult::Line(b"bc".to_vec()));
+    assert_eq!(
+        batched, fragmented,
+        "batched and fragmented vi replace remainder must agree"
+    );
+}
+
+#[test]
+fn batched_vi_char_search_remainder_matches_fragmented_reads() {
+    // `f` consumes one search key; trailing bytes are separate input.
+    // Batched [,,d,l] must move to `,` then delete like split reads.
+    fn run(events: Vec<TerminalEvent>) -> ReadlineResult {
+        let terminal = super::MemoryTerminal::with_events(events);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str("set editing-mode vi").unwrap();
+        line.read_line(Prompt::new("> "), &mut ()).unwrap()
+    }
+    let fragmented = run(vec![
+        TerminalEvent::Bytes(b"abc,def".to_vec()),
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"0".to_vec()),
+        TerminalEvent::Bytes(b"f".to_vec()),
+        TerminalEvent::Bytes(b",".to_vec()),
+        TerminalEvent::Bytes(b"d".to_vec()),
+        TerminalEvent::Bytes(b"l".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let batched = run(vec![
+        TerminalEvent::Bytes(b"abc,def".to_vec()),
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"0".to_vec()),
+        TerminalEvent::Bytes(b"f".to_vec()),
+        TerminalEvent::Bytes(b",dl".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    assert_eq!(fragmented, ReadlineResult::Line(b"abcdef".to_vec()));
+    assert_eq!(
+        batched, fragmented,
+        "batched and fragmented vi char-search remainder must agree"
+    );
+}
+
+#[test]
+fn batched_vi_mark_remainder_matches_fragmented_reads() {
+    // `m` consumes one mark name; trailing bytes are separate input.
+    // Batched [a,i,Z] must set mark a then enter insert like split reads.
+    fn run(events: Vec<TerminalEvent>) -> ReadlineResult {
+        let terminal = super::MemoryTerminal::with_events(events);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str("set editing-mode vi").unwrap();
+        line.read_line(Prompt::new("> "), &mut ()).unwrap()
+    }
+    let fragmented = run(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"0".to_vec()),
+        TerminalEvent::Bytes(b"m".to_vec()),
+        TerminalEvent::Bytes(b"a".to_vec()),
+        TerminalEvent::Bytes(b"i".to_vec()),
+        TerminalEvent::Bytes(b"Z".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let batched = run(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"0".to_vec()),
+        TerminalEvent::Bytes(b"m".to_vec()),
+        TerminalEvent::Bytes(b"aiZ".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    assert_eq!(fragmented, ReadlineResult::Line(b"Zabc".to_vec()));
+    assert_eq!(
+        batched, fragmented,
+        "batched and fragmented vi mark remainder must agree"
+    );
+}
+
+#[test]
+fn batched_named_command_enter_matches_fragmented_reads() {
+    // Named-command text mixed with Enter in one chunk must execute like
+    // split reads instead of swallowing the terminator as query text.
+    fn run(events: Vec<TerminalEvent>) -> ReadlineResult {
+        let terminal = super::MemoryTerminal::with_events(events);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str("\"\\C-o\": execute-named-command")
+            .unwrap();
+        line.read_line(Prompt::new("> "), &mut ()).unwrap()
+    }
+    let fragmented = run(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"beginning-of-line".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+        TerminalEvent::Bytes(b"X".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let batched = run(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"beginning-of-line\r".to_vec()),
+        TerminalEvent::Bytes(b"X".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    assert_eq!(fragmented, ReadlineResult::Line(b"Xabc".to_vec()));
+    assert_eq!(
+        batched, fragmented,
+        "batched and fragmented named-command Enter must agree"
+    );
+}

@@ -703,3 +703,65 @@ fn batched_named_command_invalid_chunk_matches_fragmented_reads() {
         "batched and fragmented named-command invalid chunks must agree"
     );
 }
+
+#[test]
+fn vi_search_again_steps_exclusively_past_matches_with_bell() {
+    // Vi `/` lands on the newest match; each `n` must step exclusively to
+    // the older match, and exhausting matches must bell and keep the line.
+    fn run(events: Vec<TerminalEvent>) -> (ReadlineResult, String) {
+        let terminal = super::MemoryTerminal::with_events(events);
+        let mut history = History::new();
+        history.push("alpha one");
+        history.push("alpha two");
+        history.push("gamma");
+        let mut line = Editor::new(Config::default(), terminal, history);
+        line.load_inputrc_str("set editing-mode vi").unwrap();
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        (result, line.terminal.out.clone())
+    }
+    // `n` steps from "alpha two" to "alpha one"; second `n` exhausts matches.
+    let (result, out) = run(vec![
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"/".to_vec()),
+        TerminalEvent::Bytes(b"alpha".to_vec()),
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"n".to_vec()),
+        TerminalEvent::Bytes(b"n".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    assert_eq!(result, ReadlineResult::Line(b"alpha one".to_vec()));
+    assert!(
+        out.contains("\x07"),
+        "exhausted repeat must bell, got {out:?}"
+    );
+    // `N` flips to forward: from the newest alpha there is no newer match,
+    // so it must bell and keep "alpha two".
+    let (result, out) = run(vec![
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"/".to_vec()),
+        TerminalEvent::Bytes(b"alpha".to_vec()),
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"N".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    assert_eq!(result, ReadlineResult::Line(b"alpha two".to_vec()));
+    assert!(
+        out.contains("\x07"),
+        "failed opposite repeat must bell, got {out:?}"
+    );
+    // No prior search must bell without changing the line.
+    let terminal = super::MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"n".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set editing-mode vi").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"".to_vec()));
+    assert!(
+        line.terminal.out.contains("\x07"),
+        "repeat without search must bell, got {:?}",
+        line.terminal.out
+    );
+}

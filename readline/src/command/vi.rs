@@ -477,27 +477,37 @@ where
                 state.kill.last_yank = None;
             }
             "vi-search-again" => {
-                let query = state.search.last_search.clone();
-                if let Some(query) = query {
-                    let mut search_direction =
-                        state.search.last_search_direction.unwrap_or_default();
-                    if key == b"N" {
-                        search_direction = match search_direction {
-                            SearchDirection::Backward => SearchDirection::Forward,
-                            SearchDirection::Forward => SearchDirection::Backward,
-                        };
-                    }
-                    let direction = match search_direction {
-                        SearchDirection::Backward => HistoryDirection::Previous,
-                        SearchDirection::Forward => HistoryDirection::Next,
+                let Some(query) = state.search.last_search.clone() else {
+                    self.ding()?;
+                    state.after_non_kill_command();
+                    return Ok(EditorOutcome::Continue);
+                };
+                let mut search_direction = state.search.last_search_direction.unwrap_or_default();
+                if key == b"N" {
+                    search_direction = match search_direction {
+                        SearchDirection::Backward => SearchDirection::Forward,
+                        SearchDirection::Forward => SearchDirection::Backward,
                     };
-                    if let Some(found) = self.history.history_search_bytes_with_case(
-                        &query,
-                        direction,
-                        self.flag(BoolVariable::SearchIgnoreCase),
-                    ) {
-                        self.replace_from_history(state, &found.line_bytes);
+                }
+                // GNU `n`/`N` step exclusively past the current match, so a
+                // repeat from a matching line moves on instead of re-finding
+                // it; a repeat with no further match rings the bell and keeps
+                // the line (patch 0 Bash 5.3 PTY oracle).
+                let pos = self.history.where_history();
+                let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
+                let found = match search_direction {
+                    SearchDirection::Backward => {
+                        search_history_backward(&self.history, &query, Some(pos), ignore_case)
                     }
+                    SearchDirection::Forward => {
+                        search_history_forward(&self.history, &query, Some(pos), ignore_case)
+                    }
+                };
+                if let Some((index, line)) = found {
+                    self.history.set_pos(index);
+                    self.replace_from_history(state, &line);
+                } else {
+                    self.ding()?;
                 }
                 state.after_non_kill_command();
             }

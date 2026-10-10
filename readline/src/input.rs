@@ -678,6 +678,12 @@ where
                     buffer.set_point(0);
                 }
                 state.buffer = buffer;
+                // Keep the history cursor on the match so a later `n`/`N`
+                // (`vi-search-again`) steps exclusively past it instead of
+                // re-finding it from the pre-search position.
+                if let Some(index) = search.match_index {
+                    self.history.set_pos(index);
+                }
                 save_last_search(state, &search);
                 state.after_non_kill_command();
                 EditorOutcome::Continue
@@ -766,6 +772,9 @@ where
         if command_binding.is_some() || self.keymap.has_prefix(self.keymap.current(), bytes) {
             let accepted = accept_search_line(&search);
             state.buffer = LineBuffer::from_bytes(accepted);
+            if let Some(index) = search.match_index {
+                self.history.set_pos(index);
+            }
             save_last_search(state, &search);
             state.after_non_kill_command();
             if let Some(binding) = command_binding {

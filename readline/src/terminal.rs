@@ -398,9 +398,15 @@ fn install_signal_handlers() {
         action.sa_flags = libc::SA_SIGINFO;
         let mut old_action: libc::sigaction = std::mem::zeroed();
         if libc::sigaction(libc::SIGWINCH, &action, &mut old_action) == 0 {
-            std::ptr::addr_of_mut!(OLD_SIGWINCH_ACTION)
-                .write(std::mem::MaybeUninit::new(old_action));
-            OLD_SIGWINCH_SAVED.store(true, Ordering::SeqCst);
+            if old_action.sa_sigaction == libc::SIG_IGN {
+                // Mirror GNU `rl_maybe_set_sighandler`: never clobber an
+                // embedder-ignored disposition, including SIGWINCH.
+                libc::sigaction(libc::SIGWINCH, &old_action, std::ptr::null_mut());
+            } else {
+                std::ptr::addr_of_mut!(OLD_SIGWINCH_ACTION)
+                    .write(std::mem::MaybeUninit::new(old_action));
+                OLD_SIGWINCH_SAVED.store(true, Ordering::SeqCst);
+            }
         }
         for (idx, signal) in READLINE_SIGNALS.iter().copied().enumerate() {
             let mut action: libc::sigaction = std::mem::zeroed();
@@ -409,8 +415,12 @@ fn install_signal_handlers() {
             action.sa_flags = 0;
             let mut old_action: libc::sigaction = std::mem::zeroed();
             if libc::sigaction(signal, &action, &mut old_action) == 0 {
-                OLD_SIGNAL_ACTIONS[idx].write(old_action);
-                OLD_SIGNAL_ACTION_SAVED[idx].store(true, Ordering::SeqCst);
+                if old_action.sa_sigaction == libc::SIG_IGN {
+                    libc::sigaction(signal, &old_action, std::ptr::null_mut());
+                } else {
+                    OLD_SIGNAL_ACTIONS[idx].write(old_action);
+                    OLD_SIGNAL_ACTION_SAVED[idx].store(true, Ordering::SeqCst);
+                }
             }
         }
     }
@@ -590,4 +600,69 @@ fn push_tty_binding(
 #[cfg(not(unix))]
 fn tty_special_bindings() -> Vec<(u8, &'static str)> {
     Vec::new()
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::{install_signal_handlers, restore_signal_handlers};
+
+    fn current_handler(signal: libc::c_int) -> usize {
+        unsafe {
+            let mut current: libc::sigaction = std::mem::zeroed();
+            assert_eq!(
+                libc::sigaction(signal, std::ptr::null(), &mut current),
+                0,
+                "query disposition"
+            );
+            current.sa_sigaction
+        }
+    }
+
+    fn set_disposition(signal: libc::c_int, handler: usize) {
+        unsafe {
+            let mut action: libc::sigaction = std::mem::zeroed();
+            action.sa_sigaction = handler;
+            libc::sigemptyset(&mut action.sa_mask);
+            action.sa_flags = 0;
+            assert_eq!(
+                libc::sigaction(signal, &action, std::ptr::null_mut()),
+                0,
+                "set disposition"
+            );
+        }
+    }
+
+    #[test]
+    fn install_preserves_sig_ign() {
+        // Start from a clean install state; no other unit test installs the
+        // process-global handlers (integration tests use mock terminals).
+        restore_signal_handlers();
+        let original_alarm = current_handler(libc::SIGALRM);
+        let original_term = current_handler(libc::SIGTERM);
+        set_disposition(libc::SIGALRM, libc::SIG_IGN);
+        set_disposition(libc::SIGTERM, libc::SIG_DFL);
+
+        install_signal_handlers();
+        // Embedder-ignored dispositions survive the install, including for
+        // signals sushline otherwise catches.
+        assert_eq!(
+            current_handler(libc::SIGALRM),
+            libc::SIG_IGN,
+            "SIG_IGN must survive install"
+        );
+        // Non-ignored signals are still caught.
+        let term = current_handler(libc::SIGTERM);
+        assert_ne!(term, libc::SIG_IGN, "SIGTERM must be caught");
+        assert_ne!(term, libc::SIG_DFL, "SIGTERM must be caught");
+        restore_signal_handlers();
+        assert_eq!(
+            current_handler(libc::SIGALRM),
+            libc::SIG_IGN,
+            "SIG_IGN must survive restore"
+        );
+
+        set_disposition(libc::SIGALRM, original_alarm);
+        set_disposition(libc::SIGTERM, original_term);
+        restore_signal_handlers();
+    }
 }

@@ -933,8 +933,8 @@ fn ignored_prefix_commands_consume_numeric_argument() {
 fn undo_groups_single_byte_inserts_up_to_twenty_chars() {
     // GNU rl_insert_text concatenates only single-byte inserts up to 20 chars;
     // verified against the patch 0 baseline (Bash 5.3 PTY oracle): 21/25 a's
-    // leave 20 after one undo, 20a+é leaves 20 via the 20-byte cap (the é
-    // bytes arrive as single-byte events, so the cap fires before C3).
+    // leave 20 after one undo, 20a+é leaves 20 because the complete multibyte
+    // char opens its own entry (past the 20-byte cap either way).
     for (typed, after_one_undo) in [
         ("a".repeat(20), "".to_string()),
         ("a".repeat(21), "a".repeat(20)),
@@ -979,11 +979,12 @@ fn undo_groups_single_byte_inserts_up_to_twenty_chars() {
 }
 
 #[test]
-fn undo_short_multibyte_run_stays_in_single_byte_event_entry() {
-    // Single-byte events group by byte: `aé` arrives as `a` + C3 + A9, so one
-    // undo clears the whole short run. Whether GNU splits short non-ASCII runs
-    // is unverified pending a pinned short-run oracle; this pins the current
-    // byte-event behavior.
+fn undo_short_multibyte_run_splits_like_gnu() {
+    // GNU `rl_insert_text` groups only single-byte inserts: `a` stays in one
+    // entry while the complete `é` char opens its own, so one undo leaves
+    // `a`. Verified against the patch 0 baseline (Bash 5.3 PTY oracle).
+    // Incomplete UTF-8 leads buffer across events like a keymap prefix, so
+    // torn reads assemble before grouping and agree with batched reads.
     for events in [
         vec![
             TerminalEvent::Bytes("aé".as_bytes().to_vec()),
@@ -996,11 +997,19 @@ fn undo_short_multibyte_run_stays_in_single_byte_event_entry() {
             TerminalEvent::Bytes(vec![0x1f]),
             TerminalEvent::Bytes(b"\r".to_vec()),
         ],
+        vec![
+            TerminalEvent::Bytes(b"a".to_vec()),
+            TerminalEvent::Bytes(vec![0xc3]),
+            TerminalEvent::Bytes(vec![0xa9]),
+            TerminalEvent::Bytes(vec![0x1f]),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+        ],
     ] {
         let terminal = MemoryTerminal::with_events(events);
         let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str("set input-meta on").unwrap();
         let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
-        assert_eq!(result, ReadlineResult::Line(b"".to_vec()));
+        assert_eq!(result, ReadlineResult::Line(b"a".to_vec()));
     }
 }
 

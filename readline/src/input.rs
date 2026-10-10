@@ -73,10 +73,11 @@ where
         if let Some(outcome) = self.handle_numeric_argument_continuation(state, bytes, hooks)? {
             return Ok(outcome);
         }
-        // Fragmentation-invariant: batched bytes take the same per-byte
-        // SelfInsert path as split reads (longest-match split in
-        // handle_key_dispatch), so mixed control/multibyte chunks cannot
-        // swallow bindings and macro/overwrite stay consistent.
+        // Fragmentation-invariant: batched bytes take the same path as split
+        // reads (longest-match split with complete-char SelfInsert and
+        // incomplete-lead buffering in handle_key_dispatch), so mixed
+        // control/multibyte chunks cannot swallow bindings and
+        // macro/overwrite/undo stay consistent.
         self.handle_key_dispatch(state, bytes, hooks)
     }
 
@@ -248,6 +249,21 @@ where
     ) -> Result<EditorOutcome, ReadlineError> {
         state.input.pending_key.extend_from_slice(bytes);
         let pending = std::mem::take(&mut state.input.pending_key);
+        // GNU `rl_insert_text` groups only single-byte inserts: buffer an
+        // incomplete UTF-8 lead across events (like a keymap prefix) while it
+        // takes the default SelfInsert path, so torn reads assemble into one
+        // insert before undo grouping; exact and custom bindings still fire
+        // at once, ahead of keymap-prefix buffering.
+        if is_incomplete_utf8_prefix(&pending)
+            && matches!(
+                self.keymap.lookup(self.keymap.current(), &pending[..1]),
+                Some(KeyBinding::Command(EditCommand::SelfInsert))
+            )
+        {
+            state.input.pending_key = pending;
+            return Ok(EditorOutcome::Continue);
+        }
+
         if let Some(binding) = self.keymap.lookup(self.keymap.current(), &pending).cloned() {
             return self.apply_binding(state, binding, &pending, hooks);
         }
@@ -262,12 +278,24 @@ where
             .longest_matching_prefix(self.keymap.current(), &pending)
             .map(|(len, binding)| (len, binding.clone()))
         {
-            let outcome = self.apply_binding(state, binding, &pending[..len], hooks)?;
+            // Insert a complete multibyte char as one SelfInsert so it opens
+            // its own undo entry like GNU; single bytes keep per-byte dispatch.
+            let mut use_len = len;
+            if matches!(binding, KeyBinding::Command(EditCommand::SelfInsert))
+                && len == 1
+                && pending[0] >= 0x80
+            {
+                let char_len = first_unit_len(&pending).min(pending.len()).max(1);
+                if char_len > 1 && std::str::from_utf8(&pending[..char_len]).is_ok() {
+                    use_len = char_len;
+                }
+            }
+            let outcome = self.apply_binding(state, binding, &pending[..use_len], hooks)?;
             if !matches!(outcome, EditorOutcome::Continue) {
                 return Ok(outcome);
             }
-            if len < pending.len() {
-                return self.handle_bytes(state, &pending[len..], hooks);
+            if use_len < pending.len() {
+                return self.handle_bytes(state, &pending[use_len..], hooks);
             }
             return Ok(EditorOutcome::Continue);
         }
@@ -866,6 +894,28 @@ where
             }
         }
     }
+}
+
+fn utf8_expected_len(lead: u8) -> Option<usize> {
+    match lead {
+        0xC2..=0xDF => Some(2),
+        0xE0..=0xEF => Some(3),
+        0xF0..=0xF4 => Some(4),
+        _ => None,
+    }
+}
+
+/// True while `bytes` could still become one valid UTF-8 char with more
+/// input: a valid lead byte plus only continuation bytes so far, shorter
+/// than the char length.
+fn is_incomplete_utf8_prefix(bytes: &[u8]) -> bool {
+    let Some(first) = bytes.first() else {
+        return false;
+    };
+    let Some(expected) = utf8_expected_len(*first) else {
+        return false;
+    };
+    bytes.len() < expected && bytes[1..].iter().all(|byte| (0x80..=0xBF).contains(byte))
 }
 
 fn first_unit_len(bytes: &[u8]) -> usize {

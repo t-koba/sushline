@@ -342,6 +342,22 @@ fn bash_readline_and_sushline_accept_same_simple_undo_edit() {
 }
 
 #[test]
+fn bash_readline_and_sushline_accept_same_short_multibyte_undo_split() {
+    // GNU groups only single-byte inserts: `aé` plus undo leaves `a`.
+    let mut keys = Vec::from("aé".as_bytes());
+    keys.extend_from_slice(b"\x1f\r");
+    let bash = run_bash_readline(&keys);
+    let sushline = run_sushline_harness(&keys);
+
+    assert_eq!(accepted_line(&bash), Some("a".to_string()), "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        Some("a".to_string()),
+        "{sushline}"
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_keyboard_macro_self_insert_replay() {
     let keys = b"\x18(abc\x18)\x18e\r";
     let bash = run_bash_readline(keys);

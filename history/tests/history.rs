@@ -537,6 +537,34 @@ fn reads_history_file_ranges_and_controls_timestamp_writes() {
 }
 
 #[test]
+fn range_and_truncate_count_timestamp_joined_entries_not_physical_lines() {
+    // Decided policy: range FROM/TO and truncate count timestamp-joined Rust
+    // entries (logical commands), not physical file lines. A multiline
+    // timestamp-delimited entry plus a single-line entry is two entries over
+    // six physical lines; entry counting skips/keeps the whole first entry.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(
+        &path,
+        "#1700000000\nline one\n\nline two\n#1700000001\nnext\n",
+    )
+    .unwrap();
+
+    let ranged = History::read_file_range(&path, 1, Some(2)).unwrap();
+    assert_eq!(
+        ranged
+            .entries()
+            .iter()
+            .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
+            .collect::<Vec<_>>(),
+        vec![(Some("#1700000001"), "next".to_string()),]
+    );
+
+    History::truncate_file(&path, 1).unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), "#1700000001\nnext\n");
+}
+
+#[test]
 fn append_new_can_suppress_timestamp_writes() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");

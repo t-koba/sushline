@@ -930,6 +930,54 @@ fn ignored_prefix_commands_consume_numeric_argument() {
 }
 
 #[test]
+fn undo_groups_single_byte_inserts_up_to_twenty_chars() {
+    // GNU rl_insert_text concatenates only single-byte inserts up to 20 chars;
+    // verified against the patch 0 baseline (Bash 5.3 PTY oracle): 21/25 a's
+    // leave 20 after one undo, 20a+é leaves 20 (multibyte splits the run).
+    for (typed, after_one_undo) in [
+        ("a".repeat(20), "".to_string()),
+        ("a".repeat(21), "a".repeat(20)),
+        ("a".repeat(25), "a".repeat(20)),
+    ] {
+        let terminal = MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(typed.as_bytes().to_vec()),
+            TerminalEvent::Bytes(vec![0x1f]),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+        ]);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        assert_eq!(
+            result,
+            ReadlineResult::Line(after_one_undo.as_bytes().to_vec()),
+            "typed {typed:?}"
+        );
+    }
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"a".repeat(25).to_vec()),
+        TerminalEvent::Bytes(vec![0x1f]),
+        TerminalEvent::Bytes(vec![0x1f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"".to_vec()));
+
+    let typed = format!("{}é", "a".repeat(20));
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(typed.as_bytes().to_vec()),
+        TerminalEvent::Bytes(vec![0x1f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(
+        result,
+        ReadlineResult::Line("a".repeat(20).as_bytes().to_vec())
+    );
+}
+
+#[test]
 fn clearing_prefix_commands_consume_numeric_argument() {
     // revert-line and undo empty the line; a leaked M-2 would double the
     // following self-insert (QQ instead of Q).

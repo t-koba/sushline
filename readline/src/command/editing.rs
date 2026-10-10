@@ -115,9 +115,7 @@ where
             }
             EditCommand::SelfInsert => {
                 let count = repeat_count(state.numeric_arg.take());
-                if !state.undo.last_undo_was_insert {
-                    state.record_undo();
-                }
+                state.record_insert_undo(count == 1 && key.len() == 1);
                 if key.iter().any(|byte| byte.is_ascii_control()) {
                     for _ in 0..count {
                         if state.overwrite_mode && state.buffer.point() < state.buffer.len_chars() {
@@ -330,7 +328,7 @@ where
                 state.after_non_kill_command();
             }
             "tab-insert" => {
-                state.record_undo();
+                state.record_insert_undo(true);
                 state.buffer.insert_char('\t');
                 state.after_self_insert();
             }

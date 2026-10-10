@@ -24,6 +24,32 @@ impl EditorState {
             .get_or_insert_with(|| self.buffer.clone());
     }
 
+    /// Record the start of an insert run with GNU `rl_insert_text` grouping:
+    /// only single-byte inserts extend the pending entry while it holds fewer
+    /// than 20 inserted bytes; anything wider commits the run first.
+    pub(crate) fn record_insert_undo(&mut self, single_byte: bool) {
+        if !self.undo.last_undo_was_insert {
+            self.record_undo();
+            return;
+        }
+        if !single_byte {
+            self.commit_pending_undo();
+            self.record_undo();
+            return;
+        }
+        let capped = self
+            .undo
+            .pending_undo
+            .as_ref()
+            .and_then(|before| UndoEntry::from_buffers(before, &self.buffer))
+            .map(|entry| entry.inserted.len() >= 20)
+            .unwrap_or(false);
+        if capped {
+            self.commit_pending_undo();
+            self.record_undo();
+        }
+    }
+
     pub(crate) fn undo(&mut self) {
         self.commit_pending_undo();
         if let Some(entry) = self.undo.undo_stack.pop() {

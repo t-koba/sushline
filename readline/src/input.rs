@@ -171,9 +171,7 @@ where
 
     fn insert_literal(&mut self, state: &mut EditorState, bytes: &[u8], record_macro: bool) {
         let count = repeat_count(state.numeric_arg.take());
-        if !state.undo.last_undo_was_insert {
-            state.record_undo();
-        }
+        state.record_insert_undo(count == 1 && bytes.len() == 1);
         for _ in 0..count {
             if state.overwrite_mode {
                 for byte in bytes {

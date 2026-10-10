@@ -442,6 +442,17 @@ where
                 }
             }
             "vi-search" => {
+                if key != b"/" && key != b"?" {
+                    // GNU only starts a search for `/` (backward) and `?`
+                    // (forward): any other invoking key (for example a
+                    // remapped binding) rings the bell without entering
+                    // search, matching the patch 0 Bash 5.3 PTY oracle
+                    // (`C-o` mapped to `vi-search` in emacs mode bells and
+                    // leaves the typed query literal).
+                    self.ding()?;
+                    state.after_non_kill_command();
+                    return Ok(EditorOutcome::Continue);
+                }
                 state.search.quoted_pending = false;
                 let original_point = state.buffer.point();
                 let original_history_pos = self.history.where_history();
@@ -458,7 +469,11 @@ where
                     original_point,
                     original_history_pos,
                 });
-                state.after_non_kill_command();
+                // Keep the just-started search: `after_non_kill_command`
+                // clears `reverse_search`, so reset only the kill flags like
+                // the emacs incremental-search starters do.
+                state.kill.last_was_kill = false;
+                state.kill.last_yank = None;
             }
             "vi-search-again" => {
                 let query = state.search.last_search.clone();

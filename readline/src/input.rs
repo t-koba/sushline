@@ -739,6 +739,25 @@ where
         bytes: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
+        // GNU incremental search appends printable input to the query even
+        // when the active keymap binds it (vi command `a`/`l`/`p`/`h`, space
+        // as forward-char, ...): only controls/escape sequences terminate
+        // and execute. Bypass the keymap for chunks without ASCII controls
+        // so vi `/` `?` queries match the patch 0 Bash 5.3 PTY oracle.
+        if !bytes.is_empty() && !bytes.iter().any(|byte| byte.is_ascii_control()) {
+            let input = bytes.to_vec();
+            search.query.extend(input);
+            search.match_index = None;
+            update_reverse_search_match(
+                &mut search,
+                &self.history,
+                false,
+                self.flag(BoolVariable::SearchIgnoreCase),
+            );
+            self.apply_search_match(state, &search);
+            state.search.reverse_search = Some(search);
+            return Ok(EditorOutcome::Continue);
+        }
         let command_binding = self
             .keymap
             .lookup(self.keymap.current(), bytes)

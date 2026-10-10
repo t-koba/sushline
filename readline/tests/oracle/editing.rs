@@ -1065,6 +1065,38 @@ fn bash_readline_and_sushline_accept_same_vi_mark_round_trip() {
 }
 
 #[test]
+fn bash_readline_and_sushline_accept_same_vi_search_from_cursor() {
+    // Vi `/` (backward) and `?` (forward) start inclusively from the history
+    // cursor with a literal query (patch 0 Bash 5.3 PTY oracle): `ESC k k`
+    // lands on `beta`, so `/alpha` finds `alpha one` while `?alpha` finds
+    // `alpha two`; from the end `/alpha` finds `alpha two` and `?alpha`
+    // finds nothing and keeps the empty line.
+    let history = ["alpha one", "beta", "alpha two"];
+    let inputrc = "set editing-mode vi\n";
+    for (keys, expected) in [
+        (b"\x1b/alpha\r\r".as_slice(), Some("alpha two".to_string())),
+        (b"\x1b?alpha\r\r".as_slice(), Some("".to_string())),
+        (
+            b"\x1bkk/alpha\r\r".as_slice(),
+            Some("alpha one".to_string()),
+        ),
+        (
+            b"\x1bkk?alpha\r\r".as_slice(),
+            Some("alpha two".to_string()),
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+        assert_eq!(accepted_line(&bash), expected, "{bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "bash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_vi_history_search() {
     let keys = b"\x0falpha\r\r";
     let inputrc = "\"\\C-o\": vi-search";

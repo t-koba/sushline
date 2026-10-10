@@ -72,3 +72,51 @@ fn bash_readline_and_sushline_accept_same_screen_line_motion() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_expand_embedded_tab_to_tab_stops() {
+    // GNU `DISPLAY_TABS` (patch 0 Bash 5.3 PTY oracle): a literal TAB via
+    // quoted-insert expands to spaces up to the next multiple-of-8 stop
+    // instead of rendering as `^I`. `SUSHLINE_READY>` is 15 columns, so
+    // `a<TAB>b` renders 8 spaces and a lone TAB renders one space.
+    let bash = run_bash_readline(b"a\x16\tb\r");
+    let sushline = run_sushline_harness(b"a\x16\tb\r");
+    assert_eq!(accepted_line(&bash), Some("a\tb".to_string()), "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+    assert!(
+        bash.contains("a        b"),
+        "bash must expand a<TAB>b to 8 spaces, got {bash:?}"
+    );
+    assert!(
+        sushline.contains("a        b"),
+        "sushline must expand a<TAB>b to 8 spaces, got {sushline:?}"
+    );
+    assert!(
+        !sushline.contains("^I"),
+        "sushline must not render ^I, got {sushline:?}"
+    );
+
+    let bash = run_bash_readline(b"\x16\ta\r");
+    let sushline = run_sushline_harness(b"\x16\ta\r");
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+    assert!(
+        bash.contains("> a"),
+        "bash must expand a lone TAB to one space, got {bash:?}"
+    );
+    assert!(
+        sushline.contains("> a"),
+        "sushline must expand a lone TAB to one space, got {sushline:?}"
+    );
+    assert!(
+        !sushline.contains("^I"),
+        "sushline must not render ^I, got {sushline:?}"
+    );
+}

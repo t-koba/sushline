@@ -4,7 +4,7 @@ use super::*;
 fn edits_unicode_buffer_by_graphemes() {
     let mut b = LineBuffer::from("a界b");
     assert_eq!(b.len_chars(), "a界b".len());
-    let (rendered, point_width) = b.render_text(None, RenderOptions::default());
+    let (rendered, point_width) = b.render_text(None, RenderOptions::default(), 0);
     assert_eq!(rendered, "a界b");
     assert_eq!(point_width, 4);
     b.move_backward();
@@ -107,4 +107,48 @@ fn command_word_motion_treats_command_metacharacters_as_separators() {
     assert_eq!(b.point(), 13);
     assert!(b.backward_command_word());
     assert_eq!(b.point(), 9);
+}
+
+#[test]
+fn tab_expands_to_next_eight_column_stop() {
+    // GNU `DISPLAY_TABS` (patch 0 Bash 5.3 PTY oracle): TAB expands to
+    // spaces up to the next multiple-of-8 stop, never `^I`.
+    let mut b = LineBuffer::from("a\tb");
+    let (rendered, point_width) = b.render_text(None, RenderOptions::default(), 0);
+    assert_eq!(rendered, "a       b");
+    assert_eq!(point_width, 9);
+    // Prompt-offset basis: `a` ends at column 16, so TAB takes 8 spaces.
+    let (rendered, _) = b.render_text(None, RenderOptions::default(), 15);
+    assert_eq!(rendered, "a        b");
+    // Lone TAB at column 15 takes a single space.
+    let t = LineBuffer::from("\t");
+    let (rendered, point_width) = t.render_text(None, RenderOptions::default(), 15);
+    assert_eq!(rendered, " ");
+    assert_eq!(point_width, 1);
+    // Point inside the expansion measures displayed cells.
+    b.set_point(1);
+    let (_, point_width) = b.render_text(None, RenderOptions::default(), 0);
+    assert_eq!(point_width, 1);
+    b.set_point(2);
+    let (_, point_width) = b.render_text(None, RenderOptions::default(), 0);
+    assert_eq!(point_width, 8);
+    // Unconditional: also expands with `echo-control-characters` off.
+    let off = RenderOptions {
+        echo_control: false,
+        ..RenderOptions::default()
+    };
+    b.set_point(3);
+    let (rendered, _) = b.render_text(None, off, 0);
+    assert_eq!(rendered, "a       b");
+}
+
+#[test]
+fn tab_cursor_column_agrees_between_render_and_positions() {
+    let b = LineBuffer::from("a\tb");
+    let options = RenderOptions::default();
+    let (rendered, point_width) = b.render_text(None, options.clone(), 15);
+    assert_eq!(rendered, "a        b");
+    let (last_row, point_row, point_col) = b.rendered_rows_and_point(15, 80, options);
+    assert_eq!((last_row, point_row), (0, 0));
+    assert_eq!(point_col, 15 + point_width);
 }

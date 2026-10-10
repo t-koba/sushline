@@ -97,7 +97,7 @@ sections.
 | Command(s) | Status | Notes |
 | --- | --- | --- |
 | `end-of-file`, `delete-char`, `backward-delete-char`, `forward-backward-delete-char` | Compatible | EOF on empty input and delete behavior are implemented and tested. |
-| `quoted-insert`, `tab-insert`, `self-insert`, `bracketed-paste-begin` | Compatible | Literal insertion and bracketed paste are implemented and tested. |
+| `quoted-insert`, `tab-insert`, `self-insert`, `bracketed-paste-begin` | Compatible | Literal insertion and bracketed paste are implemented and tested. An embedded TAB expands to spaces up to the next multiple-of-8 stop like GNU `DISPLAY_TABS`, covered by display/oracle tests. |
 | `transpose-chars`, `transpose-words` | Compatible | Covered by oracle tests. |
 | `shell-transpose-words` | Hook-backed | Quoted and process-substitution command-word transposition is covered by GNU oracle tests; `Hooks::shell_word_spans` can supply exact application lexer boundaries. |
 | `upcase-word`, `downcase-word`, `capitalize-word` | Hook-backed | Numeric, negative numeric, and punctuation word-boundary cases are covered by GNU oracle tests; custom word classes are supplied through `Hooks::editing_word_breaks`. |
@@ -197,7 +197,7 @@ sections.
 | `completion-ignore-case`, `completion-map-case`, `expand-tilde`, `mark-directories`, `mark-symlinked-directories`, `match-hidden-files` | Hook-backed | Used by filename completion and covered by GNU oracle cases; application-specific quoting can be supplied through `Hooks::quote_completion`. |
 | `disable-completion`, `show-all-if-ambiguous`, `show-all-if-unmodified`, `skip-completed-text`, `menu-complete-display-prefix` | Compatible | Used by completion engine and covered by focused tests. |
 | `convert-meta`, `input-meta`, `meta-flag`, `output-meta`, `enable-meta-key`, `force-meta-prefix` | Terminal-backed | Meta input/output behavior is mediated by Sushline's terminal/backend model and covered by variable tests. |
-| `echo-control-characters`, `byte-oriented` | Terminal-backed | Affects Sushline display rendering and is covered by variable/display tests. |
+| `echo-control-characters`, `byte-oriented` | Terminal-backed | Affects Sushline display rendering and is covered by variable/display tests. TAB expansion to tab stops is unconditional (also with `echo-control-characters` off), matching the baseline oracle. |
 | `enable-bracketed-paste`, `enable-keypad` | Compatible | Applied during terminal preparation/depreparation and tested. Decided policy (against the Readline 8.3 patch 0 baseline, Bash 5.3 PTY oracle): `enable-bracketed-paste` gates terminal DEC `?2004` mode only; injected `ESC[200~...ESC[201~` still pastes literally when off (framed controls stay literal, unterminated begin holds the line awaiting the end marker, pasted text sets the mark), while a lone unframed `ESC[201~` takes the normal unbound path. |
 | `emacs-mode-string`, `vi-cmd-mode-string`, `vi-ins-mode-string`, `show-mode-in-prompt` | Compatible | Used by prompt rendering and tested. |
 | `history-preserve-point`, `history-size`, `mark-modified-lines`, `revert-all-at-newline`, `search-ignore-case`, `horizontal-scroll-mode`, `isearch-terminators`, `keyseq-timeout` | Compatible | Implemented in editor/history/display/input paths and covered by focused tests. |

@@ -153,7 +153,9 @@ where
                 self.render_options(),
             )
         } else {
-            state.buffer.render_text(state.mark, self.render_options())
+            state
+                .buffer
+                .render_text(state.mark, self.render_options(), prompt_width)
         };
         self.terminal
             .write_bytes(&rendered_string_to_bytes(&buffer))?;

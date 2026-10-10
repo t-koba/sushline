@@ -30,12 +30,20 @@ impl Default for RenderOptions<'static> {
     }
 }
 
-pub(super) fn rendered_char_width(ch: char, options: &RenderOptions<'_>) -> usize {
+/// Spaces rendering a TAB at unwrapped absolute column `col`: terminal tab
+/// stops every 8 columns.
+pub(crate) fn tab_expansion(col: usize) -> &'static str {
+    const SPACES: &str = "        ";
+    &SPACES[..8 - col % 8]
+}
+
+pub(super) fn rendered_char_width(ch: char, col: usize, options: &RenderOptions<'_>) -> usize {
     display_char(
         ch,
         options.echo_control,
         options.output_meta,
         options.byte_oriented,
+        col,
     )
     .chars()
     .map(|ch| if ch == '\n' { 0 } else { char_width(ch) })
@@ -47,6 +55,7 @@ pub(super) fn display_char(
     echo_control: bool,
     output_meta: bool,
     byte_oriented: bool,
+    col: usize,
 ) -> String {
     if let Some(byte) = private_byte_value(ch) {
         if byte_oriented || !output_meta || byte.is_ascii_control() {
@@ -61,6 +70,15 @@ pub(super) fn display_char(
             .iter()
             .map(|byte| format!("\\{byte:03o}"))
             .collect();
+    }
+    // GNU expands TAB to spaces up to the next multiple-of-8 tab stop
+    // (patch 0 Bash 5.3 PTY oracle: `a<TAB>b` after the 15-column
+    // `SUSHLINE_READY>` prompt renders 8 spaces; a lone TAB one space).
+    // Unconditional: the oracle expands even with `echo-control-characters`
+    // off. Tab stops use the unwrapped absolute column from line start so
+    // the buffer render and screen-position math share one basis.
+    if ch == '\t' {
+        return tab_expansion(col).to_string();
     }
     if !echo_control {
         return ch.to_string();
@@ -191,6 +209,9 @@ impl LineBuffer {
         let mut positions = Vec::new();
         let mut row = prompt_width / columns;
         let mut col = prompt_width % columns;
+        // Unwrapped absolute column from line start; TAB expansion shares
+        // this basis with `render_text` so cursor math and output agree.
+        let mut abs_col = prompt_width;
         positions.push((0, (row, col)));
         for (idx, ch) in self.decoded_char_indices() {
             let display = display_char(
@@ -198,16 +219,20 @@ impl LineBuffer {
                 options.echo_control,
                 options.output_meta,
                 options.byte_oriented,
+                abs_col,
             );
             for rendered in display.chars() {
                 if rendered == '\n' {
                     row += 1;
                     col = 0;
+                    // A newline also restarts the tab-stop basis like a row.
+                    abs_col = 0;
                     continue;
                 }
                 let (added, next) = advance_cell(col, char_width(rendered), columns);
                 row += added;
                 col = next;
+                abs_col += char_width(rendered);
             }
             positions.push((self.next_char_boundary(idx), (row, col)));
         }
@@ -247,6 +272,10 @@ impl LineBuffer {
         }
         let region = self.region(mark, options.active_region);
         let mut visible = String::new();
+        // Window-relative tab stops: the scrolled window has no prompt
+        // context, so stops restart at the window start (self-consistent
+        // within horizontal-scroll mode).
+        let mut rel_col = 0usize;
         for (idx, ch) in self.decoded_char_indices_in_range(start, end) {
             if Some(idx) == region.map(|(region_start, _)| region_start) {
                 append_bytes_lossless(&mut visible, options.active_region_start.as_ref());
@@ -254,12 +283,15 @@ impl LineBuffer {
             if Some(idx) == region.map(|(_, region_end)| region_end) {
                 append_bytes_lossless(&mut visible, options.active_region_end.as_ref());
             }
-            visible.push_str(&display_char(
+            let display = display_char(
                 ch,
                 options.echo_control,
                 options.output_meta,
                 options.byte_oriented,
-            ));
+                rel_col,
+            );
+            rel_col += display.chars().map(char_width).sum::<usize>();
+            visible.push_str(&display);
         }
         if region.is_some_and(|(_, region_end)| region_end == end) {
             append_bytes_lossless(&mut visible, options.active_region_end.as_ref());
@@ -268,10 +300,15 @@ impl LineBuffer {
     }
 
     /// Render text.
+    ///
+    /// `base_col` is the unwrapped absolute column where buffer display
+    /// starts (the prompt last-line width); TAB stops count from it, sharing
+    /// the basis with `screen_positions`.
     pub(crate) fn render_text(
         &self,
         mark: Option<usize>,
         options: RenderOptions<'_>,
+        base_col: usize,
     ) -> (String, usize) {
         let region = self.region(mark, options.active_region);
         let mut out = String::new();
@@ -292,6 +329,7 @@ impl LineBuffer {
                 options.echo_control,
                 options.output_meta,
                 options.byte_oriented,
+                base_col + width,
             );
             width += display.chars().map(char_width).sum::<usize>();
             out.push_str(&display);
@@ -341,10 +379,13 @@ impl LineBuffer {
     }
 
     fn rendered_slice_width(&self, start: usize, end: usize, options: &RenderOptions<'_>) -> usize {
-        self.decoded_chars_in_range(start, end)
-            .into_iter()
-            .map(|ch| rendered_char_width(ch, options))
-            .sum()
+        // Slice-relative tab stops (horizontal-scroll windowing has no
+        // prompt context); matches the window-relative render above.
+        let mut width = 0usize;
+        for ch in self.decoded_chars_in_range(start, end) {
+            width += rendered_char_width(ch, width, options);
+        }
+        width
     }
 
     fn region(&self, mark: Option<usize>, active: bool) -> Option<(usize, usize)> {

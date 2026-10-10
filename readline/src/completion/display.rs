@@ -440,7 +440,7 @@ where
 
     fn render_completion_bytes(&self, bytes: &[u8]) -> String {
         crate::buffer::LineBuffer::from_bytes(bytes.to_vec())
-            .render_text(None, self.render_options())
+            .render_text(None, self.render_options(), 0)
             .0
     }
 }

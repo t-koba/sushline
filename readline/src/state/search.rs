@@ -17,6 +17,7 @@ pub(crate) struct ReverseSearchState {
     pub(crate) direction: SearchDirection,
     pub(crate) original_line: Vec<u8>,
     pub(crate) original_point: usize,
+    pub(crate) original_history_pos: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -40,19 +41,33 @@ pub(crate) fn update_reverse_search_match(
     repeat: bool,
     ignore_case: bool,
 ) {
-    let pivot = repeat.then_some(search.match_index).flatten();
-    let found = match search.direction {
-        SearchDirection::Backward => {
-            search_history_backward(history, &search.query, pivot, ignore_case)
+    // GNU starts the first search from the history cursor, inclusively:
+    // backward covers entries[..original_pos + 1], forward covers
+    // entries[original_pos..]. Repeats step exclusively past the current
+    // match. A repeat with no current match restarts from the cursor.
+    let found = match (search.direction, repeat, search.match_index) {
+        (SearchDirection::Backward, true, Some(idx)) => {
+            search_history_backward(history, &search.query, Some(idx), ignore_case)
         }
-        SearchDirection::Forward => {
-            search_history_forward(history, &search.query, pivot, ignore_case)
+        (SearchDirection::Forward, true, Some(idx)) => {
+            search_history_forward(history, &search.query, Some(idx), ignore_case)
+        }
+        (SearchDirection::Backward, _, _) => {
+            let end = search
+                .original_history_pos
+                .saturating_add(1)
+                .min(history.entries().len());
+            search_history_backward(history, &search.query, Some(end), ignore_case)
+        }
+        (SearchDirection::Forward, _, _) => {
+            let start = search.original_history_pos.min(history.entries().len());
+            search_history_forward_from(history, &search.query, start, ignore_case)
         }
     };
     if let Some((idx, line)) = found {
         search.match_index = Some(idx);
         search.match_line = Some(line);
-    } else if !repeat {
+    } else if !(repeat && search.match_index.is_some()) {
         search.match_index = None;
         search.match_line = None;
     }
@@ -90,14 +105,24 @@ pub(crate) fn search_history_forward(
     after: Option<usize>,
     ignore_case: bool,
 ) -> Option<(usize, Vec<u8>)> {
+    let start = after
+        .map(|idx| idx.saturating_add(1))
+        .unwrap_or(0)
+        .min(history.entries().len());
+    search_history_forward_from(history, needle, start, ignore_case)
+}
+
+pub(crate) fn search_history_forward_from(
+    history: &History,
+    needle: &[u8],
+    start: usize,
+    ignore_case: bool,
+) -> Option<(usize, Vec<u8>)> {
     if needle.is_empty() {
         return None;
     }
     let needle = normalize_search_bytes(needle, ignore_case);
-    let start = after
-        .map(|idx| idx + 1)
-        .unwrap_or(0)
-        .min(history.entries().len());
+    let start = start.min(history.entries().len());
     history.entries()[start..]
         .iter()
         .enumerate()

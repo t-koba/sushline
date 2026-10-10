@@ -657,16 +657,25 @@ where
                 // a match leaves point at the match start (`alpha` + C-J +
                 // `!` yields `!alpha two`, `two` + C-J + `!` yields
                 // `alpha !two`); a non-empty query with no match leaves
-                // point at 0 (`zzz` + C-J + `!` on `draft` yields `!draft`).
+                // point at 0, except a forward search started at the end of
+                // history keeps the original point (`draft` + C-s + `zzz` +
+                // C-J + `!` yields `draft!`, while the same query from a
+                // history line yields `!beta`).
                 let mut buffer = LineBuffer::from_bytes(accepted);
                 if search.query.is_empty() {
                     buffer.set_point(search.original_point.min(buffer.len_chars()));
-                } else {
+                } else if search.match_line.is_some() {
                     buffer.set_point(isearch_terminate_point(
                         buffer.as_bytes(),
                         &search.query,
                         self.flag(BoolVariable::SearchIgnoreCase),
                     ));
+                } else if matches!(search.direction, SearchDirection::Forward)
+                    && search.original_history_pos >= self.history.entries().len()
+                {
+                    buffer.set_point(search.original_point.min(buffer.len_chars()));
+                } else {
+                    buffer.set_point(0);
                 }
                 state.buffer = buffer;
                 save_last_search(state, &search);

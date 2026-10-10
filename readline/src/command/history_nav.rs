@@ -71,10 +71,12 @@ where
             EditCommand::ReverseSearchHistory => {
                 state.search.quoted_pending = false;
                 let original_point = state.buffer.point();
+                let original_history_pos = self.history.where_history();
                 state.search.reverse_search = Some(ReverseSearchState {
                     direction: SearchDirection::Backward,
                     original_line: state.buffer.as_bytes().to_vec(),
                     original_point,
+                    original_history_pos,
                     ..Default::default()
                 });
                 state.kill.last_was_kill = false;
@@ -133,10 +135,12 @@ where
             "forward-search-history" => {
                 state.search.quoted_pending = false;
                 let original_point = state.buffer.point();
+                let original_history_pos = self.history.where_history();
                 state.search.reverse_search = Some(ReverseSearchState {
                     direction: SearchDirection::Forward,
                     original_line: state.buffer.as_bytes().to_vec(),
                     original_point,
+                    original_history_pos,
                     ..Default::default()
                 });
                 state.kill.last_was_kill = false;

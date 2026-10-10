@@ -549,3 +549,78 @@ fn bash_readline_and_sushline_isearch_terminators_terminate_without_execute() {
         "bash={bash}\nsushline={sushline}"
     );
 }
+
+#[test]
+fn bash_readline_and_sushline_forward_isearch_starts_from_cursor() {
+    let history = ["alpha one", "beta", "alpha two"];
+    // Backward from the middle searches before the cursor: Up Up lands on
+    // `beta`, so reverse `alpha` finds `alpha one`.
+    let keys = b"\x10\x10\x12alpha\r";
+    let bash = run_bash_readline_with_bindings_and_history(keys, "", &history);
+    let sushline = run_sushline_harness_with_inputrc_and_history(keys, "", &history);
+    assert_eq!(
+        accepted_line(&bash),
+        Some("alpha one".to_string()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+
+    // Forward uses a remapped C-o so the PTY does not swallow C-s as XOFF.
+    let bindings = r#""\C-o": forward-search-history"#;
+    // Forward from the end has nothing ahead and keeps the empty line.
+    let keys = b"\x0falpha\r";
+    let bash = run_bash_readline_with_bindings_and_history(keys, bindings, &history);
+    let sushline = run_sushline_harness_with_inputrc_and_history(keys, bindings, &history);
+    assert_eq!(accepted_line(&bash), Some("".to_string()), "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+
+    // Forward from the middle searches ahead inclusively: Up Up lands on
+    // `beta`, so `alpha` finds `alpha two`.
+    let keys = b"\x10\x10\x0falpha\r";
+    let bash = run_bash_readline_with_bindings_and_history(keys, bindings, &history);
+    let sushline = run_sushline_harness_with_inputrc_and_history(keys, bindings, &history);
+    assert_eq!(
+        accepted_line(&bash),
+        Some("alpha two".to_string()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+
+    // Forward match leaves point at the match start.
+    let keys = b"\x10\x10\x0ftwo\n!\r";
+    let bash = run_bash_readline_with_bindings_and_history(keys, bindings, &history);
+    let sushline = run_sushline_harness_with_inputrc_and_history(keys, bindings, &history);
+    assert_eq!(
+        accepted_line(&bash),
+        Some("alpha !two".to_string()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+
+    // Forward with no match from the end keeps the original point.
+    let keys = b"draft\x0fzzz\n!\r";
+    let bash = run_bash_readline_with_bindings_and_history(keys, bindings, &history);
+    let sushline = run_sushline_harness_with_inputrc_and_history(keys, bindings, &history);
+    assert_eq!(accepted_line(&bash), Some("draft!".to_string()), "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+}

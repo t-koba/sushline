@@ -1403,3 +1403,103 @@ fn isearch_terminator_point_respects_search_ignore_case() {
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
     assert_eq!(result, ReadlineResult::Line(b"alpha !two".to_vec()));
 }
+
+#[test]
+fn incremental_search_starts_from_history_cursor() {
+    // Backward from the middle searches before the cursor (patch 0 Bash 5.3
+    // PTY oracle): Up Up lands on `beta`, so `C-r alpha RET` finds
+    // `alpha one`, not `alpha two` from the end.
+    let mut history = History::new();
+    history.push("alpha one");
+    history.push("beta");
+    history.push("alpha two");
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\x10\x10".to_vec()),
+        TerminalEvent::Bytes(b"\x12".to_vec()),
+        TerminalEvent::Bytes(b"alpha".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, history);
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"alpha one".to_vec()));
+
+    // Forward from the end has nothing ahead (same oracle): `C-o alpha RET`
+    // keeps the empty line.
+    let mut history = History::new();
+    history.push("alpha one");
+    history.push("beta");
+    history.push("alpha two");
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\x0f".to_vec()),
+        TerminalEvent::Bytes(b"alpha".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, history);
+    line.load_inputrc_str("\"\\C-o\": forward-search-history")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"".to_vec()));
+
+    // Forward from the middle searches ahead inclusively: Up Up lands on
+    // `beta`, so `C-o alpha RET` finds `alpha two`.
+    let mut history = History::new();
+    history.push("alpha one");
+    history.push("beta");
+    history.push("alpha two");
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\x10\x10".to_vec()),
+        TerminalEvent::Bytes(b"\x0f".to_vec()),
+        TerminalEvent::Bytes(b"alpha".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, history);
+    line.load_inputrc_str("\"\\C-o\": forward-search-history")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"alpha two".to_vec()));
+}
+
+#[test]
+fn forward_isearch_terminator_point_matches_oracle() {
+    // Forward match leaves point at the match start (patch 0 Bash 5.3 PTY
+    // oracle via remapped C-o to avoid PTY XOFF): Up Up lands on `beta`,
+    // `C-o two C-J !` yields `alpha !two`.
+    let mut history = History::new();
+    history.push("alpha one");
+    history.push("beta");
+    history.push("alpha two");
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\x10\x10".to_vec()),
+        TerminalEvent::Bytes(b"\x0f".to_vec()),
+        TerminalEvent::Bytes(b"two".to_vec()),
+        TerminalEvent::Bytes(b"\n".to_vec()),
+        TerminalEvent::Bytes(b"!".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, history);
+    line.load_inputrc_str("\"\\C-o\": forward-search-history")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"alpha !two".to_vec()));
+
+    // Forward with no match from the end keeps the original point
+    // (`draft` + C-o `zzz` + C-J + `!` yields `draft!`), while backward
+    // yields `!draft`.
+    let mut history = History::new();
+    history.push("alpha one");
+    history.push("beta");
+    history.push("alpha two");
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"draft".to_vec()),
+        TerminalEvent::Bytes(b"\x0f".to_vec()),
+        TerminalEvent::Bytes(b"zzz".to_vec()),
+        TerminalEvent::Bytes(b"\n".to_vec()),
+        TerminalEvent::Bytes(b"!".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, history);
+    line.load_inputrc_str("\"\\C-o\": forward-search-history")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"draft!".to_vec()));
+}

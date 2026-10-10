@@ -444,6 +444,7 @@ where
             "vi-search" => {
                 state.search.quoted_pending = false;
                 let original_point = state.buffer.point();
+                let original_history_pos = self.history.where_history();
                 state.search.reverse_search = Some(ReverseSearchState {
                     query: Vec::new(),
                     match_line: None,
@@ -455,6 +456,7 @@ where
                     },
                     original_line: state.buffer.as_bytes().to_vec(),
                     original_point,
+                    original_history_pos,
                 });
                 state.after_non_kill_command();
             }

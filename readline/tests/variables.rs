@@ -252,6 +252,55 @@ fn bracketed_paste_off_still_pastes_without_terminal_mode() {
 }
 
 #[test]
+fn bracketed_paste_off_guards_mark_hold_and_lone_end() {
+    // Pasted text sets the mark: C-x C-x exchanges point with the paste
+    // start, so `X` lands before the pasted `a` (without a mark the
+    // exchange is a no-op and the line would be `aX`).
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\x1b[200~".to_vec()),
+        TerminalEvent::Bytes(b"a".to_vec()),
+        TerminalEvent::Bytes(b"\x1b[201~".to_vec()),
+        TerminalEvent::Bytes(b"\x18\x18".to_vec()),
+        TerminalEvent::Bytes(b"X".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set enable-bracketed-paste off")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"Xa".to_vec()));
+    assert!(!line.terminal().out.contains("\x1b[?2004h"));
+    // An unterminated begin holds the line: the intermediate CR is paste
+    // payload, so only the CR after the end marker accepts the line.
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\x1b[200~".to_vec()),
+        TerminalEvent::Bytes(b"a".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+        TerminalEvent::Bytes(b"b".to_vec()),
+        TerminalEvent::Bytes(b"\x1b[201~".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set enable-bracketed-paste off")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(vec![b'a', b'\r', b'b']));
+    assert!(!line.terminal().out.contains("\x1b[?2004h"));
+    // A lone unframed end marker takes the normal unbound path: ESC is
+    // filtered as a control and the remaining bytes insert literally.
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\x1b[201~".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set enable-bracketed-paste off")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"[201~".to_vec()));
+    assert!(!line.terminal().out.contains("\x1b[?2004h"));
+}
+
+#[test]
 fn bracketed_paste_preserves_trailing_bytes_in_same_chunk() {
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"\x1b[200~".to_vec()),

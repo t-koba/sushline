@@ -1068,21 +1068,12 @@ fn isearch_terminate_point(line: &[u8], query: &[u8], ignore_case: bool) -> usiz
     if query.is_empty() || query.len() > line.len() {
         return 0;
     }
-    if ignore_case {
-        let needle: Vec<u8> = query.iter().map(|byte| byte.to_ascii_lowercase()).collect();
-        line.windows(needle.len())
-            .position(|window| {
-                window
-                    .iter()
-                    .map(|byte| byte.to_ascii_lowercase())
-                    .eq(needle.iter().copied())
-            })
-            .unwrap_or(0)
-    } else {
-        line.windows(query.len())
-            .position(|window| window == query)
-            .unwrap_or(0)
-    }
+    let haystack = normalize_search_bytes(line, ignore_case);
+    let needle = normalize_search_bytes(query, ignore_case);
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle.as_slice())
+        .unwrap_or(0)
 }
 
 fn accept_search_line(search: &ReverseSearchState) -> Vec<u8> {

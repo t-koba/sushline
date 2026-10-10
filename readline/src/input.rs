@@ -583,7 +583,7 @@ where
             {
                 let first_is_search_control =
                     matches!(suffix[0], b'\r' | b'\n' | 0x07 | 0x12 | 0x13 | 0x7f)
-                        || (suffix[0] == 0x1b && self.is_isearch_terminator(&suffix[0..1]));
+                        || self.is_isearch_terminator(&suffix[0..1]);
                 if len > 1
                     && !first_is_search_control
                     && !matches!(binding, KeyBinding::Command(EditCommand::SelfInsert))
@@ -649,10 +649,26 @@ where
         };
 
         let outcome = match bytes {
-            &[0x1b] if self.is_isearch_terminator(bytes) => {
+            bytes if self.is_isearch_terminator(bytes) => {
                 state.search.quoted_pending = false;
                 let accepted = accept_search_line(&search);
-                state.buffer = LineBuffer::from_bytes(accepted);
+                // GNU point after terminate-without-execute (patch 0 Bash 5.3
+                // PTY oracle): empty query restores the original point;
+                // a match leaves point at the match start (`alpha` + C-J +
+                // `!` yields `!alpha two`, `two` + C-J + `!` yields
+                // `alpha !two`); a non-empty query with no match leaves
+                // point at 0 (`zzz` + C-J + `!` on `draft` yields `!draft`).
+                let mut buffer = LineBuffer::from_bytes(accepted);
+                if search.query.is_empty() {
+                    buffer.set_point(search.original_point.min(buffer.len_chars()));
+                } else {
+                    buffer.set_point(isearch_terminate_point(
+                        buffer.as_bytes(),
+                        &search.query,
+                        self.flag(BoolVariable::SearchIgnoreCase),
+                    ));
+                }
+                state.buffer = buffer;
                 save_last_search(state, &search);
                 state.after_non_kill_command();
                 EditorOutcome::Continue
@@ -1045,6 +1061,27 @@ fn char_search_key(bytes: &[u8]) -> Option<char> {
             .copied()
             .find(|byte| *byte >= 0x80)
             .map(LineBuffer::search_char_for_byte)
+    }
+}
+
+fn isearch_terminate_point(line: &[u8], query: &[u8], ignore_case: bool) -> usize {
+    if query.is_empty() || query.len() > line.len() {
+        return 0;
+    }
+    if ignore_case {
+        let needle: Vec<u8> = query.iter().map(|byte| byte.to_ascii_lowercase()).collect();
+        line.windows(needle.len())
+            .position(|window| {
+                window
+                    .iter()
+                    .map(|byte| byte.to_ascii_lowercase())
+                    .eq(needle.iter().copied())
+            })
+            .unwrap_or(0)
+    } else {
+        line.windows(query.len())
+            .position(|window| window == query)
+            .unwrap_or(0)
     }
 }
 

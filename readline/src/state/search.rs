@@ -16,6 +16,7 @@ pub(crate) struct ReverseSearchState {
     pub(crate) match_index: Option<usize>,
     pub(crate) direction: SearchDirection,
     pub(crate) original_line: Vec<u8>,
+    pub(crate) original_point: usize,
 }
 
 #[derive(Debug, Clone)]

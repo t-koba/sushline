@@ -443,6 +443,7 @@ where
             }
             "vi-search" => {
                 state.search.quoted_pending = false;
+                let original_point = state.buffer.point();
                 state.search.reverse_search = Some(ReverseSearchState {
                     query: Vec::new(),
                     match_line: None,
@@ -453,6 +454,7 @@ where
                         SearchDirection::Backward
                     },
                     original_line: state.buffer.as_bytes().to_vec(),
+                    original_point,
                 });
                 state.after_non_kill_command();
             }

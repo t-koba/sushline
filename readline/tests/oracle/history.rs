@@ -473,3 +473,41 @@ fn bash_history_timestamp_file_records_load_as_sushline_timestamps() {
             .is_some_and(|timestamp| timestamp.starts_with('#'))
     }));
 }
+
+#[test]
+fn bash_readline_and_sushline_isearch_terminators_terminate_without_execute() {
+    let history = ["alpha one", "beta", "alpha two"];
+    // Default C-J (LF) terminates without executing; the match becomes the
+    // line, the terminator inserts nothing, and a trailing edit applies
+    // before RET (CR) accepts. RET stays distinct from C-J on the live PTY
+    // via unconditional ICRNL/INLCR clearing.
+    let keys = b"\x12alpha\n!\r";
+    let bash = run_bash_readline_with_bindings_and_history(keys, "", &history);
+    let sushline = run_sushline_harness_with_inputrc_and_history(keys, "", &history);
+    assert_eq!(
+        accepted_line(&bash),
+        Some("!alpha two".to_string()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+
+    // Custom isearch-terminators terminate without executing either.
+    let inputrc = "set isearch-terminators z";
+    let keys = b"\x12alpz!\r";
+    let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &history);
+    let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+    assert_eq!(
+        accepted_line(&bash),
+        Some("!alpha two".to_string()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+}

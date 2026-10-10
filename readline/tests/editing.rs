@@ -1267,3 +1267,87 @@ fn non_incremental_search_remapped_quote_does_not_quote() {
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
     assert_eq!(result, ReadlineResult::Line(b"".to_vec()));
 }
+
+#[test]
+fn isearch_terminators_terminate_without_execute_and_cr_accepts() {
+    // Default C-J (LF) terminates the search without executing; RET (CR)
+    // accepts. Verified against the patch 0 baseline (Bash 5.3 PTY oracle):
+    // the match becomes the line, the terminator inserts nothing, and a
+    // trailing edit applies before RET accepts.
+    for events in [
+        vec![
+            TerminalEvent::Bytes(b"\x12".to_vec()),
+            TerminalEvent::Bytes(b"alpha".to_vec()),
+            TerminalEvent::Bytes(b"\n".to_vec()),
+            TerminalEvent::Bytes(b"!".to_vec()),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+        ],
+        vec![
+            TerminalEvent::Bytes(b"\x12".to_vec()),
+            TerminalEvent::Bytes(b"alpha\n!".to_vec()),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+        ],
+    ] {
+        let mut history = History::new();
+        history.push("alpha one");
+        history.push("alpha two");
+        let terminal = MemoryTerminal::with_events(events);
+        let mut line = Editor::new(Config::default(), terminal, history);
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        assert_eq!(result, ReadlineResult::Line(b"!alpha two".to_vec()));
+    }
+
+    // Custom isearch-terminators terminate without inserting themselves;
+    // batched and split reads agree.
+    for events in [
+        vec![
+            TerminalEvent::Bytes(b"\x12".to_vec()),
+            TerminalEvent::Bytes(b"alp".to_vec()),
+            TerminalEvent::Bytes(b"z".to_vec()),
+            TerminalEvent::Bytes(b"!".to_vec()),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+        ],
+        vec![
+            TerminalEvent::Bytes(b"\x12".to_vec()),
+            TerminalEvent::Bytes(b"alpz!".to_vec()),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+        ],
+    ] {
+        let mut history = History::new();
+        history.push("alpha one");
+        history.push("alpha two");
+        let terminal = MemoryTerminal::with_events(events);
+        let mut line = Editor::new(Config::default(), terminal, history);
+        line.load_inputrc_str("set isearch-terminators z").unwrap();
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        assert_eq!(result, ReadlineResult::Line(b"!alpha two".to_vec()));
+    }
+
+    // A mid-line match leaves point at the match start (`two` at 6).
+    let mut history = History::new();
+    history.push("alpha one");
+    history.push("alpha two");
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\x12".to_vec()),
+        TerminalEvent::Bytes(b"two".to_vec()),
+        TerminalEvent::Bytes(b"\n".to_vec()),
+        TerminalEvent::Bytes(b"!".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, history);
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"alpha !two".to_vec()));
+
+    // RET still accepts the match directly.
+    let mut history = History::new();
+    history.push("alpha one");
+    history.push("alpha two");
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\x12".to_vec()),
+        TerminalEvent::Bytes(b"two".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, history);
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"alpha two".to_vec()));
+}

@@ -276,6 +276,11 @@ fn enable_readline_mode(saved: &mut Option<libc::termios>) -> io::Result<()> {
 
     let mut readline = original;
     readline.c_iflag &= !(libc::IXON | libc::IXOFF);
+    // Match GNU prepare_terminal_settings for the translation bits that need
+    // no policy knob: CR/NL translation off unconditionally so RET (CR) stays
+    // distinct from C-J (LF) for isearch dispatch. IXON/IXOFF handling stays
+    // as-is pending the flow-control policy decision.
+    readline.c_iflag &= !(libc::ICRNL | libc::INLCR);
     readline.c_lflag &= !(libc::ICANON | libc::ECHO | libc::IEXTEN);
     readline.c_cc[libc::VMIN] = 1;
     readline.c_cc[libc::VTIME] = 0;

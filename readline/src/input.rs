@@ -165,8 +165,7 @@ where
             state.consume_numeric_arg_unless_prefix();
             return Ok(EditorOutcome::Continue);
         }
-        let consumed = first_unit_len(bytes).min(bytes.len()).max(1);
-        let (first, rest) = bytes.split_at(consumed);
+        let (first, rest) = split_first_unit(bytes);
         state.input.pending_replace = false;
         state.consume_numeric_arg_unless_prefix();
         let replacement = replacement_unit(first);
@@ -285,7 +284,7 @@ where
                 && len == 1
                 && pending[0] >= 0x80
             {
-                let char_len = first_unit_len(&pending).min(pending.len()).max(1);
+                let char_len = split_first_unit(&pending).0.len();
                 if char_len > 1 && std::str::from_utf8(&pending[..char_len]).is_ok() {
                     use_len = char_len;
                 }
@@ -363,8 +362,7 @@ where
 
         // Fragmentation-invariant: only the first unit answers the pending
         // mark; trailing bytes are separate input like split reads.
-        let consumed = first_unit_len(bytes).min(bytes.len()).max(1);
-        let (first, rest) = bytes.split_at(consumed);
+        let (first, rest) = split_first_unit(bytes);
         let outcome = self.handle_pending_vi_mark_single(state, action, first)?;
         if !rest.is_empty() {
             let remainder_outcome = self.handle_bytes(state, rest, hooks)?;
@@ -423,8 +421,7 @@ where
 
         // Fragmentation-invariant: only the first unit selects the register;
         // trailing bytes are separate input like split reads.
-        let consumed = first_unit_len(bytes).min(bytes.len()).max(1);
-        let (first, rest) = bytes.split_at(consumed);
+        let (first, rest) = split_first_unit(bytes);
         let outcome = self.handle_pending_vi_register_single(state, first)?;
         if !rest.is_empty() {
             let remainder_outcome = self.handle_bytes(state, rest, hooks)?;
@@ -469,8 +466,7 @@ where
 
         // Fragmentation-invariant: only the first unit is the search key;
         // trailing bytes are separate input like split reads.
-        let consumed = first_unit_len(bytes).min(bytes.len()).max(1);
-        let (first, rest) = bytes.split_at(consumed);
+        let (first, rest) = split_first_unit(bytes);
         if let Some(ch) = char_search_key(first) {
             if self.apply_char_search(state, search, ch)? {
                 self.finish_vi_motion_operator(state, op_start, first, true);
@@ -915,13 +911,12 @@ where
                     pos += 1;
                     continue;
                 }
-                let consumed = first_unit_len(remaining).min(remaining.len()).max(1);
-                let outcome =
-                    self.handle_named_command_single(state, &remaining[..consumed], hooks)?;
+                let (first, _) = split_first_unit(remaining);
+                let outcome = self.handle_named_command_single(state, first, hooks)?;
                 if !matches!(outcome, EditorOutcome::Continue) {
                     return Ok(outcome);
                 }
-                pos += consumed;
+                pos += first.len();
             }
             return Ok(EditorOutcome::Continue);
         }
@@ -985,6 +980,20 @@ fn is_incomplete_utf8_prefix(bytes: &[u8]) -> bool {
         return false;
     };
     bytes.len() < expected && bytes[1..].iter().all(|byte| (0x80..=0xBF).contains(byte))
+}
+
+/// Splits the first input unit (one ASCII byte or one complete multibyte
+/// char, falling back to one byte) from the remainder, so batched chunks
+/// take the same path as split reads. Empty input splits as empty/empty.
+fn split_first_unit(bytes: &[u8]) -> (&[u8], &[u8]) {
+    if bytes.is_empty() {
+        return (&[], &[]);
+    }
+    let len = first_unit_len(bytes)
+        .min(bytes.len())
+        .max(1)
+        .min(bytes.len());
+    bytes.split_at(len)
 }
 
 fn first_unit_len(bytes: &[u8]) -> usize {

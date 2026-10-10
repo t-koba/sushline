@@ -1175,3 +1175,95 @@ fn search_exits_consume_numeric_argument() {
         );
     }
 }
+
+#[test]
+fn incremental_search_quoted_insert_quotes_control() {
+    let mut history = History::new();
+    history.push("foo\x01bar");
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\x12".to_vec()),
+        TerminalEvent::Bytes(vec![0x16]),
+        TerminalEvent::Bytes(vec![0x01]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, history);
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"foo\x01bar".to_vec()));
+}
+
+#[test]
+fn incremental_search_batched_quote_matches_split_reads() {
+    for events in [
+        vec![
+            TerminalEvent::Bytes(b"\x12".to_vec()),
+            TerminalEvent::Bytes(b"\x16\x01\r".to_vec()),
+        ],
+        vec![
+            TerminalEvent::Bytes(b"\x12".to_vec()),
+            TerminalEvent::Bytes(vec![0x16]),
+            TerminalEvent::Bytes(vec![0x01]),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+        ],
+    ] {
+        let mut history = History::new();
+        history.push("foo\x01bar");
+        let terminal = MemoryTerminal::with_events(events);
+        let mut line = Editor::new(Config::default(), terminal, history);
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        assert_eq!(result, ReadlineResult::Line(b"foo\x01bar".to_vec()));
+    }
+}
+
+#[test]
+fn incremental_search_remapped_quoted_insert_quotes() {
+    let mut history = History::new();
+    history.push("foo\x01bar");
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\x12".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(vec![0x01]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, history);
+    line.load_inputrc_str("\"\\C-o\": quoted-insert").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"foo\x01bar".to_vec()));
+}
+
+#[test]
+fn non_incremental_search_ctrl_v_quotes_control() {
+    let mut history = History::new();
+    history.push("foo\x01bar");
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\x1bp".to_vec()),
+        TerminalEvent::Bytes(vec![0x16]),
+        TerminalEvent::Bytes(vec![0x01]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, history);
+    line.load_inputrc_str("\"\\ep\": non-incremental-reverse-search-history")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"foo\x01bar".to_vec()));
+}
+
+#[test]
+fn non_incremental_search_remapped_quote_does_not_quote() {
+    let mut history = History::new();
+    history.push("foo\x01bar");
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\x1bp".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(vec![0x01]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, history);
+    line.load_inputrc_str(
+        "\"\\ep\": non-incremental-reverse-search-history\n\"\\C-o\": quoted-insert",
+    )
+    .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"".to_vec()));
+}

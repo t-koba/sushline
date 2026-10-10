@@ -73,6 +73,7 @@ impl EditorState {
         self.numeric_arg = None;
         self.search.reverse_search = None;
         self.search.non_incremental_search = None;
+        self.search.quoted_pending = false;
         self.input.named_command = None;
         self.input.pending_replace = false;
         self.vi.pending_char_search = None;

@@ -69,6 +69,7 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::ReverseSearchHistory => {
+                state.search.quoted_pending = false;
                 state.search.reverse_search = Some(ReverseSearchState {
                     direction: SearchDirection::Backward,
                     original_line: state.buffer.as_bytes().to_vec(),
@@ -128,6 +129,7 @@ where
                 state.after_non_kill_command();
             }
             "forward-search-history" => {
+                state.search.quoted_pending = false;
                 state.search.reverse_search = Some(ReverseSearchState {
                     direction: SearchDirection::Forward,
                     original_line: state.buffer.as_bytes().to_vec(),
@@ -166,6 +168,7 @@ where
                 }
             }
             "non-incremental-forward-search-history" | "non-incremental-reverse-search-history" => {
+                state.search.quoted_pending = false;
                 state.search.non_incremental_search = Some(NonIncrementalSearchState {
                     query: Vec::new(),
                     direction: if command == "non-incremental-forward-search-history" {

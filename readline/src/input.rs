@@ -580,6 +580,15 @@ where
             if state.search.reverse_search.is_none() {
                 return self.handle_bytes(state, &bytes[pos..], hooks);
             }
+            if state.search.quoted_pending {
+                let single = [bytes[pos]];
+                let outcome = self.handle_reverse_search_single(state, &single, hooks)?;
+                if !matches!(outcome, EditorOutcome::Continue) {
+                    return Ok(outcome);
+                }
+                pos += 1;
+                continue;
+            }
             let suffix = &bytes[pos..];
             if let Some((len, binding)) = self
                 .keymap
@@ -620,12 +629,42 @@ where
         bytes: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
+        // Search-scoped quoted-insert: a pending quote consumes the next
+        // byte literally into the query, even controls/terminators.
+        if state.search.quoted_pending {
+            state.search.quoted_pending = false;
+            let Some(mut search) = state.search.reverse_search.take() else {
+                return Ok(EditorOutcome::Continue);
+            };
+            search.query.extend_from_slice(bytes);
+            search.match_index = None;
+            update_reverse_search_match(
+                &mut search,
+                &self.history,
+                false,
+                self.flag(BoolVariable::SearchIgnoreCase),
+            );
+            self.apply_search_match(state, &search);
+            state.search.reverse_search = Some(search);
+            return Ok(EditorOutcome::Continue);
+        }
+        // Incremental searches allow anything bound to quoted-insert to
+        // start a quote (CHANGES 8.3 2.i inside the patch 0 baseline).
+        if self.is_quoted_insert_binding(bytes) {
+            let Some(search) = state.search.reverse_search.take() else {
+                return Ok(EditorOutcome::Continue);
+            };
+            state.search.reverse_search = Some(search);
+            state.search.quoted_pending = true;
+            return Ok(EditorOutcome::Continue);
+        }
         let Some(mut search) = state.search.reverse_search.take() else {
             return Ok(EditorOutcome::Continue);
         };
 
         let outcome = match bytes {
             &[0x1b] if self.is_isearch_terminator(bytes) => {
+                state.search.quoted_pending = false;
                 let accepted = accept_search_line(&search);
                 state.buffer = LineBuffer::from_bytes(accepted);
                 save_last_search(state, &search);
@@ -633,6 +672,7 @@ where
                 EditorOutcome::Continue
             }
             b"\r" | b"\n" => {
+                state.search.quoted_pending = false;
                 let accepted = accept_search_line(&search);
                 state.buffer = LineBuffer::from_bytes(accepted.clone());
                 save_last_search(state, &search);
@@ -640,6 +680,7 @@ where
                 EditorOutcome::Accepted(accepted)
             }
             &[0x07] => {
+                state.search.quoted_pending = false;
                 state.buffer = LineBuffer::from_bytes(search.original_line.clone());
                 state.after_non_kill_command();
                 EditorOutcome::Continue
@@ -724,6 +765,13 @@ where
         Ok(EditorOutcome::Continue)
     }
 
+    fn is_quoted_insert_binding(&self, bytes: &[u8]) -> bool {
+        matches!(
+            self.keymap.lookup(self.keymap.current(), bytes),
+            Some(KeyBinding::Command(EditCommand::QuotedInsert))
+        )
+    }
+
     fn apply_search_match(&mut self, state: &mut EditorState, search: &ReverseSearchState) -> bool {
         if let Some(line) = &search.match_line {
             self.replace_from_history(state, line);
@@ -745,6 +793,15 @@ where
                 if state.search.non_incremental_search.is_none() {
                     return self.handle_bytes(state, &bytes[pos..], hooks);
                 }
+                if state.search.quoted_pending {
+                    let single = [bytes[pos]];
+                    let outcome = self.handle_non_incremental_single(state, &single);
+                    if !matches!(outcome, EditorOutcome::Continue) {
+                        return Ok(outcome);
+                    }
+                    pos += 1;
+                    continue;
+                }
                 let single = [bytes[pos]];
                 let outcome = self.handle_non_incremental_single(state, &single);
                 if !matches!(outcome, EditorOutcome::Continue) {
@@ -762,11 +819,32 @@ where
         state: &mut EditorState,
         bytes: &[u8],
     ) -> EditorOutcome {
+        // Search-scoped quote: consume the next byte literally.
+        if state.search.quoted_pending {
+            state.search.quoted_pending = false;
+            let Some(mut search) = state.search.non_incremental_search.take() else {
+                return EditorOutcome::Continue;
+            };
+            search.query.extend_from_slice(bytes);
+            state.search.non_incremental_search = Some(search);
+            return EditorOutcome::Continue;
+        }
+        // Non-incremental searches quote only ^V/^Q (CHANGES 8.3 2.i:
+        // "in the former case" = incremental allows any binding).
+        if matches!(bytes, [0x16] | [0x11]) {
+            let Some(search) = state.search.non_incremental_search.take() else {
+                return EditorOutcome::Continue;
+            };
+            state.search.non_incremental_search = Some(search);
+            state.search.quoted_pending = true;
+            return EditorOutcome::Continue;
+        }
         let Some(mut search) = state.search.non_incremental_search.take() else {
             return EditorOutcome::Continue;
         };
         match bytes {
             b"\r" | b"\n" => {
+                state.search.quoted_pending = false;
                 let query = if search.query.is_empty() {
                     state.search.last_search.clone().unwrap_or_default()
                 } else {
@@ -793,6 +871,7 @@ where
                 EditorOutcome::Continue
             }
             &[0x07] | &[0x1b] => {
+                state.search.quoted_pending = false;
                 state.buffer = LineBuffer::from_bytes(search.original_line.clone());
                 self.history.set_pos(search.original_history_pos);
                 state.after_non_kill_command();

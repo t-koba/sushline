@@ -442,6 +442,7 @@ where
                 }
             }
             "vi-search" => {
+                state.search.quoted_pending = false;
                 state.search.reverse_search = Some(ReverseSearchState {
                     query: Vec::new(),
                     match_line: None,

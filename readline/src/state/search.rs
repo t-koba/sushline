@@ -6,6 +6,7 @@ pub(crate) struct SearchState {
     pub(crate) non_incremental_search: Option<NonIncrementalSearchState>,
     pub(crate) last_search: Option<Vec<u8>>,
     pub(crate) last_search_direction: Option<SearchDirection>,
+    pub(crate) quoted_pending: bool,
 }
 
 #[derive(Debug, Clone, Default)]

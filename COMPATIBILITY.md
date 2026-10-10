@@ -84,7 +84,7 @@ sections.
 | Command(s) | Status | Notes |
 | --- | --- | --- |
 | `accept-line`, `previous-history`, `next-history`, `beginning-of-history`, `end-of-history` | Compatible | Implemented in the editor/history integration and covered by tests. |
-| `reverse-search-history`, `forward-search-history`, `non-incremental-reverse-search-history`, `non-incremental-forward-search-history`, `non-incremental-forward-search-history-again`, `non-incremental-reverse-search-history-again` | Compatible | Search direction, repeat, case control, abort, and accept behavior are covered. |
+| `reverse-search-history`, `forward-search-history`, `non-incremental-reverse-search-history`, `non-incremental-forward-search-history`, `non-incremental-forward-search-history-again`, `non-incremental-reverse-search-history-again` | Compatible | Search direction, repeat, case control, abort, accept, and search-string quoting are covered (incremental honors any `quoted-insert` binding, non-incremental quotes `^V`/`^Q`). |
 | `history-search-backward`, `history-search-forward`, `history-substring-search-backward`, `history-substring-search-forward` | Compatible | Prefix and substring history search are implemented and tested. |
 | `history-expand-line`, `magic-space` | Compatible | Core expansion is built in and honors `histchars` and history expansion policy variables. |
 | `history-and-alias-expand-line`, `alias-expand-line` | Hook-backed | History expansion is built in; alias expansion uses `Hooks::expand_aliases` because aliases are owned by the embedding application. |

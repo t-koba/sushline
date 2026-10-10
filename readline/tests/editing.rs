@@ -933,7 +933,8 @@ fn ignored_prefix_commands_consume_numeric_argument() {
 fn undo_groups_single_byte_inserts_up_to_twenty_chars() {
     // GNU rl_insert_text concatenates only single-byte inserts up to 20 chars;
     // verified against the patch 0 baseline (Bash 5.3 PTY oracle): 21/25 a's
-    // leave 20 after one undo, 20a+é leaves 20 (multibyte splits the run).
+    // leave 20 after one undo, 20a+é leaves 20 via the 20-byte cap (the é
+    // bytes arrive as single-byte events, so the cap fires before C3).
     for (typed, after_one_undo) in [
         ("a".repeat(20), "".to_string()),
         ("a".repeat(21), "a".repeat(20)),
@@ -975,6 +976,90 @@ fn undo_groups_single_byte_inserts_up_to_twenty_chars() {
         result,
         ReadlineResult::Line("a".repeat(20).as_bytes().to_vec())
     );
+}
+
+#[test]
+fn undo_short_multibyte_run_stays_in_single_byte_event_entry() {
+    // Single-byte events group by byte: `aé` arrives as `a` + C3 + A9, so one
+    // undo clears the whole short run. Whether GNU splits short non-ASCII runs
+    // is unverified pending a pinned short-run oracle; this pins the current
+    // byte-event behavior.
+    for events in [
+        vec![
+            TerminalEvent::Bytes("aé".as_bytes().to_vec()),
+            TerminalEvent::Bytes(vec![0x1f]),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+        ],
+        vec![
+            TerminalEvent::Bytes(b"a".to_vec()),
+            TerminalEvent::Bytes("é".as_bytes().to_vec()),
+            TerminalEvent::Bytes(vec![0x1f]),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+        ],
+    ] {
+        let terminal = MemoryTerminal::with_events(events);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        assert_eq!(result, ReadlineResult::Line(b"".to_vec()));
+    }
+}
+
+#[test]
+fn undo_numeric_arg_multi_insert_opens_own_entry() {
+    // `ab` groups, `M-5 a` (count != 1) commits it first, so one undo leaves
+    // `ab` and a second undo leaves the empty line.
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"ab".to_vec()),
+        TerminalEvent::Bytes(b"\x1b5a".to_vec()),
+        TerminalEvent::Bytes(vec![0x1f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"ab".to_vec()));
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"ab".to_vec()),
+        TerminalEvent::Bytes(b"\x1b5a".to_vec()),
+        TerminalEvent::Bytes(vec![0x1f]),
+        TerminalEvent::Bytes(vec![0x1f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"".to_vec()));
+}
+
+#[test]
+fn undo_multi_byte_literal_opens_own_entry() {
+    // `ab` groups, quoted-insert `XY` in one chunk (bytes.len() > 1) commits
+    // it first, so one undo leaves `ab`.
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"ab".to_vec()),
+        TerminalEvent::Bytes(vec![0x16]),
+        TerminalEvent::Bytes(b"XY".to_vec()),
+        TerminalEvent::Bytes(vec![0x1f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"ab".to_vec()));
+}
+
+#[test]
+fn undo_tab_insert_extends_single_byte_entry() {
+    // `tab-insert` records a single-byte insert, so `ab` + tab stays in one
+    // entry and a single undo clears all three columns.
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"ab".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(vec![0x1f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": tab-insert").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"".to_vec()));
 }
 
 #[test]

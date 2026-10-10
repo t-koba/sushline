@@ -276,7 +276,7 @@ where
                         return Ok(ReadlineResult::Interrupted);
                     }
                     let outcome = if state.search.non_incremental_search.is_some() {
-                        self.handle_non_incremental_search(&mut state, &bytes)
+                        self.handle_non_incremental_search(&mut state, &bytes, hooks)?
                     } else if state.search.reverse_search.is_some() {
                         self.handle_reverse_search(&mut state, &bytes, hooks)?
                     } else {

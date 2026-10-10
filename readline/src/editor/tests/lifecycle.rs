@@ -266,3 +266,71 @@ fn batched_invalid_non_incremental_search_chunk_matches_fragmented_reads() {
         );
     }
 }
+
+#[test]
+fn batched_search_control_matches_fragmented_reads() {
+    // Reviewer repro: history ["A_first", "A_second"], C-r then [A, C-r]
+    // batched must agree with [A], [C-r] fragmented reads (both accept
+    // "A_first"); the whole-chunk match previously swallowed the direction
+    // toggle and stayed on "A_second".
+    fn history() -> History {
+        let mut history = History::new();
+        history.push("A_first");
+        history.push("A_second");
+        history
+    }
+    for terminal in [
+        super::MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(vec![0x12]),
+            TerminalEvent::Bytes(vec![b'A', 0x12]),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+        ]),
+        super::MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(vec![0x12]),
+            TerminalEvent::Bytes(vec![b'A']),
+            TerminalEvent::Bytes(vec![0x12]),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+        ]),
+    ] {
+        let mut line = Editor::new(Config::default(), terminal, history());
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        assert_eq!(
+            result,
+            ReadlineResult::Line(b"A_first".to_vec()),
+            "batched and fragmented search direction toggles must agree"
+        );
+    }
+}
+
+#[test]
+fn batched_non_incremental_query_plus_enter_matches_fragmented_reads() {
+    // Non-incremental search must execute an embedded Enter instead of
+    // swallowing it as query text: [A, CR] batched agrees with [A], [CR].
+    fn history() -> History {
+        let mut history = History::new();
+        history.push("A_first");
+        history.push("A_second");
+        history
+    }
+    for terminal in [
+        super::MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(vec![0x1b, b'p']),
+            TerminalEvent::Bytes(vec![b'A', b'\r']),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+        ]),
+        super::MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(vec![0x1b, b'p']),
+            TerminalEvent::Bytes(vec![b'A']),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+        ]),
+    ] {
+        let mut line = Editor::new(Config::default(), terminal, history());
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        assert_eq!(
+            result,
+            ReadlineResult::Line(b"A_second".to_vec()),
+            "batched and fragmented non-incremental Enter must agree"
+        );
+    }
+}

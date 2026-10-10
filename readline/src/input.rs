@@ -467,6 +467,67 @@ where
         bytes: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
+        if bytes.len() > 1 {
+            return self.handle_reverse_search_batched(state, bytes, hooks);
+        }
+        self.handle_reverse_search_single(state, bytes, hooks)
+    }
+
+    fn handle_reverse_search_batched(
+        &mut self,
+        state: &mut EditorState,
+        bytes: &[u8],
+        hooks: &mut impl Hooks,
+    ) -> Result<EditorOutcome, ReadlineError> {
+        // Fragmentation-invariant: a batched chunk mixing query bytes with
+        // search controls must agree with split reads. Dispatch per byte,
+        // keeping multi-byte non-SelfInsert bindings atomic so batched
+        // escape sequences still terminate-and-execute as one unit.
+        let mut pos = 0;
+        while pos < bytes.len() {
+            if state.search.reverse_search.is_none() {
+                return self.handle_bytes(state, &bytes[pos..], hooks);
+            }
+            let suffix = &bytes[pos..];
+            if let Some((len, binding)) = self
+                .keymap
+                .longest_matching_prefix(self.keymap.current(), suffix)
+                .map(|(len, binding)| (len, binding.clone()))
+            {
+                let first_is_search_control =
+                    matches!(suffix[0], b'\r' | b'\n' | 0x07 | 0x12 | 0x13 | 0x7f)
+                        || (suffix[0] == 0x1b && self.is_isearch_terminator(&suffix[0..1]));
+                if len > 1
+                    && !first_is_search_control
+                    && !matches!(binding, KeyBinding::Command(EditCommand::SelfInsert))
+                {
+                    let chunk = suffix[..len].to_vec();
+                    let outcome = self.handle_reverse_search_single(state, &chunk, hooks)?;
+                    if !matches!(outcome, EditorOutcome::Continue) {
+                        return Ok(outcome);
+                    }
+                    pos += len;
+                    continue;
+                }
+            } else if self.keymap.has_prefix(self.keymap.current(), suffix) {
+                return self.handle_reverse_search_single(state, suffix, hooks);
+            }
+            let single = [bytes[pos]];
+            let outcome = self.handle_reverse_search_single(state, &single, hooks)?;
+            if !matches!(outcome, EditorOutcome::Continue) {
+                return Ok(outcome);
+            }
+            pos += 1;
+        }
+        Ok(EditorOutcome::Continue)
+    }
+
+    fn handle_reverse_search_single(
+        &mut self,
+        state: &mut EditorState,
+        bytes: &[u8],
+        hooks: &mut impl Hooks,
+    ) -> Result<EditorOutcome, ReadlineError> {
         let Some(mut search) = state.search.reverse_search.take() else {
             return Ok(EditorOutcome::Continue);
         };
@@ -581,6 +642,30 @@ where
     }
 
     pub(super) fn handle_non_incremental_search(
+        &mut self,
+        state: &mut EditorState,
+        bytes: &[u8],
+        hooks: &mut impl Hooks,
+    ) -> Result<EditorOutcome, ReadlineError> {
+        if bytes.len() > 1 {
+            let mut pos = 0;
+            while pos < bytes.len() {
+                if state.search.non_incremental_search.is_none() {
+                    return self.handle_bytes(state, &bytes[pos..], hooks);
+                }
+                let single = [bytes[pos]];
+                let outcome = self.handle_non_incremental_single(state, &single);
+                if !matches!(outcome, EditorOutcome::Continue) {
+                    return Ok(outcome);
+                }
+                pos += 1;
+            }
+            return Ok(EditorOutcome::Continue);
+        }
+        Ok(self.handle_non_incremental_single(state, bytes))
+    }
+
+    fn handle_non_incremental_single(
         &mut self,
         state: &mut EditorState,
         bytes: &[u8],

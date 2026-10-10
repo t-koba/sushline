@@ -468,6 +468,7 @@ where
                     original_line: state.buffer.as_bytes().to_vec(),
                     original_point,
                     original_history_pos,
+                    exclude_cursor: true,
                 });
                 // Keep the just-started search: `after_non_kill_command`
                 // clears `reverse_search`, so reset only the kill flags like

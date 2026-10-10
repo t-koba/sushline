@@ -18,6 +18,7 @@ pub(crate) struct ReverseSearchState {
     pub(crate) original_line: Vec<u8>,
     pub(crate) original_point: usize,
     pub(crate) original_history_pos: usize,
+    pub(crate) exclude_cursor: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -41,10 +42,14 @@ pub(crate) fn update_reverse_search_match(
     repeat: bool,
     ignore_case: bool,
 ) {
-    // GNU starts the first search from the history cursor, inclusively:
+    // GNU starts the first emacs search from the history cursor, inclusively:
     // backward covers entries[..original_pos + 1], forward covers
-    // entries[original_pos..]. Repeats step exclusively past the current
-    // match. A repeat with no current match restarts from the cursor.
+    // entries[original_pos..]. Vi `/` (backward) and `?` (forward) skip the
+    // cursor entry: backward covers entries[..original_pos], forward covers
+    // entries[original_pos + 1..] (patch 0 Bash 5.3 PTY oracle: from a
+    // matching cursor `/alpha` finds the older match and `?alpha` finds the
+    // newer match). Repeats step exclusively past the current match. A
+    // repeat with no current match restarts from the cursor.
     let found = match (search.direction, repeat, search.match_index) {
         (SearchDirection::Backward, true, Some(idx)) => {
             search_history_backward(history, &search.query, Some(idx), ignore_case)
@@ -53,14 +58,25 @@ pub(crate) fn update_reverse_search_match(
             search_history_forward(history, &search.query, Some(idx), ignore_case)
         }
         (SearchDirection::Backward, _, _) => {
-            let end = search
-                .original_history_pos
-                .saturating_add(1)
-                .min(history.entries().len());
+            let end = if search.exclude_cursor {
+                search.original_history_pos.min(history.entries().len())
+            } else {
+                search
+                    .original_history_pos
+                    .saturating_add(1)
+                    .min(history.entries().len())
+            };
             search_history_backward(history, &search.query, Some(end), ignore_case)
         }
         (SearchDirection::Forward, _, _) => {
-            let start = search.original_history_pos.min(history.entries().len());
+            let start = if search.exclude_cursor {
+                search
+                    .original_history_pos
+                    .saturating_add(1)
+                    .min(history.entries().len())
+            } else {
+                search.original_history_pos.min(history.entries().len())
+            };
             search_history_forward_from(history, &search.query, start, ignore_case)
         }
     };

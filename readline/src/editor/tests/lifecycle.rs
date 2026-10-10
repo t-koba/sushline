@@ -765,3 +765,100 @@ fn vi_search_again_steps_exclusively_past_matches_with_bell() {
         line.terminal.out
     );
 }
+
+#[test]
+fn incremental_no_match_bells_per_keystroke_without_extra_at_terminate() {
+    // GNU emacs incremental search (patch 0 Bash 5.3 PTY oracle) rings
+    // once per failing query extension: `C-r zzz` yields three bells.
+    // Terminating that failed query (C-J) and accepting the line add no
+    // extra bell, and the line stays the original.
+    fn run(events: Vec<TerminalEvent>) -> (ReadlineResult, String) {
+        let terminal = super::MemoryTerminal::with_events(events);
+        let mut history = History::new();
+        history.push("alpha one");
+        history.push("alpha two");
+        let mut line = Editor::new(Config::default(), terminal, history);
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        (result, line.terminal.out.clone())
+    }
+    let (result, out) = run(vec![
+        TerminalEvent::Bytes(b"draft".to_vec()),
+        TerminalEvent::Bytes(vec![0x12]),
+        TerminalEvent::Bytes(b"zzz".to_vec()),
+        TerminalEvent::Bytes(b"\n".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    assert_eq!(result, ReadlineResult::Line(b"draft".to_vec()));
+    assert_eq!(
+        out.bytes().filter(|byte| *byte == b'\x07').count(),
+        3,
+        "each failing keystroke must bell once, got {out:?}"
+    );
+    // A matching query stays silent.
+    let (result, out) = run(vec![
+        TerminalEvent::Bytes(vec![0x12]),
+        TerminalEvent::Bytes(b"alpha".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    assert_eq!(result, ReadlineResult::Line(b"alpha two".to_vec()));
+    assert!(
+        !out.contains("\x07"),
+        "matching query must not bell, got {out:?}"
+    );
+    // A failed repeat toggle keeps the line and bells once.
+    let (result, out) = run(vec![
+        TerminalEvent::Bytes(vec![0x12]),
+        TerminalEvent::Bytes(b"alpha".to_vec()),
+        TerminalEvent::Bytes(vec![0x12]),
+        TerminalEvent::Bytes(vec![0x12]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    assert_eq!(result, ReadlineResult::Line(b"alpha one".to_vec()));
+    assert!(
+        out.contains("\x07"),
+        "exhausted repeat toggle must bell, got {out:?}"
+    );
+}
+
+#[test]
+fn vi_no_match_terminate_bells_once_and_keeps_original() {
+    // Vi `/` stays silent per keystroke and bells once at terminate,
+    // matching the single bell of the GNU non-incremental execute. The
+    // line stays the original: no query-as-line.
+    fn run(events: Vec<TerminalEvent>) -> (ReadlineResult, String) {
+        let terminal = super::MemoryTerminal::with_events(events);
+        let mut history = History::new();
+        history.push("alpha one");
+        history.push("alpha two");
+        let mut line = Editor::new(Config::default(), terminal, history);
+        line.load_inputrc_str("set editing-mode vi").unwrap();
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        (result, line.terminal.out.clone())
+    }
+    let (result, out) = run(vec![
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"/".to_vec()),
+        TerminalEvent::Bytes(b"zzz".to_vec()),
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    assert_eq!(result, ReadlineResult::Line(b"".to_vec()));
+    assert_eq!(
+        out.bytes().filter(|byte| *byte == b'\x07').count(),
+        1,
+        "vi no-match terminate must bell exactly once, got {out:?}"
+    );
+    // A matching vi query stays silent at terminate.
+    let (result, out) = run(vec![
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"/".to_vec()),
+        TerminalEvent::Bytes(b"alpha".to_vec()),
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    assert_eq!(result, ReadlineResult::Line(b"alpha two".to_vec()));
+    assert!(
+        !out.contains("\x07"),
+        "vi matching terminate must not bell, got {out:?}"
+    );
+}

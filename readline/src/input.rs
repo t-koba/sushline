@@ -624,13 +624,21 @@ where
             };
             search.query.extend_from_slice(bytes);
             search.match_index = None;
-            update_reverse_search_match(
+            let found = update_reverse_search_match(
                 &mut search,
                 &self.history,
                 false,
                 self.flag(BoolVariable::SearchIgnoreCase),
             );
             self.apply_search_match(state, &search);
+            // GNU per-keystroke bell (patch 0 Bash 5.3 PTY oracle): each
+            // failing query extension rings once in emacs incremental
+            // search. Vi `/`/`?` stay silent per keystroke and bell once
+            // at terminate instead, matching the single bell of the GNU
+            // non-incremental execute.
+            if !found && !search.query.is_empty() && !search.exclude_cursor {
+                self.ding()?;
+            }
             state.search.reverse_search = Some(search);
             return Ok(EditorOutcome::Continue);
         }
@@ -684,6 +692,14 @@ where
                 if let Some(index) = search.match_index {
                     self.history.set_pos(index);
                 }
+                // Vi no-match terminate bells once (GNU single execute
+                // bell); emacs already belled per keystroke, so it stays
+                // silent here. The line stays the original in both modes:
+                // no query-as-line.
+                if search.match_line.is_none() && !search.query.is_empty() && search.exclude_cursor
+                {
+                    self.ding()?;
+                }
                 save_last_search(state, &search);
                 state.after_non_kill_command();
                 EditorOutcome::Continue
@@ -692,6 +708,10 @@ where
                 state.search.quoted_pending = false;
                 let accepted = accept_search_line(&search);
                 state.buffer = LineBuffer::from_bytes(accepted.clone());
+                if search.match_line.is_none() && !search.query.is_empty() && search.exclude_cursor
+                {
+                    self.ding()?;
+                }
                 save_last_search(state, &search);
                 state.after_non_kill_command();
                 EditorOutcome::Accepted(accepted)
@@ -708,13 +728,18 @@ where
                 } else {
                     SearchDirection::Forward
                 };
-                update_reverse_search_match(
+                let found = update_reverse_search_match(
                     &mut search,
                     &self.history,
                     true,
                     self.flag(BoolVariable::SearchIgnoreCase),
                 );
                 self.apply_search_match(state, &search);
+                // A repeat with no further match keeps the line and bells
+                // (both emacs and vi incremental repeats).
+                if !found && !search.query.is_empty() {
+                    self.ding()?;
+                }
                 state.search.reverse_search = Some(search);
                 EditorOutcome::Continue
             }
@@ -754,13 +779,16 @@ where
             let input = bytes.to_vec();
             search.query.extend(input);
             search.match_index = None;
-            update_reverse_search_match(
+            let found = update_reverse_search_match(
                 &mut search,
                 &self.history,
                 false,
                 self.flag(BoolVariable::SearchIgnoreCase),
             );
             self.apply_search_match(state, &search);
+            if !found && !search.query.is_empty() && !search.exclude_cursor {
+                self.ding()?;
+            }
             state.search.reverse_search = Some(search);
             return Ok(EditorOutcome::Continue);
         }
@@ -792,13 +820,16 @@ where
         if !input.is_empty() {
             search.query.extend(input);
             search.match_index = None;
-            update_reverse_search_match(
+            let found = update_reverse_search_match(
                 &mut search,
                 &self.history,
                 false,
                 self.flag(BoolVariable::SearchIgnoreCase),
             );
             self.apply_search_match(state, &search);
+            if !found && !search.query.is_empty() && !search.exclude_cursor {
+                self.ding()?;
+            }
         }
         state.search.reverse_search = Some(search);
         Ok(EditorOutcome::Continue)

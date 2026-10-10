@@ -41,7 +41,7 @@ pub(crate) fn update_reverse_search_match(
     history: &History,
     repeat: bool,
     ignore_case: bool,
-) {
+) -> bool {
     // GNU starts the first emacs search from the history cursor, inclusively:
     // backward covers entries[..original_pos + 1], forward covers
     // entries[original_pos..]. Vi `/` (backward) and `?` (forward) skip the
@@ -83,10 +83,13 @@ pub(crate) fn update_reverse_search_match(
     if let Some((idx, line)) = found {
         search.match_index = Some(idx);
         search.match_line = Some(line);
-    } else if !(repeat && search.match_index.is_some()) {
+        return true;
+    }
+    if !(repeat && search.match_index.is_some()) {
         search.match_index = None;
         search.match_line = None;
     }
+    false
 }
 
 pub(crate) fn search_history_backward(

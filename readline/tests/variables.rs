@@ -219,7 +219,10 @@ fn show_mode_in_prompt_adds_mode_string() {
 }
 
 #[test]
-fn bracketed_paste_off_ignores_split_bracket_sequence_without_mark() {
+fn bracketed_paste_off_still_pastes_without_terminal_mode() {
+    // Oracle (patch 0 baseline, Bash 5.3 PTY): the variable gates terminal
+    // DEC mode only; injected `ESC[200~...ESC[201~` still pastes literally
+    // when off, including framed controls, and sets the mark.
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"\x1b[200~".to_vec()),
         TerminalEvent::Bytes(b"a".to_vec()),
@@ -232,7 +235,8 @@ fn bracketed_paste_off_ignores_split_bracket_sequence_without_mark() {
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
     assert_eq!(result, ReadlineResult::Line(b"a".to_vec()));
     assert!(!line.terminal().out.contains("\x1b[?2004h"));
-    // Control byte would be literal inside a paste; outside it is a command.
+    // Framed control byte stays literal inside the paste (outside it would
+    // dispatch as a command); the paste sets the mark like the on case.
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"\x1b[200~".to_vec()),
         TerminalEvent::Bytes(vec![0x01]),
@@ -243,7 +247,8 @@ fn bracketed_paste_off_ignores_split_bracket_sequence_without_mark() {
     line.load_inputrc_str("set enable-bracketed-paste off")
         .unwrap();
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
-    assert_eq!(result, ReadlineResult::Line(Vec::new()));
+    assert_eq!(result, ReadlineResult::Line(vec![0x01]));
+    assert!(!line.terminal().out.contains("\x1b[?2004h"));
 }
 
 #[test]

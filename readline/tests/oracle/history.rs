@@ -510,4 +510,26 @@ fn bash_readline_and_sushline_isearch_terminators_terminate_without_execute() {
         accepted_line(&bash),
         "bash={bash}\nsushline={sushline}"
     );
+
+    // An empty query restores the original line and point.
+    let keys = b"draft\x12\n!\r";
+    let bash = run_bash_readline_with_bindings_and_history(keys, "", &history);
+    let sushline = run_sushline_harness_with_inputrc_and_history(keys, "", &history);
+    assert_eq!(accepted_line(&bash), Some("draft!".to_string()), "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+
+    // A non-empty query with no match leaves point at 0.
+    let keys = b"draft\x12zzz\n!\r";
+    let bash = run_bash_readline_with_bindings_and_history(keys, "", &history);
+    let sushline = run_sushline_harness_with_inputrc_and_history(keys, "", &history);
+    assert_eq!(accepted_line(&bash), Some("!draft".to_string()), "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
 }

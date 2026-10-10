@@ -1350,4 +1350,36 @@ fn isearch_terminators_terminate_without_execute_and_cr_accepts() {
     let mut line = Editor::new(Config::default(), terminal, history);
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
     assert_eq!(result, ReadlineResult::Line(b"alpha two".to_vec()));
+
+    // An empty query restores the original line and point (`draft` typed
+    // first leaves point at the end, so `!` appends).
+    let mut history = History::new();
+    history.push("alpha one");
+    history.push("alpha two");
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"draft".to_vec()),
+        TerminalEvent::Bytes(b"\x12".to_vec()),
+        TerminalEvent::Bytes(b"\n".to_vec()),
+        TerminalEvent::Bytes(b"!".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, history);
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"draft!".to_vec()));
+
+    // A non-empty query with no match leaves point at 0, so `!` prepends.
+    let mut history = History::new();
+    history.push("alpha one");
+    history.push("alpha two");
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"draft".to_vec()),
+        TerminalEvent::Bytes(b"\x12".to_vec()),
+        TerminalEvent::Bytes(b"zzz".to_vec()),
+        TerminalEvent::Bytes(b"\n".to_vec()),
+        TerminalEvent::Bytes(b"!".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, history);
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"!draft".to_vec()));
 }

@@ -202,17 +202,32 @@ fn include_paths_accept_quotes_without_environment_expansion() {
 
 #[test]
 fn include_paths_leave_dollar_vars_unexpanded() {
+    // GNU does not expand $VAR in $include: even when the var points at a
+    // valid dir, the literal `$...` path misses and is skipped.
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("included.inputrc"),
+        "set completion-ignore-case on",
+    )
+    .unwrap();
+    unsafe {
+        std::env::set_var("SUSHLINE_INPUTRC_INCLUDE_DIR", dir.path());
+    }
     let mut keymap = KeyMap::emacs_default();
     let mut variables = Variables::new();
-    // GNU does not expand $VAR in $include: a literal misses and is skipped.
     InputrcParser::new()
         .parse_str(
-            "$include \"$SUSHLINE_DEFINITELY_MISSING_VAR/included.inputrc\"\n\"\\C-o\": end-of-line",
+            "$include \"$SUSHLINE_INPUTRC_INCLUDE_DIR/included.inputrc\"\n\"\\C-o\": end-of-line",
             &Config::default(),
             &mut keymap,
             &mut variables,
         )
         .unwrap();
+    unsafe {
+        std::env::remove_var("SUSHLINE_INPUTRC_INCLUDE_DIR");
+    }
+    // Would be `on` under env expansion; stays absent when left literal.
+    assert!(!variables.contains_key("completion-ignore-case"));
     assert_eq!(
         keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
         Some(&KeyBinding::Command(EditCommand::EndOfLine))

@@ -362,7 +362,6 @@ fn expand_include_path(path: &str) -> PathBuf {
     if let Ok(decoded) = decode_inputrc_string(&path) {
         path = decoded;
     }
-    path = expand_env_vars(&path);
     if let Some(rest) = path.strip_prefix("~/")
         && let Some(home) = std::env::var_os("HOME")
     {
@@ -381,45 +380,6 @@ fn expand_include_path(path: &str) -> PathBuf {
         }
     }
     PathBuf::from(path)
-}
-
-fn expand_env_vars(value: &str) -> String {
-    let mut out = String::new();
-    let mut chars = value.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch != '$' {
-            out.push(ch);
-            continue;
-        }
-        if chars.peek() == Some(&'{') {
-            chars.next();
-            let mut name = String::new();
-            while let Some(next) = chars.peek().copied() {
-                chars.next();
-                if next == '}' {
-                    break;
-                }
-                name.push(next);
-            }
-            out.push_str(&std::env::var(name).unwrap_or_default());
-            continue;
-        }
-        let mut name = String::new();
-        while let Some(next) = chars.peek().copied() {
-            if next == '_' || next.is_ascii_alphanumeric() {
-                name.push(next);
-                chars.next();
-            } else {
-                break;
-            }
-        }
-        if name.is_empty() {
-            out.push('$');
-        } else {
-            out.push_str(&std::env::var(name).unwrap_or_default());
-        }
-    }
-    out
 }
 
 fn user_home_dir(user: &str) -> Option<PathBuf> {

@@ -172,6 +172,12 @@ impl History {
     /// Truncate file.
     pub fn truncate_file(path: impl AsRef<Path>, max_len: usize) -> io::Result<()> {
         let path = path.as_ref();
+        if dest_is_non_regular(&effective_write_path(path)) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "history truncate requires a regular file",
+            ));
+        }
         let history = Self::read_file(path)?;
         let keep_from = history.entries.len().saturating_sub(max_len);
         write_atomic(path, |file| {

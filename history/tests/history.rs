@@ -470,7 +470,10 @@ fn symlinked_special_history_discards_and_preserves_link() {
         h.push("hello");
         h.write_file(&link).unwrap();
         h.append_file(&link, 0).unwrap();
-        History::truncate_file(&link, 10).unwrap();
+        assert!(
+            History::truncate_file(&link, 10).is_err(),
+            "truncate of a non-regular destination must error like GNU"
+        );
 
         assert!(
             fs::symlink_metadata(&link)
@@ -480,6 +483,33 @@ fn symlinked_special_history_discards_and_preserves_link() {
             "special-file writes must preserve the symlink"
         );
         assert!(!dir.path().join("history.tmp").exists());
+    }
+}
+
+#[test]
+#[cfg_attr(not(unix), ignore = "requires /dev/null")]
+fn truncate_non_regular_destination_errors() {
+    assert!(
+        History::truncate_file("/dev/null", 10).is_err(),
+        "truncate of /dev/null must error like GNU history_truncate_file"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::tempdir().unwrap();
+        let link = dir.path().join("history");
+        symlink("/dev/null", &link).unwrap();
+        assert!(
+            History::truncate_file(&link, 10).is_err(),
+            "truncate through a symlink to a special file must error"
+        );
+        assert!(
+            fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "failed truncate must preserve the symlink"
+        );
     }
 }
 

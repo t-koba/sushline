@@ -262,6 +262,24 @@ impl TerminalIo for Terminal {
 }
 
 #[cfg(unix)]
+fn prepare_readline_termios(readline: &mut libc::termios) {
+    readline.c_iflag &= !(libc::IXON | libc::IXOFF);
+    // Match GNU prepare_terminal_settings for the translation bits that need
+    // no policy knob: CR/NL translation off unconditionally so RET (CR) stays
+    // distinct from C-J (LF) for isearch dispatch. IXON/IXOFF handling stays
+    // as-is pending the flow-control policy decision.
+    readline.c_iflag &= !(libc::ICRNL | libc::INLCR);
+    // Match GNU `rltty.c:prepare_terminal_settings` eight-bit preparation for
+    // the CS8 case: an inherited ISTRIP would strip high bits in the kernel
+    // before any input-meta decoder could recover them, corrupting UTF-8.
+    // Narrower than GNU (which also covers CS7+meta_flag): CS7 behavior is
+    // left unchanged.
+    if readline.c_cflag & libc::CSIZE == libc::CS8 {
+        readline.c_iflag &= !(libc::ISTRIP | libc::INPCK);
+    }
+}
+
+#[cfg(unix)]
 fn enable_readline_mode(saved: &mut Option<libc::termios>) -> io::Result<()> {
     let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
     let rc = unsafe { libc::tcgetattr(libc::STDIN_FILENO, termios.as_mut_ptr()) };
@@ -275,12 +293,8 @@ fn enable_readline_mode(saved: &mut Option<libc::termios>) -> io::Result<()> {
     }
 
     let mut readline = original;
-    readline.c_iflag &= !(libc::IXON | libc::IXOFF);
-    // Match GNU prepare_terminal_settings for the translation bits that need
-    // no policy knob: CR/NL translation off unconditionally so RET (CR) stays
-    // distinct from C-J (LF) for isearch dispatch. IXON/IXOFF handling stays
-    // as-is pending the flow-control policy decision.
-    readline.c_iflag &= !(libc::ICRNL | libc::INLCR);
+    prepare_readline_termios(&mut readline);
+
     readline.c_lflag &= !(libc::ICANON | libc::ECHO | libc::IEXTEN);
     readline.c_cc[libc::VMIN] = 1;
     readline.c_cc[libc::VTIME] = 0;
@@ -604,7 +618,7 @@ fn tty_special_bindings() -> Vec<(u8, &'static str)> {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::{install_signal_handlers, restore_signal_handlers};
+    use super::{install_signal_handlers, prepare_readline_termios, restore_signal_handlers};
 
     fn current_handler(signal: libc::c_int) -> usize {
         unsafe {
@@ -664,5 +678,27 @@ mod tests {
         set_disposition(libc::SIGALRM, original_alarm);
         set_disposition(libc::SIGTERM, original_term);
         restore_signal_handlers();
+    }
+
+    #[test]
+    fn cs8_clears_istrip_and_inpck_while_cs7_preserves() {
+        unsafe {
+            let mut cs8: libc::termios = std::mem::zeroed();
+            cs8.c_cflag = libc::CS8;
+            cs8.c_iflag = libc::ISTRIP | libc::INPCK | libc::IXON;
+            prepare_readline_termios(&mut cs8);
+            assert_eq!(cs8.c_iflag & libc::ISTRIP, 0, "CS8 must clear ISTRIP");
+            assert_eq!(cs8.c_iflag & libc::INPCK, 0, "CS8 must clear INPCK");
+
+            let mut cs7: libc::termios = std::mem::zeroed();
+            cs7.c_cflag = libc::CS7;
+            cs7.c_iflag = libc::ISTRIP | libc::INPCK;
+            prepare_readline_termios(&mut cs7);
+            assert_ne!(
+                cs7.c_iflag & libc::ISTRIP,
+                0,
+                "CS7 keeps ISTRIP (narrower than GNU meta case)"
+            );
+        }
     }
 }

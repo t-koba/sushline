@@ -229,10 +229,7 @@ pub fn parse_binding_line_in_map(
 }
 
 fn variable_is_on(variables: &Variables, name: &str) -> bool {
-    variables
-        .get(name)
-        .map(|value| matches!(value.as_str(), "on" | "1" | ""))
-        .unwrap_or(false)
+    variables.is_on(name)
 }
 
 /// Apply variable.

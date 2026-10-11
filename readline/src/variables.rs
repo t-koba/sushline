@@ -177,7 +177,12 @@ impl Variables {
 
     /// Insert bytes.
     pub fn insert_bytes(&mut self, name: String, value: Vec<u8>) {
-        self.bytes.insert(name, value);
+        let rendered = String::from_utf8_lossy(&value).into_owned();
+        if let Some(variable) = BoolVariable::from_name(&name) {
+            self.flags[variable.index()] = bool_value_is_on(&rendered);
+        }
+        self.bytes.insert(name.clone(), value);
+        self.strings.insert(name, rendered);
     }
 
     /// Contains key.
@@ -215,8 +220,8 @@ impl Variables {
     }
 }
 
-fn bool_value_is_on(value: &str) -> bool {
-    matches!(value, "on" | "1")
+pub(crate) fn bool_value_is_on(value: &str) -> bool {
+    value.is_empty() || value.eq_ignore_ascii_case("on") || value == "1"
 }
 
 impl Index<&str> for Variables {
@@ -411,6 +416,78 @@ mod tests {
             assert!(variables.flag(*variable), "{}", variable.name());
             assert_eq!(variables.flag(*variable), variables.is_on(variable.name()));
         }
+    }
+
+    #[test]
+    fn bool_truth_is_unified_and_insert_bytes_converges() {
+        let mut variables = Variables::default_for_config(&Config::default());
+        // Direct-insert truth must match the inputrc normalize rule
+        // (empty/ON/1 are on, anything else is off).
+        for (value, expected) in [
+            ("on", true),
+            ("ON", true),
+            ("On", true),
+            ("1", true),
+            ("", true),
+            ("off", false),
+            ("OFF", false),
+            ("0", false),
+            ("maybe", false),
+        ] {
+            variables.insert(
+                BoolVariable::SearchIgnoreCase.name().to_string(),
+                value.to_string(),
+            );
+            assert_eq!(
+                variables.is_on(BoolVariable::SearchIgnoreCase.name()),
+                expected,
+                "insert({value:?})"
+            );
+            assert_eq!(
+                variables.flag(BoolVariable::SearchIgnoreCase),
+                expected,
+                "flag({value:?})"
+            );
+            // Strings and bytes views stay converged through insert.
+            assert_eq!(
+                variables.get_bytes(BoolVariable::SearchIgnoreCase.name()),
+                Some(&value.as_bytes().to_vec()),
+                "bytes({value:?})"
+            );
+        }
+        // Non-cached booleans share the same predicate via is_on.
+        variables.insert("blink-matching-paren".to_string(), "ON".to_string());
+        assert!(variables.is_on("blink-matching-paren"));
+        variables.insert("blink-matching-paren".to_string(), String::new());
+        assert!(variables.is_on("blink-matching-paren"));
+
+        // insert_bytes must converge strings, bytes, and flags together.
+        variables.insert_bytes(
+            BoolVariable::SearchIgnoreCase.name().to_string(),
+            b"on".to_vec(),
+        );
+        assert!(variables.is_on(BoolVariable::SearchIgnoreCase.name()));
+        assert!(variables.flag(BoolVariable::SearchIgnoreCase));
+        assert_eq!(
+            variables.get(BoolVariable::SearchIgnoreCase.name()),
+            Some(&"on".to_string())
+        );
+        assert_eq!(
+            variables.get_bytes(BoolVariable::SearchIgnoreCase.name()),
+            Some(&b"on".to_vec())
+        );
+        variables.insert_bytes(
+            BoolVariable::SearchIgnoreCase.name().to_string(),
+            b"off".to_vec(),
+        );
+        assert!(!variables.is_on(BoolVariable::SearchIgnoreCase.name()));
+        // Byte-backed variables stay visible to both maps.
+        variables.insert_bytes("isearch-terminators".to_string(), b"z".to_vec());
+        assert_eq!(variables.get("isearch-terminators"), Some(&"z".to_string()));
+        assert_eq!(
+            variables.get_bytes("isearch-terminators"),
+            Some(&b"z".to_vec())
+        );
     }
 
     #[test]

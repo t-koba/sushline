@@ -150,32 +150,82 @@ fn bind_variable_output_matches_gnu_readline_oracle() {
     let mut line = editor();
     let bind = line.bind_api();
 
-    let reusable = String::from_utf8_lossy(&reusable.stdout)
-        .replace(
-            "set enable-active-region off",
-            "set enable-active-region on",
-        )
-        .replace(
-            "set enable-bracketed-paste off",
-            "set enable-bracketed-paste on",
-        );
-    let descriptive = String::from_utf8_lossy(&descriptive.stdout)
-        .replace(
-            "enable-active-region is set to `off'",
-            "enable-active-region is set to `on'",
-        )
-        .replace(
-            "enable-bracketed-paste is set to `off'",
-            "enable-bracketed-paste is set to `on'",
-        );
+    // The oracle child is pinned to TERM=xterm-256color (see bash_oracle_command),
+    // where GNU defaults enable-active-region/enable-bracketed-paste to on with
+    // color lines present, matching sushline's unconditional-on defaults. GNU is
+    // TERM-dependent (off with no color lines under dumb/empty TERM); sushline
+    // stays unconditionally on (see bind_variable_defaults_are_unconditional_on).
+    // Compare enable-* values exactly with no off->on normalization so a future
+    // default flip fails loudly. Color lines are compared modulo the
+    // terminfo-dependent end sequence: the sushline process inherits the parent
+    // TERM (empty in CI/sandbox, yielding the ANSI fallback `\\e[0m`) while the
+    // oracle child sees xterm-256color (terminfo `rmso` `\\e[27m`).
+    let reusable = String::from_utf8_lossy(&reusable.stdout).into_owned();
+    let descriptive = String::from_utf8_lossy(&descriptive.stdout).into_owned();
 
     assert_eq!(
-        comparable_variable_output(&bind.print(BindQuery::PrintVariablesReusable)),
-        comparable_variable_output(&reusable)
+        comparable_variable_output_without_colors(&bind.print(BindQuery::PrintVariablesReusable)),
+        comparable_variable_output_without_colors(&reusable)
     );
     assert_eq!(
-        comparable_variable_output(&bind.print(BindQuery::PrintVariables)),
-        comparable_variable_output(&descriptive)
+        comparable_variable_output_without_colors(&bind.print(BindQuery::PrintVariables)),
+        comparable_variable_output_without_colors(&descriptive)
+    );
+    // Colors must be present on both sides under the pinned TERM; values may
+    // differ only by the terminfo fallback noted above.
+    for output in [&bind.print(BindQuery::PrintVariablesReusable), &reusable] {
+        assert!(output.contains("set active-region-start-color "));
+        assert!(output.contains("set active-region-end-color "));
+    }
+}
+
+#[test]
+fn bind_variable_defaults_are_unconditional_on() {
+    // Documents the intentional TERM-dependent deviation: sushline defaults
+    // enable-active-region/enable-bracketed-paste to on with color lines always
+    // present, while the GNU 8.3 patch-0 oracle is TERM-dependent (off with no
+    // color lines under dumb/empty TERM, on with colors under xterm-256color).
+    let mut line = editor();
+    let bind = line.bind_api();
+    let reusable = bind.print(BindQuery::PrintVariablesReusable);
+    assert!(
+        reusable.contains("set enable-active-region on"),
+        "sushline must default enable-active-region on"
+    );
+    assert!(
+        reusable.contains("set enable-bracketed-paste on"),
+        "sushline must default enable-bracketed-paste on"
+    );
+    assert!(
+        reusable.contains("set active-region-start-color "),
+        "sushline must always present active-region-start-color"
+    );
+    assert!(
+        reusable.contains("set active-region-end-color "),
+        "sushline must always present active-region-end-color"
+    );
+    let descriptive = bind.print(BindQuery::PrintVariables);
+    assert!(descriptive.contains("enable-active-region is set to `on'"));
+    assert!(descriptive.contains("enable-bracketed-paste is set to `on'"));
+
+    let dumb = Command::new("bash")
+        .env("TERM", "dumb")
+        .args(["--noprofile", "--norc", "-i", "-c", "bind -v"])
+        .output()
+        .expect("bash must be available for bind oracle tests");
+    assert!(dumb.status.success());
+    let dumb = String::from_utf8_lossy(&dumb.stdout).into_owned();
+    assert!(
+        dumb.contains("set enable-active-region off"),
+        "GNU oracle must default off under dumb TERM: {dumb}"
+    );
+    assert!(
+        dumb.contains("set enable-bracketed-paste off"),
+        "GNU oracle must default off under dumb TERM: {dumb}"
+    );
+    assert!(
+        !dumb.contains("active-region-start-color"),
+        "GNU oracle must omit colors under dumb TERM: {dumb}"
     );
 }
 
@@ -700,19 +750,7 @@ impl TerminalIo for DummyTerminal {
     }
 }
 
-fn selected_variable_lines(output: &str, names: &[&str]) -> Vec<String> {
-    names
-        .iter()
-        .filter_map(|name| {
-            output
-                .lines()
-                .find(|line| line.starts_with(&format!("set {name} ")))
-                .map(ToString::to_string)
-        })
-        .collect()
-}
-
-fn comparable_variable_output(output: &str) -> String {
+fn comparable_variable_output_without_colors(output: &str) -> String {
     output
         .lines()
         .filter(|line| {
@@ -722,6 +760,18 @@ fn comparable_variable_output(output: &str) -> String {
                 && !line.starts_with("active-region-end-color is set to ")
         })
         .map(|line| format!("{line}\n"))
+        .collect()
+}
+
+fn selected_variable_lines(output: &str, names: &[&str]) -> Vec<String> {
+    names
+        .iter()
+        .filter_map(|name| {
+            output
+                .lines()
+                .find(|line| line.starts_with(&format!("set {name} ")))
+                .map(ToString::to_string)
+        })
         .collect()
 }
 

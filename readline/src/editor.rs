@@ -300,23 +300,9 @@ where
         state: &mut EditorState,
         signal: i32,
     ) -> Result<Option<ReadlineResult>, ReadlineError> {
-        #[cfg(unix)]
-        if signal == libc::SIGINT {
-            self.echo_signal_interrupt(state)?;
-            return Ok(Some(ReadlineResult::Interrupted));
-        }
-        #[cfg(unix)]
-        {
-            self.terminal.restore_mode()?;
-            unsafe {
-                libc::raise(signal);
-            }
-            self.terminal.enter_raw_mode()?;
-        }
-        #[cfg(not(unix))]
-        let _ = state;
-        let _ = signal;
-        Ok(None)
+        // Hook-observed signals take the same restore/echo/reraise path as
+        // terminal signals so `^C` output and raw-mode re-entry agree.
+        self.handle_terminal_signal(state, signal)
     }
 
     pub(crate) fn echo_signal_interrupt(

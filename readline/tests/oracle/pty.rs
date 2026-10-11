@@ -484,7 +484,8 @@ pub(super) fn run_pty_steps_with_size_until(
             }
         }
     });
-    let deadline = Instant::now() + Duration::from_secs(5);
+    // Generous bound for a loaded runner; success returns on the marker far earlier.
+    let deadline = Instant::now() + Duration::from_secs(15);
     let mut out = Vec::new();
     let mut next_step = 0;
     let mut scan_start = 0;
@@ -563,17 +564,35 @@ pub(super) fn run_pty_with_size_until_after_prompt(
 
     let mut reader = pair.master.try_clone_reader().expect("pty reader");
     let mut writer = pair.master.take_writer().expect("pty writer");
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let (tx, rx) = mpsc::channel();
+    let reader_thread = thread::spawn(move || {
+        let mut buf = [0_u8; 1024];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if tx.send(buf[..n].to_vec()).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+    // Poll the reader thread so the deadline stays effective while the child
+    // starts slowly on a loaded runner; a blocking read would ignore it.
+    // The generous timeout only binds the failure path: success returns on
+    // the stop marker in well under a second.
+    let deadline = Instant::now() + Duration::from_secs(15);
     let mut out = Vec::new();
-    let mut buf = [0_u8; 1024];
     let mut sent_keys = false;
 
     while Instant::now() < deadline {
-        match reader.read(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => {
-                out.extend_from_slice(&buf[..n]);
-                if !sent_keys && String::from_utf8_lossy(&out).contains(READY_PROMPT) {
+        match rx.recv_timeout(Duration::from_millis(20)) {
+            Ok(chunk) => {
+                out.extend_from_slice(&chunk);
+                let output = String::from_utf8_lossy(&out);
+                if !sent_keys && output.contains(READY_PROMPT) {
                     if let Some(after_prompt) = after_prompt.take() {
                         after_prompt();
                     }
@@ -581,16 +600,18 @@ pub(super) fn run_pty_with_size_until_after_prompt(
                     writer.flush().expect("flush keys");
                     sent_keys = true;
                 }
-                if String::from_utf8_lossy(&out).contains(stop_marker) {
+                if output.contains(stop_marker) {
                     break;
                 }
             }
-            Err(_) => break,
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
 
     let _ = child.kill();
     let _ = child.wait();
+    let _ = reader_thread.join();
     String::from_utf8_lossy(&out).into_owned()
 }
 

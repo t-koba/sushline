@@ -338,11 +338,16 @@ fn read_history_records(file: fs::File) -> io::Result<Vec<(Vec<u8>, Option<Strin
     let mut reader = io::BufReader::new(file);
     let mut line = Vec::new();
     while reader.read_until(b'\n', &mut line)? != 0 {
-        if line.ends_with(b"\n") {
+        if !line.ends_with(b"\n") {
+            // GNU ingests a physical line only when the scan hits LF, so a
+            // trailing EOF fragment without a terminator is ignored while
+            // preceding completed lines are retained.
+            line.clear();
+            break;
+        }
+        line.pop();
+        if line.ends_with(b"\r") {
             line.pop();
-            if line.ends_with(b"\r") {
-                line.pop();
-            }
         }
         if let Ok(text) = std::str::from_utf8(&line)
             && is_timestamp_record(text)

@@ -1203,3 +1203,62 @@ fn timestamped_reads_strip_leading_blanks_and_drop_blank_only_gaps() {
     let loaded = History::read_file(&path).unwrap();
     assert_eq!(loaded.entries()[0].line_bytes, b"line one\n\nline two");
 }
+
+#[test]
+fn ignores_unterminated_trailing_fragment_like_gnu() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+
+    // Newline-terminated controls load every line.
+    std::fs::write(&path, "one\ntwo\n").unwrap();
+    let loaded = History::read_file(&path).unwrap();
+    assert_eq!(
+        loaded
+            .entries()
+            .iter()
+            .map(|entry| entry.line().into_owned())
+            .collect::<Vec<_>>(),
+        vec!["one".to_string(), "two".to_string()]
+    );
+
+    // A trailing fragment without LF is ignored; completed lines stay.
+    std::fs::write(&path, "one\ntwo").unwrap();
+    let loaded = History::read_file(&path).unwrap();
+    assert_eq!(
+        loaded
+            .entries()
+            .iter()
+            .map(|entry| entry.line().into_owned())
+            .collect::<Vec<_>>(),
+        vec!["one".to_string()]
+    );
+
+    // A single unterminated line loads nothing.
+    std::fs::write(&path, "two").unwrap();
+    let loaded = History::read_file(&path).unwrap();
+    assert!(loaded.entries().is_empty());
+
+    // Timestamped control joins the multiline entry.
+    std::fs::write(&path, "#123\none\ntwo\n").unwrap();
+    let loaded = History::read_file(&path).unwrap();
+    assert_eq!(
+        loaded
+            .entries()
+            .iter()
+            .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
+            .collect::<Vec<_>>(),
+        vec![(Some("#123"), "one\ntwo".to_string()),]
+    );
+
+    // An unterminated trailing line drops out of the delimited entry.
+    std::fs::write(&path, "#123\none\ntwo").unwrap();
+    let loaded = History::read_file(&path).unwrap();
+    assert_eq!(
+        loaded
+            .entries()
+            .iter()
+            .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
+            .collect::<Vec<_>>(),
+        vec![(Some("#123"), "one".to_string()),]
+    );
+}

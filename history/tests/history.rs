@@ -357,6 +357,44 @@ fn history_files_preserve_non_utf8_bytes() {
 }
 
 #[test]
+fn history_files_preserve_embedded_nul_bytes() {
+    // Intentional boundary: the byte-oriented reader keeps NUL bytes as data
+    // while GNU C strings truncate at NUL. Ordinary NUL-free input agrees.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+
+    std::fs::write(&path, b"one\0two\nthree\n").unwrap();
+    let loaded = History::read_file(&path).unwrap();
+    assert_eq!(
+        loaded
+            .entries()
+            .iter()
+            .map(|entry| entry.line_bytes.clone())
+            .collect::<Vec<_>>(),
+        vec![b"one\0two".to_vec(), b"three".to_vec()]
+    );
+
+    std::fs::write(&path, b"\0hidden\nnext\n").unwrap();
+    let loaded = History::read_file(&path).unwrap();
+    assert_eq!(
+        loaded
+            .entries()
+            .iter()
+            .map(|entry| entry.line_bytes.clone())
+            .collect::<Vec<_>>(),
+        vec![b"\0hidden".to_vec(), b"next".to_vec()]
+    );
+
+    std::fs::write(&path, b"#123\nalpha\0tail\nbeta\n#456\nlast\n").unwrap();
+    let loaded = History::read_file(&path).unwrap();
+    assert_eq!(loaded.entries().len(), 2);
+    assert_eq!(loaded.entries()[0].timestamp.as_deref(), Some("#123"));
+    assert_eq!(loaded.entries()[0].line_bytes, b"alpha\0tail\nbeta");
+    assert_eq!(loaded.entries()[1].timestamp.as_deref(), Some("#456"));
+    assert_eq!(loaded.entries()[1].line_bytes, b"last");
+}
+
+#[test]
 fn treats_digits_with_trailing_junk_as_timestamp() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");

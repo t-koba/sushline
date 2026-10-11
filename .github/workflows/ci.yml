@@ -10,6 +10,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - name: Install pinned bash 5.3 oracle
+        run: |
+          curl -fsSL https://ftp.gnu.org/gnu/bash/bash-5.3.tar.gz -o /tmp/bash-5.3.tar.gz
+          tar -xzf /tmp/bash-5.3.tar.gz -C /tmp
+          cd /tmp/bash-5.3
+          ./configure
+          make -j$(nproc)
+          sudo make install
+          echo "/usr/local/bin" >> "$GITHUB_PATH"
+          /usr/local/bin/bash --version
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked

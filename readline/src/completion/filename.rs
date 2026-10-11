@@ -278,8 +278,21 @@ pub(super) fn filename_display_name(replacement: &[u8]) -> String {
         .rposition(|byte| *byte == b'/')
         .map(|idx| &without_trailing_slashes[idx + 1..])
         .unwrap_or(without_trailing_slashes);
+    // GNU `fnprint` lists control bytes as caret notation (`^[` for ESC,
+    // `^?` for DEL) so the listing stays inert text. Render C0 and DEL the
+    // same way before any display-only wrapping; replacement bytes stay raw
+    // and non-ASCII bytes keep the lossless round-trip below.
     let mut out = String::new();
-    crate::buffer::append_bytes_lossless(&mut out, name);
+    for byte in name {
+        if *byte < 0x20 {
+            out.push('^');
+            out.push((*byte + 0x40) as char);
+        } else if *byte == 0x7f {
+            out.push_str("^?");
+        } else {
+            crate::buffer::append_bytes_lossless(&mut out, &[*byte]);
+        }
+    }
     out
 }
 
@@ -643,4 +656,71 @@ fn user_home_dir_bytes(user: &[u8]) -> Option<Vec<u8>> {
 #[cfg(not(unix))]
 fn user_home_dir_bytes(_user: &[u8]) -> Option<Vec<u8>> {
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_options() -> FilenameOptions {
+        FilenameOptions {
+            ignore_case: false,
+            map_case: false,
+            mark_directories: true,
+            mark_symlinked_directories: true,
+            match_hidden_files: true,
+            expand_tilde: false,
+            colored_stats: false,
+        }
+    }
+
+    #[test]
+    fn control_bytes_render_as_caret_notation() {
+        assert_eq!(filename_display_name(b"probe\x1b[2Jend"), "probe^[[2Jend");
+        assert_eq!(filename_display_name(b"a\tb"), "a^Ib");
+        assert_eq!(filename_display_name(b"a\nb"), "a^Jb");
+        assert_eq!(filename_display_name(b"a\rb"), "a^Mb");
+        assert_eq!(filename_display_name(b"a\x7fb"), "a^?b");
+        assert_eq!(filename_display_name(b"plain"), "plain");
+    }
+
+    #[test]
+    fn basename_and_lossless_bytes_are_preserved() {
+        assert_eq!(
+            filename_display_name(b"/tmp/dir/probe\x1b[2Jend"),
+            "probe^[[2Jend"
+        );
+        assert_eq!(filename_display_name(b"dir/"), "dir");
+        let display = filename_display_name(&[0xff, b'a']);
+        assert_eq!(
+            crate::buffer::rendered_string_to_bytes(&display),
+            vec![0xff, b'a']
+        );
+    }
+
+    #[test]
+    fn discovered_control_filename_lists_caret_but_replaces_raw() {
+        let dir = tempfile::tempdir().unwrap();
+        let raw: Vec<u8> = b"probe\x1b[2Jend".to_vec();
+        let path = super::path_from_bytes(&raw).unwrap();
+        std::fs::write(dir.path().join(&path), b"x").unwrap();
+        let word = dir
+            .path()
+            .join("probe")
+            .to_string_lossy()
+            .into_owned()
+            .into_bytes();
+        let response = complete_filenames_bytes(&word, &test_options());
+        assert_eq!(response.candidates.len(), 1);
+        let candidate = &response.candidates[0];
+        assert!(candidate.replacement_bytes().ends_with(&raw));
+        let listed = candidate.display.as_deref().expect("file display");
+        assert_eq!(listed, "probe^[[2Jend");
+        assert!(!listed.contains('\u{1b}'));
+        // The shared basename helper used by the listing fallback agrees.
+        assert_eq!(
+            filename_display_name(candidate.replacement_bytes()),
+            "probe^[[2Jend"
+        );
+    }
 }

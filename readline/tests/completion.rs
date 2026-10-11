@@ -1401,6 +1401,50 @@ fn completion_prefix_display_length_abbreviates_common_prefix() {
 }
 
 #[test]
+fn filename_listing_renders_control_bytes_as_caret_notation() {
+    struct Hook;
+    impl Hooks for Hook {
+        fn complete(&mut self, _: CompletionRequest) -> Option<CompletionResponse> {
+            Some(CompletionResponse {
+                candidates: vec![
+                    CompletionCandidate {
+                        replacement: b"probe\x1b[2Jend".to_vec(),
+                        display: None,
+                    },
+                    CompletionCandidate {
+                        replacement: b"probe-plain".to_vec(),
+                        display: None,
+                    },
+                ],
+                options: CompletionOptions {
+                    filenames: true,
+                    ..Default::default()
+                },
+            })
+        }
+    }
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"probe".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = Hook;
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": possible-completions")
+        .unwrap();
+    let _ = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    let out = line.terminal().out.clone();
+    assert!(
+        out.contains("probe^[[2Jend"),
+        "caret rendering missing in {out:?}"
+    );
+    assert!(
+        !out.contains("\x1b[2J"),
+        "raw ESC sequence leaked into listing in {out:?}"
+    );
+}
+
+#[test]
 fn possible_completions_after_point_moves_to_previous_visual_row_redraws_from_origin() {
     let mut terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"abcdef".to_vec()),

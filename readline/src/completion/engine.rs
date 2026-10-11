@@ -74,6 +74,10 @@ where
                 )?;
             }
             CompletionType::InsertCompletions => {
+                if response.candidates.is_empty() {
+                    self.ding()?;
+                    return Ok(());
+                }
                 state.buffer.delete_range_bytes(edit.start, edit.end);
                 for candidate in &response.candidates {
                     let replacement_bytes = self.requote_completion_bytes(

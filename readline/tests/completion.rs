@@ -620,6 +620,25 @@ fn insert_completions_replaces_word_and_separates_candidates() {
 }
 
 #[test]
+fn insert_completions_with_no_candidates_preserves_word_and_rings_bell() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"no-match".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = OptionCompletion {
+        options: CompletionOptions::default(),
+        candidates: Vec::new(),
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": insert-completions")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Line("no-match".as_bytes().to_vec()));
+    assert!(line.terminal().out.contains("\x07"));
+}
+
+#[test]
 fn insert_completions_does_not_mark_directories() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir(dir.path().join("alpha-dir")).unwrap();

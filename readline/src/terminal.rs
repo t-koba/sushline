@@ -132,8 +132,11 @@ impl TerminalIo for Terminal {
         }
         #[cfg(unix)]
         {
-            install_signal_handlers();
+            // Acquire terminal state before installing process-global handlers
+            // so a failed entry (for example ENOTTY on non-TTY stdin) leaves
+            // no handlers behind; restore stays gated on `raw`.
             enable_readline_mode(&mut self.saved_termios)?;
+            install_signal_handlers();
             self.raw = true;
             Ok(())
         }

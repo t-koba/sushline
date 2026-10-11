@@ -195,7 +195,16 @@ impl InputrcParser {
                 continue;
             }
 
-            if let Some(rest) = line.strip_prefix("set ") {
+            if let Some(after) = line
+                .get(..3)
+                .filter(|prefix| prefix.eq_ignore_ascii_case("set"))
+                .and_then(|_| line.get(3..))
+                .filter(|after| after.starts_with(char::is_whitespace))
+            {
+                let rest = after.trim_start_matches(char::is_whitespace);
+                if rest.is_empty() {
+                    continue;
+                }
                 let mut parts = rest.splitn(2, char::is_whitespace);
                 let Some(name) = parts.next() else {
                     continue;

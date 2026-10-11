@@ -351,3 +351,20 @@ fn eight_bit_escapes_do_not_abort_later_lines() {
     );
     assert_eq!(variables["bell-style"], "none");
 }
+
+#[test]
+fn set_keyword_accepts_case_insensitive_whitespace_runs() {
+    for line in [
+        "set\tbell-style none\n",
+        "set  bell-style none\n",
+        "SET bell-style none\n",
+        "Set\t bell-style none\n",
+    ] {
+        let mut keymap = KeyMap::emacs_default();
+        let mut variables = Variables::new();
+        InputrcParser::new()
+            .parse_str(line, &Config::default(), &mut keymap, &mut variables)
+            .unwrap_or_else(|err| panic!("line {line:?} must parse: {err:?}"));
+        assert_eq!(variables["bell-style"], "none", "line {line:?}");
+    }
+}

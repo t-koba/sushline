@@ -1,8 +1,5 @@
-#![allow(unused_imports)]
 use super::pty::*;
-use readline::History;
 use std::fs;
-use std::process::Command;
 
 #[test]
 fn bash_readline_and_sushline_dynamic_history_completion_uses_common_prefix() {

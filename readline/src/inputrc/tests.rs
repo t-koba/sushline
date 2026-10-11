@@ -298,3 +298,56 @@ fn non_utf8_comment_bytes_do_not_fail_surrounding_lines() {
         Some(&KeyBinding::Macro(vec![0xff]))
     );
 }
+
+#[test]
+fn eight_bit_escapes_do_not_abort_later_lines() {
+    // `"\\400"` wraps to NUL and `"\\x"` stays literal `x` (Bash 5.3
+    // oracle); neither fails the file, so the later `set` still applies.
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    InputrcParser::new()
+        .parse_str(
+            "\"\\400\": beginning-of-line\nset bell-style none",
+            &Config::default(),
+            &mut keymap,
+            &mut variables,
+        )
+        .unwrap();
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, &[0x00]),
+        Some(&KeyBinding::Command(EditCommand::BeginningOfLine))
+    );
+    assert_eq!(variables["bell-style"], "none");
+
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    InputrcParser::new()
+        .parse_str(
+            "\"\\x\": beginning-of-line\nset bell-style none",
+            &Config::default(),
+            &mut keymap,
+            &mut variables,
+        )
+        .unwrap();
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, b"x"),
+        Some(&KeyBinding::Command(EditCommand::BeginningOfLine))
+    );
+    assert_eq!(variables["bell-style"], "none");
+
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    InputrcParser::new()
+        .parse_str(
+            "\"\\777\": beginning-of-line\nset bell-style none",
+            &Config::default(),
+            &mut keymap,
+            &mut variables,
+        )
+        .unwrap();
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, &[0xff]),
+        Some(&KeyBinding::Command(EditCommand::BeginningOfLine))
+    );
+    assert_eq!(variables["bell-style"], "none");
+}

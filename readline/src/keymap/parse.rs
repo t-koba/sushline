@@ -196,7 +196,9 @@ where
         digits += 1;
     }
     if digits == 0 {
-        return Err("missing hex digits in key sequence".to_string());
+        // GNU treats `\x` with no hex digits as a literal `x` and keeps
+        // reading the file, so preserve the `x` instead of failing the line.
+        return Ok(b'x');
     }
     Ok(value)
 }
@@ -205,7 +207,9 @@ fn parse_octal_escape<I>(first: char, chars: &mut std::iter::Peekable<I>) -> Res
 where
     I: Iterator<Item = char>,
 {
-    let mut value = first.to_digit(8).expect("caller passes an octal digit") as u8;
+    // GNU accumulates `\nnn` into an eight-bit byte, so values above
+    // `\377` wrap into the low 8 bits (`\400` is NUL, `\777` is 0xFF).
+    let mut value = first.to_digit(8).expect("caller passes an octal digit") as u16;
     let mut digits = 1;
     while digits < 3 {
         let Some(ch) = chars.peek().copied() else {
@@ -215,13 +219,10 @@ where
             break;
         };
         chars.next();
-        value = value
-            .checked_mul(8)
-            .and_then(|current| current.checked_add(digit as u8))
-            .ok_or_else(|| "octal escape out of range".to_string())?;
+        value = (value * 8 + digit as u16) & 0xff;
         digits += 1;
     }
-    Ok(value)
+    Ok(value as u8)
 }
 
 fn control_byte(b: u8) -> Result<u8, String> {

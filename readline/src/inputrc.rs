@@ -62,7 +62,31 @@ impl InputrcParser {
             variables,
             binding_map: &mut binding_map,
         };
-        self.parse_str_inner(source, &mut ctx, 0)
+        self.parse_bytes_inner(source.as_bytes(), &mut ctx, 0)
+    }
+
+    /// Parse bytes.
+    ///
+    /// Byte-tolerant entry for inputrc content that may contain non-UTF-8
+    /// bytes. ASCII structure (blank lines, `#` comments, `$` directives)
+    /// is detected on bytes so valid lines survive invalid bytes elsewhere;
+    /// eight-bit sequences should use `\\nnn`/`\\xHH` escapes.
+    /// Lines that are not blank/comments but are not valid UTF-8 are skipped.
+    pub fn parse_bytes(
+        &self,
+        source: &[u8],
+        config: &Config,
+        keymap: &mut KeyMap,
+        variables: &mut Variables,
+    ) -> Result<(), InputrcError> {
+        let mut binding_map = keymap.current();
+        let mut ctx = ParseContext {
+            config,
+            keymap,
+            variables,
+            binding_map: &mut binding_map,
+        };
+        self.parse_bytes_inner(source, &mut ctx, 0)
     }
 
     /// Parse file.
@@ -73,8 +97,8 @@ impl InputrcParser {
         keymap: &mut KeyMap,
         variables: &mut Variables,
     ) -> Result<(), InputrcError> {
-        let source = fs::read_to_string(path)
-            .map_err(|e| InputrcError::new(0, format!("{}: {e}", path.display())))?;
+        let bytes =
+            fs::read(path).map_err(|e| InputrcError::new(0, format!("{}: {e}", path.display())))?;
         let mut binding_map = keymap.current();
         let mut ctx = ParseContext {
             config,
@@ -82,12 +106,12 @@ impl InputrcParser {
             variables,
             binding_map: &mut binding_map,
         };
-        self.parse_str_inner(&source, &mut ctx, 0)
+        self.parse_bytes_inner(&bytes, &mut ctx, 0)
     }
 
-    fn parse_str_inner(
+    fn parse_bytes_inner(
         &self,
-        source: &str,
+        source: &[u8],
         ctx: &mut ParseContext<'_>,
         include_depth: usize,
     ) -> Result<(), InputrcError> {
@@ -97,10 +121,21 @@ impl InputrcParser {
 
         let mut active_stack = vec![true];
         let mut condition_stack = Vec::new();
+        let mut line_count = 0;
 
-        for (idx, raw_line) in source.lines().enumerate() {
+        for (idx, raw_bytes) in split_inputrc_lines(source).enumerate() {
             let line_no = idx + 1;
-            let line = raw_line.trim();
+            line_count = line_no;
+            // Byte-level fast path: blank lines and `#` comments survive
+            // even when the rest of the line is not valid UTF-8.
+            let trimmed_bytes = trim_ascii(raw_bytes);
+            if trimmed_bytes.is_empty() || trimmed_bytes.starts_with(b"#") {
+                continue;
+            }
+            let Ok(decoded) = std::str::from_utf8(trimmed_bytes) else {
+                continue;
+            };
+            let line = decoded.trim();
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
@@ -144,10 +179,10 @@ impl InputrcParser {
                     Some("include") if *active_stack.last().unwrap_or(&true) => {
                         let path = parts.collect::<Vec<_>>().join(" ");
                         let path = expand_include_path(&path);
-                        let Ok(included) = fs::read_to_string(&path) else {
+                        let Ok(included) = fs::read(&path) else {
                             continue;
                         };
-                        self.parse_str_inner(&included, ctx, include_depth + 1)?;
+                        self.parse_bytes_inner(&included, ctx, include_depth + 1)?;
                     }
                     Some("include") => {}
                     Some(_) => {}
@@ -186,14 +221,46 @@ impl InputrcParser {
         }
 
         if active_stack.len() != 1 {
-            return Err(InputrcError::new(
-                source.lines().count(),
-                "unterminated $if",
-            ));
+            return Err(InputrcError::new(line_count, "unterminated $if"));
         }
 
         Ok(())
     }
+}
+
+fn split_inputrc_lines(source: &[u8]) -> impl Iterator<Item = &[u8]> {
+    // Mirror `str::lines` semantics: no trailing empty after a final `\n`,
+    // interior blank lines preserved, empty input yields zero lines.
+    let mut parts: Vec<&[u8]> = source
+        .split(|byte| *byte == b'\n')
+        .map(|line| line.strip_suffix(b"\r".as_slice()).unwrap_or(line))
+        .collect();
+    if !source.is_empty()
+        && source.ends_with(b"\n")
+        && parts.last().is_some_and(|last| last.is_empty())
+    {
+        parts.pop();
+    }
+    if source.is_empty() {
+        parts.clear();
+    }
+    parts.into_iter()
+}
+
+fn trim_ascii(line: &[u8]) -> &[u8] {
+    let start = line
+        .iter()
+        .take_while(|byte| byte.is_ascii_whitespace())
+        .count();
+    let end = line
+        .iter()
+        .rev()
+        .take_while(|byte| byte.is_ascii_whitespace())
+        .count();
+    if start + end >= line.len() {
+        return b"";
+    }
+    &line[start..line.len() - end]
 }
 
 /// Parse binding line in map.

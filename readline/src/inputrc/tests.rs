@@ -268,3 +268,33 @@ fn cyclic_include_hits_depth_protection() {
         "unexpected error: {err:?}"
     );
 }
+
+#[test]
+fn non_utf8_comment_bytes_do_not_fail_surrounding_lines() {
+    // Valid lines survive a Latin-1 0xFF comment byte; eight-bit escapes
+    // still decode to bytes.
+    let bytes = b"set editing-mode emacs\n# \xff\n\"\\C-o\": \"\\377\"\n".to_vec();
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    InputrcParser::new()
+        .parse_bytes(&bytes, &Config::default(), &mut keymap, &mut variables)
+        .unwrap();
+    assert_eq!(variables["editing-mode"], "emacs");
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
+        Some(&KeyBinding::Macro(vec![0xff]))
+    );
+    // Same bytes via a file read take the byte path, not read_to_string.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("inputrc");
+    std::fs::write(&path, &bytes).unwrap();
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    InputrcParser::new()
+        .parse_file(&path, &Config::default(), &mut keymap, &mut variables)
+        .unwrap();
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
+        Some(&KeyBinding::Macro(vec![0xff]))
+    );
+}

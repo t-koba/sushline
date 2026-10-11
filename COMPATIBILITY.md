@@ -173,7 +173,8 @@ sections.
 
 | Feature | Status | Notes |
 | --- | --- | --- |
-| Blank lines and `#` comments | Compatible | Implemented. |
+| Blank lines and `#` comments | Compatible | Implemented, including non-UTF-8 comment bytes (byte-detected, ignored). |
+| Inputrc file encoding | Implementation-specific | Files and `$include` targets are read as bytes; blank lines and `#` comments are detected on bytes so valid lines survive invalid bytes elsewhere. Non-UTF-8 lines that are not blank/comments are skipped; use `\nnn`/`\xHH` escapes (ASCII) for eight-bit key sequences and macros. GNU parses the raw C byte buffer with no UTF-8 validation step. |
 | `set variable value` | Compatible | Recognized variables are normalized; unknown variables are ignored. |
 | Key bindings by key name or quoted key sequence | Compatible | Function bindings and macros are supported. |
 | Escape sequences `\C-`, `\M-`, `\e`, `\\`, `\"`, `\'`, `\a`, `\b`, `\d`, `\f`, `\n`, `\r`, `\t`, `\v`, octal, hex | Compatible | Parsed through `KeySequence` and inputrc decoding. |

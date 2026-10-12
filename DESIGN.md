@@ -200,12 +200,16 @@ stifling state, and the loaded-file boundary used by append-new writes. Search,
 navigation, expansion helpers, and byte-preserving file reads operate on that
 state.
 
-History file writes use last-writer-wins with no locking. Full writes
-and truncation write through a unique sibling temporary file created with
-exclusive creation, set owner-only (`0600`) on Unix, and renamed into place;
-append writes only the selected entry range. Full writes reset the mode to
-`0600` on Unix even when the destination pre-existed with a wider mode, and
-all writes are close-only with no fsync, matching GNU. Concurrent-writer merging is embedder policy.
+History file writes use last-writer-wins with no locking. For regular
+destinations, full writes and truncation write through a unique sibling
+temporary file created with exclusive creation, set owner-only (`0600`) on
+Unix, and renamed into place; append writes only the selected entry range.
+For non-regular destinations (resolved through symlinks, for example
+`history -> /dev/null`), full writes truncate and write in place with the link
+preserved, and `truncate_file` rejects non-regular destinations with an error
+like GNU. Full writes to regular destinations reset the mode to `0600` on Unix
+even when the destination pre-existed with a wider mode, and all writes are
+close-only with no fsync, matching GNU. Concurrent-writer merging is embedder policy.
 The editor can add accepted lines automatically when configured, but long-term
 save timing remains controlled by the embedder.
 

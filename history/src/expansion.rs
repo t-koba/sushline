@@ -118,8 +118,18 @@ pub fn expand_history_with_status(
 ) -> Result<HistoryExpansion, HistoryExpansionError> {
     let expansion = histchars.expansion as u8;
     let quick = histchars.quick_substitution as u8;
+    let mut out = Vec::with_capacity(line.len());
+    let mut idx = 0;
+    let mut quote = policy.quote_state;
+    let mut at_word_start = true;
+    let mut last_substitution: Option<HistorySubstitution> = None;
+    let mut last_event_search: Option<Vec<u8>> = None;
+    let mut print_only = false;
     // GNU Readline 8.3: a leading quick-substitution marker is not history
     // expansion while the embedder reports single-quote state.
+    // GNU treats `^old^new^` as `!!:s^old^new^`, so any suffix after the
+    // closing marker flows through the same modifier and expansion handling
+    // as a regular event instead of being dropped.
     if policy.quick_substitution
         && policy.quote_state != Some(b'\'')
         && line.first() == Some(&quick)
@@ -129,29 +139,38 @@ pub fn expand_history_with_status(
             .map(|idx| idx + 1)
         && let Some(last) = history.entries().last()
     {
-        let new_end = line[old_end + 1..]
-            .iter()
-            .position(|byte| *byte == quick)
-            .map(|idx| old_end + 1 + idx)
-            .unwrap_or(line.len());
-        return Ok(HistoryExpansion {
-            line: replace_once_checked(
-                &last.line_bytes,
-                &line[1..old_end],
-                &line[old_end + 1..new_end],
-            )
-            .ok_or(HistoryExpansionError::SubstitutionFailed)?,
-            print_only: false,
-        });
+        let (new_end, has_closing) =
+            match line[old_end + 1..].iter().position(|byte| *byte == quick) {
+                Some(pos) => (old_end + 1 + pos, true),
+                None => (line.len(), false),
+            };
+        let old = line[1..old_end].to_vec();
+        let new = line[old_end + 1..new_end].to_vec();
+        let substituted = replace_once_checked(&last.line_bytes, &old, &new)
+            .ok_or(HistoryExpansionError::SubstitutionFailed)?;
+        last_substitution = Some((old, new));
+        let mut event = substituted;
+        let mut next = if has_closing { new_end + 1 } else { new_end };
+        while line.get(next) == Some(&b':') {
+            next += 1;
+            let (modified, next_after_modifier) = apply_history_modifier(
+                &event,
+                line,
+                next,
+                &mut last_substitution,
+                last_event_search.as_deref(),
+                policy,
+                &mut print_only,
+            )?;
+            event = modified;
+            next = next_after_modifier;
+        }
+        at_word_start = event
+            .last()
+            .is_none_or(|byte| byte.is_ascii_whitespace() || policy.word_delimiters.contains(byte));
+        out.extend_from_slice(&event);
+        idx = next;
     }
-
-    let mut out = Vec::with_capacity(line.len());
-    let mut idx = 0;
-    let mut quote = policy.quote_state;
-    let mut at_word_start = true;
-    let mut last_substitution: Option<HistorySubstitution> = None;
-    let mut last_event_search: Option<Vec<u8>> = None;
-    let mut print_only = false;
     while idx < line.len() {
         let byte = line[idx];
         if let Some(active) = quote {

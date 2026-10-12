@@ -1205,6 +1205,64 @@ fn quick_substitution_is_inhibited_by_single_quote_state() {
 }
 
 #[test]
+fn quick_substitution_processes_suffix_modifiers_and_further_expansion() {
+    // GNU treats `^old^new^` as `!!:s^old^new^`: the suffix after the closing
+    // marker flows through modifier and history expansion handling.
+    let mut history = History::new();
+    history.push("echo old");
+    let histchars = HistoryChars::parse("!^#");
+    let policy = HistoryExpansionPolicy::default();
+
+    for (typed, expected) in [
+        ("^old^new^ trailing", b"echo new trailing".as_slice()),
+        ("^old^new^:q trailing", b"'echo new' trailing".as_slice()),
+        (
+            "^old^new^:s/new/final/ trailing",
+            b"echo final trailing".as_slice(),
+        ),
+        ("^old^new^; !!", b"echo new; echo old".as_slice()),
+        (
+            "^old^new^ !!:s/old/final/",
+            b"echo new echo final".as_slice(),
+        ),
+    ] {
+        assert_eq!(
+            expand_history(typed.as_bytes(), &history, histchars, &policy, |_| false).unwrap(),
+            expected.to_vec(),
+            "{typed}"
+        );
+    }
+
+    let printed =
+        expand_history_with_status(b"^old^new^:p", &history, histchars, &policy, |_| false)
+            .unwrap();
+    assert_eq!(printed.line, b"echo new");
+    assert!(printed.print_only);
+
+    let printed_trailing = expand_history_with_status(
+        b"^old^new^:p trailing",
+        &history,
+        histchars,
+        &policy,
+        |_| false,
+    )
+    .unwrap();
+    assert_eq!(printed_trailing.line, b"echo new trailing");
+    assert!(printed_trailing.print_only);
+
+    assert_eq!(
+        expand_history(
+            b"^missing^new^ trailing",
+            &history,
+            histchars,
+            &policy,
+            |_| false
+        ),
+        Err(HistoryExpansionError::SubstitutionFailed),
+    );
+}
+
+#[test]
 fn timestamped_reads_strip_leading_blanks_and_drop_blank_only_gaps() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");

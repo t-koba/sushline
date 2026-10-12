@@ -1300,3 +1300,45 @@ fn ignores_unterminated_trailing_fragment_like_gnu() {
         vec![(Some("#123"), "one".to_string()),]
     );
 }
+
+#[test]
+fn remove_adjusts_append_new_boundary_for_loaded_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    std::fs::write(&path, "old1\nold2\n").unwrap();
+
+    // Removing a loaded entry keeps the surviving unsaved entry in append-new.
+    let mut loaded = History::read_file(&path).unwrap();
+    loaded.push("unsaved");
+    assert!(loaded.remove(0).is_some());
+    loaded.push("fresh");
+    loaded.append_new_to_file(&path).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "old1\nold2\nunsaved\nfresh\n"
+    );
+
+    // Control: removing the unsaved entry appends only the later entry.
+    std::fs::write(&path, "old1\nold2\n").unwrap();
+    let mut loaded = History::read_file(&path).unwrap();
+    loaded.push("unsaved");
+    assert!(loaded.remove(2).is_some());
+    loaded.push("fresh");
+    loaded.append_new_to_file(&path).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "old1\nold2\nfresh\n"
+    );
+
+    // Invalid removal appends everything after the loaded prefix.
+    std::fs::write(&path, "old1\nold2\n").unwrap();
+    let mut loaded = History::read_file(&path).unwrap();
+    loaded.push("unsaved");
+    assert!(loaded.remove(9).is_none());
+    loaded.push("fresh");
+    loaded.append_new_to_file(&path).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "old1\nold2\nunsaved\nfresh\n"
+    );
+}

@@ -173,9 +173,16 @@ impl History {
 
     /// Remove.
     pub fn remove(&mut self, index: usize) -> Option<HistoryEntry> {
-        let removed = (index < self.entries.len()).then(|| self.entries.remove(index));
+        if index >= self.entries.len() {
+            self.reset_cursor();
+            return None;
+        }
+        let removed = self.entries.remove(index);
+        if index < self.file_loaded_len {
+            self.file_loaded_len = self.file_loaded_len.saturating_sub(1);
+        }
         self.reset_cursor();
-        removed
+        Some(removed)
     }
 
     /// Replace.

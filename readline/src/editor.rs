@@ -212,7 +212,10 @@ where
         hooks: &mut impl Hooks,
     ) -> Result<ReadlineResult, ReadlineError> {
         self.bind_tty_special_chars();
-        self.reset_after_signal()?;
+        if let Err(setup_err) = self.reset_after_signal() {
+            let _ = self.cleanup_after_signal();
+            return Err(setup_err);
+        }
         let result = self.read_line_raw(prompt, hooks);
         let restore_result = self.cleanup_after_signal();
         match (result, restore_result) {

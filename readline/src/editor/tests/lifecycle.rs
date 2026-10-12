@@ -892,3 +892,139 @@ fn vi_no_match_execute_bells_once_and_keeps_original() {
         line.terminal.out
     );
 }
+
+#[test]
+fn setup_failure_after_raw_entry_still_restores_terminal_mode() {
+    #[derive(Default)]
+    struct FailingSetupTerminal {
+        fail_meta: bool,
+        fail_keypad: bool,
+        fail_write: bool,
+        fail_flush: bool,
+        raw: bool,
+        restores: usize,
+    }
+
+    impl crate::terminal::TerminalIo for FailingSetupTerminal {
+        fn enter_raw_mode(&mut self) -> std::io::Result<()> {
+            self.raw = true;
+            Ok(())
+        }
+        fn restore_mode(&mut self) -> std::io::Result<()> {
+            self.restores += 1;
+            self.raw = false;
+            Ok(())
+        }
+        fn read_event(
+            &mut self,
+            _: Option<std::time::Duration>,
+        ) -> std::io::Result<crate::terminal::TerminalEvent> {
+            Ok(crate::terminal::TerminalEvent::Timeout)
+        }
+        fn write(&mut self, _: &str) -> std::io::Result<()> {
+            if self.fail_write {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "injected write failure",
+                ));
+            }
+            Ok(())
+        }
+        fn write_bytes(&mut self, _: &[u8]) -> std::io::Result<()> {
+            if self.fail_write {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "injected write failure",
+                ));
+            }
+            Ok(())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            if self.fail_flush {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "injected flush failure",
+                ));
+            }
+            Ok(())
+        }
+        fn size(&self) -> std::io::Result<crate::terminal::TerminalSize> {
+            Ok(crate::terminal::TerminalSize {
+                columns: 80,
+                rows: 24,
+            })
+        }
+        fn clear_after_cursor(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn move_to_column(&mut self, _: u16) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn set_meta_key_enabled(&mut self, _: bool) -> std::io::Result<()> {
+            if self.fail_meta {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "injected meta failure",
+                ));
+            }
+            Ok(())
+        }
+        fn set_application_keypad_enabled(&mut self, _: bool) -> std::io::Result<()> {
+            if self.fail_keypad {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "injected keypad failure",
+                ));
+            }
+            Ok(())
+        }
+    }
+
+    // Each post-entry setup operation fails while raw mode was entered;
+    // cleanup must still restore the terminal and the setup error survives.
+    for (name, make_terminal) in [
+        (
+            "meta",
+            (|t: &mut FailingSetupTerminal| t.fail_meta = true) as fn(&mut FailingSetupTerminal),
+        ),
+        (
+            "keypad",
+            (|t: &mut FailingSetupTerminal| t.fail_keypad = true) as fn(&mut FailingSetupTerminal),
+        ),
+        (
+            "write",
+            (|t: &mut FailingSetupTerminal| t.fail_write = true) as fn(&mut FailingSetupTerminal),
+        ),
+        (
+            "flush",
+            (|t: &mut FailingSetupTerminal| t.fail_flush = true) as fn(&mut FailingSetupTerminal),
+        ),
+    ] {
+        let mut terminal = FailingSetupTerminal::default();
+        make_terminal(&mut terminal);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        // Defaults enable bracketed paste and meta-key, so the failing
+        // write/flush/meta paths are exercised during setup.
+        assert!(
+            line.flag(crate::variables::BoolVariable::EnableBracketedPaste),
+            "{name}: bracketed paste must be on for write/flush coverage"
+        );
+        let err = match line.read_line(Prompt::new("> "), &mut ()) {
+            Ok(_) => panic!("{name}: setup failure must error"),
+            Err(err) => err,
+        };
+        assert_eq!(
+            err.to_string(),
+            "injected ".to_string() + name + " failure",
+            "{name}: original setup error must survive cleanup"
+        );
+        assert!(
+            !line.terminal.raw,
+            "{name}: raw mode must be restored after setup failure"
+        );
+        assert_eq!(
+            line.terminal.restores, 1,
+            "{name}: restore must run once after setup failure"
+        );
+    }
+}

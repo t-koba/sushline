@@ -451,6 +451,20 @@ pub(super) fn run_pty_steps_until(
     )
 }
 
+/// True once the stop marker plus the end of its line have arrived.
+///
+/// PTY output can split the accepted line across reads; breaking on the bare
+/// marker risks parsing a truncated `SUSHLINE_ACCEPTED:*` line. Every harness
+/// marker is printed with a trailing newline, so wait for `\r`/`\n` after
+/// the marker. The outer deadline still bounds the failure path.
+fn stop_marker_line_complete(output: &str, marker: &str) -> bool {
+    let Some(start) = output.find(marker) else {
+        return false;
+    };
+    let rest = &output[start + marker.len()..];
+    rest.contains('\r') || rest.contains('\n')
+}
+
 pub(super) fn run_pty_steps_with_size_until(
     mut command: CommandBuilder,
     steps: &[(&str, &[u8])],
@@ -502,7 +516,7 @@ pub(super) fn run_pty_steps_with_size_until(
                     next_step += 1;
                     scan_start = out.len();
                 }
-                if output.contains(stop_marker) {
+                if stop_marker_line_complete(&output, stop_marker) {
                     break;
                 }
             }
@@ -600,7 +614,7 @@ pub(super) fn run_pty_with_size_until_after_prompt(
                     writer.flush().expect("flush keys");
                     sent_keys = true;
                 }
-                if output.contains(stop_marker) {
+                if stop_marker_line_complete(&output, stop_marker) {
                     break;
                 }
             }

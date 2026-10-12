@@ -432,7 +432,9 @@ where
                 state.after_non_kill_command();
             }
             "vi-arg-digit" => {
-                update_numeric_argument(state, key);
+                if update_numeric_argument(state, key) {
+                    self.ding()?;
+                }
                 if state.vi.vi_operator.is_some() {
                     if let Some(change) = state.vi.vi_operator_key.as_mut() {
                         change.extend_from_slice(key);

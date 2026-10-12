@@ -229,8 +229,14 @@ where
         if run == 0 {
             return Ok(None);
         }
+        let mut overflowed = false;
         for index in 0..run {
-            update_numeric_argument(state, &bytes[index..index + 1]);
+            if update_numeric_argument(state, &bytes[index..index + 1]) {
+                overflowed = true;
+            }
+        }
+        if overflowed {
+            self.ding()?;
         }
         if run < bytes.len() {
             let remainder = bytes[run..].to_vec();

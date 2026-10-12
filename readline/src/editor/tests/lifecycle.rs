@@ -1028,3 +1028,73 @@ fn setup_failure_after_raw_entry_still_restores_terminal_mode() {
         );
     }
 }
+
+#[test]
+fn positive_digit_overflow_resets_without_panic() {
+    // Auditor repro: ESC + 13 nines overflows i32; parsing alone must not
+    // panic (debug) or wrap (release). Overflow resets with a bell so no
+    // huge repeat executes; the trailing run rebuilds a small argument.
+    let terminal = super::MemoryTerminal::with_events(vec![crate::terminal::TerminalEvent::Bytes(
+        b"\x1b9999999999999\x01\r".to_vec(),
+    )]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ());
+    assert_eq!(
+        result.unwrap(),
+        ReadlineResult::Line(b"".to_vec()),
+        "overflowing positive arg must not panic and must accept"
+    );
+    assert!(
+        line.terminal.out.contains("\x07"),
+        "overflow must bell, got {:?}",
+        line.terminal.out
+    );
+}
+
+#[test]
+fn negative_digit_overflow_resets_without_panic() {
+    // Negative accumulation overflows toward i32::MIN; same reset policy.
+    let terminal = super::MemoryTerminal::with_events(vec![crate::terminal::TerminalEvent::Bytes(
+        b"\x1b-9999999999999\x01\r".to_vec(),
+    )]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ());
+    assert_eq!(
+        result.unwrap(),
+        ReadlineResult::Line(b"".to_vec()),
+        "overflowing negative arg must not panic and must accept"
+    );
+    assert!(
+        line.terminal.out.contains("\x07"),
+        "negative overflow must bell, got {:?}",
+        line.terminal.out
+    );
+}
+
+#[test]
+fn repeated_universal_argument_overflow_resets_without_panic() {
+    // 4^16 overflows i32: 15 C-u reach 1073741824, the 16th must reset
+    // with a bell instead of panicking (debug) or wrapping to 0 (release).
+    // With reset the following `a` inserts once; wrap would insert zero.
+    let mut events = Vec::new();
+    for _ in 0..16 {
+        events.push(crate::terminal::TerminalEvent::Bytes(vec![0x15]));
+    }
+    events.push(crate::terminal::TerminalEvent::Bytes(b"a".to_vec()));
+    events.push(crate::terminal::TerminalEvent::Bytes(b"\r".to_vec()));
+    let terminal = super::MemoryTerminal::with_events(events);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-u\": universal-argument")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ());
+    assert_eq!(
+        result.unwrap(),
+        ReadlineResult::Line(b"a".to_vec()),
+        "universal overflow must reset to no-arg, not wrap to zero"
+    );
+    assert!(
+        line.terminal.out.contains("\x07"),
+        "universal overflow must bell, got {:?}",
+        line.terminal.out
+    );
+}

@@ -73,29 +73,56 @@ pub(crate) fn repeat_count(arg: Option<i32>) -> u32 {
     arg.unwrap_or(1).unsigned_abs()
 }
 
-pub(crate) fn update_numeric_argument(state: &mut EditorState, key: &[u8]) {
+/// Update the pending numeric argument from a digit/minus key.
+///
+/// Returns true when the update overflowed `i32`: the argument is reset so a
+/// huge repeat count never executes, and the caller rings the bell.
+/// A lone `-` on `i32::MIN` keeps `MIN` without bell: it is already the most
+/// negative representable argument.
+pub(crate) fn update_numeric_argument(state: &mut EditorState, key: &[u8]) -> bool {
     let Some(last) = key.last().copied() else {
-        return;
+        return false;
     };
     match last {
         b'-' => {
-            state.numeric_arg = Some(-state.numeric_arg.unwrap_or(1).abs());
+            let current = state.numeric_arg.unwrap_or(1);
+            state.numeric_arg = Some(if current == i32::MIN {
+                i32::MIN
+            } else {
+                -current.abs()
+            });
             state.numeric_arg_sign_only = true;
+            false
         }
         b'0'..=b'9' => {
             let digit = (last - b'0') as i32;
             let current = state.numeric_arg.unwrap_or(0);
-            state.numeric_arg = if current < 0 {
+            let next = if current < 0 {
                 if state.numeric_arg_sign_only {
                     Some(-digit)
                 } else {
-                    Some(current * 10 - digit)
+                    current
+                        .checked_mul(10)
+                        .and_then(|scaled| scaled.checked_sub(digit))
                 }
             } else {
-                Some(current * 10 + digit)
+                current
+                    .checked_mul(10)
+                    .and_then(|scaled| scaled.checked_add(digit))
             };
-            state.numeric_arg_sign_only = false;
+            match next {
+                Some(value) => {
+                    state.numeric_arg = Some(value);
+                    state.numeric_arg_sign_only = false;
+                    false
+                }
+                None => {
+                    state.numeric_arg = None;
+                    state.numeric_arg_sign_only = false;
+                    true
+                }
+            }
         }
-        _ => {}
+        _ => false,
     }
 }

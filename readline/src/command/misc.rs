@@ -47,7 +47,9 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::DigitArgument => {
-                update_numeric_argument(state, key);
+                if update_numeric_argument(state, key) {
+                    self.ding()?;
+                }
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::EndKbdMacro => {
@@ -56,7 +58,13 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::UniversalArgument => {
-                state.numeric_arg = Some(state.numeric_arg.unwrap_or(1) * 4);
+                match state.numeric_arg.unwrap_or(1).checked_mul(4) {
+                    Some(next) => state.numeric_arg = Some(next),
+                    None => {
+                        state.numeric_arg = None;
+                        self.ding()?;
+                    }
+                }
                 state.numeric_arg_sign_only = false;
                 Ok(EditorOutcome::Continue)
             }

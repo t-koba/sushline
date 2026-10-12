@@ -2,7 +2,8 @@ use crate::completion::{CompletionRequest, CompletionResponse, CompletionType};
 use crate::keymap::KeyMapName;
 use history::History;
 use history::expansion::{
-    HistoryChars, HistoryExpansion, HistoryExpansionPolicy, expand_history_with_status,
+    HistoryChars, HistoryExpansion, HistoryExpansionPolicy, HistoryExpansionState,
+    expand_history_with_status_with_state,
 };
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -35,7 +36,7 @@ pub struct CommandContext<'a> {
     pub keymap: KeyMapName,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 /// HistoryExpansionContext.
 pub struct HistoryExpansionContext<'a> {
     /// Line.
@@ -46,6 +47,15 @@ pub struct HistoryExpansionContext<'a> {
     pub histchars: HistoryChars,
     /// Policy.
     pub policy: &'a HistoryExpansionPolicy,
+    /// Expansion state.
+    ///
+    /// Rust-owned per-session substitution memory (`&` and empty-old reuse).
+    /// The default `expand_history` implementation reads and updates it so
+    /// successive editor expansions share GNU History-library memory. Custom
+    /// implementations that delegate to the built-in expander should forward
+    /// it via `expand_history_with_status_with_state`; implementations that
+    /// ignore it stay single-call.
+    pub expansion_state: &'a mut HistoryExpansionState,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,11 +156,12 @@ pub trait Hooks {
         &mut self,
         context: HistoryExpansionContext<'_>,
     ) -> Result<HistoryExpansion, String> {
-        expand_history_with_status(
+        expand_history_with_status_with_state(
             context.line,
             context.history,
             context.histchars,
             context.policy,
+            context.expansion_state,
             |_| false,
         )
         .map_err(|err| err.message())

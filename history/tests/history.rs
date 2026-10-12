@@ -1,8 +1,10 @@
 use std::fs;
 
 use history::expansion::{
-    HistoryChars, HistoryExpansionError, HistoryExpansionPolicy, expand_history,
-    expand_history_with_status, get_history_event, history_arg_extract, history_tokenize,
+    HistoryChars, HistoryExpansionError, HistoryExpansionPolicy, HistoryExpansionState,
+    expand_history, expand_history_with_state, expand_history_with_status,
+    expand_history_with_status_with_state, get_history_event, history_arg_extract,
+    history_tokenize,
 };
 use history::{History, HistoryDirection};
 
@@ -1398,5 +1400,99 @@ fn remove_adjusts_append_new_boundary_for_loaded_entries() {
     assert_eq!(
         std::fs::read_to_string(&path).unwrap(),
         "old1\nold2\nunsaved\nfresh\n"
+    );
+}
+
+#[test]
+fn history_expansion_retains_substitution_memory_across_calls() {
+    // GNU History-library memory (`subst_lhs`/`subst_rhs`): `&` repeats the
+    // previous substitution and empty-old reuses it across expansion calls.
+    let mut history = History::new();
+    history.push("echo alpha beta alpha");
+    let histchars = HistoryChars::parse("!^#");
+    let policy = HistoryExpansionPolicy::default();
+    let mut state = HistoryExpansionState::new();
+
+    // Fresh single-call `&` fails closed without prior success.
+    assert_eq!(
+        expand_history(b"!!:&", &history, histchars, &policy, |_| false),
+        Err(HistoryExpansionError::SubstitutionFailed),
+    );
+
+    assert_eq!(
+        expand_history_with_state(
+            b"!!:s/alpha/OMEGA/",
+            &history,
+            histchars,
+            &policy,
+            &mut state,
+            |_| false,
+        )
+        .unwrap(),
+        b"echo OMEGA beta alpha".to_vec(),
+    );
+    // `&` repeats the remembered substitution on the same event line.
+    assert_eq!(
+        expand_history_with_state(b"!!:&", &history, histchars, &policy, &mut state, |_| false)
+            .unwrap(),
+        b"echo OMEGA beta alpha".to_vec(),
+    );
+    // Empty-old reuses the remembered old with a new replacement.
+    assert_eq!(
+        expand_history_with_state(
+            b"!!:s//Z/",
+            &history,
+            histchars,
+            &policy,
+            &mut state,
+            |_| false,
+        )
+        .unwrap(),
+        b"echo Z beta alpha".to_vec(),
+    );
+    // A failed substitution keeps the remembered pair for the next `&`.
+    assert_eq!(
+        expand_history_with_state(
+            b"!!:s/missing/MISSING/",
+            &history,
+            histchars,
+            &policy,
+            &mut state,
+            |_| false,
+        ),
+        Err(HistoryExpansionError::SubstitutionFailed),
+    );
+    assert_eq!(
+        expand_history_with_state(b"!!:&", &history, histchars, &policy, &mut state, |_| false)
+            .unwrap(),
+        b"echo Z beta alpha".to_vec(),
+    );
+
+    // Quick substitution seeds the same session memory for a later `&`.
+    let mut quick_state = HistoryExpansionState::new();
+    assert_eq!(
+        expand_history_with_status_with_state(
+            b"^alpha^OMEGA^",
+            &history,
+            histchars,
+            &policy,
+            &mut quick_state,
+            |_| false,
+        )
+        .unwrap()
+        .line,
+        b"echo OMEGA beta alpha".to_vec(),
+    );
+    assert_eq!(
+        expand_history_with_state(
+            b"!!:&",
+            &history,
+            histchars,
+            &policy,
+            &mut quick_state,
+            |_| false
+        )
+        .unwrap(),
+        b"echo OMEGA beta alpha".to_vec(),
     );
 }

@@ -74,6 +74,27 @@ type HistorySubstitution = (Vec<u8>, Vec<u8>);
 type HistorySubstitutionResult =
     Result<(Vec<u8>, usize, HistorySubstitution), HistoryExpansionError>;
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// HistoryExpansionState.
+///
+/// Rust-owned per-session memory for history expansion, mirroring the GNU
+/// History library file-static substitution memory (`subst_lhs`/`subst_rhs`
+/// in `histexpand.c`). A single state owns the remembered `&` and empty-old
+/// (`s//new/`) substitution across successive expansion calls; embedders and
+/// `Editor` keep one state per expansion session and pass it to the
+/// `*_with_state` APIs. Fresh `HistoryExpansionState::new()` means no
+/// previous substitution, so `&` without prior success fails closed.
+pub struct HistoryExpansionState {
+    last_substitution: Option<HistorySubstitution>,
+}
+
+impl HistoryExpansionState {
+    /// New.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// HistoryExpansionError.
 pub enum HistoryExpansionError {
@@ -97,6 +118,11 @@ impl HistoryExpansionError {
 }
 
 /// Expand history.
+///
+/// Single-call expansion with no remembered substitution: `&` and empty-old
+/// reuse fail unless a substitution precedes them in the same `line`. Use
+/// `expand_history_with_state` with a shared `HistoryExpansionState` to retain
+/// substitution memory across calls.
 pub fn expand_history(
     line: &[u8],
     history: &History,
@@ -104,16 +130,45 @@ pub fn expand_history(
     policy: &HistoryExpansionPolicy,
     inhibit: impl Fn(usize) -> bool,
 ) -> Result<Vec<u8>, HistoryExpansionError> {
-    expand_history_with_status(line, history, histchars, policy, inhibit)
+    let mut state = HistoryExpansionState::new();
+    expand_history_with_state(line, history, histchars, policy, &mut state, inhibit)
+}
+
+/// Expand history with session state.
+pub fn expand_history_with_state(
+    line: &[u8],
+    history: &History,
+    histchars: HistoryChars,
+    policy: &HistoryExpansionPolicy,
+    state: &mut HistoryExpansionState,
+    inhibit: impl Fn(usize) -> bool,
+) -> Result<Vec<u8>, HistoryExpansionError> {
+    expand_history_with_status_with_state(line, history, histchars, policy, state, inhibit)
         .map(|expanded| expanded.line)
 }
 
 /// Expand history with status.
+///
+/// Single-call expansion with no remembered substitution; see `expand_history`
+/// for the session-state variant.
 pub fn expand_history_with_status(
     line: &[u8],
     history: &History,
     histchars: HistoryChars,
     policy: &HistoryExpansionPolicy,
+    inhibit: impl Fn(usize) -> bool,
+) -> Result<HistoryExpansion, HistoryExpansionError> {
+    let mut state = HistoryExpansionState::new();
+    expand_history_with_status_with_state(line, history, histchars, policy, &mut state, inhibit)
+}
+
+/// Expand history with status and session state.
+pub fn expand_history_with_status_with_state(
+    line: &[u8],
+    history: &History,
+    histchars: HistoryChars,
+    policy: &HistoryExpansionPolicy,
+    state: &mut HistoryExpansionState,
     inhibit: impl Fn(usize) -> bool,
 ) -> Result<HistoryExpansion, HistoryExpansionError> {
     let expansion = histchars.expansion as u8;
@@ -122,7 +177,6 @@ pub fn expand_history_with_status(
     let mut idx = 0;
     let mut quote = policy.quote_state;
     let mut at_word_start = true;
-    let mut last_substitution: Option<HistorySubstitution> = None;
     let mut last_event_search: Option<Vec<u8>> = None;
     let mut print_only = false;
     // GNU Readline 8.3: a leading quick-substitution marker is not history
@@ -148,7 +202,7 @@ pub fn expand_history_with_status(
         let new = line[old_end + 1..new_end].to_vec();
         let substituted = replace_once_checked(&last.line_bytes, &old, &new)
             .ok_or(HistoryExpansionError::SubstitutionFailed)?;
-        last_substitution = Some((old, new));
+        state.last_substitution = Some((old, new));
         let mut event = substituted;
         let mut next = if has_closing { new_end + 1 } else { new_end };
         while line.get(next) == Some(&b':') {
@@ -157,7 +211,7 @@ pub fn expand_history_with_status(
                 &event,
                 line,
                 next,
-                &mut last_substitution,
+                &mut state.last_substitution,
                 last_event_search.as_deref(),
                 policy,
                 &mut print_only,
@@ -234,7 +288,7 @@ pub fn expand_history_with_status(
                     &event,
                     line,
                     next,
-                    &mut last_substitution,
+                    &mut state.last_substitution,
                     last_event_search.as_deref(),
                     policy,
                     &mut print_only,
@@ -260,7 +314,7 @@ pub fn expand_history_with_status(
                 &event,
                 line,
                 next,
-                &mut last_substitution,
+                &mut state.last_substitution,
                 last_event_search.as_deref(),
                 policy,
                 &mut print_only,

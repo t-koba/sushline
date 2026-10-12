@@ -71,8 +71,9 @@ embedder borrow application state for exactly one read. Hook methods use
 completion caches, or signal flags while answering a request.
 
 The default `expand_history` implementation runs sushline's built-in history
-expander and returns `HistoryExpansion`, including print-only status. Embedders
-that want to suppress expansion return `HistoryExpansion::unchanged(line)`.
+expander with the `HistoryExpansionContext::expansion_state` session and returns
+`HistoryExpansion`, including print-only status. Embedders that want to suppress
+expansion return `HistoryExpansion::unchanged(line)`.
 Completion uses two distinct hooks: `complete` is programmable completion, and
 `default_complete` is the application-owned default path used when no compspec
 exists or when an empty programmable result requests `bashdefault`.
@@ -104,7 +105,11 @@ numeric argument, mark, undo stack, kill ring, search state, completion state,
 vi state, keyboard macro state, bracketed paste state, display state, and the
 original line. This keeps mutable editing state scoped to the active read while
 allowing keymaps, variables, terminal setup, and history to persist across
-reads.
+reads. History-expansion substitution memory (`&` and empty-old reuse) is
+`Editor`-owned `HistoryExpansionState` rather than per-line state, so successive
+`history-expand-line` / `magic-space` expansions share GNU History-library
+memory across commands and reads; direct `history::expansion` callers keep one
+`HistoryExpansionState` per expansion session and use the `*_with_state` APIs.
 
 ## Terminal Boundary
 

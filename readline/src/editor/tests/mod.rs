@@ -183,18 +183,7 @@ impl Hooks for TestHistoryHook {
         &mut self,
         context: crate::hooks::HistoryExpansionContext<'_>,
     ) -> Result<HistoryExpansion, String> {
-        expand_history(
-            context.line,
-            context.history,
-            context.histchars,
-            context.policy,
-            |_| false,
-        )
-        .map(|line| HistoryExpansion {
-            line,
-            print_only: false,
-        })
-        .map_err(|err| err.message())
+        crate::hooks::Hooks::expand_history(&mut (), context)
     }
 }
 

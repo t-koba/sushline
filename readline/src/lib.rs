@@ -28,7 +28,8 @@ pub use config::{Config, EditingMode, InputrcPath};
 pub use editor::{Editor, ReadlineError, ReadlineResult};
 pub use history::expansion::{
     HistoryChars, HistoryEvent, HistoryExpansion, HistoryExpansionError, HistoryExpansionPolicy,
-    expand_history, expand_history_with_status, get_history_event, history_arg_extract,
+    HistoryExpansionState, expand_history, expand_history_with_state, expand_history_with_status,
+    expand_history_with_status_with_state, get_history_event, history_arg_extract,
     history_tokenize,
 };
 pub use history::{History, HistoryDirection, HistoryEntry, HistorySearchMatch, HistoryState};

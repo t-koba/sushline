@@ -9,7 +9,9 @@ use crate::state::*;
 use crate::terminal::{TerminalEvent, TerminalIo, escape};
 use crate::variables::{BoolVariable, Variables};
 use history::History;
-use history::expansion::{HistoryChars, HistoryExpansion, HistoryExpansionPolicy};
+use history::expansion::{
+    HistoryChars, HistoryExpansion, HistoryExpansionPolicy, HistoryExpansionState,
+};
 use std::fmt;
 use std::io;
 use std::path::Path;
@@ -63,6 +65,7 @@ where
     pub(crate) keymap: KeyMap,
     pub(crate) variables: Variables,
     pub(crate) pending_initial_line: Option<Vec<u8>>,
+    pub(crate) history_expansion_state: HistoryExpansionState,
     initial_inputrc_error: Option<String>,
 }
 
@@ -100,6 +103,7 @@ where
             keymap,
             variables,
             pending_initial_line: None,
+            history_expansion_state: HistoryExpansionState::new(),
             initial_inputrc_error: None,
         }
     }
@@ -484,12 +488,21 @@ where
         line: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<HistoryExpansion, String> {
+        let histchars = self.histchars();
         let policy = self.history_expansion_policy();
+        // Split disjoint `Editor` fields so substitution memory persists
+        // across expansions and reads while history stays shared.
+        let Editor {
+            history,
+            history_expansion_state,
+            ..
+        } = self;
         hooks.expand_history(HistoryExpansionContext {
             line,
-            history: &self.history,
-            histchars: self.histchars(),
+            history,
+            histchars,
             policy: &policy,
+            expansion_state: history_expansion_state,
         })
     }
 

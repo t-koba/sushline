@@ -527,6 +527,81 @@ fn symlinked_special_history_discards_and_preserves_link() {
 }
 
 #[test]
+#[cfg_attr(not(unix), ignore = "requires /dev/null and symlinks")]
+fn non_regular_history_reads_error_like_gnu() {
+    use std::io::ErrorKind;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(&path, "one\ntwo\n").unwrap();
+
+    // Regular positive control for all four read/load paths.
+    assert_eq!(History::read_file(&path).unwrap().len(), 2);
+    assert_eq!(History::read_file_range(&path, 0, None).unwrap().len(), 2);
+    let mut loaded = History::new();
+    loaded.load_file(&path, None).unwrap();
+    assert_eq!(loaded.len(), 2);
+    let mut ranged = History::new();
+    ranged.load_file_range(&path, 0, None, None).unwrap();
+    assert_eq!(ranged.len(), 2);
+
+    // Non-regular reads reject like GNU (EINVAL) instead of loading as empty.
+    for result in [
+        History::read_file("/dev/null").map(|history| history.len()),
+        History::read_file_range("/dev/null", 0, None).map(|history| history.len()),
+    ] {
+        let err = result.expect_err("reading /dev/null must error like GNU");
+        assert_eq!(err.kind(), ErrorKind::InvalidInput);
+    }
+    let mut history = History::new();
+    history.push("kept");
+    assert_eq!(
+        history
+            .load_file("/dev/null", None)
+            .expect_err("loading /dev/null must error")
+            .kind(),
+        ErrorKind::InvalidInput
+    );
+    assert_eq!(history.len(), 1, "failed load must keep existing entries");
+    assert_eq!(
+        history
+            .load_file_range("/dev/null", 0, None, None)
+            .expect_err("range loading /dev/null must error")
+            .kind(),
+        ErrorKind::InvalidInput
+    );
+    assert_eq!(history.len(), 1, "failed range load must keep entries");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        let link = dir.path().join("link-history");
+        symlink(&path, &link).unwrap();
+        assert_eq!(History::read_file(&link).unwrap().len(), 2);
+        assert_eq!(History::read_file_range(&link, 0, None).unwrap().len(), 2);
+        let mut linked = History::new();
+        linked.load_file(&link, None).unwrap();
+        assert_eq!(linked.len(), 2);
+        let mut linked_range = History::new();
+        linked_range.load_file_range(&link, 0, None, None).unwrap();
+        assert_eq!(linked_range.len(), 2);
+
+        let null_link = dir.path().join("null-history");
+        symlink("/dev/null", &null_link).unwrap();
+        assert!(
+            History::read_file(&null_link).is_err(),
+            "reading through a symlink to a special file must error"
+        );
+        assert!(
+            fs::symlink_metadata(&null_link)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "failed read must preserve the symlink"
+        );
+    }
+}
+
+#[test]
 #[cfg_attr(not(unix), ignore = "requires /dev/null")]
 fn truncate_non_regular_destination_errors() {
     assert!(

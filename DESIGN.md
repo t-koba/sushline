@@ -207,7 +207,9 @@ Unix, and renamed into place; append writes only the selected entry range.
 For non-regular destinations (resolved through symlinks, for example
 `history -> /dev/null`), full writes truncate and write in place with the link
 preserved, and `truncate_file` rejects non-regular destinations with an error
-like GNU. Full writes to regular destinations reset the mode to `0600` on Unix
+like GNU. Reads (`read_file`/`load_file` and range variants) check the opened
+descriptor and reject non-regular inputs with an error like GNU, while symlinks
+resolve to their target descriptor. Full writes to regular destinations reset the mode to `0600` on Unix
 even when the destination pre-existed with a wider mode, and all writes are
 close-only with no fsync, matching GNU. Concurrent-writer merging is embedder policy.
 The editor can add accepted lines automatically when configured, but long-term

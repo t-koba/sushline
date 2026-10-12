@@ -332,6 +332,15 @@ fn write_entry(
 }
 
 fn read_history_records(file: fs::File) -> io::Result<Vec<(Vec<u8>, Option<String>)>> {
+    // Match GNU read_history_range rejecting non-regular descriptors after
+    // open (EINVAL): /dev/null and similar specials error instead of loading
+    // as empty, while symlinks resolve to their target descriptor.
+    if !file.metadata()?.file_type().is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "history read requires a regular file",
+        ));
+    }
     let mut records = Vec::new();
     let mut pending_timestamp: Option<String> = None;
     let mut delimited_lines: Vec<Vec<u8>> = Vec::new();

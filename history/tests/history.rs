@@ -1560,6 +1560,76 @@ fn history_expansion_retains_substring_search_and_matched_word_across_calls() {
 }
 
 #[test]
+fn history_expansion_selects_percent_word_by_match_position() {
+    // GNU selects `%` from the substring match offset, so a needle spanning
+    // word boundaries still yields the word holding the match start. The
+    // backwards-search occurrence choice is retained: a repeated needle
+    // yields the later word, so forward iteration would be wrong here.
+    let mut history = History::new();
+    history.push("echo alpha-first alpha-last");
+    let histchars = HistoryChars::parse("!^#");
+    let policy = HistoryExpansionPolicy::default();
+    let mut state = HistoryExpansionState::new();
+
+    assert_eq!(
+        expand_history_with_state(
+            b"!?alpha-first alpha?:%",
+            &history,
+            histchars,
+            &policy,
+            &mut state,
+            |_| false,
+        )
+        .unwrap(),
+        b"alpha-first".to_vec(),
+    );
+    // `%` reuses the stored match-position word on the next call.
+    assert_eq!(
+        expand_history_with_state(b"!:%", &history, histchars, &policy, &mut state, |_| false)
+            .unwrap(),
+        b"alpha-first".to_vec(),
+    );
+    assert_eq!(
+        expand_history_with_state(
+            b"!?echo alpha?:%",
+            &history,
+            histchars,
+            &policy,
+            &mut state,
+            |_| false,
+        )
+        .unwrap(),
+        b"echo".to_vec(),
+    );
+    // Repeated-needle control: `alpha` occurs in both words and the later
+    // word wins, matching GNU backwards search.
+    assert_eq!(
+        expand_history_with_state(
+            b"!?alpha?:%",
+            &history,
+            histchars,
+            &policy,
+            &mut state,
+            |_| false,
+        )
+        .unwrap(),
+        b"alpha-last".to_vec(),
+    );
+    // One-shot calls without session state behave the same per call.
+    assert_eq!(
+        expand_history(
+            b"!?alpha-first alpha?:%",
+            &history,
+            histchars,
+            &policy,
+            |_| false
+        )
+        .unwrap(),
+        b"alpha-first".to_vec(),
+    );
+}
+
+#[test]
 fn history_expansion_retains_substitution_memory_across_calls() {
     // GNU History-library memory (`subst_lhs`/`subst_rhs`): `&` repeats the
     // previous substitution and empty-old reuses it across expansion calls.

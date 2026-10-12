@@ -481,10 +481,8 @@ fn parse_history_event(
                 .rev()
                 .find(|entry| find_bytes_local(&entry.line_bytes, &needle).is_some())
                 .map(|entry| {
-                    let matched_word = command_words(&entry.line_bytes, policy)
-                        .into_iter()
-                        .rev()
-                        .find(|word| find_bytes_local(word, &needle).is_some());
+                    let matched_word =
+                        word_containing_last_match(&entry.line_bytes, &needle, policy);
                     (entry.line_bytes.clone(), matched_word)
                 });
             match found {
@@ -1207,6 +1205,31 @@ fn find_bytes_local(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack
         .windows(needle.len())
         .position(|window| window == needle)
+}
+
+/// Word containing the last occurrence of `needle` in `line`.
+///
+/// GNU passes the history-search match offset to word selection, so a needle
+/// spanning word boundaries still yields the word holding the match start.
+/// The backwards-search occurrence choice is retained: the last occurrence
+/// in the line wins, keeping single-word results like before. An offset
+/// outside any word span (whitespace-start matches and similar unmeasured
+/// cases) yields no word rather than extrapolating GNU behavior.
+fn word_containing_last_match(
+    line: &[u8],
+    needle: &[u8],
+    policy: &HistoryExpansionPolicy,
+) -> Option<Vec<u8>> {
+    if needle.is_empty() {
+        return None;
+    }
+    let start = line
+        .windows(needle.len())
+        .rposition(|window| window == needle)?;
+    command_word_spans(line, policy)
+        .into_iter()
+        .find(|(span_start, span_end)| *span_start <= start && start < *span_end)
+        .map(|(span_start, span_end)| line[span_start..span_end].to_vec())
 }
 
 fn replace_all_checked(line: &[u8], old: &[u8], new: &[u8]) -> Option<Vec<u8>> {

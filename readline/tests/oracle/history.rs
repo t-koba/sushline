@@ -228,6 +228,7 @@ fn bash_readline_and_sushline_expand_same_history_edge_cases() {
         "!?needle?:%",
         "!?needle?:%:q",
         "!?needle middle?",
+        "!?needle middle?:%",
         "!?needle? !??:%",
         "!printf:s/alpha/ALPHA",
         "!printf:gs/alpha/ALPHA",

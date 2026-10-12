@@ -1479,6 +1479,87 @@ fn remove_adjusts_append_new_boundary_for_loaded_entries() {
 }
 
 #[test]
+fn history_expansion_retains_substring_search_and_matched_word_across_calls() {
+    // GNU most-recent-search memory: `!??` reuses the previous `!?` needle,
+    // `%` reuses its matched word, and empty-old `s//new/` falls back to the
+    // search when no substitution precedes it. Fresh sessions fail closed.
+    let mut history = History::new();
+    history.push("echo alpha");
+    history.push("echo beta");
+    let histchars = HistoryChars::parse("!^#");
+    let policy = HistoryExpansionPolicy::default();
+
+    // Fresh one-shot `!??` fails closed instead of matching any entry.
+    assert_eq!(
+        expand_history(b"!??", &history, histchars, &policy, |_| false),
+        Err(HistoryExpansionError::EventNotFound("!??".to_string())),
+    );
+
+    let mut state = HistoryExpansionState::new();
+    // Fresh session `!??` also fails closed.
+    assert_eq!(
+        expand_history_with_state(b"!??", &history, histchars, &policy, &mut state, |_| false),
+        Err(HistoryExpansionError::EventNotFound("!??".to_string())),
+    );
+    assert_eq!(
+        expand_history_with_state(
+            b"!?alpha?",
+            &history,
+            histchars,
+            &policy,
+            &mut state,
+            |_| false,
+        )
+        .unwrap(),
+        b"echo alpha".to_vec(),
+    );
+    // Empty search reuses `alpha`, finding `echo alpha` rather than the last entry.
+    assert_eq!(
+        expand_history_with_state(b"!??", &history, histchars, &policy, &mut state, |_| false)
+            .unwrap(),
+        b"echo alpha".to_vec(),
+    );
+    // `%` reuses the matched word from the previous substring search.
+    assert_eq!(
+        expand_history_with_state(b"!:%", &history, histchars, &policy, &mut state, |_| false)
+            .unwrap(),
+        b"alpha".to_vec(),
+    );
+    // Empty-old substitution falls back to the remembered search.
+    assert_eq!(
+        expand_history_with_state(
+            b"!1:s//OMEGA/",
+            &history,
+            histchars,
+            &policy,
+            &mut state,
+            |_| false,
+        )
+        .unwrap(),
+        b"echo OMEGA".to_vec(),
+    );
+    // A failed search keeps the remembered needle for the next `!??`.
+    assert_eq!(
+        expand_history_with_state(
+            b"!?missing?",
+            &history,
+            histchars,
+            &policy,
+            &mut state,
+            |_| false,
+        ),
+        Err(HistoryExpansionError::EventNotFound(
+            "!?missing?".to_string()
+        )),
+    );
+    assert_eq!(
+        expand_history_with_state(b"!??", &history, histchars, &policy, &mut state, |_| false)
+            .unwrap(),
+        b"echo alpha".to_vec(),
+    );
+}
+
+#[test]
 fn history_expansion_retains_substitution_memory_across_calls() {
     // GNU History-library memory (`subst_lhs`/`subst_rhs`): `&` repeats the
     // previous substitution and empty-old reuses it across expansion calls.

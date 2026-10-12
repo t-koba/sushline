@@ -79,13 +79,18 @@ type HistorySubstitutionResult =
 ///
 /// Rust-owned per-session memory for history expansion, mirroring the GNU
 /// History library file-static substitution memory (`subst_lhs`/`subst_rhs`
-/// in `histexpand.c`). A single state owns the remembered `&` and empty-old
-/// (`s//new/`) substitution across successive expansion calls; embedders and
-/// `Editor` keep one state per expansion session and pass it to the
-/// `*_with_state` APIs. Fresh `HistoryExpansionState::new()` means no
-/// previous substitution, so `&` without prior success fails closed.
+/// in `histexpand.c`) plus the most-recent substring search and its matched
+/// word. A single state owns the remembered `&` and empty-old (`s//new/`)
+/// substitution, the `!??` reuse needle, the `s//new/` empty-old search
+/// fallback, and the `%` matched word across successive expansion calls;
+/// embedders and `Editor` keep one state per expansion session and pass it to
+/// the `*_with_state` APIs. Fresh `HistoryExpansionState::new()` means no
+/// previous substitution or search, so `&` without prior success and `!??`
+/// without a prior search both fail closed.
 pub struct HistoryExpansionState {
     last_substitution: Option<HistorySubstitution>,
+    last_search: Option<Vec<u8>>,
+    last_matched_word: Option<Vec<u8>>,
 }
 
 impl HistoryExpansionState {
@@ -119,10 +124,11 @@ impl HistoryExpansionError {
 
 /// Expand history.
 ///
-/// Single-call expansion with no remembered substitution: `&` and empty-old
-/// reuse fail unless a substitution precedes them in the same `line`. Use
+/// Single-call expansion with no remembered substitution or search: `&` and
+/// empty-old reuse fail unless a substitution precedes them in the same
+/// `line`, and `!??` fails without a prior search in the same `line`. Use
 /// `expand_history_with_state` with a shared `HistoryExpansionState` to retain
-/// substitution memory across calls.
+/// substitution and search memory across calls.
 pub fn expand_history(
     line: &[u8],
     history: &History,
@@ -149,8 +155,8 @@ pub fn expand_history_with_state(
 
 /// Expand history with status.
 ///
-/// Single-call expansion with no remembered substitution; see `expand_history`
-/// for the session-state variant.
+/// Single-call expansion with no remembered substitution or search; see
+/// `expand_history` for the session-state variant.
 pub fn expand_history_with_status(
     line: &[u8],
     history: &History,
@@ -177,7 +183,6 @@ pub fn expand_history_with_status_with_state(
     let mut idx = 0;
     let mut quote = policy.quote_state;
     let mut at_word_start = true;
-    let mut last_event_search: Option<Vec<u8>> = None;
     let mut print_only = false;
     // GNU Readline 8.3: a leading quick-substitution marker is not history
     // expansion while the embedder reports single-quote state.
@@ -212,7 +217,7 @@ pub fn expand_history_with_status_with_state(
                 line,
                 next,
                 &mut state.last_substitution,
-                last_event_search.as_deref(),
+                state.last_search.as_deref(),
                 policy,
                 &mut print_only,
             )?;
@@ -260,14 +265,8 @@ pub fn expand_history_with_status_with_state(
             });
             continue;
         }
-        let Some(parsed_event) = parse_history_event(
-            line,
-            idx + 1,
-            history,
-            histchars,
-            policy,
-            &mut last_event_search,
-        )?
+        let Some(parsed_event) =
+            parse_history_event(line, idx + 1, history, histchars, policy, state)?
         else {
             out.push(byte);
             idx += 1;
@@ -279,8 +278,11 @@ pub fn expand_history_with_status_with_state(
         if line.get(next) == Some(&b':') {
             next += 1;
             let designator_start = next;
+            let percent_word = matched_word
+                .as_deref()
+                .or(state.last_matched_word.as_deref());
             let (selected, next_after_designator) =
-                apply_history_word_designator(&event, matched_word.as_deref(), line, next, policy)?;
+                apply_history_word_designator(&event, percent_word, line, next, policy)?;
             event = selected;
             next = next_after_designator;
             if next == designator_start {
@@ -289,7 +291,7 @@ pub fn expand_history_with_status_with_state(
                     line,
                     next,
                     &mut state.last_substitution,
-                    last_event_search.as_deref(),
+                    state.last_search.as_deref(),
                     policy,
                     &mut print_only,
                 )?;
@@ -303,7 +305,9 @@ pub fn expand_history_with_status_with_state(
             let (designator, next_after_designator) = read_history_designator(line, next);
             next = next_after_designator;
             event = if designator == b"%" {
-                matched_word.unwrap_or_default()
+                matched_word
+                    .or_else(|| state.last_matched_word.clone())
+                    .unwrap_or_default()
             } else {
                 select_history_words(&event, &designator, policy)?
             };
@@ -315,7 +319,7 @@ pub fn expand_history_with_status_with_state(
                 line,
                 next,
                 &mut state.last_substitution,
-                last_event_search.as_deref(),
+                state.last_search.as_deref(),
                 policy,
                 &mut print_only,
             )?;
@@ -352,7 +356,8 @@ pub fn get_history_event(
     policy: &HistoryExpansionPolicy,
 ) -> Result<Option<HistoryEvent>, HistoryExpansionError> {
     let start = usize::from(line.first() == Some(&(histchars.expansion as u8)));
-    parse_history_event(line, start, history, histchars, policy, &mut None)
+    let mut scratch = HistoryExpansionState::new();
+    parse_history_event(line, start, history, histchars, policy, &mut scratch)
 }
 
 fn parse_history_event(
@@ -361,7 +366,7 @@ fn parse_history_event(
     history: &History,
     histchars: HistoryChars,
     policy: &HistoryExpansionPolicy,
-    last_event_search: &mut Option<Vec<u8>>,
+    state: &mut HistoryExpansionState,
 ) -> Result<Option<HistoryEvent>, HistoryExpansionError> {
     match line.get(idx).copied() {
         Some(byte) if byte == histchars.expansion as u8 => {
@@ -461,14 +466,16 @@ fn parse_history_event(
                 idx += 1;
             }
             if needle.is_empty()
-                && let Some(previous) = last_event_search.clone()
+                && let Some(previous) = state.last_search.clone()
             {
                 needle = previous;
             }
-            if !needle.is_empty() {
-                *last_event_search = Some(needle.clone());
+            // Fail closed when no prior search seeds an empty needle; an
+            // empty needle must not match-any like a fresh `find` would.
+            if needle.is_empty() {
+                return Err(HistoryExpansionError::EventNotFound("!??".to_string()));
             }
-            history
+            let found = history
                 .entries()
                 .iter()
                 .rev()
@@ -478,18 +485,23 @@ fn parse_history_event(
                         .into_iter()
                         .rev()
                         .find(|word| find_bytes_local(word, &needle).is_some());
-                    Some(HistoryEvent {
-                        line: entry.line_bytes.clone(),
+                    (entry.line_bytes.clone(), matched_word)
+                });
+            match found {
+                Some((event_line, matched_word)) => {
+                    state.last_search = Some(needle.clone());
+                    state.last_matched_word = matched_word.clone();
+                    Ok(Some(HistoryEvent {
+                        line: event_line,
                         next_index: idx,
                         matched_word,
-                    })
-                })
-                .ok_or_else(|| {
-                    HistoryExpansionError::EventNotFound(format!(
-                        "!?{}?",
-                        String::from_utf8_lossy(&needle)
-                    ))
-                })
+                    }))
+                }
+                None => Err(HistoryExpansionError::EventNotFound(format!(
+                    "!?{}?",
+                    String::from_utf8_lossy(&needle)
+                ))),
+            }
         }
         Some(c) if c.is_ascii_alphanumeric() || c == b'_' => {
             let start = idx;

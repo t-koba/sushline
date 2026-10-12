@@ -49,7 +49,8 @@ pub struct HistoryExpansionContext<'a> {
     pub policy: &'a HistoryExpansionPolicy,
     /// Expansion state.
     ///
-    /// Rust-owned per-session substitution memory (`&` and empty-old reuse).
+    /// Rust-owned per-session substitution plus search and matched-word memory
+    /// (`&` and empty-old reuse, `!??` reuse, `%`, empty-old search fallback).
     /// The default `expand_history` implementation reads and updates it so
     /// successive editor expansions share GNU History-library memory. Custom
     /// implementations that delegate to the built-in expander should forward

@@ -282,6 +282,41 @@ fn history_size_variable_limits_accepted_history() {
 }
 
 #[test]
+fn history_expansion_retains_substring_search_across_editor_expansions() {
+    // Editor owns GNU most-recent-search memory across expansions and reads:
+    // `!??` reuses the previous `!?` needle and `!:%` reuses its matched word.
+    let mut history = History::new();
+    history.push("echo alpha");
+    history.push("echo beta");
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"!?alpha?".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, history);
+    line.load_inputrc_str("\"\\C-o\": history-expand-line")
+        .unwrap();
+    let first = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(first, ReadlineResult::Line(b"echo alpha".to_vec()));
+
+    *line.terminal_mut() = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"!??".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let second = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(second, ReadlineResult::Line(b"echo alpha".to_vec()));
+
+    *line.terminal_mut() = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"!:%".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let third = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(third, ReadlineResult::Line(b"alpha".to_vec()));
+}
+
+#[test]
 fn history_expansion_retains_substitution_across_editor_expansions() {
     // Editor owns GNU History-library substitution memory across expansions
     // and reads: `&` and empty-old reuse the previous substitution.

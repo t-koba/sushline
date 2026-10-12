@@ -113,7 +113,7 @@ sections.
 | `shell-kill-word`, `shell-backward-kill-word` | Hook-backed | Shell metacharacter and process-substitution cases are covered by GNU oracle tests; `Hooks::shell_word_spans` can supply exact application lexer boundaries. |
 | `delete-horizontal-space` | Compatible | Covered by oracle tests. |
 | `kill-region`, `copy-region-as-kill`, `copy-backward-word`, `copy-forward-word` | Compatible | Region and copy-word operations are covered by GNU oracle tests for accepted-line behavior. |
-| `yank` | Compatible | Covered by tests. |
+| `yank` | Compatible | Covered by tests, including yanking text killed on an earlier prompt via the `Editor`-owned kill ring. |
 | `yank-pop` | Compatible | Multiple-kill cycling behavior is covered by GNU oracle tests. |
 
 ### Numeric Arguments And Macros

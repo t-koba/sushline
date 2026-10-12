@@ -101,15 +101,19 @@ history object. A single `read_line` call creates an `EditorState` for the
 active line.
 
 `EditorState` holds per-line runtime state: the line buffer, pending key bytes,
-numeric argument, mark, undo stack, kill ring, search state, completion state,
+numeric argument, mark, undo stack, search state, completion state,
 vi state, keyboard macro state, bracketed paste state, display state, and the
-original line. This keeps mutable editing state scoped to the active read while
-allowing keymaps, variables, terminal setup, and history to persist across
-reads. History-expansion substitution memory (`&` and empty-old reuse) is
-`Editor`-owned `HistoryExpansionState` rather than per-line state, so successive
+original line, plus per-line kill/yank flags and yank ranges. This keeps mutable
+editing state scoped to the active read while allowing keymaps, variables,
+terminal setup, and history to persist across reads. History-expansion
+substitution memory (`&` and empty-old reuse) is `Editor`-owned
+`HistoryExpansionState` rather than per-line state, so successive
 `history-expand-line` / `magic-space` expansions share GNU History-library
 memory across commands and reads; direct `history::expansion` callers keep one
 `HistoryExpansionState` per expansion session and use the `*_with_state` APIs.
+Killed text itself is `Editor`-owned: the kill-ring contents persist across
+reads while each new read resets yank ranges and last-command flags, so kills
+do not coalesce across prompts and `yank-pop` needs a fresh `yank`.
 
 ## Terminal Boundary
 

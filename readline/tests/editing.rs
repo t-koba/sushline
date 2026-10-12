@@ -698,6 +698,27 @@ fn operate_and_get_next_prefills_next_readline() {
 }
 
 #[test]
+fn killed_text_persists_across_reads_for_yank() {
+    // GNU keeps killed text on the kill ring across prompts: killing `abc`
+    // with C-u, accepting the empty line, then yanking with C-y replays it.
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(vec![0x15]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let first = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(first, ReadlineResult::Line(Vec::new()));
+
+    *line.terminal_mut() = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(vec![0x19]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let second = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(second, ReadlineResult::Line(b"abc".to_vec()));
+}
+
+#[test]
 fn re_read_init_file_loads_configured_inputrc() {
     let dir = tempfile::tempdir().unwrap();
     let inputrc = dir.path().join("inputrc");

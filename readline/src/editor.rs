@@ -66,6 +66,7 @@ where
     pub(crate) variables: Variables,
     pub(crate) pending_initial_line: Option<Vec<u8>>,
     pub(crate) history_expansion_state: HistoryExpansionState,
+    pub(crate) kill_ring: Vec<Vec<u8>>,
     initial_inputrc_error: Option<String>,
 }
 
@@ -104,6 +105,7 @@ where
             variables,
             pending_initial_line: None,
             history_expansion_state: HistoryExpansionState::new(),
+            kill_ring: Vec::new(),
             initial_inputrc_error: None,
         }
     }
@@ -236,11 +238,15 @@ where
     ) -> Result<ReadlineResult, ReadlineError> {
         self.reset_runtime_keymap_for_new_line();
         let mut state = EditorState::new(prompt, self.pending_initial_line.take());
+        // Retain killed text across reads: the ring contents live on `Editor`
+        // while yank ranges and last-command flags stay per-line and reset.
+        state.kill.kill_ring = self.kill_ring.clone();
         self.render(&mut state)?;
 
         loop {
             if let Some(signal) = hooks.check_signals() {
                 if let Some(result) = self.handle_checked_signal(&mut state, signal)? {
+                    self.kill_ring = state.kill.kill_ring.clone();
                     return Ok(result);
                 }
                 self.render(&mut state)?;
@@ -268,6 +274,7 @@ where
                 }
                 TerminalEvent::Signal(signal) => {
                     if let Some(result) = self.handle_terminal_signal(&mut state, signal)? {
+                        self.kill_ring = state.kill.kill_ring.clone();
                         return Ok(result);
                     }
                     self.render(&mut state)?;
@@ -280,6 +287,7 @@ where
                         && !state.paste.bracketed_paste
                     {
                         self.echo_signal_interrupt(&mut state)?;
+                        self.kill_ring = state.kill.kill_ring.clone();
                         return Ok(ReadlineResult::Interrupted);
                     }
                     let outcome = if state.search.non_incremental_search.is_some() {
@@ -290,6 +298,7 @@ where
                         self.handle_bytes(&mut state, &bytes, hooks)?
                     };
                     if state.input.interrupted {
+                        self.kill_ring = state.kill.kill_ring.clone();
                         return Ok(ReadlineResult::Interrupted);
                     }
                     if matches!(outcome, EditorOutcome::Continue) {
@@ -336,6 +345,7 @@ where
         state: &mut EditorState,
         outcome: EditorOutcome,
     ) -> Result<ReadlineResult, ReadlineError> {
+        self.kill_ring = state.kill.kill_ring.clone();
         match outcome {
             EditorOutcome::Continue => {
                 unreachable!("continue outcomes are handled in the read loop")

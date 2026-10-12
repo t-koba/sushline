@@ -121,7 +121,7 @@ sections.
 | Command(s) | Status | Notes |
 | --- | --- | --- |
 | `digit-argument`, `universal-argument` | Compatible | Implemented and covered by editor/oracle tests. |
-| `start-kbd-macro`, `end-kbd-macro`, `call-last-kbd-macro` | Compatible | Consecutive self-insert replay behavior is covered by GNU oracle tests. |
+| `start-kbd-macro`, `end-kbd-macro`, `call-last-kbd-macro` | Compatible | Consecutive self-insert replay behavior is covered by GNU oracle tests, including replaying the last recorded macro on a later prompt via the `Editor`-owned macro. |
 | `print-last-kbd-macro` | Compatible | Output for recorded macro bodies is covered by GNU oracle tests. |
 
 ### Completion Commands And Behavior

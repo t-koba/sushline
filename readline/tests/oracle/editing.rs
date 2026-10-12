@@ -118,6 +118,34 @@ fn bash_readline_and_sushline_accept_same_kill_and_yank_edit() {
 }
 
 #[test]
+fn bash_readline_and_sushline_keep_last_macro_across_reads() {
+    let keys = b"\x18(ab\x18)\r\x18e\r";
+    let bash = run_bash_readline_two_reads_with_inputrc_file_and_history(keys, "", &[]);
+    let sushline = run_sushline_harness_two_reads_with_inputrc_and_history(keys, "", &[]);
+
+    assert_eq!(
+        accepted_numbered_line(&sushline, 1),
+        accepted_numbered_line(&bash, 1),
+        "first read\nbash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(
+        accepted_numbered_line(&bash, 1),
+        Some("ab".to_string()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_numbered_line(&sushline, 2),
+        accepted_numbered_line(&bash, 2),
+        "second read\nbash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(
+        accepted_numbered_line(&bash, 2),
+        Some("a".to_string()),
+        "{bash}"
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_keep_killed_text_across_reads() {
     let keys = b"abc\x15\r\x19\r";
     let bash = run_bash_readline_two_reads_with_inputrc_file_and_history(keys, "", &[]);

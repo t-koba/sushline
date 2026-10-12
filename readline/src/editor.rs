@@ -67,6 +67,7 @@ where
     pub(crate) pending_initial_line: Option<Vec<u8>>,
     pub(crate) history_expansion_state: HistoryExpansionState,
     pub(crate) kill_ring: Vec<Vec<u8>>,
+    pub(crate) last_keyboard_macro: Option<Vec<u8>>,
     initial_inputrc_error: Option<String>,
 }
 
@@ -106,6 +107,7 @@ where
             pending_initial_line: None,
             history_expansion_state: HistoryExpansionState::new(),
             kill_ring: Vec::new(),
+            last_keyboard_macro: None,
             initial_inputrc_error: None,
         }
     }
@@ -238,15 +240,18 @@ where
     ) -> Result<ReadlineResult, ReadlineError> {
         self.reset_runtime_keymap_for_new_line();
         let mut state = EditorState::new(prompt, self.pending_initial_line.take());
-        // Retain killed text across reads: the ring contents live on `Editor`
-        // while yank ranges and last-command flags stay per-line and reset.
+        // Retain killed text and the last keyboard macro across reads: the
+        // ring contents and completed macro live on `Editor` while yank ranges,
+        // recording/replay flags, and last-command flags stay per-line.
         state.kill.kill_ring = self.kill_ring.clone();
+        state.macro_state.last_keyboard_macro = self.last_keyboard_macro.clone();
         self.render(&mut state)?;
 
         loop {
             if let Some(signal) = hooks.check_signals() {
                 if let Some(result) = self.handle_checked_signal(&mut state, signal)? {
                     self.kill_ring = state.kill.kill_ring.clone();
+                    self.last_keyboard_macro = state.macro_state.last_keyboard_macro.clone();
                     return Ok(result);
                 }
                 self.render(&mut state)?;
@@ -275,6 +280,7 @@ where
                 TerminalEvent::Signal(signal) => {
                     if let Some(result) = self.handle_terminal_signal(&mut state, signal)? {
                         self.kill_ring = state.kill.kill_ring.clone();
+                        self.last_keyboard_macro = state.macro_state.last_keyboard_macro.clone();
                         return Ok(result);
                     }
                     self.render(&mut state)?;
@@ -288,6 +294,7 @@ where
                     {
                         self.echo_signal_interrupt(&mut state)?;
                         self.kill_ring = state.kill.kill_ring.clone();
+                        self.last_keyboard_macro = state.macro_state.last_keyboard_macro.clone();
                         return Ok(ReadlineResult::Interrupted);
                     }
                     let outcome = if state.search.non_incremental_search.is_some() {
@@ -299,6 +306,7 @@ where
                     };
                     if state.input.interrupted {
                         self.kill_ring = state.kill.kill_ring.clone();
+                        self.last_keyboard_macro = state.macro_state.last_keyboard_macro.clone();
                         return Ok(ReadlineResult::Interrupted);
                     }
                     if matches!(outcome, EditorOutcome::Continue) {
@@ -346,6 +354,7 @@ where
         outcome: EditorOutcome,
     ) -> Result<ReadlineResult, ReadlineError> {
         self.kill_ring = state.kill.kill_ring.clone();
+        self.last_keyboard_macro = state.macro_state.last_keyboard_macro.clone();
         match outcome {
             EditorOutcome::Continue => {
                 unreachable!("continue outcomes are handled in the read loop")

@@ -698,6 +698,29 @@ fn operate_and_get_next_prefills_next_readline() {
 }
 
 #[test]
+fn last_keyboard_macro_persists_across_reads_for_replay() {
+    // GNU retains the last recorded macro across prompts: recording `ab`
+    // (which stores `a` due to consecutive self-insert grouping) then
+    // replaying with C-x e yields `a`.
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(vec![0x18, b'(']),
+        TerminalEvent::Bytes(b"ab".to_vec()),
+        TerminalEvent::Bytes(vec![0x18, b')']),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let first = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(first, ReadlineResult::Line(b"ab".to_vec()));
+
+    *line.terminal_mut() = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(vec![0x18, b'e']),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let second = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(second, ReadlineResult::Line(b"a".to_vec()));
+}
+
+#[test]
 fn killed_text_persists_across_reads_for_yank() {
     // GNU keeps killed text on the kill ring across prompts: killing `abc`
     // with C-u, accepting the empty line, then yanking with C-y replays it.

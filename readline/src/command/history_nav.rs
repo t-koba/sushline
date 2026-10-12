@@ -206,30 +206,31 @@ where
                         SearchDirection::Forward => HistoryDirection::Next,
                     };
                     let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
-                    // GNU repeat steps exclusively past the current match,
-                    // while the shared history search starts inclusively at
-                    // the cursor: a backward repeat backs the cursor off by
-                    // one first so the entry we are already on cannot match
-                    // itself. Forward already starts after the cursor. A
-                    // failed repeat restores the saved position.
-                    let backward = matches!(direction, SearchDirection::Backward);
-                    let saved_pos = self
-                        .history
-                        .where_history()
-                        .min(self.history.entries().len());
-                    if backward && saved_pos > 0 {
-                        self.history.set_pos(saved_pos - 1);
+                    // The shared history search includes the positioned entry
+                    // like GNU `history_search`; repeat steps exclusively past
+                    // the current match here instead. A failed repeat restores
+                    // the saved position.
+                    let len = self.history.entries().len();
+                    let saved_pos = self.history.where_history().min(len);
+                    let stepped = match direction {
+                        SearchDirection::Backward => saved_pos.checked_sub(1),
+                        SearchDirection::Forward => saved_pos.checked_add(1),
+                    };
+                    let mut moved = false;
+                    if let Some(stepped) = stepped {
+                        moved = true;
+                        self.history.set_pos(stepped.min(len));
                     }
-                    let found = if backward && saved_pos == 0 {
-                        None
-                    } else {
+                    let found = if moved {
                         self.history.history_search_bytes_with_case(
                             &query,
                             history_direction,
                             ignore_case,
                         )
+                    } else {
+                        None
                     };
-                    if found.is_none() && backward && saved_pos > 0 {
+                    if found.is_none() && moved {
                         self.history.set_pos(saved_pos);
                     }
                     if let Some(found) = found {

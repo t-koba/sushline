@@ -930,16 +930,28 @@ where
                     return Ok(EditorOutcome::Continue);
                 }
                 let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
-                // Vi `/` skips the history cursor like the incremental
+                // Vi skips the history cursor like the incremental
                 // cursor-skip oracle: backward covers
-                // entries[..original_pos], so a matching cursor finds the
-                // older entry. Emacs stays inclusive; forward already
-                // starts after the cursor in both modes.
-                let found = if search.vi && matches!(search.direction, SearchDirection::Backward) {
-                    let end = search
-                        .original_history_pos
-                        .min(self.history.entries().len());
-                    search_history_backward(&self.history, &query, Some(end), ignore_case)
+                // entries[..original_pos] and forward covers
+                // entries[original_pos + 1..], so a matching cursor finds
+                // its neighbor. Emacs stays inclusive via the shared
+                // history search in both directions.
+                let found = if search.vi {
+                    match search.direction {
+                        SearchDirection::Backward => {
+                            let end = search
+                                .original_history_pos
+                                .min(self.history.entries().len());
+                            search_history_backward(&self.history, &query, Some(end), ignore_case)
+                        }
+                        SearchDirection::Forward => {
+                            let start = search
+                                .original_history_pos
+                                .saturating_add(1)
+                                .min(self.history.entries().len());
+                            search_history_forward_from(&self.history, &query, start, ignore_case)
+                        }
+                    }
                 } else {
                     let direction = match search.direction {
                         SearchDirection::Backward => HistoryDirection::Previous,

@@ -32,7 +32,9 @@ fn navigates_history_and_restores_current_edit() {
 }
 
 #[test]
-fn forward_history_search_starts_after_current_position() {
+fn forward_history_search_includes_current_position() {
+    // Like GNU `history_search`, the positioned entry is included in both
+    // directions; repeat commands step past it at their own call sites.
     let mut h = History::new();
     h.push("needle one");
     h.push("needle two");
@@ -41,8 +43,50 @@ fn forward_history_search_starts_after_current_position() {
     let found = h
         .history_search_bytes(b"needle", HistoryDirection::Next)
         .expect("next match");
-    assert_eq!(found.entry_index, 1);
-    assert_eq!(found.line_bytes, b"needle two");
+    assert_eq!(found.entry_index, 0);
+    assert_eq!(found.line_bytes, b"needle one");
+}
+
+#[test]
+fn history_search_includes_positioned_entry_with_directional_offsets() {
+    // GNU `history_search` fixtures: the positioned entry is included in
+    // both directions, forward offsets are the first occurrence, and
+    // backward offsets are the last occurrence in the line.
+    let mut h = History::new();
+    h.push("echo alpha-first alpha-last");
+    h.push("echo second");
+
+    // End position 2, backward alpha: entry 0, last-occurrence offset 17.
+    let backward = h
+        .history_search_bytes(b"alpha", HistoryDirection::Previous)
+        .expect("backward match");
+    assert_eq!(backward.entry_index, 0);
+    assert_eq!(backward.byte_offset, 17);
+    assert_eq!(backward.line_bytes, b"echo alpha-first alpha-last");
+
+    // Position 0, forward alpha: entry 0, first-occurrence offset 5.
+    h.set_pos(0);
+    let forward = h
+        .history_search_bytes(b"alpha", HistoryDirection::Next)
+        .expect("forward match");
+    assert_eq!(forward.entry_index, 0);
+    assert_eq!(forward.byte_offset, 5);
+
+    // Position 1, forward second: entry 1, offset 5.
+    h.set_pos(1);
+    let ahead = h
+        .history_search_bytes(b"second", HistoryDirection::Next)
+        .expect("forward match");
+    assert_eq!(ahead.entry_index, 1);
+    assert_eq!(ahead.byte_offset, 5);
+
+    // Position 0, backward alpha: entry 0, last-occurrence offset 17.
+    h.set_pos(0);
+    let behind = h
+        .history_search_bytes(b"alpha", HistoryDirection::Previous)
+        .expect("backward match");
+    assert_eq!(behind.entry_index, 0);
+    assert_eq!(behind.byte_offset, 17);
 }
 
 #[test]

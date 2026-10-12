@@ -467,19 +467,17 @@ impl History {
     }
 
     /// History search bytes with case.
+    ///
+    /// Like GNU `history_search`, the positioned entry is included in both
+    /// directions; repeat commands express their step-past policy at their
+    /// own call sites instead.
     pub fn history_search_bytes_with_case(
         &mut self,
         needle: &[u8],
         direction: HistoryDirection,
         ignore_case: bool,
     ) -> Option<HistorySearchMatch> {
-        let start = match direction {
-            HistoryDirection::Previous => self.where_history().min(self.entries.len()),
-            HistoryDirection::Next => self
-                .where_history()
-                .saturating_add(1)
-                .min(self.entries.len()),
-        };
+        let start = self.where_history().min(self.entries.len());
         let found =
             self.search_from_pos_bytes_with_case(needle, direction, start, false, ignore_case)?;
         self.cursor = Some(found.entry_index);
@@ -550,7 +548,9 @@ impl History {
                         let byte_offset = if anchored {
                             starts_with_bytes(&entry.line_bytes, needle, ignore_case).then_some(0)
                         } else {
-                            find_bytes_with_case(&entry.line_bytes, needle, ignore_case)
+                            // GNU scans backwards from the end of the line,
+                            // so the offset is the last occurrence.
+                            rfind_bytes_with_case(&entry.line_bytes, needle, ignore_case)
                         }?;
                         Some(HistorySearchMatch {
                             entry_index: idx,
@@ -640,6 +640,15 @@ fn find_bytes_with_case(haystack: &[u8], needle: &[u8], ignore_case: bool) -> Op
     haystack
         .windows(needle.len())
         .position(|window| bytes_equal(window, needle, ignore_case))
+}
+
+fn rfind_bytes_with_case(haystack: &[u8], needle: &[u8], ignore_case: bool) -> Option<usize> {
+    if needle.is_empty() {
+        return Some(0);
+    }
+    haystack
+        .windows(needle.len())
+        .rposition(|window| bytes_equal(window, needle, ignore_case))
 }
 
 fn starts_with_bytes(haystack: &[u8], needle: &[u8], ignore_case: bool) -> bool {

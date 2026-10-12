@@ -316,3 +316,59 @@ fn vi_zero_width_change_does_not_enter_insert() {
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
     assert_eq!(result, ReadlineResult::Line("Xabc".as_bytes().to_vec()));
 }
+
+#[test]
+fn vi_char_search_target_persists_across_reads_for_repeat() {
+    // GNU remembers the completed `f` search across prompts: `;` repeats it
+    // on the next line instead of dinging, so `x` removes the found `c`.
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abcde".to_vec()),
+        TerminalEvent::Bytes(b"\x1b".to_vec()),
+        TerminalEvent::Bytes(b"0".to_vec()),
+        TerminalEvent::Bytes(b"f".to_vec()),
+        TerminalEvent::Bytes(b"c".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set editing-mode vi").unwrap();
+    let first = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(first, ReadlineResult::Line(b"abcde".to_vec()));
+
+    *line.terminal_mut() = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abcde".to_vec()),
+        TerminalEvent::Bytes(b"\x1b".to_vec()),
+        TerminalEvent::Bytes(b"0".to_vec()),
+        TerminalEvent::Bytes(b";".to_vec()),
+        TerminalEvent::Bytes(b"x".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let second = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(second, ReadlineResult::Line(b"abde".to_vec()));
+}
+
+#[test]
+fn vi_last_change_persists_across_reads_for_dot_repeat() {
+    // GNU replays the completed change across prompts: `x` on the first line
+    // arms `.` for the next line instead of leaving it unbound.
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(b"\x1b".to_vec()),
+        TerminalEvent::Bytes(b"0".to_vec()),
+        TerminalEvent::Bytes(b"x".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set editing-mode vi").unwrap();
+    let first = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(first, ReadlineResult::Line(b"bc".to_vec()));
+
+    *line.terminal_mut() = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"def".to_vec()),
+        TerminalEvent::Bytes(b"\x1b".to_vec()),
+        TerminalEvent::Bytes(b"0".to_vec()),
+        TerminalEvent::Bytes(b".".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let second = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(second, ReadlineResult::Line(b"ef".to_vec()));
+}

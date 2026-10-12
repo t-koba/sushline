@@ -1586,3 +1586,33 @@ fn vi_search_starts_from_history_cursor_with_literal_query() {
         );
     }
 }
+
+#[test]
+fn non_incremental_search_again_uses_completed_search_across_reads() {
+    // GNU retains the completed search across prompts: searching for `foo`
+    // finds `foo new`, and repeating the search on the next prompt finds the
+    // older `foo old` instead of dinging on an empty line.
+    let mut history = History::new();
+    history.push("foo old");
+    history.push("foo new");
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"foo".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, history);
+    line.load_inputrc_str(
+        "\"\\C-o\": non-incremental-reverse-search-history\n\"\\C-]\": non-incremental-reverse-search-history-again",
+    )
+    .unwrap();
+    let first = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(first, ReadlineResult::Line(b"foo new".to_vec()));
+
+    *line.terminal_mut() = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(vec![0x1d]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let second = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(second, ReadlineResult::Line(b"foo old".to_vec()));
+}

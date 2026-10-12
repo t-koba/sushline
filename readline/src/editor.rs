@@ -68,6 +68,10 @@ where
     pub(crate) history_expansion_state: HistoryExpansionState,
     pub(crate) kill_ring: Vec<Vec<u8>>,
     pub(crate) last_keyboard_macro: Option<Vec<u8>>,
+    pub(crate) last_search: Option<Vec<u8>>,
+    pub(crate) last_search_direction: Option<SearchDirection>,
+    pub(crate) last_char_search: Option<(CharSearchMode, char)>,
+    pub(crate) last_vi_change: Option<Vec<u8>>,
     initial_inputrc_error: Option<String>,
 }
 
@@ -108,6 +112,10 @@ where
             history_expansion_state: HistoryExpansionState::new(),
             kill_ring: Vec::new(),
             last_keyboard_macro: None,
+            last_search: None,
+            last_search_direction: None,
+            last_char_search: None,
+            last_vi_change: None,
             initial_inputrc_error: None,
         }
     }
@@ -213,6 +221,27 @@ where
         Ok(())
     }
 
+    fn restore_persistent_state(&self, state: &mut EditorState) {
+        // Completed kill, macro, search, and vi state lives on `Editor`
+        // across reads while active searches, pending operators, counts,
+        // marks, and insert recording stay per-line in the fresh state.
+        state.kill.kill_ring = self.kill_ring.clone();
+        state.macro_state.last_keyboard_macro = self.last_keyboard_macro.clone();
+        state.search.last_search = self.last_search.clone();
+        state.search.last_search_direction = self.last_search_direction;
+        state.vi.last_char_search = self.last_char_search;
+        state.vi.last_vi_change = self.last_vi_change.clone();
+    }
+
+    fn save_persistent_state(&mut self, state: &EditorState) {
+        self.kill_ring = state.kill.kill_ring.clone();
+        self.last_keyboard_macro = state.macro_state.last_keyboard_macro.clone();
+        self.last_search = state.search.last_search.clone();
+        self.last_search_direction = state.search.last_search_direction;
+        self.last_char_search = state.vi.last_char_search;
+        self.last_vi_change = state.vi.last_vi_change.clone();
+    }
+
     /// Read line.
     pub fn read_line(
         &mut self,
@@ -240,18 +269,13 @@ where
     ) -> Result<ReadlineResult, ReadlineError> {
         self.reset_runtime_keymap_for_new_line();
         let mut state = EditorState::new(prompt, self.pending_initial_line.take());
-        // Retain killed text and the last keyboard macro across reads: the
-        // ring contents and completed macro live on `Editor` while yank ranges,
-        // recording/replay flags, and last-command flags stay per-line.
-        state.kill.kill_ring = self.kill_ring.clone();
-        state.macro_state.last_keyboard_macro = self.last_keyboard_macro.clone();
+        self.restore_persistent_state(&mut state);
         self.render(&mut state)?;
 
         loop {
             if let Some(signal) = hooks.check_signals() {
                 if let Some(result) = self.handle_checked_signal(&mut state, signal)? {
-                    self.kill_ring = state.kill.kill_ring.clone();
-                    self.last_keyboard_macro = state.macro_state.last_keyboard_macro.clone();
+                    self.save_persistent_state(&state);
                     return Ok(result);
                 }
                 self.render(&mut state)?;
@@ -279,8 +303,7 @@ where
                 }
                 TerminalEvent::Signal(signal) => {
                     if let Some(result) = self.handle_terminal_signal(&mut state, signal)? {
-                        self.kill_ring = state.kill.kill_ring.clone();
-                        self.last_keyboard_macro = state.macro_state.last_keyboard_macro.clone();
+                        self.save_persistent_state(&state);
                         return Ok(result);
                     }
                     self.render(&mut state)?;
@@ -293,8 +316,7 @@ where
                         && !state.paste.bracketed_paste
                     {
                         self.echo_signal_interrupt(&mut state)?;
-                        self.kill_ring = state.kill.kill_ring.clone();
-                        self.last_keyboard_macro = state.macro_state.last_keyboard_macro.clone();
+                        self.save_persistent_state(&state);
                         return Ok(ReadlineResult::Interrupted);
                     }
                     let outcome = if state.search.non_incremental_search.is_some() {
@@ -305,8 +327,7 @@ where
                         self.handle_bytes(&mut state, &bytes, hooks)?
                     };
                     if state.input.interrupted {
-                        self.kill_ring = state.kill.kill_ring.clone();
-                        self.last_keyboard_macro = state.macro_state.last_keyboard_macro.clone();
+                        self.save_persistent_state(&state);
                         return Ok(ReadlineResult::Interrupted);
                     }
                     if matches!(outcome, EditorOutcome::Continue) {
@@ -353,8 +374,7 @@ where
         state: &mut EditorState,
         outcome: EditorOutcome,
     ) -> Result<ReadlineResult, ReadlineError> {
-        self.kill_ring = state.kill.kill_ring.clone();
-        self.last_keyboard_macro = state.macro_state.last_keyboard_macro.clone();
+        self.save_persistent_state(state);
         match outcome {
             EditorOutcome::Continue => {
                 unreachable!("continue outcomes are handled in the read loop")

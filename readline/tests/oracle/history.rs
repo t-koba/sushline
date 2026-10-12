@@ -118,6 +118,38 @@ fn bash_readline_and_sushline_operate_and_get_next_prefill_same_next_read() {
 }
 
 #[test]
+fn bash_readline_and_sushline_repeat_completed_search_across_reads() {
+    // GNU retains the completed non-incremental search across reads: the
+    // repeat on the second read finds the older match instead of dinging.
+    let inputrc = "\"\\C-o\": non-incremental-reverse-search-history\n\"\\C-]\": non-incremental-reverse-search-history-again";
+    let history = ["foo old", "foo new"];
+    let keys = b"\x0ffoo\r\r\x1d\r";
+    let bash = run_bash_readline_two_reads_with_inputrc_file_and_history(keys, inputrc, &history);
+    let sushline = run_sushline_harness_two_reads_with_inputrc_and_history(keys, inputrc, &history);
+
+    assert_eq!(
+        accepted_numbered_line(&sushline, 1),
+        accepted_numbered_line(&bash, 1),
+        "first read\nbash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(
+        accepted_numbered_line(&bash, 1),
+        Some("foo new".to_string()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_numbered_line(&sushline, 2),
+        accepted_numbered_line(&bash, 2),
+        "second read\nbash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(
+        accepted_numbered_line(&bash, 2),
+        Some("foo old".to_string()),
+        "{bash}"
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_expand_same_history_words_and_modifiers() {
     let inputrc = r#""\C-x\C-a": history-expand-line"#;
     let history = ["echo /tmp/foo.txt alpha beta"];

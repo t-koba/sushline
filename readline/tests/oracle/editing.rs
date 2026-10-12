@@ -896,6 +896,68 @@ fn bash_readline_and_sushline_accept_same_vi_character_search() {
 }
 
 #[test]
+fn bash_readline_and_sushline_repeat_vi_char_search_across_reads() {
+    // GNU remembers the completed `f` search across reads: `;` repeats it on
+    // the next line instead of dinging, so `x` removes the found `c`.
+    let keys = b"abcde\x1b0fc\rabcde\x1b0;x\r";
+    let inputrc = "set editing-mode vi";
+    let bash = run_bash_readline_two_reads_with_inputrc_file_and_history(keys, inputrc, &[]);
+    let sushline = run_sushline_harness_two_reads_with_inputrc_and_history(keys, inputrc, &[]);
+
+    assert_eq!(
+        accepted_numbered_line(&sushline, 1),
+        accepted_numbered_line(&bash, 1),
+        "first read\nbash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(
+        accepted_numbered_line(&bash, 1),
+        Some("abcde".to_string()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_numbered_line(&sushline, 2),
+        accepted_numbered_line(&bash, 2),
+        "second read\nbash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(
+        accepted_numbered_line(&bash, 2),
+        Some("abde".to_string()),
+        "{bash}"
+    );
+}
+
+#[test]
+fn bash_readline_and_sushline_repeat_vi_change_across_reads() {
+    // GNU replays the completed change across reads: `x` on the first line
+    // arms `.` for the next line instead of leaving it unbound.
+    let keys = b"abc\x1b0x\rdef\x1b0.\r";
+    let inputrc = "set editing-mode vi";
+    let bash = run_bash_readline_two_reads_with_inputrc_file_and_history(keys, inputrc, &[]);
+    let sushline = run_sushline_harness_two_reads_with_inputrc_and_history(keys, inputrc, &[]);
+
+    assert_eq!(
+        accepted_numbered_line(&sushline, 1),
+        accepted_numbered_line(&bash, 1),
+        "first read\nbash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(
+        accepted_numbered_line(&bash, 1),
+        Some("bc".to_string()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_numbered_line(&sushline, 2),
+        accepted_numbered_line(&bash, 2),
+        "second read\nbash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(
+        accepted_numbered_line(&bash, 2),
+        Some("ef".to_string()),
+        "{bash}"
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_vi_delete_motion() {
     let keys = b"abc def\x1b0dw\r";
     let inputrc = "set editing-mode vi";

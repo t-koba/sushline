@@ -205,11 +205,34 @@ where
                         SearchDirection::Backward => HistoryDirection::Previous,
                         SearchDirection::Forward => HistoryDirection::Next,
                     };
-                    if let Some(found) = self.history.history_search_bytes_with_case(
-                        &query,
-                        history_direction,
-                        self.flag(BoolVariable::SearchIgnoreCase),
-                    ) {
+                    let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
+                    // GNU repeat steps exclusively past the current match,
+                    // while the shared history search starts inclusively at
+                    // the cursor: a backward repeat backs the cursor off by
+                    // one first so the entry we are already on cannot match
+                    // itself. Forward already starts after the cursor. A
+                    // failed repeat restores the saved position.
+                    let backward = matches!(direction, SearchDirection::Backward);
+                    let saved_pos = self
+                        .history
+                        .where_history()
+                        .min(self.history.entries().len());
+                    if backward && saved_pos > 0 {
+                        self.history.set_pos(saved_pos - 1);
+                    }
+                    let found = if backward && saved_pos == 0 {
+                        None
+                    } else {
+                        self.history.history_search_bytes_with_case(
+                            &query,
+                            history_direction,
+                            ignore_case,
+                        )
+                    };
+                    if found.is_none() && backward && saved_pos > 0 {
+                        self.history.set_pos(saved_pos);
+                    }
+                    if let Some(found) = found {
                         self.replace_from_history(state, &found.line_bytes);
                     } else {
                         self.ding()?;

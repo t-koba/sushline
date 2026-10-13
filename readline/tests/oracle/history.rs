@@ -150,6 +150,48 @@ fn bash_readline_and_sushline_repeat_completed_search_across_reads() {
 }
 
 #[test]
+fn bash_readline_and_sushline_recall_incremental_query_on_empty_repeat() {
+    // GNU recalls the previous completed incremental search when repeating
+    // with an empty query on a later read; the recalled query then searches
+    // inclusively from the cursor like a fresh search.
+    // Forward repeat uses C-o (bound to forward-search-history): a raw
+    // Ctrl-S would freeze PTY output via XOFF flow control.
+    let inputrc = r#""\\C-o": forward-search-history"#;
+    let history = ["foo old", "bar old", "foo new", "bar new"];
+    for (keys, second) in [
+        (b"\x12foo\r\x12\x12\r".as_slice(), Some("foo new")),
+        (b"\x12foo\r\x0f\x0f\r".as_slice(), None),
+    ] {
+        let bash =
+            run_bash_readline_two_reads_with_inputrc_file_and_history(keys, inputrc, &history);
+        let sushline = run_sushline_harness_two_reads_with_inputrc_and_history(keys, "", &history);
+
+        assert_eq!(
+            accepted_numbered_line(&bash, 1),
+            Some("foo new".to_string()),
+            "first read\nbash={bash}"
+        );
+        assert_eq!(
+            accepted_numbered_line(&sushline, 1),
+            accepted_numbered_line(&bash, 1),
+            "first read\nbash={bash}\nsushline={sushline}"
+        );
+        if let Some(second) = second {
+            assert_eq!(
+                accepted_numbered_line(&bash, 2),
+                Some(second.to_string()),
+                "second read\nbash={bash}"
+            );
+        }
+        assert_eq!(
+            accepted_numbered_line(&sushline, 2),
+            accepted_numbered_line(&bash, 2),
+            "second read\nbash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_expand_same_history_words_and_modifiers() {
     let inputrc = r#""\C-x\C-a": history-expand-line"#;
     let history = ["echo /tmp/foo.txt alpha beta"];

@@ -731,6 +731,15 @@ where
                 } else {
                     SearchDirection::Forward
                 };
+                // GNU begins a search with an empty query but recalls the
+                // previous completed search when repeating while still
+                // empty; a repeat with no match index then searches
+                // inclusively from the cursor like a fresh search.
+                if search.query.is_empty()
+                    && let Some(previous) = state.search.last_search.clone()
+                {
+                    search.query = previous;
+                }
                 let found = update_reverse_search_match(
                     &mut search,
                     &self.history,

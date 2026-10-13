@@ -28,6 +28,15 @@ impl HistoryChars {
 pub struct HistoryExpansionPolicy {
     /// Word delimiters.
     pub word_delimiters: Vec<u8>,
+    /// Additional event prefix terminators.
+    ///
+    /// Mirrors the GNU History `history_search_delimiter_chars` set: these
+    /// bytes additionally terminate `!string` prefix scans (and the dash-led
+    /// fallback token scan). Empty by default like GNU's NULL default, so the
+    /// builtin terminators alone apply. Never consulted for `!?` needles,
+    /// which scan to the end of the line. Not settable via inputrc: GNU
+    /// rejects `history-search-delimiter-chars` as an unknown variable.
+    pub search_delimiters: Vec<u8>,
     /// No expand chars.
     pub no_expand_chars: Vec<u8>,
     /// Quotes inhibit expansion.
@@ -427,7 +436,7 @@ fn parse_history_event(
                 // the dash-led token, so scan it the same way as a prefix.
                 while line
                     .get(idx)
-                    .is_some_and(|byte| !is_history_event_terminator(*byte))
+                    .is_some_and(|byte| !is_history_event_terminator(*byte, policy))
                 {
                     idx += 1;
                 }
@@ -529,7 +538,7 @@ fn parse_history_event(
             let start = idx;
             while line
                 .get(idx)
-                .is_some_and(|byte| !is_history_event_terminator(*byte))
+                .is_some_and(|byte| !is_history_event_terminator(*byte, policy))
             {
                 idx += 1;
             }
@@ -564,10 +573,12 @@ fn parse_history_event(
 ///
 /// GNU scans until whitespace, a colon, an event designator introducer
 /// (`^$*%-`, with `-` terminating unless numeric), a shell metacharacter
-/// (`;`, `&`, `|`, `<`, `>`, `(`, `)`), or a newline; dots, slashes, quotes,
-/// and most other punctuation scan into the prefix.
-fn is_history_event_terminator(byte: u8) -> bool {
+/// (`;`, `&`, `|`, `<`, `>`, `(`, `)`), a configured search delimiter, or a
+/// newline; dots, slashes, quotes, and most other punctuation scan into the
+/// prefix.
+fn is_history_event_terminator(byte: u8, policy: &HistoryExpansionPolicy) -> bool {
     byte.is_ascii_whitespace()
+        || policy.search_delimiters.contains(&byte)
         || matches!(
             byte,
             b':' | b'^'
@@ -1395,6 +1406,7 @@ impl Default for HistoryExpansionPolicy {
     fn default() -> Self {
         Self {
             word_delimiters: b" \t\n;&()|<>".to_vec(),
+            search_delimiters: Vec::new(),
             no_expand_chars: b" \t\n\r=".to_vec(),
             quotes_inhibit_expansion: false,
             quote_state: None,

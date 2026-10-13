@@ -1746,6 +1746,43 @@ fn history_expansion_scans_event_prefixes_by_delimiters() {
 }
 
 #[test]
+fn history_expansion_consults_search_delimiters_for_string_prefixes() {
+    // Custom search delimiters additionally terminate `!string` prefix
+    // scans (mirroring the History `history_search_delimiter_chars` set)
+    // while `!?` needles scan identically under either policy.
+    let mut history = History::new();
+    history.push("foo wrong");
+    history.push("foo.bar correct");
+    history.push("foobar");
+    history.push("foo.bar qux");
+    let histchars = HistoryChars::parse("!^#");
+    let custom = HistoryExpansionPolicy {
+        search_delimiters: b".".to_vec(),
+        ..HistoryExpansionPolicy::default()
+    };
+    let empty = HistoryExpansionPolicy {
+        search_delimiters: Vec::new(),
+        ..HistoryExpansionPolicy::default()
+    };
+    assert_eq!(
+        expand_history(b"!foo.bar", &history, histchars, &custom, |_| false).unwrap(),
+        b"foo.bar qux.bar".to_vec(),
+    );
+    assert_eq!(
+        expand_history(b"!foo.bar", &history, histchars, &empty, |_| false).unwrap(),
+        b"foo.bar qux".to_vec(),
+    );
+    for policy in [&custom, &empty] {
+        for typed in [b"!?bar".as_slice(), b"!?bar?".as_slice()] {
+            assert_eq!(
+                expand_history(typed, &history, histchars, policy, |_| false).unwrap(),
+                b"foo.bar qux".to_vec(),
+            );
+        }
+    }
+}
+
+#[test]
 fn history_expansion_scans_omitted_question_needle_to_end_of_line() {
     // Without a closing `?`, GNU scans the needle to the end of the line:
     // spaces, colons, and semicolons belong to the needle, so no

@@ -87,7 +87,7 @@ sections.
 | `accept-line`, `previous-history`, `next-history`, `beginning-of-history`, `end-of-history` | Compatible | Implemented in the editor/history integration and covered by tests. |
 | `reverse-search-history`, `forward-search-history`, `non-incremental-reverse-search-history`, `non-incremental-forward-search-history`, `non-incremental-forward-search-history-again`, `non-incremental-reverse-search-history-again` | Compatible | Search direction, repeat, case control, abort, accept, execute bells, and search-string quoting are covered (incremental honors any `quoted-insert` binding, non-incremental quotes `^V`/`^Q`). Non-incremental prompts replace the line while querying (`:` for emacs, `/`/`?` for vi `vi-search`); Enter executes and a second Enter accepts. The completed search persists across reads so `-again` repeats it on the next prompt, stepping exclusively past the current match like GNU. |
 | `history-search-backward`, `history-search-forward`, `history-substring-search-backward`, `history-substring-search-forward` | Compatible | Prefix and substring history search are implemented and tested. |
-| `history-expand-line`, `magic-space` | Compatible | Core expansion is built in with fixed `!^#` and GNU-default `HistoryExpansionPolicy` (single-quote inhibition on); custom characters and policy only via the direct expansion API, not inputrc. |
+| `history-expand-line`, `magic-space` | Compatible | Core expansion is built in with fixed `!^#` and GNU-default `HistoryExpansionPolicy` (single-quote inhibition on, quick substitution off like GNU editor commands); quick substitution and custom characters/policy only via the direct expansion API, not inputrc. |
 | `history-and-alias-expand-line`, `alias-expand-line` | Hook-backed | History expansion is built in; alias expansion uses `Hooks::expand_aliases` because aliases are owned by the embedding application. |
 | `yank-nth-arg`, `yank-last-arg`, `insert-last-argument` | Hook-backed | Quoted, numeric, repeated, and shell-construct history arguments are covered by GNU oracle tests; `Hooks::shell_words` can supply exact application lexer words. |
 | `fetch-history` | Compatible | Numbered history fetch is covered by GNU oracle tests. |
@@ -222,7 +222,7 @@ sections.
 
 | Command(s) | Status | Notes |
 | --- | --- | --- |
-| `history-expand-line`, `magic-space` | Compatible | Uses built-in history expansion and policy variables. `Editor` owns a `HistoryExpansionState` so substitution and search memory persists across expansions and reads. |
+| `history-expand-line`, `magic-space` | Compatible | Core expansion is built in with fixed `!^#` and GNU-default `HistoryExpansionPolicy` (single-quote inhibition on, quick substitution off like GNU editor commands); custom characters and policy only via the direct expansion API, not inputrc. `Editor` owns a `HistoryExpansionState` so substitution and search memory persists across expansions and reads. |
 | `history-and-alias-expand-line` | Hook-backed | History expansion is built in; alias expansion uses `Hooks::expand_aliases`. |
 | `alias-expand-line` | Hook-backed | Aliases are embedder-owned and use `Hooks::expand_aliases`. |
 

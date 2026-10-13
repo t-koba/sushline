@@ -1834,6 +1834,33 @@ fn history_expansion_scans_omitted_question_needle_to_end_of_line() {
 }
 
 #[test]
+fn history_expansion_terminates_substring_needle_at_newline() {
+    // GNU terminates a `!?` needle at a newline or closing `?`: a later `?`
+    // after the newline is literal suffix, not the delimiter.
+    let mut history = History::new();
+    history.push("echo alpha");
+    let histchars = HistoryChars::parse("!^#");
+    let policy = HistoryExpansionPolicy::default();
+
+    for (typed, next_index, expected) in [
+        ("!?alpha\nTAIL", 7, "echo alpha\nTAIL"),
+        ("!?alpha\nTAIL?", 7, "echo alpha\nTAIL?"),
+        ("!?alpha?\nTAIL", 8, "echo alpha\nTAIL"),
+    ] {
+        let event = get_history_event(typed.as_bytes(), &history, histchars, &policy)
+            .expect("event parse")
+            .expect("event found");
+        assert_eq!(event.next_index, next_index, "{typed:?}");
+        assert_eq!(event.line, b"echo alpha".to_vec(), "{typed:?}");
+        assert_eq!(
+            expand_history(typed.as_bytes(), &history, histchars, &policy, |_| false).unwrap(),
+            expected.as_bytes().to_vec(),
+            "{typed:?}"
+        );
+    }
+}
+
+#[test]
 fn history_expansion_retains_substitution_memory_across_calls() {
     // GNU History-library memory (`subst_lhs`/`subst_rhs`): `&` repeats the
     // previous substitution and empty-old reuses it across expansion calls.

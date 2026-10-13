@@ -34,7 +34,7 @@ pub struct HistoryExpansionPolicy {
     /// bytes additionally terminate `!string` prefix scans (and the dash-led
     /// fallback token scan). Empty by default like GNU's NULL default, so the
     /// builtin terminators alone apply. Never consulted for `!?` needles,
-    /// which scan to the end of the line. Not settable via inputrc: GNU
+    /// which scan to a newline or closing `?`. Not settable via inputrc: GNU
     /// rejects `history-search-delimiter-chars` as an unknown variable.
     pub search_delimiters: Vec<u8>,
     /// No expand chars.
@@ -472,13 +472,17 @@ fn parse_history_event(
         Some(b'?') => {
             idx += 1;
             let start = idx;
-            if let Some(end) = line[idx..].iter().position(|byte| *byte == b'?') {
+            if let Some(end) = line[idx..]
+                .iter()
+                .position(|byte| *byte == b'?' || *byte == b'\n')
+            {
                 idx += end;
             } else {
-                // Without a closing `?`, GNU scans the needle to the end of
-                // the line: spaces, colons, and semicolons belong to the
-                // needle, so no word-designator or modifier split follows
-                // for this event.
+                // Without a closing `?` or newline, GNU scans the needle to
+                // the end of the input: spaces, colons, and semicolons belong
+                // to the needle, so no word-designator or modifier split
+                // follows for this event. A newline always terminates the
+                // needle like a closing `?`, but only `?` is consumed.
                 idx = line.len();
             }
             let mut needle = line[start..idx].to_vec();

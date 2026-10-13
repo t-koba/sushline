@@ -402,6 +402,43 @@ pub(super) fn run_sushline_harness_two_reads_with_inputrc_and_history(
     run_pty_until(command, keys, "SUSHLINE_ACCEPTED_2:")
 }
 
+/// Drive Bash at a real interactive prompt (no `-c`): seed history, read
+/// one line with `read -e`, and report it without executing it.
+///
+/// `read -e` under `bash -i -c` never history-expands, and `history -p`
+/// scans `;` into the event prefix while the prompt path terminates on it,
+/// so prompt-path oracle cases need this shape. The prompt and marker are
+/// assembled from variables so the echoed command line never contains them.
+pub(super) fn run_bash_prompt_with_history(keys: &[u8], inputrc: &str, history: &[&str]) -> String {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    fs::write(&path, inputrc).expect("write inputrc");
+    let mut command = CommandBuilder::new("bash");
+    command.env("INPUTRC", path.to_string_lossy().as_ref());
+    command.env("PS1", READY_PROMPT);
+    command.args(["--noprofile", "--norc", "-i"]);
+    let mut owned: Vec<(String, Vec<u8>)> = history
+        .iter()
+        .map(|entry| {
+            (
+                READY_PROMPT.to_string(),
+                format!("history -s {}\r", shell_single_quote(entry)).into_bytes(),
+            )
+        })
+        .collect();
+    owned.push((
+        READY_PROMPT.to_string(),
+        b"p=RDP; IFS= read -r -e -p \"${p}>\" line; m=SUSHLINE_ACCEPT; printf \"${m}ED:%s\\n\" \"$line\"\r"
+            .to_vec(),
+    ));
+    owned.push(("RDP>".to_string(), keys.to_vec()));
+    let steps: Vec<(&str, &[u8])> = owned
+        .iter()
+        .map(|(marker, step_keys)| (marker.as_str(), step_keys.as_slice()))
+        .collect();
+    run_pty_steps_until(command, &steps, "SUSHLINE_ACCEPTED:")
+}
+
 pub(super) fn run_pty(command: CommandBuilder, keys: &[u8]) -> String {
     run_pty_with_size(
         command,

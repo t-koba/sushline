@@ -570,10 +570,26 @@ fn is_history_search_delimiter(byte: u8, policy: &HistoryExpansionPolicy) -> boo
 /// Bytes ending a `!string` event prefix.
 ///
 /// GNU scans until whitespace, a colon, an event designator introducer
-/// (`^$*%-`, with `-` terminating unless numeric), or a newline; dots,
-/// slashes, quotes, and most other punctuation scan into the prefix.
+/// (`^$*%-`, with `-` terminating unless numeric), a shell metacharacter
+/// (`;`, `&`, `|`, `<`, `>`, `(`, `)`), or a newline; dots, slashes, quotes,
+/// and most other punctuation scan into the prefix.
 fn is_history_event_terminator(byte: u8) -> bool {
-    byte.is_ascii_whitespace() || matches!(byte, b':' | b'^' | b'$' | b'*' | b'%' | b'-')
+    byte.is_ascii_whitespace()
+        || matches!(
+            byte,
+            b':' | b'^'
+                | b'$'
+                | b'*'
+                | b'%'
+                | b'-'
+                | b';'
+                | b'&'
+                | b'|'
+                | b'<'
+                | b'>'
+                | b'('
+                | b')'
+        )
 }
 
 fn apply_history_word_designator(

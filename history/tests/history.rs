@@ -1712,6 +1712,26 @@ fn history_expansion_scans_event_prefixes_by_delimiters() {
         Err(HistoryExpansionError::EventNotFound("!-bar".to_string())),
     );
 
+    // Shell metacharacters terminate the prefix: the event expands and
+    // the metacharacter with the rest stays literal.
+    let mut plain = History::new();
+    plain.push("foo wrong");
+    for (typed, expected) in [
+        ("!foo;bar", "foo wrong;bar"),
+        ("!foo&bar", "foo wrong&bar"),
+        ("!foo|bar", "foo wrong|bar"),
+        ("!foo<in", "foo wrong<in"),
+        ("!foo>out", "foo wrong>out"),
+        ("!foo(bar", "foo wrong(bar"),
+        ("!foo)bar", "foo wrong)bar"),
+    ] {
+        assert_eq!(
+            expand_history(typed.as_bytes(), &plain, histchars, &policy, |_| false).unwrap(),
+            expected.as_bytes().to_vec(),
+            "{typed}"
+        );
+    }
+
     // Open-ended ranges select nothing on single-word entries like GNU.
     let mut single = History::new();
     single.push("abcd");

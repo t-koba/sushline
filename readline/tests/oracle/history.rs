@@ -240,6 +240,42 @@ fn bash_readline_and_sushline_expand_prefixed_paths_with_punctuation() {
 }
 
 #[test]
+fn bash_readline_and_sushline_terminate_event_prefix_on_metacharacters() {
+    // GNU ends a `!string` prefix on shell metacharacters: the event
+    // expands and the metacharacter with the rest stays literal. This uses
+    // the real-prompt Bash path because `history -p` scans `;` into the
+    // prefix while the prompt path terminates on it.
+    let inputrc = r#""\C-x\C-a": history-expand-line"#;
+    let history = ["foo wrong"];
+
+    for (typed, expected) in [
+        ("!foo;bar", "foo wrong;bar"),
+        ("!foo&bar", "foo wrong&bar"),
+        ("!foo|bar", "foo wrong|bar"),
+        ("!foo<in", "foo wrong<in"),
+        ("!foo>out", "foo wrong>out"),
+        ("!foo(bar", "foo wrong(bar"),
+        ("!foo)bar", "foo wrong)bar"),
+    ] {
+        let keys = format!("{typed}\x18\x01\r");
+        let bash = run_bash_prompt_with_history(keys.as_bytes(), inputrc, &history);
+        let sushline =
+            run_sushline_harness_with_inputrc_and_history(keys.as_bytes(), inputrc, &history);
+
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{typed}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{typed}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_expand_same_history_edge_cases() {
     let inputrc = r#""\C-x\C-a": history-expand-line"#;
     let history = [

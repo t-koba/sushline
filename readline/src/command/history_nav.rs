@@ -69,6 +69,12 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::ReverseSearchHistory => {
+                if state.search.reverse_search.is_some() {
+                    let Some(search) = state.search.reverse_search.take() else {
+                        return Ok(EditorOutcome::Continue);
+                    };
+                    return self.repeat_reverse_search(state, search, SearchDirection::Backward);
+                }
                 state.search.quoted_pending = false;
                 state.search.non_incremental_search = None;
                 let original_point = state.buffer.point();
@@ -134,6 +140,12 @@ where
                 state.after_non_kill_command();
             }
             "forward-search-history" => {
+                if state.search.reverse_search.is_some() {
+                    let Some(search) = state.search.reverse_search.take() else {
+                        return Ok(EditorOutcome::Continue);
+                    };
+                    return self.repeat_reverse_search(state, search, SearchDirection::Forward);
+                }
                 state.search.quoted_pending = false;
                 state.search.non_incremental_search = None;
                 let original_point = state.buffer.point();

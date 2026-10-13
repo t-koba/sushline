@@ -726,33 +726,12 @@ where
                 EditorOutcome::Continue
             }
             &[0x12] | &[0x13] => {
-                search.direction = if bytes == [0x12] {
+                let direction = if bytes == [0x12] {
                     SearchDirection::Backward
                 } else {
                     SearchDirection::Forward
                 };
-                // GNU begins a search with an empty query but recalls the
-                // previous completed search when repeating while still
-                // empty; a repeat with no match index then searches
-                // inclusively from the cursor like a fresh search.
-                if search.query.is_empty()
-                    && let Some(previous) = state.search.last_search.clone()
-                {
-                    search.query = previous;
-                }
-                let found = update_reverse_search_match(
-                    &mut search,
-                    &self.history,
-                    true,
-                    self.flag(BoolVariable::SearchIgnoreCase),
-                );
-                self.apply_search_match(state, &search);
-                // A repeat with no further match keeps the line and bells.
-                if !found && !search.query.is_empty() {
-                    self.ding()?;
-                }
-                state.search.reverse_search = Some(search);
-                EditorOutcome::Continue
+                return self.repeat_reverse_search(state, search, direction);
             }
             &[0x7f] => {
                 search.query.pop();
@@ -807,6 +786,20 @@ where
             .lookup(self.keymap.current(), bytes)
             .filter(|binding| !matches!(binding, KeyBinding::Command(EditCommand::SelfInsert)))
             .cloned();
+        // A key invoking a search command while a search is active repeats
+        // (switching direction) instead of accepting and restarting.
+        let repeat_direction = match &command_binding {
+            Some(KeyBinding::Command(EditCommand::ReverseSearchHistory)) => {
+                Some(SearchDirection::Backward)
+            }
+            Some(KeyBinding::NamedCommand(name)) if name == "forward-search-history" => {
+                Some(SearchDirection::Forward)
+            }
+            _ => None,
+        };
+        if let Some(direction) = repeat_direction {
+            return self.repeat_reverse_search(state, search, direction);
+        }
         if command_binding.is_some() || self.keymap.has_prefix(self.keymap.current(), bytes) {
             let accepted = accept_search_line(&search);
             state.buffer = LineBuffer::from_bytes(accepted);
@@ -850,6 +843,39 @@ where
             self.keymap.lookup(self.keymap.current(), bytes),
             Some(KeyBinding::Command(EditCommand::QuotedInsert))
         )
+    }
+
+    /// Repeat an active incremental search, switching direction.
+    ///
+    /// GNU repeats (rather than accepts and restarts) when the key invokes
+    /// a search command while a search is active. A repeat with an empty
+    /// query recalls the previous completed search; with no match index the
+    /// recalled query searches inclusively from the cursor like a fresh
+    /// search, and a repeat with no further match keeps the line and bells.
+    pub(super) fn repeat_reverse_search(
+        &mut self,
+        state: &mut EditorState,
+        mut search: ReverseSearchState,
+        direction: SearchDirection,
+    ) -> Result<EditorOutcome, ReadlineError> {
+        search.direction = direction;
+        if search.query.is_empty()
+            && let Some(previous) = state.search.last_search.clone()
+        {
+            search.query = previous;
+        }
+        let found = update_reverse_search_match(
+            &mut search,
+            &self.history,
+            true,
+            self.flag(BoolVariable::SearchIgnoreCase),
+        );
+        self.apply_search_match(state, &search);
+        if !found && !search.query.is_empty() {
+            self.ding()?;
+        }
+        state.search.reverse_search = Some(search);
+        Ok(EditorOutcome::Continue)
     }
 
     fn apply_search_match(&mut self, state: &mut EditorState, search: &ReverseSearchState) -> bool {

@@ -420,8 +420,19 @@ fn parse_history_event(
             if line.get(idx) == Some(&b'-') {
                 idx += 1;
             }
+            let digits_start = idx;
             while line.get(idx).is_some_and(u8::is_ascii_digit) {
                 idx += 1;
+            }
+            if line.get(start) == Some(&b'-') && idx == digits_start {
+                // Dash without digits is not a relative event: GNU reports
+                // the dash-led token, so scan it the same way as a prefix.
+                while line
+                    .get(idx)
+                    .is_some_and(|byte| !is_history_event_terminator(*byte))
+                {
+                    idx += 1;
+                }
             }
             let spec = &line[start..idx];
             let spec_text = String::from_utf8_lossy(spec);
@@ -501,13 +512,32 @@ fn parse_history_event(
                 ))),
             }
         }
-        Some(c) if c.is_ascii_alphanumeric() || c == b'_' => {
+        Some(b':') => history
+            .entries()
+            .last()
+            .map(|entry| {
+                Some(HistoryEvent {
+                    line: entry.line_bytes.clone(),
+                    next_index: idx,
+                    matched_word: None,
+                })
+            })
+            .ok_or_else(|| HistoryExpansionError::EventNotFound("!!".to_string())),
+        Some(_) => {
+            // GNU scans the prefix until a delimiter rather than accepting
+            // identifier characters: dots, slashes, and most punctuation
+            // belong to the prefix, while a dash terminates it (unless it
+            // starts a numeric relative event, handled above) for the word
+            // designator path below.
             let start = idx;
             while line
                 .get(idx)
-                .is_some_and(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+                .is_some_and(|byte| !is_history_event_terminator(*byte))
             {
                 idx += 1;
+            }
+            if start == idx {
+                return Ok(None);
             }
             let prefix = &line[start..idx];
             history
@@ -529,23 +559,21 @@ fn parse_history_event(
                     ))
                 })
         }
-        Some(b':') => history
-            .entries()
-            .last()
-            .map(|entry| {
-                Some(HistoryEvent {
-                    line: entry.line_bytes.clone(),
-                    next_index: idx,
-                    matched_word: None,
-                })
-            })
-            .ok_or_else(|| HistoryExpansionError::EventNotFound("!!".to_string())),
         _ => Ok(None),
     }
 }
 
 fn is_history_search_delimiter(byte: u8, policy: &HistoryExpansionPolicy) -> bool {
     byte == b'?' || policy.search_delimiters.contains(&byte)
+}
+
+/// Bytes ending a `!string` event prefix.
+///
+/// GNU scans until whitespace, a colon, an event designator introducer
+/// (`^$*%-`, with `-` terminating unless numeric), or a newline; dots,
+/// slashes, quotes, and most other punctuation scan into the prefix.
+fn is_history_event_terminator(byte: u8) -> bool {
+    byte.is_ascii_whitespace() || matches!(byte, b':' | b'^' | b'$' | b'*' | b'%' | b'-')
 }
 
 fn apply_history_word_designator(
@@ -628,7 +656,12 @@ fn select_history_words(
     if let Some(dash) = spec.iter().position(|byte| *byte == b'-') {
         let start = idx_for(&spec[..dash])?;
         let end = if dash + 1 == spec.len() {
-            last.saturating_sub(1)
+            // Open-ended `x-` keeps every word but the last; a single-word
+            // entry therefore selects nothing instead of itself.
+            if last == 0 {
+                return Ok(Vec::new());
+            }
+            last - 1
         } else {
             idx_for(&spec[dash + 1..])?
         };

@@ -1674,6 +1674,58 @@ fn history_expansion_selects_percent_word_by_match_position() {
 }
 
 #[test]
+fn history_expansion_scans_event_prefixes_by_delimiters() {
+    // GNU scans a `!string` prefix until a delimiter: dots, slashes, and
+    // most punctuation belong to the prefix, while a dash terminates it.
+    let mut history = History::new();
+    history.push("foo wrong");
+    history.push("foo.bar correct");
+    history.push("./tool local");
+    history.push("/usr/bin/tool absolute");
+    history.push("foo/bar slash");
+    let histchars = HistoryChars::parse("!^#");
+    let policy = HistoryExpansionPolicy::default();
+    for (typed, expected) in [
+        ("!foo.bar", "foo.bar correct"),
+        ("!./tool", "./tool local"),
+        ("!/usr/bin/tool", "/usr/bin/tool absolute"),
+        ("!foo/bar", "foo/bar slash"),
+    ] {
+        assert_eq!(
+            expand_history(typed.as_bytes(), &history, histchars, &policy, |_| false).unwrap(),
+            expected.as_bytes().to_vec(),
+            "{typed}"
+        );
+    }
+
+    // A dash terminates the prefix: `!foo` selects the event while `-`
+    // applies the all-but-last-word range and `bar` stays literal.
+    let mut dashed = History::new();
+    dashed.push("foo wrong");
+    assert_eq!(
+        expand_history(b"!foo-bar", &dashed, histchars, &policy, |_| false).unwrap(),
+        b"foobar".to_vec(),
+    );
+    // Dash without digits is not a relative event; GNU reports the token.
+    assert_eq!(
+        expand_history(b"!-bar", &dashed, histchars, &policy, |_| false),
+        Err(HistoryExpansionError::EventNotFound("!-bar".to_string())),
+    );
+
+    // Open-ended ranges select nothing on single-word entries like GNU.
+    let mut single = History::new();
+    single.push("abcd");
+    assert_eq!(
+        expand_history(b"!ab-cd", &single, histchars, &policy, |_| false).unwrap(),
+        b"cd".to_vec(),
+    );
+    assert_eq!(
+        expand_history(b"!!:0-", &single, histchars, &policy, |_| false).unwrap(),
+        b"".to_vec(),
+    );
+}
+
+#[test]
 fn history_expansion_retains_substitution_memory_across_calls() {
     // GNU History-library memory (`subst_lhs`/`subst_rhs`): `&` repeats the
     // previous substitution and empty-old reuses it across expansion calls.

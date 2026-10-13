@@ -195,6 +195,51 @@ fn bash_readline_and_sushline_expand_same_history_words_and_modifiers() {
 }
 
 #[test]
+fn bash_readline_and_sushline_expand_prefixed_paths_with_punctuation() {
+    // GNU scans a `!string` prefix until a delimiter, so dots and slashes
+    // belong to the event; a dash terminates it with `-` applying the
+    // all-but-last-word range.
+    let inputrc = r#""\C-x\C-a": history-expand-line"#;
+    let history = [
+        "foo wrong",
+        "foo.bar correct",
+        "./tool local",
+        "/usr/bin/tool absolute",
+        "foo/bar slash",
+    ];
+
+    for (typed, expected) in [
+        ("!foo.bar", "foo.bar correct"),
+        ("!./tool", "./tool local"),
+        ("!/usr/bin/tool", "/usr/bin/tool absolute"),
+        ("!foo/bar", "foo/bar slash"),
+    ] {
+        let keys = format!("{typed}\x18\x01\r");
+        let bash = run_bash_history_expand(typed, &history);
+        let sushline =
+            run_sushline_harness_with_inputrc_and_history(keys.as_bytes(), inputrc, &history);
+
+        assert_eq!(bash, expected, "{typed}");
+        assert_eq!(
+            accepted_line(&sushline),
+            Some(expected.to_string()),
+            "{typed}: {sushline}"
+        );
+    }
+
+    let keys = b"!foo-bar\x18\x01\r";
+    let bash = run_bash_history_expand("!foo-bar", &["foo wrong"]);
+    let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &["foo wrong"]);
+
+    assert_eq!(bash, "foobar", "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        Some("foobar".to_string()),
+        "{sushline}"
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_expand_same_history_edge_cases() {
     let inputrc = r#""\C-x\C-a": history-expand-line"#;
     let history = [

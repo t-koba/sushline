@@ -276,6 +276,39 @@ fn bash_readline_and_sushline_terminate_event_prefix_on_metacharacters() {
 }
 
 #[test]
+fn bash_readline_and_sushline_scan_omitted_question_needle_to_end_of_line() {
+    // Without a closing `?`, GNU scans the needle to the end of the line,
+    // so a trailing space or `:p` belongs to the needle instead of staying
+    // literal or applying as a modifier. The real-prompt path also covers
+    // the failing expansions, which leave the line unchanged on both sides.
+    let inputrc = r#""\C-x\C-a": history-expand-line"#;
+    let history = ["alpha beta", "gamma delta here", "/usr/local/bin/tool arg"];
+
+    for (typed, expected) in [
+        ("!?delta here", "gamma delta here"),
+        ("!?delta? here", "gamma delta here here"),
+        ("!?delta:p", "!?delta:p"),
+        ("!?arg1 qux", "!?arg1 qux"),
+    ] {
+        let keys = format!("{typed}\x18\x01\r");
+        let bash = run_bash_prompt_with_history(keys.as_bytes(), inputrc, &history);
+        let sushline =
+            run_sushline_harness_with_inputrc_and_history(keys.as_bytes(), inputrc, &history);
+
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{typed}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{typed}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_expand_same_history_edge_cases() {
     let inputrc = r#""\C-x\C-a": history-expand-line"#;
     let history = [

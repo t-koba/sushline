@@ -1746,6 +1746,57 @@ fn history_expansion_scans_event_prefixes_by_delimiters() {
 }
 
 #[test]
+fn history_expansion_scans_omitted_question_needle_to_end_of_line() {
+    // Without a closing `?`, GNU scans the needle to the end of the line:
+    // spaces, colons, and semicolons belong to the needle, so no
+    // word-designator or modifier split follows for the event.
+    let mut first = History::new();
+    for entry in [
+        "foobar",
+        "foo-bar baz",
+        "foo.bar qux",
+        "foo/bar qux",
+        "foo\"bar qux",
+        "foo'bar qux",
+        "myprog arg1 arg2",
+    ] {
+        first.push(entry);
+    }
+    let mut second = History::new();
+    second.push("alpha beta");
+    second.push("gamma delta here");
+    second.push("/usr/local/bin/tool arg");
+    let histchars = HistoryChars::parse("!^#");
+    let policy = HistoryExpansionPolicy::default();
+    for (history, typed, expected) in [
+        (&first, "!?arg1", "myprog arg1 arg2"),
+        (&second, "!?delta?:p", "gamma delta here"),
+        (&second, "!?delta here", "gamma delta here"),
+        (&second, "!?delta? here", "gamma delta here here"),
+        (&second, "!?gamma delta", "gamma delta here"),
+        (&second, "!?gamma delta? extra", "gamma delta here extra"),
+    ] {
+        assert_eq!(
+            expand_history(typed.as_bytes(), history, histchars, &policy, |_| false).unwrap(),
+            expected.as_bytes().to_vec(),
+            "{typed}"
+        );
+    }
+    for (history, typed, needle) in [
+        (&first, "!?arg1 qux", "arg1 qux"),
+        (&first, "!?arg1:qux", "arg1:qux"),
+        (&first, "!?arg1;qux", "arg1;qux"),
+        (&second, "!?delta:p", "delta:p"),
+    ] {
+        assert_eq!(
+            expand_history(typed.as_bytes(), history, histchars, &policy, |_| false),
+            Err(HistoryExpansionError::EventNotFound(format!("!?{needle}?"))),
+            "{typed}"
+        );
+    }
+}
+
+#[test]
 fn history_expansion_retains_substitution_memory_across_calls() {
     // GNU History-library memory (`subst_lhs`/`subst_rhs`): `&` repeats the
     // previous substitution and empty-old reuses it across expansion calls.

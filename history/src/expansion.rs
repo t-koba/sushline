@@ -29,6 +29,9 @@ pub struct HistoryExpansionPolicy {
     /// Word delimiters.
     pub word_delimiters: Vec<u8>,
     /// Search delimiters.
+    ///
+    /// Mirrors GNU `history-search-delimiter-chars` as a settable; GNU scans
+    /// an omitted-closing-`?` needle to the end of the line regardless.
     pub search_delimiters: Vec<u8>,
     /// No expand chars.
     pub no_expand_chars: Vec<u8>,
@@ -465,12 +468,11 @@ fn parse_history_event(
             if let Some(end) = line[idx..].iter().position(|byte| *byte == b'?') {
                 idx += end;
             } else {
-                while line
-                    .get(idx)
-                    .is_some_and(|byte| !is_history_search_delimiter(*byte, policy))
-                {
-                    idx += 1;
-                }
+                // Without a closing `?`, GNU scans the needle to the end of
+                // the line: spaces, colons, and semicolons belong to the
+                // needle, so no word-designator or modifier split follows
+                // for this event.
+                idx = line.len();
             }
             let mut needle = line[start..idx].to_vec();
             if line.get(idx) == Some(&b'?') {
@@ -561,10 +563,6 @@ fn parse_history_event(
         }
         _ => Ok(None),
     }
-}
-
-fn is_history_search_delimiter(byte: u8, policy: &HistoryExpansionPolicy) -> bool {
-    byte == b'?' || policy.search_delimiters.contains(&byte)
 }
 
 /// Bytes ending a `!string` event prefix.

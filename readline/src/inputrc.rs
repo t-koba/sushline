@@ -538,11 +538,7 @@ fn normalize_variable_value(name: &str, value: &str) -> Option<String> {
     }
     if matches!(
         name,
-        "bell-style"
-            | "histchars"
-            | "history-word-delimiters"
-            | "history-search-delimiter-chars"
-            | "history-no-expand-chars"
+        "bell-style" | "histchars" | "history-word-delimiters" | "history-no-expand-chars"
     ) {
         return Some(value.to_string());
     }

@@ -54,6 +54,24 @@ fn ignores_unknown_variables_and_treats_unknown_bool_values_as_off() {
 }
 
 #[test]
+fn history_search_delimiter_chars_is_not_a_readline_variable() {
+    // GNU Readline 8.3 has no `history-search-delimiter-chars` variable
+    // (`bind` rejects it as unknown), so setting it stores nothing and the
+    // omitted-`?` needle scans to the end of the line regardless.
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    InputrcParser::new()
+        .parse_str(
+            "set history-search-delimiter-chars X",
+            &Config::default(),
+            &mut keymap,
+            &mut variables,
+        )
+        .unwrap();
+    assert!(!variables.contains_key("history-search-delimiter-chars"));
+}
+
+#[test]
 fn ignores_invalid_editing_mode_and_keymap_values() {
     let mut keymap = KeyMap::emacs_default();
     let mut variables = Variables::new();

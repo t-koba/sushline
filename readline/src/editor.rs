@@ -495,9 +495,6 @@ where
         if let Some(value) = self.variables.get_bytes("history-word-delimiters") {
             policy.word_delimiters = value.clone();
         }
-        if let Some(value) = self.variables.get_bytes("history-search-delimiter-chars") {
-            policy.search_delimiters = value.clone();
-        }
         if let Some(value) = self.variables.get_bytes("history-no-expand-chars") {
             policy.no_expand_chars = value.clone();
         }

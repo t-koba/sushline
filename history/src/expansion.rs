@@ -28,11 +28,6 @@ impl HistoryChars {
 pub struct HistoryExpansionPolicy {
     /// Word delimiters.
     pub word_delimiters: Vec<u8>,
-    /// Search delimiters.
-    ///
-    /// Mirrors GNU `history-search-delimiter-chars` as a settable; GNU scans
-    /// an omitted-closing-`?` needle to the end of the line regardless.
-    pub search_delimiters: Vec<u8>,
     /// No expand chars.
     pub no_expand_chars: Vec<u8>,
     /// Quotes inhibit expansion.
@@ -1400,7 +1395,6 @@ impl Default for HistoryExpansionPolicy {
     fn default() -> Self {
         Self {
             word_delimiters: b" \t\n;&()|<>".to_vec(),
-            search_delimiters: b" \t\n:;".to_vec(),
             no_expand_chars: b" \t\n\r=".to_vec(),
             quotes_inhibit_expansion: false,
             quote_state: None,

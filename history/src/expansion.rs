@@ -28,10 +28,11 @@ impl HistoryChars {
 pub struct HistoryExpansionPolicy {
     /// Word delimiters used by history word selection.
     ///
-    /// Whitespace separates words without producing fields, and recognized
-    /// shell operators/redirections keep their own fields. Other configured
-    /// delimiter bytes are preserved as delimiter fields; adjacent delimiter
-    /// bytes and following whitespace stay together in one field.
+    /// Whitespace separates words without producing fields. A configured
+    /// non-operator delimiter that starts a field groups all contiguous bytes
+    /// from this set, including whitespace, operators, and redirections when
+    /// they are present in the set. Operators and redirections encountered at
+    /// field entry are still parsed as their own fields.
     pub word_delimiters: Vec<u8>,
     /// Additional event prefix terminators.
     ///
@@ -1075,22 +1076,16 @@ fn command_word_spans(line: &[u8], policy: &HistoryExpansionPolicy) -> Vec<(usiz
                 idx += operator_len;
                 continue;
             }
-            // A configured delimiter that is not a recognized shell
-            // operator/redirection still occupies a history word field. Keep
-            // adjacent custom delimiters together, as well as whitespace
-            // immediately following the delimiter run; ordinary whitespace
-            // by itself remains a separator as above.
+            // A configured non-operator delimiter starts a field containing
+            // every contiguous configured delimiter byte. Operators,
+            // redirections, and whitespace join this run when configured;
+            // field-entry operator/redirection handling above remains special.
             let mut end = idx + 1;
-            while let Some(next) = line.get(end).copied() {
-                if next.is_ascii_whitespace()
-                    || (policy.word_delimiters.contains(&next)
-                        && shell_operator_len(line, end) == 0
-                        && history_redirection_word_len(line, end).is_none())
-                {
-                    end += 1;
-                } else {
-                    break;
-                }
+            while line
+                .get(end)
+                .is_some_and(|next| policy.word_delimiters.contains(next))
+            {
+                end += 1;
             }
             spans.push((idx, end));
             idx = end;

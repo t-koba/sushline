@@ -1166,6 +1166,14 @@ fn custom_history_word_delimiters_preserve_punctuation_fields() {
             vec![b"echo".as_slice(), b"alpha", b",,", b"beta"],
         ),
         (
+            b"echo alpha,;beta".as_slice(),
+            vec![b"echo".as_slice(), b"alpha", b",;", b"beta"],
+        ),
+        (
+            b"echo alpha, & beta".as_slice(),
+            vec![b"echo".as_slice(), b"alpha", b", & ", b"beta"],
+        ),
+        (
             b"echo alpha, beta".as_slice(),
             vec![b"echo".as_slice(), b"alpha", b", ", b"beta"],
         ),
@@ -1189,6 +1197,10 @@ fn custom_history_word_delimiters_preserve_punctuation_fields() {
                 b",",
             ],
         ),
+        (
+            b"echo ; 2>&1".as_slice(),
+            vec![b"echo".as_slice(), b";", b"2>&1"],
+        ),
     ] {
         assert_eq!(
             history_tokenize(line, &policy),
@@ -1197,6 +1209,22 @@ fn custom_history_word_delimiters_preserve_punctuation_fields() {
             String::from_utf8_lossy(line)
         );
     }
+
+    // With punctuation as the only configured delimiter, whitespace after
+    // the comma is skipped rather than absorbed into its field.
+    let punctuation_only = HistoryExpansionPolicy {
+        word_delimiters: b",".to_vec(),
+        ..HistoryExpansionPolicy::default()
+    };
+    assert_eq!(
+        history_tokenize(b"echo alpha, beta", &punctuation_only),
+        vec![
+            b"echo".to_vec(),
+            b"alpha".to_vec(),
+            b",".to_vec(),
+            b"beta".to_vec()
+        ],
+    );
 
     let mut history = History::new();
     history.push("echo alpha,beta gamma");

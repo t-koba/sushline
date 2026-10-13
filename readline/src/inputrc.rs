@@ -536,10 +536,7 @@ fn normalize_variable_value(name: &str, value: &str) -> Option<String> {
             value.to_string()
         });
     }
-    if matches!(
-        name,
-        "bell-style" | "histchars" | "history-word-delimiters" | "history-no-expand-chars"
-    ) {
+    if matches!(name, "bell-style") {
         return Some(value.to_string());
     }
     if !READLINE_BOOLEAN_VARIABLES.contains(&name) {
@@ -603,7 +600,6 @@ const READLINE_BOOLEAN_VARIABLES: &[&str] = &[
     "expand-tilde",
     "force-meta-prefix",
     "history-preserve-point",
-    "history-quotes-inhibit-expansion",
     "horizontal-scroll-mode",
     "input-meta",
     "mark-directories",

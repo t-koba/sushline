@@ -37,29 +37,9 @@ fn history_expansion_supports_quick_substitution_and_event_search() {
 }
 
 #[test]
-fn history_expansion_honors_histchars_variable() {
-    let terminal = MemoryTerminal::with_events(vec![
-        TerminalEvent::Bytes(b"%".to_vec()),
-        TerminalEvent::Bytes(b"%".to_vec()),
-        TerminalEvent::Bytes(vec![0x0f]),
-        TerminalEvent::Bytes(b"\r".to_vec()),
-    ]);
-    let mut history = History::new();
-    history.push("echo custom");
-    let config = Config {
-        auto_add_history: true,
-        ..Default::default()
-    };
-    let mut line = Editor::new(config, terminal, history);
-    line.load_inputrc_str("set histchars %~#\n\"\\C-o\": history-expand-line")
-        .unwrap();
-    let mut hooks = TestHistoryHook;
-    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
-    assert_eq!(
-        result,
-        ReadlineResult::Line("echo custom".as_bytes().to_vec())
-    );
-
+fn history_expansion_honors_custom_histchars() {
+    // GNU has no `histchars` inputrc variable, so custom characters only
+    // apply through the direct expansion API, not editor inputrc.
     let mut history = History::new();
     history.push("git checkout main");
     assert_eq!(

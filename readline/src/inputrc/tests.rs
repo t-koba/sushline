@@ -72,6 +72,31 @@ fn history_search_delimiter_chars_is_not_a_readline_variable() {
 }
 
 #[test]
+fn histchars_family_variables_are_not_readline_variables() {
+    // GNU rejects `histchars`, `history-word-delimiters`,
+    // `history-no-expand-chars`, and `history-quotes-inhibit-expansion` as
+    // unknown, so none of them may be stored.
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    InputrcParser::new()
+        .parse_str(
+            "set histchars %~#\nset history-word-delimiters XYZ\nset history-no-expand-chars XYZ\nset history-quotes-inhibit-expansion on",
+            &Config::default(),
+            &mut keymap,
+            &mut variables,
+        )
+        .unwrap();
+    for name in [
+        "histchars",
+        "history-word-delimiters",
+        "history-no-expand-chars",
+        "history-quotes-inhibit-expansion",
+    ] {
+        assert!(!variables.contains_key(name), "{name}");
+    }
+}
+
+#[test]
 fn ignores_invalid_editing_mode_and_keymap_values() {
     let mut keymap = KeyMap::emacs_default();
     let mut variables = Variables::new();

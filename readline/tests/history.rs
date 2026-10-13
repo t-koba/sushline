@@ -118,7 +118,10 @@ fn history_expansion_command_without_hook_uses_core_expander() {
 }
 
 #[test]
-fn history_expansion_command_uses_inputrc_policy_variables() {
+fn history_expansion_inhibits_expansion_in_single_quotes_by_default() {
+    // GNU has no `history-quotes-inhibit-expansion` variable; single-quote
+    // inhibition is the default behavior, so the unknown variable is
+    // ignored and the quoted event stays literal anyway.
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"'!!'".to_vec()),
         TerminalEvent::Bytes(vec![0x0f]),

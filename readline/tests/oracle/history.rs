@@ -458,12 +458,16 @@ fn bash_readline_and_sushline_do_not_quick_substitute_from_history_expand_line()
 
 #[test]
 fn bash_readline_and_sushline_apply_same_history_quote_inhibit_policy() {
-    let inputrc = "set history-quotes-inhibit-expansion on\n\"\\C-x\\C-a\": history-expand-line";
+    // GNU inhibits `!` expansion inside single quotes by default with no
+    // variable involved; the unknown variable is ignored on both sides.
+    // The real-prompt path is required: `read -e` under `-c` never expands.
+    let inputrc = r#""\C-x\C-a": history-expand-line"#;
     let history = ["echo alpha"];
-    let keys = b"'!!\x18\x01\r";
-    let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &history);
+    let keys = b"'!!'\x18\x01\r";
+    let bash = run_bash_prompt_with_history(keys, inputrc, &history);
     let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
 
+    assert_eq!(accepted_line(&bash), Some("'!!'".to_string()), "{bash}");
     assert_eq!(
         accepted_line(&sushline),
         accepted_line(&bash),

@@ -482,25 +482,17 @@ where
     }
 
     fn histchars(&self) -> HistoryChars {
-        HistoryChars::parse(
-            self.variables
-                .get("histchars")
-                .map(String::as_str)
-                .unwrap_or("!^#"),
-        )
+        // GNU has no `histchars` inputrc variable; the characters are fixed.
+        HistoryChars::parse("!^#")
     }
 
     fn history_expansion_policy(&self) -> HistoryExpansionPolicy {
-        let mut policy = HistoryExpansionPolicy::default();
-        if let Some(value) = self.variables.get_bytes("history-word-delimiters") {
-            policy.word_delimiters = value.clone();
+        // GNU has no inputrc variables for the remaining policy fields;
+        // embedders configure them per call through `HistoryExpansionPolicy`.
+        HistoryExpansionPolicy {
+            quick_substitution: false,
+            ..HistoryExpansionPolicy::default()
         }
-        if let Some(value) = self.variables.get_bytes("history-no-expand-chars") {
-            policy.no_expand_chars = value.clone();
-        }
-        policy.quotes_inhibit_expansion = self.variable_is_on("history-quotes-inhibit-expansion");
-        policy.quick_substitution = false;
-        policy
     }
 
     pub(crate) fn ding(&mut self) -> Result<(), ReadlineError> {

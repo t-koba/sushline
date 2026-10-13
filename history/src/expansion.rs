@@ -40,6 +40,9 @@ pub struct HistoryExpansionPolicy {
     /// No expand chars.
     pub no_expand_chars: Vec<u8>,
     /// Quotes inhibit expansion.
+    ///
+    /// True by default like GNU, which never expands `!` inside single
+    /// quotes; double quotes still expand. No inputrc variable exists.
     pub quotes_inhibit_expansion: bool,
     /// Quote state.
     pub quote_state: Option<u8>,
@@ -1408,7 +1411,7 @@ impl Default for HistoryExpansionPolicy {
             word_delimiters: b" \t\n;&()|<>".to_vec(),
             search_delimiters: Vec::new(),
             no_expand_chars: b" \t\n\r=".to_vec(),
-            quotes_inhibit_expansion: false,
+            quotes_inhibit_expansion: true,
             quote_state: None,
             quick_substitution: true,
         }

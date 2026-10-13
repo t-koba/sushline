@@ -26,7 +26,12 @@ impl HistoryChars {
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// HistoryExpansionPolicy.
 pub struct HistoryExpansionPolicy {
-    /// Word delimiters.
+    /// Word delimiters used by history word selection.
+    ///
+    /// Whitespace separates words without producing fields, and recognized
+    /// shell operators/redirections keep their own fields. Other configured
+    /// delimiter bytes are preserved as delimiter fields; adjacent delimiter
+    /// bytes and following whitespace stay together in one field.
     pub word_delimiters: Vec<u8>,
     /// Additional event prefix terminators.
     ///
@@ -1070,6 +1075,26 @@ fn command_word_spans(line: &[u8], policy: &HistoryExpansionPolicy) -> Vec<(usiz
                 idx += operator_len;
                 continue;
             }
+            // A configured delimiter that is not a recognized shell
+            // operator/redirection still occupies a history word field. Keep
+            // adjacent custom delimiters together, as well as whitespace
+            // immediately following the delimiter run; ordinary whitespace
+            // by itself remains a separator as above.
+            let mut end = idx + 1;
+            while let Some(next) = line.get(end).copied() {
+                if next.is_ascii_whitespace()
+                    || (policy.word_delimiters.contains(&next)
+                        && shell_operator_len(line, end) == 0
+                        && history_redirection_word_len(line, end).is_none())
+                {
+                    end += 1;
+                } else {
+                    break;
+                }
+            }
+            spans.push((idx, end));
+            idx = end;
+            continue;
         } else {
             word_start.get_or_insert(idx);
         }

@@ -496,7 +496,9 @@ impl History {
         Some(found)
     }
 
-    /// History search pos.
+    /// Search from a zero-based history position, including that entry, without
+    /// moving the current cursor. A one-past-end position searches backward
+    /// from the newest entry and has no forward entries.
     pub fn history_search_pos(
         &self,
         needle: &str,

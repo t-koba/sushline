@@ -90,6 +90,44 @@ fn history_search_includes_positioned_entry_with_directional_offsets() {
 }
 
 #[test]
+fn history_search_pos_matches_beginning_and_end_boundaries() {
+    // GNU Readline 8.3 histsearch.c starts at the requested position: position
+    // zero is searchable in both directions; one-past-end searches the newest
+    // entry backward and has no forward entries. history_search_pos restores
+    // the caller's cursor after either result.
+    let mut h = History::new();
+    h.push("needle first");
+    h.push("middle");
+    h.push("needle last");
+    h.set_pos(1);
+
+    assert_eq!(
+        h.history_search_pos("needle", HistoryDirection::Previous, 0)
+            .map(|found| found.entry_index),
+        Some(0)
+    );
+    assert_eq!(
+        h.history_search_pos("needle", HistoryDirection::Next, 0)
+            .map(|found| found.entry_index),
+        Some(0)
+    );
+    assert_eq!(
+        h.history_search_pos("needle", HistoryDirection::Previous, 3)
+            .map(|found| found.entry_index),
+        Some(2)
+    );
+    assert!(
+        h.history_search_pos("needle", HistoryDirection::Next, 3)
+            .is_none()
+    );
+    assert_eq!(
+        h.where_history(),
+        1,
+        "positional search must not move the cursor"
+    );
+}
+
+#[test]
 fn searches_history_by_prefix() {
     let mut h = History::new();
     h.push("alpha one");

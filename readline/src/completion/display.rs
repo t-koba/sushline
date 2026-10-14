@@ -182,36 +182,30 @@ pub(crate) fn color_completion_prefix(item: &str, replacement: &str, prefix: &st
     }
     let color = ls_color_named_code("readline-colored-completion-prefix")
         .unwrap_or_else(|| "1".to_string());
-    let (split, suffix_style) = split_ansi_visible_prefix(item, prefix.chars().count());
+    let (split, suffix_sgr_history) = split_ansi_visible_prefix(item, prefix.chars().count());
     let highlighted_prefix = strip_sgr_sequences(&item[..split]);
-    let suffix_style = suffix_style.unwrap_or_default();
+    let suffix_sgr_history = suffix_sgr_history.unwrap_or_default();
     format!(
-        "\x1b[{color}m{highlighted_prefix}\x1b[0m{suffix_style}{}",
+        "\x1b[{color}m{highlighted_prefix}\x1b[0m{suffix_sgr_history}{}",
         &item[split..]
     )
 }
 
 // Return a UTF-8 boundary after `visible_chars` while ignoring CSI sequences,
-// along with the active SGR at that boundary. Filename stats color the whole
-// item before prefix highlighting; carrying the active style onto the suffix
-// prevents ANSI bytes from shortening the highlighted prefix or losing the
-// candidate's type color.
+// along with the SGR history through that boundary. Filename stats color the
+// whole item before prefix highlighting; replaying that history after the
+// highlight reset preserves cumulative attributes and selective resets.
 fn split_ansi_visible_prefix(item: &str, visible_chars: usize) -> (usize, Option<String>) {
     let bytes = item.as_bytes();
     let mut offset = 0;
     let mut chars = 0;
-    let mut active_sgr = None;
+    let mut sgr_history = String::new();
     while offset < bytes.len() && chars < visible_chars {
         if bytes[offset..].starts_with(b"\x1b[")
             && let Some(end) = csi_sequence_end(bytes, offset)
         {
             if bytes[end - 1] == b'm' {
-                let sequence = &item[offset..end];
-                active_sgr = if sequence == "\x1b[m" || sequence == "\x1b[0m" {
-                    None
-                } else {
-                    Some(sequence.to_string())
-                };
+                sgr_history.push_str(&item[offset..end]);
             }
             offset = end;
             continue;
@@ -220,7 +214,7 @@ fn split_ansi_visible_prefix(item: &str, visible_chars: usize) -> (usize, Option
         offset += character.len_utf8();
         chars += 1;
     }
-    (offset, active_sgr)
+    (offset, (!sgr_history.is_empty()).then_some(sgr_history))
 }
 
 fn strip_sgr_sequences(text: &str) -> String {

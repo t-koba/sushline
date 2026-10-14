@@ -453,6 +453,21 @@ fn colored_completion_prefix_marks_common_prefix() {
 }
 
 #[test]
+fn colored_completion_prefix_preserves_sgr_state_after_selective_reset() {
+    let item = "\x1b[1;31malpha-\x1b[39mrest-one\x1b[0m";
+    let output = color_completion_prefix(item, "alpha-rest-one", "alpha-rest-");
+
+    assert!(
+        output.contains("alpha-rest-\x1b[0m"),
+        "full visible prefix should be highlighted: {output:?}"
+    );
+    assert!(
+        output.contains("\x1b[1;31m\x1b[39mone\x1b[0m"),
+        "selective foreground reset must preserve bold on the suffix: {output:?}"
+    );
+}
+
+#[test]
 fn colored_completion_prefix_highlights_shared_non_utf8_prefix() {
     let terminal = MemoryTerminal::default();
     let mut line = Editor::new(Config::default(), terminal, History::new());

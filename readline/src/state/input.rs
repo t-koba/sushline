@@ -10,8 +10,8 @@ pub(crate) struct InputState {
     pub(crate) pending_replace: bool,
     pub(crate) named_command: Option<String>,
     pub(crate) prefix_meta: bool,
-    // Preserves synthetic-prefix provenance until its pending key sequence resolves.
-    pub(crate) prefix_meta_command_dispatch: bool,
+    // Byte length of the synthetic Meta sequence retained in the pending key.
+    pub(crate) prefix_meta_command_len: usize,
 }
 
 impl EditorState {

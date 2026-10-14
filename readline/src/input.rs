@@ -96,18 +96,18 @@ where
         let mut prefixed = Vec::with_capacity(next.len() + 1);
         prefixed.push(0x1b);
         prefixed.extend_from_slice(next);
-        let was_prefix_meta_command_dispatch = state.input.prefix_meta_command_dispatch;
-        state.input.prefix_meta_command_dispatch = true;
+        let was_prefix_meta_command_len = state.input.prefix_meta_command_len;
+        state.input.prefix_meta_command_len = prefixed.len();
         let result = self.handle_bytes(state, &prefixed, hooks);
         let outcome = match result {
             Ok(outcome) => outcome,
             Err(error) => {
-                state.input.prefix_meta_command_dispatch = was_prefix_meta_command_dispatch;
+                state.input.prefix_meta_command_len = was_prefix_meta_command_len;
                 return Err(error);
             }
         };
         if state.input.pending_key.is_empty() || !matches!(&outcome, EditorOutcome::Continue) {
-            state.input.prefix_meta_command_dispatch = was_prefix_meta_command_dispatch;
+            state.input.prefix_meta_command_len = was_prefix_meta_command_len;
         }
         if rest.is_empty() || !matches!(&outcome, EditorOutcome::Continue) {
             return Ok(outcome);
@@ -291,7 +291,7 @@ where
         }
 
         if let Some(binding) = self.keymap.lookup(self.keymap.current(), &pending).cloned() {
-            state.input.prefix_meta_command_dispatch = false;
+            state.input.prefix_meta_command_len = 0;
             return self.apply_binding(state, binding, &pending, hooks);
         }
 
@@ -317,7 +317,7 @@ where
                     use_len = char_len;
                 }
             }
-            state.input.prefix_meta_command_dispatch = false;
+            state.input.prefix_meta_command_len = 0;
             let outcome = self.apply_binding(state, binding, &pending[..use_len], hooks)?;
             if !matches!(outcome, EditorOutcome::Continue) {
                 return Ok(outcome);
@@ -521,8 +521,8 @@ where
         bytes: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
-        let prefix_meta_command_dispatch = state.input.prefix_meta_command_dispatch;
-        state.input.prefix_meta_command_dispatch = false;
+        let prefix_meta_command_len = state.input.prefix_meta_command_len;
+        state.input.prefix_meta_command_len = 0;
         if state.input.pending_replace {
             return self.handle_replace_input(state, bytes, hooks);
         }
@@ -537,7 +537,17 @@ where
         let unbound_meta_prefix = bytes.len() > 1
             && bytes.first() == Some(&0x1b)
             && !matches!(bytes.get(1), Some(&b'[') | Some(&b'O'));
-        if unbound_meta_prefix && !prefix_meta_command_dispatch {
+        if prefix_meta_command_len > 0 && bytes.len() > prefix_meta_command_len {
+            // Only the generated prefix gets literal fallback; redispatch later bytes normally.
+            state.input.prefix_meta_command_len = prefix_meta_command_len;
+            let outcome = self.handle_unbound(state, &bytes[..prefix_meta_command_len], hooks)?;
+            if !matches!(&outcome, EditorOutcome::Continue) {
+                return Ok(outcome);
+            }
+            return self.handle_bytes(state, &bytes[prefix_meta_command_len..], hooks);
+        }
+
+        if unbound_meta_prefix && prefix_meta_command_len == 0 {
             self.ding()?;
             state.consume_numeric_arg_unless_prefix();
             return Ok(EditorOutcome::Continue);

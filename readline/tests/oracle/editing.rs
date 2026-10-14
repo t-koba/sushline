@@ -523,6 +523,14 @@ fn sushline_prefix_meta_inputrc_extension_preserves_literal_fallback() {
         Some("abcacX".to_string()),
         "synthetic prefix fallback should preserve its literal bytes: {sushline}"
     );
+
+    let physical_meta_keys = b"abc\x0fa\x1bbX\r";
+    let sushline = run_sushline_harness_with_inputrc(physical_meta_keys, overlapping_inputrc);
+    assert_eq!(
+        accepted_line(&sushline),
+        Some("Xabca".to_string()),
+        "physical Meta input after the synthetic fallback should dispatch normally: {sushline}"
+    );
 }
 
 #[test]

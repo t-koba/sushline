@@ -652,6 +652,51 @@ fn bash_readline_and_sushline_complete_same_filenames_into_braces() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn bash_readline_and_sushline_show_all_for_tested_ambiguous_and_unmodified_filename_completion() {
+    let dir = tempfile::tempdir().expect("temp completion directory");
+    for name in ["alpha-one", "alpha-two"] {
+        fs::write(dir.path().join(name), "").expect("write completion fixture");
+    }
+
+    for (prefix, show_all_if_ambiguous, show_all_if_unmodified, expected_line, should_list) in [
+        ("al", "on", "off", "alpha-", true),
+        ("al", "off", "off", "alpha-", false),
+        ("alpha-", "off", "on", "alpha-", true),
+        ("alpha-", "off", "off", "alpha-", false),
+    ] {
+        let inputrc = format!(
+            "\"\\C-o\": complete\nset completion-query-items 999\nset page-completions off\nset show-all-if-ambiguous {show_all_if_ambiguous}\nset show-all-if-unmodified {show_all_if_unmodified}"
+        );
+        let typed = format!("{}/{prefix}", dir.path().display());
+        let keys = format!("{typed}\x0f\r");
+        let expected = format!("{}/{expected_line}", dir.path().display());
+        let bash = run_bash_readline_with_inputrc_file(keys.as_bytes(), &inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), &inputrc);
+
+        for (output, implementation) in [(&bash, "bash"), (&sushline, "sushline")] {
+            assert_eq!(
+                accepted_line(output),
+                Some(expected.clone()),
+                "prefix={prefix:?}, show-all-if-ambiguous={show_all_if_ambiguous}, show-all-if-unmodified={show_all_if_unmodified}, implementation={implementation}\n{output}"
+            );
+            for candidate in ["alpha-one", "alpha-two"] {
+                assert_eq!(
+                    output.contains(candidate),
+                    should_list,
+                    "candidate={candidate:?}, prefix={prefix:?}, show-all-if-ambiguous={show_all_if_ambiguous}, show-all-if-unmodified={show_all_if_unmodified}, implementation={implementation}\n{output}"
+                );
+            }
+        }
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "prefix={prefix:?}, show-all-if-ambiguous={show_all_if_ambiguous}, show-all-if-unmodified={show_all_if_unmodified}\nbash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
 #[test]
 fn bash_readline_and_sushline_list_completion_candidates_in_same_sorted_order() {
     let dir = tempfile::tempdir().expect("tempdir");

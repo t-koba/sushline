@@ -97,19 +97,51 @@ pub trait TerminalIo {
 pub struct Terminal {
     stdout: Stdout,
     raw: bool,
+    catch_signals: bool,
+    catch_sigwinch: bool,
     #[cfg(unix)]
     saved_termios: Option<libc::termios>,
 }
 
 impl Terminal {
-    /// New.
+    /// Creates a built-in terminal with both signal-catching groups enabled.
     pub fn new() -> Self {
         Self {
             stdout: io::stdout(),
             raw: false,
+            catch_signals: true,
+            catch_sigwinch: true,
             #[cfg(unix)]
             saved_termios: None,
         }
+    }
+
+    /// Sets whether the built-in terminal catches SIGINT, SIGQUIT, SIGTERM,
+    /// SIGHUP, SIGALRM, SIGTSTP, SIGTTIN, and SIGTTOU on Unix.
+    ///
+    /// Defaults to `true`, independently of [`Self::set_catch_sigwinch`].
+    /// Configure this before `Editor::read_line` or raw-mode entry; changes
+    /// take effect on the next raw-mode entry, not during an active read.
+    /// An inherited `SIG_IGN` is preserved for every selected signal.
+    /// Disabling it leaves these process-wide dispositions to the embedder,
+    /// which can report pending signals through `Hooks::check_signals`.
+    /// This is built-in `Terminal` policy, not policy for custom [`TerminalIo`]
+    /// implementations, and does not change the editor's SIGINT result policy.
+    pub fn set_catch_signals(&mut self, catch: bool) {
+        self.catch_signals = catch;
+    }
+
+    /// Sets whether the built-in terminal catches SIGWINCH on Unix.
+    ///
+    /// Defaults to `true`, independently of [`Self::set_catch_signals`].
+    /// Configure this before `Editor::read_line` or raw-mode entry; changes
+    /// take effect on the next raw-mode entry, not during an active read.
+    /// When enabled, an inherited `SIG_IGN` is preserved; otherwise the saved
+    /// handler is chained and resize events are reported. Disabling it leaves
+    /// the process-wide disposition to the embedder. This option does not
+    /// affect custom [`TerminalIo`] implementations.
+    pub fn set_catch_sigwinch(&mut self, catch: bool) {
+        self.catch_sigwinch = catch;
     }
 }
 
@@ -136,7 +168,7 @@ impl TerminalIo for Terminal {
             // so a failed entry (for example ENOTTY on non-TTY stdin) leaves
             // no handlers behind; restore stays gated on `raw`.
             enable_readline_mode(&mut self.saved_termios)?;
-            install_signal_handlers();
+            install_signal_handlers(self.catch_signals, self.catch_sigwinch);
             self.raw = true;
             Ok(())
         }
@@ -404,26 +436,36 @@ const READLINE_SIGNALS: [libc::c_int; 8] = [
 ];
 
 #[cfg(unix)]
-fn install_signal_handlers() {
+fn install_signal_handlers(catch_signals: bool, catch_sigwinch: bool) {
+    if !catch_signals && !catch_sigwinch {
+        return;
+    }
+    // One process-global install state covers both groups. Restoration uses
+    // the saved-action flags, not policy that may have changed since entry.
     if SIGNAL_HANDLERS_INSTALLED.swap(true, Ordering::SeqCst) {
         return;
     }
     unsafe {
-        let mut action: libc::sigaction = std::mem::zeroed();
-        action.sa_sigaction = handle_sigwinch_siginfo as *const () as usize;
-        libc::sigemptyset(&mut action.sa_mask);
-        action.sa_flags = libc::SA_SIGINFO;
-        let mut old_action: libc::sigaction = std::mem::zeroed();
-        if libc::sigaction(libc::SIGWINCH, &action, &mut old_action) == 0 {
-            if old_action.sa_sigaction == libc::SIG_IGN {
-                // Mirror GNU `rl_maybe_set_sighandler`: never clobber an
-                // embedder-ignored disposition, including SIGWINCH.
-                libc::sigaction(libc::SIGWINCH, &old_action, std::ptr::null_mut());
-            } else {
-                std::ptr::addr_of_mut!(OLD_SIGWINCH_ACTION)
-                    .write(std::mem::MaybeUninit::new(old_action));
-                OLD_SIGWINCH_SAVED.store(true, Ordering::SeqCst);
+        if catch_sigwinch {
+            let mut action: libc::sigaction = std::mem::zeroed();
+            action.sa_sigaction = handle_sigwinch_siginfo as *const () as usize;
+            libc::sigemptyset(&mut action.sa_mask);
+            action.sa_flags = libc::SA_SIGINFO;
+            let mut old_action: libc::sigaction = std::mem::zeroed();
+            if libc::sigaction(libc::SIGWINCH, &action, &mut old_action) == 0 {
+                if old_action.sa_sigaction == libc::SIG_IGN {
+                    // Mirror GNU `rl_maybe_set_sighandler`: never clobber an
+                    // embedder-ignored disposition, including SIGWINCH.
+                    libc::sigaction(libc::SIGWINCH, &old_action, std::ptr::null_mut());
+                } else {
+                    std::ptr::addr_of_mut!(OLD_SIGWINCH_ACTION)
+                        .write(std::mem::MaybeUninit::new(old_action));
+                    OLD_SIGWINCH_SAVED.store(true, Ordering::SeqCst);
+                }
             }
+        }
+        if !catch_signals {
+            return;
         }
         for (idx, signal) in READLINE_SIGNALS.iter().copied().enumerate() {
             let mut action: libc::sigaction = std::mem::zeroed();
@@ -510,15 +552,13 @@ fn read_raw_event(timeout: Option<Duration>) -> io::Result<TerminalEvent> {
         .unwrap_or(-1);
     let ready = unsafe { libc::poll(&mut pollfd, 1, timeout_ms) };
     if ready < 0 {
-        if io::Error::last_os_error().kind() == io::ErrorKind::Interrupted
-            && SIGWINCH_RECEIVED.swap(false, Ordering::SeqCst)
+        let err = io::Error::last_os_error();
+        if err.kind() != io::ErrorKind::Interrupted
+            && let Some(event) = pending_signal_event()
         {
-            return current_resize_event();
-        }
-        if let Some(event) = pending_signal_event() {
             return Ok(event);
         }
-        return Err(io::Error::last_os_error());
+        return read_error_event(err);
     }
     if ready == 0 {
         return Ok(TerminalEvent::Timeout);
@@ -532,21 +572,28 @@ fn read_raw_event(timeout: Option<Duration>) -> io::Result<TerminalEvent> {
         )
     };
     if read < 0 {
-        let err = io::Error::last_os_error();
-        if err.kind() == io::ErrorKind::Interrupted {
-            if SIGWINCH_RECEIVED.swap(false, Ordering::SeqCst) {
-                return current_resize_event();
-            }
-            if let Some(event) = pending_signal_event() {
-                return Ok(event);
-            }
-        }
-        return Err(err);
+        return read_error_event(io::Error::last_os_error());
     }
     if read == 0 {
         return Ok(TerminalEvent::Timeout);
     }
     Ok(TerminalEvent::Bytes(buf[..read as usize].to_vec()))
+}
+
+#[cfg(unix)]
+fn read_error_event(err: io::Error) -> io::Result<TerminalEvent> {
+    if err.kind() != io::ErrorKind::Interrupted {
+        return Err(err);
+    }
+    if SIGWINCH_RECEIVED.swap(false, Ordering::SeqCst) {
+        return current_resize_event();
+    }
+    if let Some(event) = pending_signal_event() {
+        return Ok(event);
+    }
+    // An embedder-owned handler may have interrupted poll/read without
+    // setting our flags. Yield so the editor rechecks Hooks::check_signals.
+    Ok(TerminalEvent::Timeout)
 }
 
 #[cfg(unix)]
@@ -621,66 +668,24 @@ fn tty_special_bindings() -> Vec<(u8, &'static str)> {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::{install_signal_handlers, prepare_readline_termios, restore_signal_handlers};
-
-    fn current_handler(signal: libc::c_int) -> usize {
-        unsafe {
-            let mut current: libc::sigaction = std::mem::zeroed();
-            assert_eq!(
-                libc::sigaction(signal, std::ptr::null(), &mut current),
-                0,
-                "query disposition"
-            );
-            current.sa_sigaction
-        }
-    }
-
-    fn set_disposition(signal: libc::c_int, handler: usize) {
-        unsafe {
-            let mut action: libc::sigaction = std::mem::zeroed();
-            action.sa_sigaction = handler;
-            libc::sigemptyset(&mut action.sa_mask);
-            action.sa_flags = 0;
-            assert_eq!(
-                libc::sigaction(signal, &action, std::ptr::null_mut()),
-                0,
-                "set disposition"
-            );
-        }
-    }
+    use super::{TerminalEvent, prepare_readline_termios, read_error_event};
 
     #[test]
-    fn install_preserves_sig_ign() {
-        // Start from a clean install state; no other unit test installs the
-        // process-global handlers (integration tests use mock terminals).
-        restore_signal_handlers();
-        let original_alarm = current_handler(libc::SIGALRM);
-        let original_term = current_handler(libc::SIGTERM);
-        set_disposition(libc::SIGALRM, libc::SIG_IGN);
-        set_disposition(libc::SIGTERM, libc::SIG_DFL);
-
-        install_signal_handlers();
-        // Embedder-ignored dispositions survive the install, including for
-        // signals sushline otherwise catches.
+    fn interrupted_poll_or_read_without_caught_event_yields_timeout() {
+        // Both syscall EINTR branches use this fallback. Disposition/event
+        // tests run in isolated integration-test children, so this unit test
+        // needs neither a real signal nor process-global handler changes.
         assert_eq!(
-            current_handler(libc::SIGALRM),
-            libc::SIG_IGN,
-            "SIG_IGN must survive install"
+            read_error_event(std::io::Error::from_raw_os_error(libc::EINTR)).unwrap(),
+            TerminalEvent::Timeout
         );
-        // Non-ignored signals are still caught.
-        let term = current_handler(libc::SIGTERM);
-        assert_ne!(term, libc::SIG_IGN, "SIGTERM must be caught");
-        assert_ne!(term, libc::SIG_DFL, "SIGTERM must be caught");
-        restore_signal_handlers();
         assert_eq!(
-            current_handler(libc::SIGALRM),
-            libc::SIG_IGN,
-            "SIG_IGN must survive restore"
+            read_error_event(std::io::Error::from_raw_os_error(libc::EIO))
+                .unwrap_err()
+                .raw_os_error(),
+            Some(libc::EIO),
+            "other I/O errors must not become timeouts"
         );
-
-        set_disposition(libc::SIGALRM, original_alarm);
-        set_disposition(libc::SIGTERM, original_term);
-        restore_signal_handlers();
     }
 
     #[test]

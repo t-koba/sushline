@@ -51,3 +51,27 @@ fn hook_sigint_takes_same_interrupt_path_as_terminal_signal() {
     assert_eq!(result, ReadlineResult::Interrupted);
     assert!(line.terminal.out.contains("> ^C\r\n"));
 }
+
+#[test]
+fn timeout_rechecks_embedder_signal_hook() {
+    struct AfterTimeoutHook {
+        checks: usize,
+    }
+
+    impl Hooks for AfterTimeoutHook {
+        fn check_signals(&mut self) -> Option<i32> {
+            self.checks += 1;
+            (self.checks == 2).then_some(libc::SIGINT)
+        }
+    }
+
+    let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Timeout]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let mut hooks = AfterTimeoutHook { checks: 0 };
+    assert_eq!(
+        line.read_line(Prompt::new("> "), &mut hooks).unwrap(),
+        ReadlineResult::Interrupted
+    );
+    assert_eq!(hooks.checks, 2);
+    assert!(line.terminal.out.contains("^C\r\n"));
+}

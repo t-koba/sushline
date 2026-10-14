@@ -16,7 +16,6 @@ pub(crate) struct FilenameOptions {
     pub(crate) mark_symlinked_directories: bool,
     pub(crate) match_hidden_files: bool,
     pub(crate) expand_tilde: bool,
-    pub(crate) colored_stats: bool,
     utf8_locale: bool,
     lc_ctype: Option<String>,
 }
@@ -30,7 +29,6 @@ impl FilenameOptions {
             mark_symlinked_directories: variables.is_on("mark-symlinked-directories"),
             match_hidden_files: variables.is_on("match-hidden-files"),
             expand_tilde: variables.is_on("expand-tilde"),
-            colored_stats: variables.is_on("colored-stats"),
             utf8_locale: variables.utf8_locale(),
             lc_ctype: variables.lc_ctype().map(str::to_owned),
         }
@@ -114,7 +112,7 @@ fn complete_filenames_with_tilde_context(
                 directory_candidate_count += 1;
             }
             let display = match directory.as_ref() {
-                Some(directory) => Some(directory_display(&name, &path, opts, directory)),
+                Some(directory) => Some(directory_display(&name, directory)),
                 None => (!display_dir.is_empty()).then_some(name),
             };
             candidates.push(crate::completion::CompletionCandidate {
@@ -255,10 +253,55 @@ pub(crate) fn os_str_to_completion_bytes(value: &std::ffi::OsStr) -> Option<Vec<
     value.to_str().map(|value| value.as_bytes().to_vec())
 }
 
-fn ls_color_code_for_candidate(name: &str, path: &Path, fallback_kind: &str) -> Option<String> {
-    let colors = std::env::var("LS_COLORS").ok()?;
-    let kind = ls_color_kind(path).unwrap_or(fallback_kind);
-    ls_color_code_from_spec(name, path, kind, &colors)
+pub(crate) fn filename_ls_color_code(word: &[u8], replacement: &[u8]) -> Option<String> {
+    let path = completion_replacement_path(word, replacement)?;
+    let metadata = path.symlink_metadata().ok()?;
+    let file_type = metadata.file_type();
+    let kind = if file_type.is_dir() {
+        "di"
+    } else if file_type.is_symlink() {
+        "ln"
+    } else if file_type.is_file() && filename_is_executable(&path) {
+        "ex"
+    } else if file_type.is_file() {
+        "fi"
+    } else {
+        return None;
+    };
+    let colors = std::env::var("LS_COLORS").unwrap_or_default();
+    if kind == "di"
+        && let Some(color) =
+            ls_color_code_from_spec(&filename_display_name(replacement), &path, kind, &colors)
+    {
+        // Preserve the existing directory-name pattern behavior. This is not
+        // extended to other candidate kinds by the measured type-code change.
+        return Some(color);
+    }
+    ls_color_type_code(&colors, kind).or_else(|| match kind {
+        "di" => Some("01;34".to_string()),
+        "ex" => Some("01;32".to_string()),
+        "ln" => Some("01;36".to_string()),
+        // Bash's tested default for regular files is no visible SGR style.
+        "fi" => None,
+        _ => None,
+    })
+}
+
+#[cfg(unix)]
+fn filename_is_executable(path: &Path) -> bool {
+    is_executable_file(path)
+}
+
+#[cfg(not(unix))]
+fn filename_is_executable(_path: &Path) -> bool {
+    false
+}
+
+fn ls_color_type_code(colors: &str, kind: &str) -> Option<String> {
+    colors.split(':').find_map(|part| {
+        let (key, value) = part.split_once('=')?;
+        (key == kind).then(|| value.to_string())
+    })
 }
 
 pub(crate) fn ls_color_code_from_spec(
@@ -289,41 +332,6 @@ pub(crate) fn ls_color_code_from_spec(
         }
     }
     fallback
-}
-
-fn ls_color_kind(path: &Path) -> Option<&'static str> {
-    let metadata = path.symlink_metadata().ok()?;
-    let file_type = metadata.file_type();
-    if file_type.is_dir() {
-        Some("di")
-    } else if file_type.is_symlink() {
-        Some("ln")
-    } else if is_executable_file(path) {
-        Some("ex")
-    } else {
-        ls_color_kind_for_platform(&file_type).or(Some("fi"))
-    }
-}
-
-#[cfg(unix)]
-fn ls_color_kind_for_platform(file_type: &fs::FileType) -> Option<&'static str> {
-    use std::os::unix::fs::FileTypeExt;
-    if file_type.is_socket() {
-        Some("so")
-    } else if file_type.is_fifo() {
-        Some("pi")
-    } else if file_type.is_block_device() {
-        Some("bd")
-    } else if file_type.is_char_device() {
-        Some("cd")
-    } else {
-        None
-    }
-}
-
-#[cfg(not(unix))]
-fn ls_color_kind_for_platform(_file_type: &fs::FileType) -> Option<&'static str> {
-    None
 }
 
 pub(super) fn directory_completion(
@@ -407,21 +415,9 @@ pub(crate) fn path_from_bytes(bytes: &[u8]) -> Option<PathBuf> {
     std::str::from_utf8(bytes).ok().map(PathBuf::from)
 }
 
-fn directory_display(
-    name: &str,
-    path: &Path,
-    opts: &FilenameOptions,
-    directory: &DirectoryCompletion,
-) -> String {
+fn directory_display(name: &str, directory: &DirectoryCompletion) -> String {
     let suffix = if directory.display_slash { "/" } else { "" };
-    if opts.colored_stats {
-        format!(
-            "\x1b[{}m{name}{suffix}\x1b[0m",
-            ls_color_code_for_candidate(name, path, "di").unwrap_or_else(|| "34".to_string())
-        )
-    } else {
-        format!("{name}{suffix}")
-    }
+    format!("{name}{suffix}")
 }
 
 fn ls_colors_glob_match(pattern: &str, value: &str) -> bool {
@@ -917,7 +913,6 @@ mod tests {
             mark_symlinked_directories: true,
             match_hidden_files: true,
             expand_tilde: false,
-            colored_stats: false,
             utf8_locale: false,
             lc_ctype: None,
         }

@@ -187,10 +187,36 @@ pub(super) fn run_bash_readline_with_inputrc_file_and_env(
     inputrc: &str,
     env: &[(&str, &str)],
 ) -> String {
+    run_bash_readline_with_inputrc_file_and_env_removing(keys, inputrc, env, &[])
+}
+
+pub(super) fn run_bash_readline_with_inputrc_file_and_env_removing(
+    keys: &[u8],
+    inputrc: &str,
+    env: &[(&str, &str)],
+    removed_env: &[&str],
+) -> String {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("inputrc");
     fs::write(&path, inputrc).expect("write inputrc");
-    run_bash_readline_with_inputrc_path_and_env(keys, &path, env)
+    let mut command = CommandBuilder::new("bash");
+    command.env("INPUTRC", path.to_string_lossy().as_ref());
+    for name in removed_env {
+        command.env_remove(name);
+    }
+    for (name, value) in env {
+        command.env(name, value);
+    }
+    command.args([
+        "--noprofile",
+        "--norc",
+        "-i",
+        "-c",
+        &format!(
+            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+        ),
+    ]);
+    run_pty(command, keys)
 }
 
 pub(super) fn run_bash_readline_with_inputrc_file_and_history(
@@ -412,10 +438,22 @@ pub(super) fn run_sushline_harness_with_inputrc_and_env(
     inputrc: &str,
     env: &[(&str, &str)],
 ) -> String {
+    run_sushline_harness_with_inputrc_and_env_removing(keys, inputrc, env, &[])
+}
+
+pub(super) fn run_sushline_harness_with_inputrc_and_env_removing(
+    keys: &[u8],
+    inputrc: &str,
+    env: &[(&str, &str)],
+    removed_env: &[&str],
+) -> String {
     let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
     command.env("SUSHLINE_INPUTRC", inputrc);
     command.env("SUSHLINE_PROMPT", READY_PROMPT);
     command.env("SUSHLINE_HISTORY", "");
+    for name in removed_env {
+        command.env_remove(name);
+    }
     for (name, value) in env {
         command.env(name, value);
     }

@@ -858,24 +858,162 @@ fn bash_readline_and_sushline_complete_same_single_quoted_filename_with_space() 
     );
 }
 
+#[cfg(unix)]
 #[test]
-fn bash_readline_and_sushline_display_same_colored_filename_stats() {
+fn bash_readline_and_sushline_display_colored_filename_stats_for_tested_types() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    fn run_pair(keys: &[u8], inputrc: &str, ls_colors: Option<&str>) -> (String, String) {
+        if let Some(ls_colors) = ls_colors {
+            let env = [("LS_COLORS", ls_colors)];
+            (
+                run_bash_readline_with_inputrc_file_and_env(keys, inputrc, &env),
+                run_sushline_harness_with_inputrc_and_env(keys, inputrc, &env),
+            )
+        } else {
+            (
+                run_bash_readline_with_inputrc_file_and_env_removing(
+                    keys,
+                    inputrc,
+                    &[],
+                    &["LS_COLORS"],
+                ),
+                run_sushline_harness_with_inputrc_and_env_removing(
+                    keys,
+                    inputrc,
+                    &[],
+                    &["LS_COLORS"],
+                ),
+            )
+        }
+    }
+
+    fn assert_color(output: &str, name: &str, code: &str, suffix: &str) {
+        let expected = format!("\x1b[{code}m{name}\x1b[0m{suffix}");
+        assert!(
+            output.contains(&expected),
+            "missing {expected:?} in {output:?}"
+        );
+    }
+
+    fn assert_colored_executable_marker(output: &str, code: &str) {
+        let colored_name = format!("\x1b[{code}malpha-exec\x1b[0m");
+        let start = output
+            .find(&colored_name)
+            .unwrap_or_else(|| panic!("missing {colored_name:?} in {output:?}"));
+        let after_reset = &output[start + colored_name.len()..];
+        let after_terminal_clear = after_reset.strip_prefix("\x1b[K").unwrap_or(after_reset);
+        assert!(
+            after_terminal_clear.starts_with('*'),
+            "executable marker must follow the filename SGR reset, outside colored text: {output:?}"
+        );
+    }
+
+    fn assert_directory_color(output: &str, code: &str) {
+        let colored_name = format!("\x1b[{code}malpha-dir\x1b[0m");
+        let start = output
+            .find(&colored_name)
+            .unwrap_or_else(|| panic!("missing {colored_name:?} in {output:?}"));
+        let after_reset = &output[start + colored_name.len()..];
+        let after_terminal_clear = after_reset.strip_prefix("\x1b[K").unwrap_or(after_reset);
+        assert!(
+            after_terminal_clear.starts_with('/'),
+            "directory slash must follow the filename reset, outside SGR text: {output:?}"
+        );
+        assert!(
+            !output.contains(&format!("\x1b[{code}malpha-dir/\x1b[0m")),
+            "directory slash must not be colored: {output:?}"
+        );
+    }
+
+    fn assert_plain(output: &str, name: &str) {
+        assert!(output.contains(name), "missing {name:?} in {output:?}");
+        for code in ["31", "32", "35", "36", "01;32", "01;34", "01;36"] {
+            assert!(
+                !output.contains(&format!("\x1b[{code}m{name}\x1b[0m")),
+                "unexpected {code:?} style on {name:?}: {output:?}"
+            );
+        }
+    }
+
+    fn assert_fallbacks(output: &str) {
+        assert_directory_color(output, "01;34");
+        assert_color(output, "alpha-exec", "01;32", "");
+        assert_color(output, "alpha-link", "01;36", "");
+        assert_plain(output, "alpha-file");
+    }
+
     let dir = tempfile::tempdir().expect("tempdir");
     fs::create_dir(dir.path().join("alpha-dir")).expect("mkdir fixture");
-    let typed = format!("{}/alp\x0f\r", dir.path().display());
-    let inputrc = "\"\\C-o\": possible-filename-completions\nset colored-stats on\nset completion-query-items 999";
-    let env = [("LS_COLORS", "di=35:fi=0")];
+    fs::write(dir.path().join("alpha-file"), "").expect("write fixture");
+    let executable = dir.path().join("alpha-exec");
+    fs::write(&executable, "").expect("write executable fixture");
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o755))
+        .expect("chmod executable fixture");
+    symlink(dir.path().join("alpha-file"), dir.path().join("alpha-link")).expect("symlink fixture");
 
-    let bash = run_bash_readline_with_inputrc_file_and_env(typed.as_bytes(), inputrc, &env);
-    let sushline = run_sushline_harness_with_inputrc_and_env(typed.as_bytes(), inputrc, &env);
+    let typed = format!("{}/al\x0f\r", dir.path().display());
+    let binding = "\"\\C-o\": possible-filename-completions\nset completion-query-items 999";
+    let enabled = format!("{binding}\nset colored-stats on");
+    let explicit = "di=35:fi=31:ex=32:ln=36";
 
-    assert_eq!(
-        accepted_line(&sushline),
-        accepted_line(&bash),
-        "bash={bash}\nsushline={sushline}"
-    );
-    assert!(bash.contains("\x1b[35m"), "{bash}");
-    assert!(sushline.contains("\x1b[35m"), "{sushline}");
+    let (bash, sushline) = run_pair(typed.as_bytes(), &enabled, Some(explicit));
+    for output in [&bash, &sushline] {
+        assert_directory_color(output, "35");
+        assert_color(output, "alpha-file", "31", "");
+        assert_color(output, "alpha-exec", "32", "");
+        assert_color(output, "alpha-link", "36", "");
+    }
+
+    let colored_and_visible = format!("{binding}\nset colored-stats on\nset visible-stats on");
+    let (bash, sushline) = run_pair(typed.as_bytes(), &colored_and_visible, Some(explicit));
+    for output in [&bash, &sushline] {
+        assert_colored_executable_marker(output, "32");
+    }
+
+    // colored-stats defaults off. Explicit off has the same behavior even
+    // when LS_COLORS supplies styles for every tested kind.
+    for inputrc in [
+        binding.to_string(),
+        format!("{binding}\nset colored-stats off"),
+    ] {
+        let (bash, sushline) = run_pair(typed.as_bytes(), &inputrc, Some(explicit));
+        for (output, implementation) in [(&bash, "bash"), (&sushline, "sushline")] {
+            for name in ["alpha-dir/", "alpha-file", "alpha-exec", "alpha-link"] {
+                assert_plain(output, name);
+            }
+            assert!(
+                !["31", "32", "35", "36"]
+                    .iter()
+                    .any(|code| output.contains(&format!("\x1b[{code}m"))),
+                "colored-stats off emitted candidate SGR ({implementation}): {output:?}"
+            );
+        }
+    }
+
+    // Bash 5.3 PTY runtime observations: absent and empty LS_COLORS use the
+    // tested default styles; a missing type entry falls back independently.
+    for ls_colors in [None, Some("")] {
+        let (bash, sushline) = run_pair(typed.as_bytes(), &enabled, ls_colors);
+        assert_fallbacks(&bash);
+        assert_fallbacks(&sushline);
+    }
+
+    let (bash, sushline) = run_pair(typed.as_bytes(), &enabled, Some("fi=31"));
+    for output in [&bash, &sushline] {
+        assert_directory_color(output, "01;34");
+        assert_color(output, "alpha-file", "31", "");
+        assert_color(output, "alpha-exec", "01;32", "");
+        assert_color(output, "alpha-link", "01;36", "");
+    }
+
+    let (bash, sushline) = run_pair(typed.as_bytes(), &enabled, Some("di=35"));
+    for output in [&bash, &sushline] {
+        assert_directory_color(output, "35");
+        assert_plain(output, "alpha-file");
+        assert_color(output, "alpha-exec", "01;32", "");
+        assert_color(output, "alpha-link", "01;36", "");
+    }
 }
 
 #[test]

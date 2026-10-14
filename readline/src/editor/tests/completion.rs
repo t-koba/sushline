@@ -166,14 +166,14 @@ fn directory_completion_recomputes_nospace_after_filtering() {
 }
 
 #[test]
-fn ls_colors_extension_rules_override_file_kind_colors() {
+fn ls_colors_extension_rules_override_directory_type_colors() {
     let path = Path::new("alpha.rs");
     assert_eq!(
-        ls_color_code_from_spec("alpha.rs", path, "fi", "fi=0:*.rs=38;5;214:*.txt=32"),
+        ls_color_code_from_spec("alpha.rs", path, "di", "di=0:*.rs=38;5;214:*.txt=32"),
         Some("38;5;214".to_string())
     );
     assert_eq!(
-        ls_color_code_from_spec("alpha.bin", path, "fi", "fi=0:*.rs=38;5;214"),
+        ls_color_code_from_spec("alpha.bin", path, "di", "di=0:*.rs=38;5;214"),
         Some("0".to_string())
     );
 }

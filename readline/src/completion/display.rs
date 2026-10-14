@@ -203,7 +203,7 @@ fn ls_color_named_code(name: &str) -> Option<String> {
 
 use crate::completion::builtin::visible_stats_marker_bytes;
 use crate::completion::filename::{
-    FilenameOptions, filename_directory_completion, filename_display_name,
+    FilenameOptions, filename_directory_completion, filename_display_name, filename_ls_color_code,
 };
 use crate::editor::{Editor, ReadlineError};
 #[cfg(test)]
@@ -302,9 +302,22 @@ where
                 {
                     item.push('/');
                 }
+                if response.options.filenames
+                    && self.variable_is_on("colored-stats")
+                    && !item.contains("\x1b[")
+                    && let Some(color) = filename_ls_color_code(word, candidate.replacement_bytes())
+                {
+                    let name = filename_display_name(candidate.replacement_bytes());
+                    if item.starts_with(&name) {
+                        item = format!(
+                            "\x1b[{color}m{}\x1b[0m{}",
+                            &item[..name.len()],
+                            &item[name.len()..]
+                        );
+                    }
+                }
                 if self.variable_is_on("visible-stats")
                     && response.options.filenames
-                    && !item.contains("\x1b[")
                     && let Some(marker) = visible_stats_marker_bytes(candidate.replacement_bytes())
                     && !item.ends_with(marker)
                 {

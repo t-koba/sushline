@@ -352,19 +352,19 @@ where
     }
 
     pub(super) fn translate_meta_input(&self, bytes: &[u8]) -> Option<Vec<u8>> {
-        let [byte] = bytes else {
-            return None;
-        };
-        if byte & 0x80 == 0 {
+        if !self.flag(BoolVariable::ConvertMeta) || !bytes.iter().any(|byte| byte & 0x80 != 0) {
             return None;
         }
 
-        let stripped = byte & 0x7f;
-        if self.flag(BoolVariable::ConvertMeta) {
-            Some(vec![0x1b, stripped])
-        } else {
-            None
+        let mut translated = Vec::with_capacity(bytes.len());
+        for byte in bytes {
+            if byte & 0x80 != 0 {
+                translated.extend_from_slice(&[0x1b, byte & 0x7f]);
+            } else {
+                translated.push(*byte);
+            }
         }
+        Some(translated)
     }
 
     pub(super) fn handle_pending_vi_mark(

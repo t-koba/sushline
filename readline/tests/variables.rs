@@ -22,16 +22,22 @@ fn variables_api_exposes_variables_without_map_leakage() {
 }
 
 #[test]
-fn meta_variables_convert_high_bit_input_only_when_enabled() {
-    let terminal = MemoryTerminal::with_events(vec![
-        TerminalEvent::Bytes(vec![0xe1]),
-        TerminalEvent::Bytes(b"\r".to_vec()),
-    ]);
-    let mut line = Editor::new(Config::default(), terminal, History::new());
-    line.load_inputrc_str("set convert-meta on\n\"\\ea\": \"META\"")
-        .unwrap();
-    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
-    assert_eq!(result, ReadlineResult::Line("META".as_bytes().to_vec()));
+fn meta_input_conversion_is_chunk_invariant_and_gated() {
+    // A backend may deliver the same byte stream in one chunk or several.
+    for events in [
+        vec![
+            TerminalEvent::Bytes(vec![0xe1]),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+        ],
+        vec![TerminalEvent::Bytes(b"\xe1\r".to_vec())],
+    ] {
+        let terminal = MemoryTerminal::with_events(events);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str("set convert-meta on\n\"\\ea\": \"META\"")
+            .unwrap();
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        assert_eq!(result, ReadlineResult::Line("META".as_bytes().to_vec()));
+    }
 
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(vec![0xe1]),

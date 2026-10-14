@@ -968,7 +968,9 @@ where
                     state.after_non_kill_command();
                     return Ok(EditorOutcome::Continue);
                 }
-                let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
+                // GNU vi `/` and `?` searches remain case-sensitive even
+                // when `search-ignore-case` is on (Bash 5.3 PTY oracle).
+                let ignore_case = !search.vi && self.flag(BoolVariable::SearchIgnoreCase);
                 // Vi skips the history cursor like the incremental
                 // cursor-skip oracle: backward covers
                 // entries[..original_pos] and forward covers

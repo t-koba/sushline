@@ -139,20 +139,6 @@ fn bash_readline_and_sushline_substring_search_skips_selected_match() {
     );
 }
 
-fn c_utf8_locale_available() -> bool {
-    let Ok(locale) = Command::new("locale")
-        .arg("charmap")
-        .env("LC_ALL", "C.UTF-8")
-        .output()
-    else {
-        return false;
-    };
-    locale.status.success()
-        && String::from_utf8_lossy(&locale.stdout)
-            .trim()
-            .eq_ignore_ascii_case("UTF-8")
-}
-
 #[test]
 fn search_ignore_case_differs_on_non_ascii_in_utf8_locale() {
     if !c_utf8_locale_available() {

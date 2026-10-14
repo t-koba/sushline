@@ -1,5 +1,4 @@
 use super::*;
-use crate::variables::BoolVariable;
 
 impl<T> Editor<T>
 where
@@ -496,7 +495,9 @@ where
                 // it; a repeat with no further match rings the bell and keeps
                 // the line (patch 0 Bash 5.3 PTY oracle).
                 let pos = self.history.where_history();
-                let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
+                // GNU vi `n`/`N` repeats are case-sensitive even when
+                // `search-ignore-case` is on (Bash 5.3 PTY oracle).
+                let ignore_case = false;
                 let found = match search_direction {
                     SearchDirection::Backward => {
                         search_history_backward(&self.history, &query, Some(pos), ignore_case)

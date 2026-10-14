@@ -1250,6 +1250,68 @@ fn bash_readline_and_sushline_accept_same_vi_history_search() {
 }
 
 #[test]
+fn vi_search_ignore_case_is_ignored_like_bash_in_utf8_locale() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    let inputrc = "set editing-mode vi\nset search-ignore-case on";
+    let locale_env = [("LC_ALL", "C.UTF-8")];
+    type ViSearchCase<'a> = (&'a [&'a str], &'a [u8], &'a str, bool, &'a str);
+    let cases: &[ViSearchCase<'_>] = &[
+        (&["ALPHA old"], b"\x1b/", "alpha", false, ""),
+        (&["ÄLPHA old"], b"\x1b/", "Älpha", false, ""),
+        (
+            &["ALPHA old", "alpha new"],
+            b"\x1b/",
+            "alpha",
+            true,
+            "alpha new",
+        ),
+        (
+            &["alpha old", "ALPHA new"],
+            b"\x1bkk?",
+            "alpha",
+            false,
+            "alpha old",
+        ),
+    ];
+
+    for (history, prefix, query, repeat, expected) in cases {
+        let mut keys = prefix.to_vec();
+        keys.extend_from_slice(query.as_bytes());
+        keys.push(b'\r');
+        if *repeat {
+            keys.push(b'n');
+        }
+        keys.push(b'\r');
+
+        let bash = run_bash_readline_with_inputrc_file_and_history_and_env(
+            &keys,
+            inputrc,
+            history,
+            &locale_env,
+        );
+        let sushline = run_sushline_harness_with_inputrc_and_history_and_env(
+            &keys,
+            inputrc,
+            history,
+            &locale_env,
+        );
+        assert_eq!(
+            accepted_line(&bash),
+            Some((*expected).to_string()),
+            "query={query:?} repeat={repeat}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            Some((*expected).to_string()),
+            "query={query:?} repeat={repeat}: {sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_vi_insert_at_beginning() {
     let keys = b"abc\x1b0iX\r";
     let inputrc = "set editing-mode vi";

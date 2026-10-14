@@ -7,6 +7,20 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 pub(super) const READY_PROMPT: &str = "SUSHLINE_READY>";
+
+pub(super) fn c_utf8_locale_available() -> bool {
+    let Ok(locale) = Command::new("locale")
+        .arg("charmap")
+        .env("LC_ALL", "C.UTF-8")
+        .output()
+    else {
+        return false;
+    };
+    locale.status.success()
+        && String::from_utf8_lossy(&locale.stdout)
+            .trim()
+            .eq_ignore_ascii_case("UTF-8")
+}
 pub(super) fn run_bash_readline(keys: &[u8]) -> String {
     run_bash_readline_with_bindings(keys, "")
 }

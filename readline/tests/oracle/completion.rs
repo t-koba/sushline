@@ -120,6 +120,33 @@ fn bash_readline_and_sushline_complete_filename_ignoring_case() {
 }
 
 #[test]
+fn completion_ignore_case_uses_bytewise_folding_for_utf8_filename_case_pairs() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    // Bash 5.3 PTY runtime evidence under C.UTF-8; this is not source evidence
+    // for the host-linked Readline version.
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::write(dir.path().join("ÄLPHA"), "").expect("write fixture");
+    let typed = format!("{}/älp\t\r", dir.path().display());
+    let bash_expected = format!("{}/ÄLPHA ", dir.path().display());
+    let sushline_expected = format!("{}/älp", dir.path().display());
+    let inputrc = "set completion-ignore-case on";
+    let locale_env = [("LC_ALL", "C.UTF-8")];
+    let bash = run_bash_readline_with_inputrc_file_and_env(typed.as_bytes(), inputrc, &locale_env);
+    let sushline =
+        run_sushline_harness_with_inputrc_and_env(typed.as_bytes(), inputrc, &locale_env);
+
+    assert_eq!(accepted_line(&bash), Some(bash_expected), "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        Some(sushline_expected),
+        "Sushline's byte-wise fold does not match Ä/ä: {sushline}"
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_complete_same_mapped_case_directory_without_marker() {
     let dir = tempfile::tempdir().expect("tempdir");
     fs::create_dir(dir.path().join("alpha-dir")).expect("mkdir fixture");

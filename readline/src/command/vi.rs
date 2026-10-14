@@ -506,6 +506,7 @@ where
                     }
                 };
                 if let Some((index, line)) = found {
+                    state.search.last_non_incremental_search_match_index = Some(index);
                     self.history.set_pos(index);
                     self.replace_from_history(state, &line);
                 } else {

@@ -208,6 +208,23 @@ fn bash_readline_and_sushline_keep_incremental_and_nonincremental_search_memory_
 }
 
 #[test]
+fn bash_readline_and_sushline_nonincremental_search_again_steps_past_match() {
+    let inputrc = r#""\C-o": non-incremental-reverse-search-history
+"\C-]": non-incremental-reverse-search-history-again"#;
+    let history = ["foo old", "bar old", "foo new", "bar new"];
+    let keys = b"\x10\x0ffoo\r\x1d\r";
+    let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &history);
+    let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+
+    assert_eq!(accepted_line(&bash), Some("foo old".to_string()), "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_recall_incremental_query_on_empty_repeat() {
     // GNU recalls the previous completed incremental search when repeating
     // with an empty query on a later read; the recalled query then searches

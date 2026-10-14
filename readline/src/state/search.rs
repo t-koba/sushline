@@ -8,6 +8,7 @@ pub(crate) struct SearchState {
     pub(crate) last_incremental_search_direction: Option<SearchDirection>,
     pub(crate) last_non_incremental_search: Option<Vec<u8>>,
     pub(crate) last_non_incremental_search_direction: Option<SearchDirection>,
+    pub(crate) last_non_incremental_search_match_index: Option<usize>,
     pub(crate) quoted_pending: bool,
 }
 

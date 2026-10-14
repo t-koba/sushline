@@ -72,6 +72,7 @@ where
     pub(crate) last_incremental_search_direction: Option<SearchDirection>,
     pub(crate) last_non_incremental_search: Option<Vec<u8>>,
     pub(crate) last_non_incremental_search_direction: Option<SearchDirection>,
+    pub(crate) last_non_incremental_search_match_index: Option<usize>,
     pub(crate) last_char_search: Option<(CharSearchMode, char)>,
     pub(crate) last_vi_change: Option<Vec<u8>>,
     initial_inputrc_error: Option<String>,
@@ -118,6 +119,7 @@ where
             last_incremental_search_direction: None,
             last_non_incremental_search: None,
             last_non_incremental_search_direction: None,
+            last_non_incremental_search_match_index: None,
             last_char_search: None,
             last_vi_change: None,
             initial_inputrc_error: None,
@@ -237,6 +239,8 @@ where
         state.search.last_non_incremental_search = self.last_non_incremental_search.clone();
         state.search.last_non_incremental_search_direction =
             self.last_non_incremental_search_direction;
+        state.search.last_non_incremental_search_match_index =
+            self.last_non_incremental_search_match_index;
         state.vi.last_char_search = self.last_char_search;
         state.vi.last_vi_change = self.last_vi_change.clone();
     }
@@ -249,6 +253,8 @@ where
         self.last_non_incremental_search = state.search.last_non_incremental_search.clone();
         self.last_non_incremental_search_direction =
             state.search.last_non_incremental_search_direction;
+        self.last_non_incremental_search_match_index =
+            state.search.last_non_incremental_search_match_index;
         self.last_char_search = state.vi.last_char_search;
         self.last_vi_change = state.vi.last_vi_change.clone();
     }

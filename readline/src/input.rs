@@ -1000,6 +1000,7 @@ where
                         .history_search_bytes_with_case(&query, direction, ignore_case)
                         .map(|found| (found.entry_index, found.line_bytes.clone()))
                 };
+                let found_index = found.as_ref().map(|(index, _)| *index);
                 if let Some((index, line)) = found {
                     // GNU emacs non-incremental search started on a history
                     // entry displays the match without moving the history
@@ -1019,6 +1020,7 @@ where
                 }
                 state.search.last_non_incremental_search = Some(query);
                 state.search.last_non_incremental_search_direction = Some(search.direction);
+                state.search.last_non_incremental_search_match_index = found_index;
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
             }

@@ -218,15 +218,21 @@ where
                         SearchDirection::Forward => HistoryDirection::Next,
                     };
                     let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
-                    // The shared history search includes the positioned entry
-                    // like GNU `history_search`; repeat steps exclusively past
-                    // the current match here instead. A failed repeat restores
-                    // the saved position.
+                    // GNU `history_search` includes the positioned entry. Step
+                    // exclusively past the last nonincremental match, which is
+                    // distinct from the preserved history cursor for emacs
+                    // searches begun on an existing entry. Restore the actual
+                    // cursor if this repeat fails.
                     let len = self.history.entries().len();
                     let saved_pos = self.history.where_history().min(len);
+                    let match_pos = state
+                        .search
+                        .last_non_incremental_search_match_index
+                        .unwrap_or(saved_pos)
+                        .min(len);
                     let stepped = match direction {
-                        SearchDirection::Backward => saved_pos.checked_sub(1),
-                        SearchDirection::Forward => saved_pos.checked_add(1),
+                        SearchDirection::Backward => match_pos.checked_sub(1),
+                        SearchDirection::Forward => match_pos.checked_add(1),
                     };
                     let mut moved = false;
                     if let Some(stepped) = stepped {
@@ -246,6 +252,8 @@ where
                         self.history.set_pos(saved_pos);
                     }
                     if let Some(found) = found {
+                        state.search.last_non_incremental_search_match_index =
+                            Some(found.entry_index);
                         self.replace_from_history(state, &found.line_bytes);
                     } else {
                         self.ding()?;

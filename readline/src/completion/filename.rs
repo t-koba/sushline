@@ -38,12 +38,22 @@ impl FilenameOptions {
 }
 
 pub(crate) fn complete_filenames_bytes(word: &[u8], opts: &FilenameOptions) -> CompletionResponse {
-    let completion_word = if opts.expand_tilde {
+    // In the tested Bash 5.3 filename-completion cases, ~/ resolves against
+    // HOME for lookup regardless of the expand-tilde insertion setting. Keep
+    // lookup separate from displayed replacement bytes so the off case
+    // retains its typed ~/ prefix.
+    let lookup_word = if opts.expand_tilde || word.starts_with(b"~/") {
         expand_tilde_bytes(word)
     } else {
         word.to_vec()
     };
-    let (dir_bytes, prefix, display_dir) = split_word_path_bytes(&completion_word);
+    let display_word = if opts.expand_tilde {
+        lookup_word.as_slice()
+    } else {
+        word
+    };
+    let (dir_bytes, prefix, _) = split_word_path_bytes(&lookup_word);
+    let (_, _, display_dir) = split_word_path_bytes(display_word);
     let Some(dir) = path_from_bytes(&dir_bytes) else {
         return filename_response(Vec::new(), 0);
     };

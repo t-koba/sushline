@@ -605,6 +605,58 @@ fn bash_readline_and_sushline_tilde_expand_preserves_spacing() {
 }
 
 #[test]
+fn bash_readline_and_sushline_complete_home_tilde_filenames_with_expansion_setting() {
+    // Bash 5.3 PTY runtime evidence for these filename-completion forms only;
+    // this does not establish Readline source behavior or other tilde forms.
+    let home = tempfile::tempdir().expect("temp HOME");
+    fs::write(home.path().join("Alpha"), "").expect("write HOME fixture");
+    let home_path = home.path().to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+
+    let assert_case = |word: &str, expected_off: String, expected_on: String| {
+        for (expand_tilde, expected) in [("off", expected_off), ("on", expected_on)] {
+            let inputrc = format!("set expand-tilde {expand_tilde}\nset mark-directories off");
+            let keys = format!("{word}\t\r");
+            let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), &inputrc, &env);
+            let sushline =
+                run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), &inputrc, &env);
+
+            assert_eq!(
+                accepted_line(&bash),
+                Some(expected.clone()),
+                "word={word:?} expand-tilde={expand_tilde}\n{bash}"
+            );
+            assert_eq!(
+                accepted_line(&sushline),
+                Some(expected.clone()),
+                "word={word:?} expand-tilde={expand_tilde}\n{sushline}"
+            );
+            assert_eq!(
+                accepted_line(&sushline),
+                accepted_line(&bash),
+                "word={word:?} expand-tilde={expand_tilde}\nbash={bash}\nsushline={sushline}"
+            );
+        }
+    };
+
+    // Keep ~/ unambiguous, as in the measured probe, before adding sub/.
+    assert_case("~/", "~/Alpha ".to_string(), format!("{home_path}/Alpha "));
+
+    fs::create_dir(home.path().join("sub")).expect("create nested directory");
+    fs::write(home.path().join("sub/Alpha"), "").expect("write nested fixture");
+    assert_case(
+        "~/Al",
+        "~/Alpha ".to_string(),
+        format!("{home_path}/Alpha "),
+    );
+    assert_case(
+        "~/sub/Al",
+        "~/sub/Alpha ".to_string(),
+        format!("{home_path}/sub/Alpha "),
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_complete_same_single_quoted_filename_with_space() {
     let dir = tempfile::tempdir().expect("tempdir");
     let file = dir.path().join("alpha file");

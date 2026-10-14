@@ -289,6 +289,7 @@ where
             .unwrap_or(100);
         let displayed_query = self.flag(BoolVariable::PageCompletions)
             && query_items > 0
+            && response.candidates.len() > 1
             && response.candidates.len() >= query_items as usize;
         if displayed_query {
             self.move_below_rendered_line(state)?;

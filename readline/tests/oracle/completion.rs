@@ -669,6 +669,43 @@ fn bash_readline_and_sushline_list_completion_candidates_in_same_sorted_order() 
 
 #[cfg(unix)]
 #[test]
+fn bash_readline_and_sushline_query_completion_items_at_measured_boundaries() {
+    // Bash 5.3 PTY runtime observations, not Readline source proof: one
+    // candidate at threshold 1 does not query, while two at threshold 2 do.
+    // Both the default and explicit-on page-completions settings were measured.
+    for (candidate_names, threshold, should_query) in [
+        (&["alpha"][..], 1, false),
+        (&["alpha", "alpine"][..], 2, true),
+    ] {
+        let dir = tempfile::tempdir().expect("temp completion directory");
+        for name in candidate_names {
+            fs::write(dir.path().join(name), "").expect("write completion fixture");
+        }
+
+        for page_setting in ["", "\nset page-completions on"] {
+            let inputrc = format!(
+                "\"\\C-o\": possible-filename-completions\nset completion-query-items {threshold}{page_setting}"
+            );
+            let keys = b"a\x0fn\r";
+            let bash =
+                run_bash_readline_with_inputrc_file_and_env_in_dir(keys, &inputrc, &[], dir.path());
+            let sushline =
+                run_sushline_harness_with_inputrc_and_env_in_dir(keys, &inputrc, &[], dir.path());
+            let query = format!("Display all {} possibilities?", candidate_names.len());
+
+            for (output, implementation) in [(&bash, "bash"), (&sushline, "sushline")] {
+                assert_eq!(
+                    output.contains(&query),
+                    should_query,
+                    "expected query={should_query}, candidates={candidate_names:?}, threshold={threshold}, page-setting={page_setting:?}, implementation={implementation}\n{output}"
+                );
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn bash_readline_and_sushline_abbreviate_normal_and_hidden_completion_prefixes() {
     // Bash 5.3 PTY runtime evidence for these four names and threshold 4 only;
     // this is not Readline source proof or a claim about other names/thresholds.

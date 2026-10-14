@@ -136,12 +136,19 @@ Terminal access is isolated behind `TerminalIo`. The editor consumes
 from stdin or writing escape sequences directly throughout the command code.
 
 On Unix, the concrete `Terminal` handles raw-mode setup and restoration,
-terminal size, resize events, byte input, signal events, visible bell,
-keypad/meta-key mode, and display clearing. On non-Unix targets it remains
-available for compilation but returns `Unsupported` for live terminal
-operations until a backend is provided. Tests and embedders can provide their
-own `TerminalIo` implementation, including an in-memory terminal for editor
-behavior tests without a real TTY.
+terminal size, resize events, byte input, signal events, visible bell, keypad
+mode, and display clearing. `enable-meta-key` defaults on, but the built-in
+backend emits no meta-mode sequences. Bash 5.3 `bind -v` and PTY probes
+observed the same default and no meta-mode output; these are runtime
+observations, not source-level proof of GNU's implementation. The editor still
+notifies
+`TerminalIo::set_meta_key_enabled` during setup, cleanup, and signal recovery;
+custom `TerminalIo` implementations own whether and how to act on that
+notification. On non-Unix targets the built-in backend remains available for
+compilation but returns `Unsupported` for live terminal operations until a
+backend is provided. Tests and embedders can provide their own `TerminalIo`
+implementation, including an in-memory terminal for editor behavior tests
+without a real TTY.
 
 The built-in `Terminal` has independent pre-read signal policies:
 `set_catch_signals(bool)` selects the eight non-`SIGWINCH` signals and
@@ -164,8 +171,9 @@ implicit idle callback, and `keyseq-timeout` drives the `read_event` timeout.
 
 Terminal escape bytes that are not terminfo-backed live in
 `terminal::escape`. Terminfo remains responsible for existing capabilities such
-as clear, flash, meta-key, keypad, and active-region sequences. Fixed ANSI
-helpers own cursor movement, clear-to-end strings, bracketed paste toggles,
+as clear, flash, keypad, and active-region sequences; the built-in terminal
+does not use terminfo `smm`/`rmm` or fallback sequences for meta-key mode. Fixed
+ANSI helpers own cursor movement, clear-to-end strings, bracketed paste toggles,
 cursor save/restore, and fallback visible bell bytes.
 
 ## Display Ownership

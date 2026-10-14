@@ -114,7 +114,7 @@ pub(super) fn run_bash_history_expand(expansion: &str, history: &[&str]) -> Stri
         .to_string()
 }
 
-pub(super) fn run_bash_readline_with_keypad_term(
+pub(super) fn run_bash_readline_with_term(
     keys: &[u8],
     inputrc: &str,
     term: Option<&str>,
@@ -151,7 +151,7 @@ pub(super) fn run_bash_readline_with_keypad_term(
     )
 }
 
-pub(super) fn run_sushline_harness_with_keypad_term(
+pub(super) fn run_sushline_harness_with_term(
     keys: &[u8],
     inputrc: &str,
     term: Option<&str>,
@@ -721,8 +721,8 @@ pub(super) fn run_pty_with_size_until_after_prompt(
     run_pty_with_size_until_after_prompt_inner(command, keys, size, stop_marker, after_prompt)
 }
 
-// Only the keypad TERM matrix bypasses the usual xterm override, including
-// preserving an explicitly empty or removed TERM in the command environment.
+// Only the TERM matrix bypasses the usual xterm override, including preserving
+// an explicitly empty or removed TERM in the command environment.
 fn run_pty_with_size_until_preserving_term(
     command: CommandBuilder,
     keys: &[u8],

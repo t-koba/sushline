@@ -252,7 +252,7 @@ fn bash_readline_and_sushline_print_same_last_keyboard_macro() {
 }
 
 #[test]
-fn bash_readline_and_sushline_enable_keypad_sequences_follow_terminfo_runtime_boundary() {
+fn bash_readline_and_sushline_terminal_mode_sequences_follow_runtime_boundary() {
     let keys = b"\r";
     let inputrc = "set enable-keypad on\n";
     let terms = [
@@ -266,8 +266,8 @@ fn bash_readline_and_sushline_enable_keypad_sequences_follow_terminfo_runtime_bo
     ];
 
     for term in terms {
-        let bash = run_bash_readline_with_keypad_term(keys, inputrc, term);
-        let sushline = run_sushline_harness_with_keypad_term(keys, inputrc, term);
+        let bash = run_bash_readline_with_term(keys, inputrc, term);
+        let sushline = run_sushline_harness_with_term(keys, inputrc, term);
         assert_eq!(
             accepted_line(&bash),
             Some(String::new()),
@@ -322,8 +322,8 @@ fn bash_readline_and_sushline_enable_keypad_sequences_follow_terminfo_runtime_bo
             ("set enable-keypad off\n", "explicit off"),
             ("", "default off"),
         ] {
-            let bash = run_bash_readline_with_keypad_term(keys, disabled_inputrc, term);
-            let sushline = run_sushline_harness_with_keypad_term(keys, disabled_inputrc, term);
+            let bash = run_bash_readline_with_term(keys, disabled_inputrc, term);
+            let sushline = run_sushline_harness_with_term(keys, disabled_inputrc, term);
             assert_eq!(
                 accepted_line(&bash),
                 Some(String::new()),
@@ -345,5 +345,40 @@ fn bash_readline_and_sushline_enable_keypad_sequences_follow_terminfo_runtime_bo
                 );
             }
         }
+
+        for (meta_inputrc, setting) in [
+            ("", "default"),
+            ("set enable-meta-key on\n", "explicit on"),
+            ("set enable-meta-key off\n", "explicit off"),
+        ] {
+            let bash = run_bash_readline_with_term(keys, meta_inputrc, term);
+            let sushline = run_sushline_harness_with_term(keys, meta_inputrc, term);
+            assert_eq!(
+                accepted_line(&bash),
+                Some(String::new()),
+                "{setting} enable-meta-key, TERM={term:?}: {bash:?}"
+            );
+            assert_eq!(
+                accepted_line(&sushline),
+                Some(String::new()),
+                "{setting} enable-meta-key, TERM={term:?}: bash={bash:?} sushline={sushline:?}"
+            );
+            assert_no_meta_key_sequences(&bash, "Bash 5.3", term, setting);
+            assert_no_meta_key_sequences(&sushline, "Sushline", term, setting);
+        }
+    }
+}
+
+fn assert_no_meta_key_sequences(
+    output: &str,
+    implementation: &str,
+    term: Option<&str>,
+    setting: &str,
+) {
+    for forbidden in ["\x1b[?1034h", "\x1b[?1034l"] {
+        assert!(
+            !output.contains(forbidden),
+            "{implementation} emitted meta-key mode sequence {forbidden:?} with {setting}, TERM={term:?}: {output:?}"
+        );
     }
 }

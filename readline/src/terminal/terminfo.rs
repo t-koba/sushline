@@ -5,12 +5,6 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 #[cfg(unix)]
-pub(super) fn terminfo_meta_sequence(enabled: bool) -> Option<Vec<u8>> {
-    let cap = if enabled { "smm" } else { "rmm" };
-    terminfo_sequence(cap)
-}
-
-#[cfg(unix)]
 pub(super) fn terminfo_keypad_sequence(enabled: bool) -> Option<Vec<u8>> {
     let cap = if enabled { "smkx" } else { "rmkx" };
     terminfo_sequence(cap)
@@ -70,12 +64,6 @@ fn hardcoded_terminfo_fallback(cap: &str) -> Option<Vec<u8>> {
     match cap {
         "clear" => Some(b"\x1b[H\x1b[2J".to_vec()),
         "flash" => Some(b"\x1b[?5h\x1b[?5l".to_vec()),
-        "smm" if std::env::var("TERM").is_ok_and(|term| term.starts_with("xterm")) => {
-            Some(b"\x1b[?1034h".to_vec())
-        }
-        "rmm" if std::env::var("TERM").is_ok_and(|term| term.starts_with("xterm")) => {
-            Some(b"\x1b[?1034l".to_vec())
-        }
         _ => None,
     }
 }
@@ -286,8 +274,6 @@ const STANDARD_STRING_CAPS: &[(&str, usize)] = &[
     ("flash", 45),
     ("rmkx", 88),
     ("smkx", 89),
-    ("rmm", 101),
-    ("smm", 102),
     ("E3", 300),
 ];
 
@@ -385,11 +371,6 @@ mod tests {
             }
         );
     }
-}
-
-#[cfg(not(unix))]
-pub(super) fn terminfo_meta_sequence(_enabled: bool) -> Option<Vec<u8>> {
-    None
 }
 
 #[cfg(not(unix))]

@@ -18,7 +18,7 @@ use std::time::Duration;
 pub(crate) mod escape;
 mod terminfo;
 pub(crate) use terminfo::{DefaultCapabilities, default_capabilities};
-use terminfo::{terminfo_keypad_sequence, terminfo_meta_sequence, terminfo_sequence};
+use terminfo::{terminfo_keypad_sequence, terminfo_sequence};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// TerminalSize.
@@ -79,7 +79,10 @@ pub trait TerminalIo {
     fn visible_bell(&mut self) -> io::Result<()> {
         self.write(escape::VISIBLE_BELL)
     }
-    /// Enables or disables terminal meta-key handling.
+    /// Notifies the backend that Readline meta-key handling is enabled or disabled.
+    ///
+    /// The built-in [`Terminal`] does not emit a terminal mode sequence for this
+    /// setting. Custom backends may implement their own terminal policy.
     fn set_meta_key_enabled(&mut self, _enabled: bool) -> io::Result<()> {
         Ok(())
     }
@@ -279,20 +282,6 @@ impl TerminalIo for Terminal {
             self.stdout.write_all(&sequence)
         } else {
             self.stdout.write_all(escape::VISIBLE_BELL.as_bytes())
-        }
-    }
-
-    fn set_meta_key_enabled(&mut self, enabled: bool) -> io::Result<()> {
-        if let Some(sequence) = terminfo_meta_sequence(enabled) {
-            self.stdout.write_all(&sequence)
-        } else if std::env::var("TERM").is_ok_and(|term| term.starts_with("xterm")) {
-            if enabled {
-                self.stdout.write_all(escape::XTERM_META_ON.as_bytes())
-            } else {
-                self.stdout.write_all(escape::XTERM_META_OFF.as_bytes())
-            }
-        } else {
-            Ok(())
         }
     }
 

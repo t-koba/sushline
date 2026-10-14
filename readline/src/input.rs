@@ -703,7 +703,7 @@ where
                 {
                     self.ding()?;
                 }
-                save_last_search(state, &search);
+                save_incremental_search(state, &search);
                 state.after_non_kill_command();
                 EditorOutcome::Continue
             }
@@ -715,7 +715,7 @@ where
                 {
                     self.ding()?;
                 }
-                save_last_search(state, &search);
+                save_incremental_search(state, &search);
                 state.after_non_kill_command();
                 EditorOutcome::Accepted(accepted)
             }
@@ -806,7 +806,7 @@ where
             if let Some(index) = search.match_index {
                 self.history.set_pos(index);
             }
-            save_last_search(state, &search);
+            save_incremental_search(state, &search);
             state.after_non_kill_command();
             if let Some(binding) = command_binding {
                 return self.apply_binding(state, binding, bytes, hooks);
@@ -849,7 +849,7 @@ where
     ///
     /// GNU repeats (rather than accepts and restarts) when the key invokes
     /// a search command while a search is active. A repeat with an empty
-    /// query recalls the previous completed search; with no match index the
+    /// query recalls the previous completed incremental search; with no match index the
     /// recalled query searches inclusively from the cursor like a fresh
     /// search, and a repeat with no further match keeps the line and bells.
     pub(super) fn repeat_reverse_search(
@@ -860,7 +860,7 @@ where
     ) -> Result<EditorOutcome, ReadlineError> {
         search.direction = direction;
         if search.query.is_empty()
-            && let Some(previous) = state.search.last_search.clone()
+            && let Some(previous) = state.search.last_incremental_search.clone()
         {
             search.query = previous;
         }
@@ -952,7 +952,11 @@ where
             b"\r" | b"\n" => {
                 state.search.quoted_pending = false;
                 let query = if search.query.is_empty() {
-                    state.search.last_search.clone().unwrap_or_default()
+                    state
+                        .search
+                        .last_non_incremental_search
+                        .clone()
+                        .unwrap_or_default()
                 } else {
                     search.query.clone()
                 };
@@ -997,14 +1001,24 @@ where
                         .map(|found| (found.entry_index, found.line_bytes.clone()))
                 };
                 if let Some((index, line)) = found {
-                    self.history.set_pos(index);
+                    // GNU emacs non-incremental search started on a history
+                    // entry displays the match without moving the history
+                    // cursor; search started from the current-line position
+                    // moves it to the match. Keep vi's existing cursor rule.
+                    let history_len = self.history.entries().len();
+                    let cursor = if !search.vi && search.original_history_pos < history_len {
+                        search.original_history_pos
+                    } else {
+                        index
+                    };
+                    self.history.set_pos(cursor);
                     self.replace_from_history(state, &line);
                 } else {
                     self.history.set_pos(search.original_history_pos);
                     self.ding()?;
                 }
-                state.search.last_search = Some(query);
-                state.search.last_search_direction = Some(search.direction);
+                state.search.last_non_incremental_search = Some(query);
+                state.search.last_non_incremental_search_direction = Some(search.direction);
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
             }
@@ -1221,7 +1235,7 @@ fn accept_search_line(search: &ReverseSearchState) -> Vec<u8> {
         .unwrap_or_else(|| search.original_line.clone())
 }
 
-fn save_last_search(state: &mut EditorState, search: &ReverseSearchState) {
-    state.search.last_search = (!search.query.is_empty()).then(|| search.query.clone());
-    state.search.last_search_direction = Some(search.direction);
+fn save_incremental_search(state: &mut EditorState, search: &ReverseSearchState) {
+    state.search.last_incremental_search = (!search.query.is_empty()).then(|| search.query.clone());
+    state.search.last_incremental_search_direction = Some(search.direction);
 }

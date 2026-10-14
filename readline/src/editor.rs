@@ -68,8 +68,10 @@ where
     pub(crate) history_expansion_state: HistoryExpansionState,
     pub(crate) kill_ring: Vec<Vec<u8>>,
     pub(crate) last_keyboard_macro: Option<Vec<u8>>,
-    pub(crate) last_search: Option<Vec<u8>>,
-    pub(crate) last_search_direction: Option<SearchDirection>,
+    pub(crate) last_incremental_search: Option<Vec<u8>>,
+    pub(crate) last_incremental_search_direction: Option<SearchDirection>,
+    pub(crate) last_non_incremental_search: Option<Vec<u8>>,
+    pub(crate) last_non_incremental_search_direction: Option<SearchDirection>,
     pub(crate) last_char_search: Option<(CharSearchMode, char)>,
     pub(crate) last_vi_change: Option<Vec<u8>>,
     initial_inputrc_error: Option<String>,
@@ -112,8 +114,10 @@ where
             history_expansion_state: HistoryExpansionState::new(),
             kill_ring: Vec::new(),
             last_keyboard_macro: None,
-            last_search: None,
-            last_search_direction: None,
+            last_incremental_search: None,
+            last_incremental_search_direction: None,
+            last_non_incremental_search: None,
+            last_non_incremental_search_direction: None,
             last_char_search: None,
             last_vi_change: None,
             initial_inputrc_error: None,
@@ -222,13 +226,17 @@ where
     }
 
     fn restore_persistent_state(&self, state: &mut EditorState) {
-        // Completed kill, macro, search, and vi state lives on `Editor`
-        // across reads while active searches, pending operators, counts,
+        // Completed kill, macro, incremental/non-incremental search memories,
+        // and vi state live on `Editor` across reads while active searches,
+        // pending operators, counts,
         // marks, and insert recording stay per-line in the fresh state.
         state.kill.kill_ring = self.kill_ring.clone();
         state.macro_state.last_keyboard_macro = self.last_keyboard_macro.clone();
-        state.search.last_search = self.last_search.clone();
-        state.search.last_search_direction = self.last_search_direction;
+        state.search.last_incremental_search = self.last_incremental_search.clone();
+        state.search.last_incremental_search_direction = self.last_incremental_search_direction;
+        state.search.last_non_incremental_search = self.last_non_incremental_search.clone();
+        state.search.last_non_incremental_search_direction =
+            self.last_non_incremental_search_direction;
         state.vi.last_char_search = self.last_char_search;
         state.vi.last_vi_change = self.last_vi_change.clone();
     }
@@ -236,8 +244,11 @@ where
     fn save_persistent_state(&mut self, state: &EditorState) {
         self.kill_ring = state.kill.kill_ring.clone();
         self.last_keyboard_macro = state.macro_state.last_keyboard_macro.clone();
-        self.last_search = state.search.last_search.clone();
-        self.last_search_direction = state.search.last_search_direction;
+        self.last_incremental_search = state.search.last_incremental_search.clone();
+        self.last_incremental_search_direction = state.search.last_incremental_search_direction;
+        self.last_non_incremental_search = state.search.last_non_incremental_search.clone();
+        self.last_non_incremental_search_direction =
+            state.search.last_non_incremental_search_direction;
         self.last_char_search = state.vi.last_char_search;
         self.last_vi_change = state.vi.last_vi_change.clone();
     }

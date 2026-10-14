@@ -120,11 +120,13 @@ reads while each new read resets yank ranges and last-command flags, so kills
 do not coalesce across prompts and `yank-pop` needs a fresh `yank`. The last
 recorded keyboard macro is likewise `Editor`-owned while in-progress recording
 and replay flags stay per-line, so `call-last-kbd-macro` replays across reads
-and a new recording starts fresh each read. The completed history search
-(query and direction), the vi character-search target, and the vi last change
-are likewise `Editor`-owned while active searches, pending operators, counts,
-marks, and insert recording stay per-line, so search-again, character-search
-repeat, and dot repeat work on the next prompt.
+and a new recording starts fresh each read. Completed incremental and
+non-incremental history-search memories (each query and direction) are likewise
+`Editor`-owned and persist independently across reads; emacs and vi
+non-incremental search share the latter, so vi `n`/`N` continues that query. Active searches, pending operators, counts, marks, and
+insert recording stay per-line. The vi character-search target and last change
+are also `Editor`-owned, so search-again, character-search repeat, and dot
+repeat work on the next prompt.
 
 ## Terminal Boundary
 

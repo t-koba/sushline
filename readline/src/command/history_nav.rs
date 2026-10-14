@@ -212,7 +212,7 @@ where
                 } else {
                     SearchDirection::Backward
                 };
-                if let Some(query) = state.search.last_search.clone() {
+                if let Some(query) = state.search.last_non_incremental_search.clone() {
                     let history_direction = match direction {
                         SearchDirection::Backward => HistoryDirection::Previous,
                         SearchDirection::Forward => HistoryDirection::Next,
@@ -250,7 +250,7 @@ where
                     } else {
                         self.ding()?;
                     }
-                    state.search.last_search_direction = Some(direction);
+                    state.search.last_non_incremental_search_direction = Some(direction);
                 } else {
                     self.ding()?;
                 }

@@ -4,8 +4,10 @@ use history::History;
 pub(crate) struct SearchState {
     pub(crate) reverse_search: Option<ReverseSearchState>,
     pub(crate) non_incremental_search: Option<NonIncrementalSearchState>,
-    pub(crate) last_search: Option<Vec<u8>>,
-    pub(crate) last_search_direction: Option<SearchDirection>,
+    pub(crate) last_incremental_search: Option<Vec<u8>>,
+    pub(crate) last_incremental_search_direction: Option<SearchDirection>,
+    pub(crate) last_non_incremental_search: Option<Vec<u8>>,
+    pub(crate) last_non_incremental_search_direction: Option<SearchDirection>,
     pub(crate) quoted_pending: bool,
 }
 

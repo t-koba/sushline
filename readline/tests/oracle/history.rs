@@ -150,6 +150,64 @@ fn bash_readline_and_sushline_repeat_completed_search_across_reads() {
 }
 
 #[test]
+fn bash_readline_and_sushline_keep_incremental_and_nonincremental_search_memory_separate() {
+    let inputrc = r#""\C-o": non-incremental-reverse-search-history
+"\C-]": non-incremental-reverse-search-history-again"#;
+    let history = ["foo old", "bar old", "foo new", "bar new"];
+    let cases = [
+        (
+            "incremental then empty nonincremental",
+            b"\x12foo\r\x0f\r\r".as_slice(),
+            "foo new",
+            "",
+        ),
+        (
+            "nonincremental then empty incremental repeat",
+            b"\x0ffoo\r\r\x12\x12\r".as_slice(),
+            "foo new",
+            "",
+        ),
+        (
+            "incremental and nonincremental memories survive intervening search",
+            b"\x12foo\n\x0fbar\r\r\x12\x12\r".as_slice(),
+            "bar old",
+            "foo new",
+        ),
+        (
+            "nonincremental repeat keeps its query after incremental search",
+            b"\x0ffoo\r\x12bar\r\x1d\r".as_slice(),
+            "bar old",
+            "foo old",
+        ),
+    ];
+
+    for (case, keys, expected_first, expected_second) in cases {
+        let bash =
+            run_bash_readline_two_reads_with_inputrc_file_and_history(keys, inputrc, &history);
+        let sushline =
+            run_sushline_harness_two_reads_with_inputrc_and_history(keys, inputrc, &history);
+
+        assert_eq!(
+            accepted_numbered_line(&bash, 1),
+            Some(expected_first.to_string()),
+            "{case}: first GNU read\n{bash}"
+        );
+        assert_eq!(
+            accepted_numbered_line(&bash, 2),
+            Some(expected_second.to_string()),
+            "{case}: second GNU read\n{bash}"
+        );
+        for read in [1, 2] {
+            assert_eq!(
+                accepted_numbered_line(&sushline, read),
+                accepted_numbered_line(&bash, read),
+                "{case}: read {read}\nbash={bash}\nsushline={sushline}"
+            );
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_recall_incremental_query_on_empty_repeat() {
     // GNU recalls the previous completed incremental search when repeating
     // with an empty query on a later read; the recalled query then searches

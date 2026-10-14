@@ -476,12 +476,15 @@ where
                 state.kill.last_yank = None;
             }
             "vi-search-again" => {
-                let Some(query) = state.search.last_search.clone() else {
+                let Some(query) = state.search.last_non_incremental_search.clone() else {
                     self.ding()?;
                     state.after_non_kill_command();
                     return Ok(EditorOutcome::Continue);
                 };
-                let mut search_direction = state.search.last_search_direction.unwrap_or_default();
+                let mut search_direction = state
+                    .search
+                    .last_non_incremental_search_direction
+                    .unwrap_or_default();
                 if key == b"N" {
                     search_direction = match search_direction {
                         SearchDirection::Backward => SearchDirection::Forward,

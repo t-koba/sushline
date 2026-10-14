@@ -667,6 +667,48 @@ fn bash_readline_and_sushline_list_completion_candidates_in_same_sorted_order() 
     assert_same_candidate_order(&bash, &sushline, &["alpha", "beta", "gamma"]);
 }
 
+#[cfg(unix)]
+#[test]
+fn bash_readline_and_sushline_abbreviate_normal_and_hidden_completion_prefixes() {
+    // Bash 5.3 PTY runtime evidence for these four names and threshold 4 only;
+    // this is not Readline source proof or a claim about other names/thresholds.
+    let dir = tempfile::tempdir().expect("tempdir");
+    for name in [
+        "longprefix-alpha",
+        "longprefix-beta",
+        ".longprefix-alpha",
+        ".longprefix-beta",
+    ] {
+        fs::write(dir.path().join(name), "").expect("write completion fixture");
+    }
+    let inputrc = r#""\C-o": possible-filename-completions
+set completion-query-items 999
+set completion-prefix-display-length 4"#;
+
+    for (prefix, candidates) in [
+        ("longprefix-", ["...alpha", "...beta"]),
+        (".longprefix-", ["...alpha", "...beta"]),
+    ] {
+        let typed = format!("{}/{prefix}\x0f\r", dir.path().display());
+        let bash = run_bash_readline_with_inputrc_file(typed.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(typed.as_bytes(), inputrc);
+
+        for (output, implementation) in [(&bash, "bash"), (&sushline, "sushline")] {
+            for candidate in candidates {
+                assert!(
+                    output.contains(candidate),
+                    "missing abbreviated candidate {candidate:?}, prefix={prefix:?}, implementation={implementation}\n{output}"
+                );
+            }
+        }
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "prefix={prefix:?}\nbash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
 #[test]
 fn bash_readline_and_sushline_cycle_same_menu_completion_items() {
     let dir = tempfile::tempdir().expect("tempdir");

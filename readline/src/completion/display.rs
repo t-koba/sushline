@@ -26,12 +26,8 @@ pub(crate) fn common_prefix_bytes(candidates: &[CompletionCandidate]) -> Option<
     )
 }
 
-pub(crate) fn abbreviate_completion_prefix(items: &mut [String], prefix: &str, filenames: bool) {
-    let marker = if filenames && prefix.starts_with('.') {
-        "___"
-    } else {
-        "..."
-    };
+pub(crate) fn abbreviate_completion_prefix(items: &mut [String], prefix: &str) {
+    let marker = "...";
     for item in items {
         if let Some(rest) = item.strip_prefix(prefix) {
             *item = format!("{marker}{rest}");
@@ -397,12 +393,12 @@ where
                 if let Some(prefix) = common_bytes.as_deref().map(filename_display_name)
                     && prefix.chars().count() > prefix_limit
                 {
-                    abbreviate_completion_prefix(&mut items, &prefix, response.options.filenames);
+                    abbreviate_completion_prefix(&mut items, &prefix);
                 }
             } else if let Some(prefix) = common_prefix.as_deref()
                 && prefix.chars().count() > prefix_limit
             {
-                abbreviate_completion_prefix(&mut items, prefix, response.options.filenames);
+                abbreviate_completion_prefix(&mut items, prefix);
             }
         }
         if self.variable_is_on("colored-completion-prefix") {

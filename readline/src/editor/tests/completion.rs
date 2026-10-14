@@ -434,6 +434,29 @@ fn completion_display_honors_layout_variables() {
 }
 
 #[test]
+fn completion_display_reserves_final_column_at_width_boundary() {
+    let items = (1..=12)
+        .map(|index| format!("alpha-{index:02}"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        format_completion_items_with_trailing(&items, 20, true, false),
+        items
+    );
+    assert_eq!(
+        format_completion_items_with_trailing(&items, 21, true, false),
+        vec![
+            "alpha-01  alpha-02",
+            "alpha-03  alpha-04",
+            "alpha-05  alpha-06",
+            "alpha-07  alpha-08",
+            "alpha-09  alpha-10",
+            "alpha-11  alpha-12",
+        ]
+    );
+}
+
+#[test]
 fn colored_completion_prefix_marks_common_prefix() {
     let items = ["alpha".to_string(), "alpine".to_string()];
     let candidates = items

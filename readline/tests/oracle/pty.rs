@@ -190,6 +190,32 @@ pub(super) fn run_bash_readline_with_inputrc_file_and_env(
     run_bash_readline_with_inputrc_file_and_env_removing(keys, inputrc, env, &[])
 }
 
+pub(super) fn run_bash_readline_with_inputrc_file_and_env_and_size(
+    keys: &[u8],
+    inputrc: &str,
+    env: &[(&str, &str)],
+    size: PtySize,
+) -> String {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    fs::write(&path, inputrc).expect("write inputrc");
+    let mut command = CommandBuilder::new("bash");
+    command.env("INPUTRC", path.to_string_lossy().as_ref());
+    for (name, value) in env {
+        command.env(name, value);
+    }
+    command.args([
+        "--noprofile",
+        "--norc",
+        "-i",
+        "-c",
+        &format!(
+            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+        ),
+    ]);
+    run_pty_with_size(command, keys, size)
+}
+
 pub(super) fn run_bash_readline_with_inputrc_file_and_env_in_dir(
     keys: &[u8],
     inputrc: &str,

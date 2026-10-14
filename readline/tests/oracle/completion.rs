@@ -669,6 +669,104 @@ fn bash_readline_and_sushline_list_completion_candidates_in_same_sorted_order() 
 
 #[cfg(unix)]
 #[test]
+fn bash_readline_and_sushline_pack_completion_columns_at_width_boundary() {
+    use portable_pty::PtySize;
+
+    // Bash 5.3 PTY runtime evidence only: this 100-column fixture checks the
+    // exact 20/21 display-width boundary and the two observed row orders.
+    fn candidate_rows(output: &str, candidates: &[String]) -> Vec<Vec<String>> {
+        let mut positions = candidates
+            .iter()
+            .map(|candidate| {
+                let position = output
+                    .find(candidate)
+                    .unwrap_or_else(|| panic!("missing {candidate:?} in {output:?}"));
+                assert_eq!(
+                    output.matches(candidate).count(),
+                    1,
+                    "candidate {candidate:?} appeared more than once in {output:?}"
+                );
+                (position, candidate.clone())
+            })
+            .collect::<Vec<_>>();
+        positions.sort_by_key(|(position, _)| *position);
+
+        let mut rows = Vec::<Vec<String>>::new();
+        let mut previous_end = None;
+        for (position, candidate) in positions {
+            if previous_end.is_some_and(|end| output[end..position].contains('\n')) {
+                rows.push(Vec::new());
+            }
+            if rows.is_empty() {
+                rows.push(Vec::new());
+            }
+            rows.last_mut().unwrap().push(candidate.clone());
+            previous_end = Some(position + candidate.len());
+        }
+        rows
+    }
+
+    let dir = tempfile::tempdir().expect("temp completion directory");
+    let candidates = (1..=12)
+        .map(|index| format!("alpha-{index:02}"))
+        .collect::<Vec<_>>();
+    for candidate in &candidates {
+        fs::write(dir.path().join(candidate), "").expect("write completion fixture");
+    }
+    let size = PtySize {
+        rows: 24,
+        cols: 100,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+
+    for width in [20, 21] {
+        for horizontal in [true, false] {
+            let horizontal_setting = if horizontal { "on" } else { "off" };
+            let inputrc = format!(
+                "\"\\C-o\": possible-filename-completions\nset completion-query-items 0\nset page-completions off\nset print-completions-horizontally {horizontal_setting}\nset completion-display-width {width}"
+            );
+            let keys = format!("{}/a\x0f\r", dir.path().display());
+            let bash = run_bash_readline_with_inputrc_file_and_env_and_size(
+                keys.as_bytes(),
+                &inputrc,
+                &[],
+                size,
+            );
+            let sushline = run_sushline_harness_with_size(keys.as_bytes(), &inputrc, &[], size);
+
+            let expected = match (width, horizontal) {
+                (20, _) => candidates
+                    .iter()
+                    .map(|candidate| vec![candidate.clone()])
+                    .collect::<Vec<_>>(),
+                (21, true) => candidates
+                    .chunks(2)
+                    .map(|row| row.to_vec())
+                    .collect::<Vec<_>>(),
+                (21, false) => (0..6)
+                    .map(|row| vec![candidates[row].clone(), candidates[row + 6].clone()])
+                    .collect::<Vec<_>>(),
+                _ => unreachable!(),
+            };
+            for (output, implementation) in [(&bash, "bash"), (&sushline, "sushline")] {
+                assert_eq!(
+                    candidate_rows(output, &candidates),
+                    expected,
+                    "width={width}, horizontal={horizontal_setting}, implementation={implementation}\n{output}"
+                );
+                assert!(
+                    !output.contains("Display all 12 possibilities?"),
+                    "{output}"
+                );
+                assert!(!output.contains("--More--"), "{output}");
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn bash_readline_and_sushline_query_completion_items_at_measured_boundaries() {
     // Bash 5.3 PTY runtime observations, not Readline source proof: one
     // candidate at threshold 1 does not query, while two at threshold 2 do.

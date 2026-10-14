@@ -141,7 +141,7 @@ pub(crate) fn format_completion_items_with_trailing(
     }
     let widths: Vec<usize> = items.iter().map(|item| visible_width(item)).collect();
     let item_width = widths.iter().copied().max().unwrap_or(0) + 2;
-    let columns = (display_width / item_width.max(1)).max(1);
+    let columns = (display_width.saturating_sub(1) / item_width.max(1)).max(1);
     let rows = items.len().div_ceil(columns);
     let mut lines = Vec::with_capacity(rows);
     for row in 0..rows {

@@ -139,20 +139,23 @@ fn bash_readline_and_sushline_substring_search_skips_selected_match() {
     );
 }
 
-#[test]
-fn search_ignore_case_differs_on_non_ascii_in_utf8_locale() {
-    let locale = Command::new("locale")
+fn c_utf8_locale_available() -> bool {
+    let Ok(locale) = Command::new("locale")
         .arg("charmap")
         .env("LC_ALL", "C.UTF-8")
-        .output();
-    let Ok(locale) = locale else {
-        return;
+        .output()
+    else {
+        return false;
     };
-    if !locale.status.success()
-        || !String::from_utf8_lossy(&locale.stdout)
+    locale.status.success()
+        && String::from_utf8_lossy(&locale.stdout)
             .trim()
             .eq_ignore_ascii_case("UTF-8")
-    {
+}
+
+#[test]
+fn search_ignore_case_differs_on_non_ascii_in_utf8_locale() {
+    if !c_utf8_locale_available() {
         return;
     }
 
@@ -262,6 +265,45 @@ fn bash_readline_and_sushline_operate_and_get_next_prefill_same_next_read() {
             "keys={keys:?}\nsecond read\nbash={bash}\nsushline={sushline}"
         );
     }
+}
+
+#[test]
+fn nonincremental_search_ignore_case_differs_on_non_ascii_in_utf8_locale() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    let inputrc = r#""\C-o": non-incremental-reverse-search-history
+set search-ignore-case on"#;
+    let history = ["ÄLPHA old"];
+    let mut keys = vec![0x0f];
+    keys.extend_from_slice("älpha".as_bytes());
+    // The first Enter completes the search; the second accepts the found line.
+    keys.extend_from_slice(b"\r\r");
+    let locale_env = [("LC_ALL", "C.UTF-8")];
+    let bash = run_bash_readline_with_inputrc_file_and_history_and_env(
+        &keys,
+        inputrc,
+        &history,
+        &locale_env,
+    );
+    let sushline = run_sushline_harness_with_inputrc_and_history_and_env(
+        &keys,
+        inputrc,
+        &history,
+        &locale_env,
+    );
+
+    assert_eq!(
+        accepted_line(&bash),
+        Some("ÄLPHA old".to_string()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        Some(String::new()),
+        "Sushline's locale-independent ASCII folding does not match Ä/ä: {sushline}"
+    );
 }
 
 #[test]

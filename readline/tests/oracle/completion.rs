@@ -268,6 +268,41 @@ fn bash_readline_and_sushline_complete_same_mapped_case_directory_without_marker
     assert_eq!(accepted_line(&sushline), Some(expected), "{sushline}");
 }
 
+#[test]
+fn bash_readline_and_sushline_mark_regular_directories_in_filename_completion() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::create_dir(dir.path().join("alpha-dir")).expect("mkdir fixture");
+    let typed = format!("{}/alp\t\r", dir.path().display());
+
+    for (inputrc, expected_suffix) in [
+        ("", "/"),
+        ("set mark-directories on", "/"),
+        ("set mark-directories off", ""),
+        (
+            "set mark-directories off\nset mark-symlinked-directories on",
+            "",
+        ),
+    ] {
+        let expected = format!(
+            "{}{expected_suffix}",
+            dir.path().join("alpha-dir").display()
+        );
+        let bash = run_bash_readline_with_inputrc_file(typed.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(typed.as_bytes(), inputrc);
+
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.clone()),
+            "inputrc={inputrc:?}\n{bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            Some(expected),
+            "inputrc={inputrc:?}\n{sushline}"
+        );
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn bash_readline_and_sushline_complete_same_symlinked_directory_markers() {
@@ -277,20 +312,105 @@ fn bash_readline_and_sushline_complete_same_symlinked_directory_markers() {
     fs::create_dir(dir.path().join("target-dir")).expect("mkdir fixture");
     symlink(dir.path().join("target-dir"), dir.path().join("alpha-link")).expect("symlink fixture");
     let typed = format!("{}/alp\t\r", dir.path().display());
+    let path = dir.path().join("alpha-link").display().to_string();
 
-    for inputrc in [
-        "",
-        "set mark-symlinked-directories on",
-        "set mark-directories off\nset mark-symlinked-directories on",
+    // The empty inputrc checks the Readline defaults: regular directories are
+    // marked, but symlinked directories are not. The explicit matrix isolates
+    // the two inputrc variables and asserts the accepted line, not just parity.
+    for (inputrc, expected_suffix) in [
+        ("", ""),
+        (
+            "set mark-directories on\nset mark-symlinked-directories on",
+            "/",
+        ),
+        (
+            "set mark-directories on\nset mark-symlinked-directories off",
+            "",
+        ),
+        (
+            "set mark-directories off\nset mark-symlinked-directories on",
+            "",
+        ),
+        (
+            "set mark-directories off\nset mark-symlinked-directories off",
+            "",
+        ),
     ] {
+        let expected = format!("{path}{expected_suffix}");
         let bash = run_bash_readline_with_inputrc_file(typed.as_bytes(), inputrc);
         let sushline = run_sushline_harness_with_inputrc(typed.as_bytes(), inputrc);
 
         assert_eq!(
-            accepted_line(&sushline),
             accepted_line(&bash),
-            "inputrc={inputrc:?}\nbash={bash}\nsushline={sushline}"
+            Some(expected.clone()),
+            "inputrc={inputrc:?}\n{bash}"
         );
+        assert_eq!(
+            accepted_line(&sushline),
+            Some(expected),
+            "inputrc={inputrc:?}\n{sushline}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn bash_readline_and_sushline_possible_completions_mark_directory_display_slashes() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::create_dir(dir.path().join("alpha-dir")).expect("mkdir regular fixture");
+    fs::create_dir(dir.path().join("target-dir")).expect("mkdir symlink target");
+    symlink(dir.path().join("target-dir"), dir.path().join("alpha-link")).expect("symlink fixture");
+    let typed = format!("{}/al\x0f\r", dir.path().display());
+
+    for (mark_directories, mark_symlinked_directories, display_slash) in [
+        (true, false, true),
+        (true, true, true),
+        (false, true, false),
+        (false, false, false),
+    ] {
+        let inputrc = format!(
+            "\"\\C-o\": possible-completions\nset completion-query-items 999\nset mark-directories {}\nset mark-symlinked-directories {}",
+            if mark_directories { "on" } else { "off" },
+            if mark_symlinked_directories {
+                "on"
+            } else {
+                "off"
+            },
+        );
+        let bash = run_bash_readline_with_inputrc_file(typed.as_bytes(), &inputrc);
+        let sushline = run_sushline_harness_with_inputrc(typed.as_bytes(), &inputrc);
+
+        for (output, implementation) in [(&bash, "bash"), (&sushline, "sushline")] {
+            for candidate in ["alpha-dir", "alpha-link"] {
+                let rendered = format!("{candidate}{}", if display_slash { "/" } else { "" });
+                assert!(
+                    output.contains(&rendered),
+                    "missing displayed candidate {rendered:?}, implementation={implementation}, inputrc={inputrc:?}\n{output}"
+                );
+                if !display_slash {
+                    assert!(
+                        !output.contains(&format!("{candidate}/")),
+                        "unexpected display slash for {candidate:?}, implementation={implementation}, inputrc={inputrc:?}\n{output}"
+                    );
+                }
+            }
+        }
+        assert_eq!(
+            accepted_line(&bash),
+            Some(format!("{}/al", dir.path().display())),
+            "inputrc={inputrc:?}\n{bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            Some(format!("{}/al", dir.path().display())),
+            "inputrc={inputrc:?}\n{sushline}"
+        );
+
+        // Display marking follows mark-directories alone; inserting a slash
+        // for a symlinked directory additionally requires its own option.
+        assert_eq!(display_slash, mark_directories, "test matrix setup");
     }
 }
 

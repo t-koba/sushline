@@ -67,6 +67,7 @@ impl EditorState {
 
     pub(crate) fn cancel_pending_command(&mut self) {
         self.input.pending_key.clear();
+        self.input.prefix_meta_command_dispatch = false;
         self.input.quoted_insert = false;
         self.input.skipping_csi = false;
         self.input.csi_sequence_started = false;

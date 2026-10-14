@@ -99,8 +99,16 @@ where
         let was_prefix_meta_command_dispatch = state.input.prefix_meta_command_dispatch;
         state.input.prefix_meta_command_dispatch = true;
         let result = self.handle_bytes(state, &prefixed, hooks);
-        state.input.prefix_meta_command_dispatch = was_prefix_meta_command_dispatch;
-        let outcome = result?;
+        let outcome = match result {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                state.input.prefix_meta_command_dispatch = was_prefix_meta_command_dispatch;
+                return Err(error);
+            }
+        };
+        if state.input.pending_key.is_empty() || !matches!(&outcome, EditorOutcome::Continue) {
+            state.input.prefix_meta_command_dispatch = was_prefix_meta_command_dispatch;
+        }
         if rest.is_empty() || !matches!(&outcome, EditorOutcome::Continue) {
             return Ok(outcome);
         }
@@ -283,6 +291,7 @@ where
         }
 
         if let Some(binding) = self.keymap.lookup(self.keymap.current(), &pending).cloned() {
+            state.input.prefix_meta_command_dispatch = false;
             return self.apply_binding(state, binding, &pending, hooks);
         }
 
@@ -308,6 +317,7 @@ where
                     use_len = char_len;
                 }
             }
+            state.input.prefix_meta_command_dispatch = false;
             let outcome = self.apply_binding(state, binding, &pending[..use_len], hooks)?;
             if !matches!(outcome, EditorOutcome::Continue) {
                 return Ok(outcome);
@@ -511,6 +521,8 @@ where
         bytes: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
+        let prefix_meta_command_dispatch = state.input.prefix_meta_command_dispatch;
+        state.input.prefix_meta_command_dispatch = false;
         if state.input.pending_replace {
             return self.handle_replace_input(state, bytes, hooks);
         }
@@ -525,7 +537,7 @@ where
         let unbound_meta_prefix = bytes.len() > 1
             && bytes.first() == Some(&0x1b)
             && !matches!(bytes.get(1), Some(&b'[') | Some(&b'O'));
-        if unbound_meta_prefix && !state.input.prefix_meta_command_dispatch {
+        if unbound_meta_prefix && !prefix_meta_command_dispatch {
             self.ding()?;
             state.consume_numeric_arg_unless_prefix();
             return Ok(EditorOutcome::Continue);

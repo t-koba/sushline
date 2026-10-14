@@ -514,6 +514,15 @@ fn sushline_prefix_meta_inputrc_extension_preserves_literal_fallback() {
         Some("abcaX".to_string()),
         "{sushline}"
     );
+
+    let overlapping_inputrc = "set convert-meta off\nset force-meta-prefix off\n\"\\C-o\": prefix-meta\n\"\\ea\\C-b\": beginning-of-line";
+    let overlapping_keys = b"abc\x0facX\r";
+    let sushline = run_sushline_harness_with_inputrc(overlapping_keys, overlapping_inputrc);
+    assert_eq!(
+        accepted_line(&sushline),
+        Some("abcacX".to_string()),
+        "synthetic prefix fallback should preserve its literal bytes: {sushline}"
+    );
 }
 
 #[test]

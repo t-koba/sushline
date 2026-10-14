@@ -144,6 +144,56 @@ fn history_search_pos_rejects_positions_beyond_end() {
 }
 
 #[test]
+fn history_search_prefix_matches_beginning_and_end_boundaries() {
+    // GNU Readline 8.3 histsearch.c implements anchored prefix search through
+    // the same position-inclusive history search as substring search.
+    let mut h = History::new();
+    h.push("alpha first");
+    h.push("middle");
+    h.push("alpha last");
+
+    h.set_pos(0);
+    assert_eq!(
+        h.history_search_prefix("alpha", HistoryDirection::Previous)
+            .map(|found| found.entry_index),
+        Some(0)
+    );
+    h.set_pos(0);
+    assert_eq!(
+        h.history_search_prefix("alpha", HistoryDirection::Next)
+            .map(|found| found.entry_index),
+        Some(0)
+    );
+    h.set_pos(3);
+    assert_eq!(
+        h.history_search_prefix("alpha", HistoryDirection::Previous)
+            .map(|found| found.entry_index),
+        Some(2)
+    );
+    h.set_pos(3);
+    assert!(
+        h.history_search_prefix("alpha", HistoryDirection::Next)
+            .is_none()
+    );
+    assert_eq!(
+        h.where_history(),
+        3,
+        "a failed forward prefix search leaves the end cursor unchanged"
+    );
+
+    h.set_pos(1);
+    assert!(
+        h.history_search_prefix("missing", HistoryDirection::Previous)
+            .is_none()
+    );
+    assert_eq!(
+        h.where_history(),
+        1,
+        "a failed prefix search preserves the cursor"
+    );
+}
+
+#[test]
 fn searches_history_by_prefix() {
     let mut h = History::new();
     h.push("alpha one");

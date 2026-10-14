@@ -1,7 +1,7 @@
 use crate::completion::builtin::*;
 use crate::completion::display::*;
 use crate::completion::filename::{
-    FilenameOptions, complete_directories_bytes, complete_filenames_bytes,
+    FilenameOptions, complete_directories_in_context, complete_filenames_in_context,
 };
 use crate::completion::quoting::*;
 use crate::completion::{CompletionContext, CompletionRequest, CompletionResponse, CompletionType};
@@ -154,17 +154,17 @@ where
             if response.candidates.is_empty() {
                 if options.default {
                     response =
-                        complete_filenames_bytes(&request.context.word, &self.filename_options());
+                        complete_filenames_in_context(&request.context, &self.filename_options());
                 } else if options.dirnames {
                     response =
-                        complete_directories_bytes(&request.context.word, &self.filename_options());
+                        complete_directories_in_context(&request.context, &self.filename_options());
                 }
             }
             merge_completion_options(&mut response.options, options);
         }
         if response.options.plusdirs {
             response.candidates.extend(
-                complete_directories_bytes(&request.context.word, &self.filename_options())
+                complete_directories_in_context(&request.context, &self.filename_options())
                     .candidates,
             );
         }
@@ -219,7 +219,7 @@ where
                 complete_variables(&request.context.word, hooks)
             }
             CompletionType::Filename | CompletionType::PossibleFilenameCompletions => {
-                complete_filenames_bytes(&request.context.word, &self.filename_options())
+                complete_filenames_in_context(&request.context, &self.filename_options())
             }
             CompletionType::Complete
             | CompletionType::MenuComplete

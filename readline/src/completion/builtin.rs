@@ -1,7 +1,7 @@
 use crate::completion::filename::{
-    FilenameOptions, complete_filenames_bytes, expand_tilde_bytes, filename_matches_response,
-    filenames_response, is_executable_file, join_display_dir, os_str_to_completion_bytes,
-    path_from_bytes, split_word_path_bytes,
+    FilenameOptions, complete_filenames_bytes, complete_filenames_in_context, expand_tilde_bytes,
+    filename_matches_response, filenames_response, is_executable_file, join_display_dir,
+    os_str_to_completion_bytes, path_from_bytes, split_word_path_bytes,
 };
 use crate::completion::{
     CompletionCandidate, CompletionOptions, CompletionRequest, CompletionResponse,
@@ -63,8 +63,8 @@ pub(super) fn default_application_completion(
     if let Some(response) = hooks.default_complete(request) {
         return response;
     }
-    complete_filenames_bytes(
-        &request.context.word,
+    complete_filenames_in_context(
+        &request.context,
         &FilenameOptions::from_variables(variables),
     )
 }

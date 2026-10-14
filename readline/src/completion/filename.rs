@@ -1,4 +1,4 @@
-use crate::completion::{CompletionCandidate, CompletionResponse};
+use crate::completion::{CompletionCandidate, CompletionContext, CompletionResponse};
 use crate::variables::Variables;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -38,16 +38,38 @@ impl FilenameOptions {
 }
 
 pub(crate) fn complete_filenames_bytes(word: &[u8], opts: &FilenameOptions) -> CompletionResponse {
-    // In the tested Bash 5.3 filename-completion cases, ~/ resolves against
-    // HOME for lookup regardless of the expand-tilde insertion setting. Keep
-    // lookup separate from displayed replacement bytes so the off case
-    // retains its typed ~/ prefix.
-    let lookup_word = if opts.expand_tilde || word.starts_with(b"~/") {
+    complete_filenames_with_tilde_context(word, opts, LeadingTildeContext::Unquoted)
+}
+
+pub(crate) fn complete_filenames_in_context(
+    context: &CompletionContext,
+    opts: &FilenameOptions,
+) -> CompletionResponse {
+    let tilde_context = leading_tilde_context(context);
+    if context.word.starts_with(b"~/") && tilde_context == LeadingTildeContext::Escaped {
+        return filename_response(Vec::new(), 0);
+    }
+    complete_filenames_with_tilde_context(&context.word, opts, tilde_context)
+}
+
+fn complete_filenames_with_tilde_context(
+    word: &[u8],
+    opts: &FilenameOptions,
+    tilde_context: LeadingTildeContext,
+) -> CompletionResponse {
+    // In the measured Bash 5.3 cases, an unquoted ~/ resolves against HOME
+    // for lookup regardless of expand-tilde, while the option controls whether
+    // that expanded path is inserted. A quoted ~/ also resolves and inserts
+    // the HOME path with the option off. Escaped-leading-tilde calls are
+    // suppressed by the context-aware entry point above.
+    let expands_leading_tilde =
+        word.starts_with(b"~/") && !matches!(tilde_context, LeadingTildeContext::Escaped);
+    let lookup_word = if opts.expand_tilde || expands_leading_tilde {
         expand_tilde_bytes(word)
     } else {
         word.to_vec()
     };
-    let display_word = if opts.expand_tilde {
+    let display_word = if opts.expand_tilde || tilde_context == LeadingTildeContext::Quoted {
         lookup_word.as_slice()
     } else {
         word
@@ -156,17 +178,56 @@ pub(crate) fn join_display_dir(display_dir: &[u8], name: &[u8]) -> Vec<u8> {
     replacement
 }
 
+#[cfg(test)]
 pub(crate) fn complete_directories_bytes(
     word: &[u8],
     opts: &FilenameOptions,
 ) -> CompletionResponse {
-    let mut response = complete_filenames_bytes(word, opts);
+    filter_directory_candidates(complete_filenames_bytes(word, opts), word, opts)
+}
+
+pub(crate) fn complete_directories_in_context(
+    context: &CompletionContext,
+    opts: &FilenameOptions,
+) -> CompletionResponse {
+    filter_directory_candidates(
+        complete_filenames_in_context(context, opts),
+        &context.word,
+        opts,
+    )
+}
+
+fn filter_directory_candidates(
+    mut response: CompletionResponse,
+    word: &[u8],
+    opts: &FilenameOptions,
+) -> CompletionResponse {
     response.candidates.retain(|candidate| {
         candidate.replacement_bytes().ends_with(b"/")
             || filename_directory_completion(word, candidate.replacement_bytes(), opts).is_some()
     });
     response.options.nospace = response.candidates.len() == 1;
     response
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LeadingTildeContext {
+    Unquoted,
+    Quoted,
+    Escaped,
+}
+
+fn leading_tilde_context(context: &CompletionContext) -> LeadingTildeContext {
+    let Some(raw_word) = context.line.get(context.word_start..context.word_end) else {
+        return LeadingTildeContext::Unquoted;
+    };
+    if raw_word.starts_with(b"\\~/") {
+        return LeadingTildeContext::Escaped;
+    }
+    if raw_word.starts_with(b"'~/") || raw_word.starts_with(b"\"~/") {
+        return LeadingTildeContext::Quoted;
+    }
+    LeadingTildeContext::Unquoted
 }
 
 pub(crate) fn is_executable_file(path: &Path) -> bool {

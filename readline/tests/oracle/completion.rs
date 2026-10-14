@@ -684,6 +684,41 @@ fn bash_readline_and_sushline_complete_home_tilde_filenames_with_expansion_setti
 }
 
 #[test]
+fn filename_tilde_completion_respects_raw_quote_and_escape_context() {
+    // Runtime-only Bash 5.3 evidence for this isolated HOME fixture and these
+    // accepted lines; it does not establish other tilde forms or unset-HOME behavior.
+    let home = tempfile::tempdir().expect("temp HOME");
+    fs::write(home.path().join("Alpha"), "").expect("write HOME fixture");
+    let home_path = home.path().to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+
+    for (word, expand_tilde, expected) in [
+        ("~/Al", "off", "~/Alpha ".to_string()),
+        ("~/Al", "on", format!("{home_path}/Alpha ")),
+        ("'~/Al", "off", format!("'{home_path}/Alpha' ")),
+        ("\"~/Al", "off", format!("\"{home_path}/Alpha\" ")),
+        ("\\~/Al", "off", "\\~/Al".to_string()),
+        ("\\~/Al", "on", "\\~/Al".to_string()),
+    ] {
+        let inputrc = format!("set expand-tilde {expand_tilde}\nset mark-directories off");
+        let keys = format!("{word}\t\r");
+        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), &inputrc, &env);
+        let sushline = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), &inputrc, &env);
+
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.clone()),
+            "word={word:?} expand-tilde={expand_tilde}\n{bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            Some(expected.clone()),
+            "word={word:?} expand-tilde={expand_tilde}\n{sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_complete_same_single_quoted_filename_with_space() {
     let dir = tempfile::tempdir().expect("tempdir");
     let file = dir.path().join("alpha file");

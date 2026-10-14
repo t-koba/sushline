@@ -1458,3 +1458,50 @@ fn bash_readline_and_sushline_yank_pop_bell_matches() {
         "bash={bash}\nsushline={sushline}"
     );
 }
+
+#[test]
+fn bash_readline_and_sushline_render_output_meta_per_locale() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    let valid_utf8 = b"\xc3\xa9\r";
+    let invalid_byte = b"\xff\r";
+    for (locale, setting, expected_valid) in [
+        ("C", "off", "\\303\\251"),
+        ("C", "on", "é"),
+        ("C.UTF-8", "off", "é"),
+        ("C.UTF-8", "on", "é"),
+    ] {
+        let inputrc = format!(
+            "set convert-meta off\nset input-meta off\nset meta-flag off\nset byte-oriented off\nset output-meta {setting}"
+        );
+        let env = [("LC_ALL", locale)];
+        let valid_bash = run_bash_readline_with_inputrc_file_and_env(valid_utf8, &inputrc, &env);
+        let valid_sushline = run_sushline_harness_with_inputrc_and_env(valid_utf8, &inputrc, &env);
+        let expected_valid_render = format!("{READY_PROMPT}{expected_valid}");
+        assert!(
+            valid_bash.contains(&expected_valid_render),
+            "Bash 5.3 {locale} output-meta {setting}: {valid_bash:?}"
+        );
+        assert!(
+            valid_sushline.contains(&expected_valid_render),
+            "Sushline {locale} output-meta {setting}: {valid_sushline:?}"
+        );
+
+        let expected_invalid = if setting == "off" { "\\377" } else { "�" };
+        let invalid_bash =
+            run_bash_readline_with_inputrc_file_and_env(invalid_byte, &inputrc, &env);
+        let invalid_sushline =
+            run_sushline_harness_with_inputrc_and_env(invalid_byte, &inputrc, &env);
+        let expected_invalid_render = format!("{READY_PROMPT}{expected_invalid}");
+        assert!(
+            invalid_bash.contains(&expected_invalid_render),
+            "Bash 5.3 {locale} output-meta {setting}, invalid byte: {invalid_bash:?}"
+        );
+        assert!(
+            invalid_sushline.contains(&expected_invalid_render),
+            "Sushline {locale} output-meta {setting}, invalid byte: {invalid_sushline:?}"
+        );
+    }
+}

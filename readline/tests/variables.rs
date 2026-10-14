@@ -53,15 +53,15 @@ fn meta_input_conversion_is_chunk_invariant_and_gated() {
 #[test]
 fn output_meta_and_enable_meta_key_have_terminal_side_effects() {
     let terminal = MemoryTerminal::with_events(vec![
-        TerminalEvent::Bytes("é".as_bytes().to_vec()),
+        TerminalEvent::Bytes(vec![0xff]),
         TerminalEvent::Bytes(b"\r".to_vec()),
     ]);
     let mut line = Editor::new(Config::default(), terminal, History::new());
     line.load_inputrc_str("set output-meta off\nset enable-meta-key off")
         .unwrap();
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
-    assert_eq!(result, ReadlineResult::Line("é".as_bytes().to_vec()));
-    assert!(line.terminal().out.contains("\\303\\251"));
+    assert_eq!(result, ReadlineResult::Line(vec![0xff]));
+    assert!(line.terminal().out.contains("\\377"));
     assert_eq!(line.terminal().meta_enabled, vec![false]);
 }
 

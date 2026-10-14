@@ -15,6 +15,7 @@ pub struct RenderOptions<'a> {
     pub echo_control: bool,
     pub output_meta: bool,
     pub byte_oriented: bool,
+    pub utf8_locale: bool,
 }
 
 impl Default for RenderOptions<'static> {
@@ -26,6 +27,7 @@ impl Default for RenderOptions<'static> {
             echo_control: true,
             output_meta: true,
             byte_oriented: false,
+            utf8_locale: true,
         }
     }
 }
@@ -43,6 +45,7 @@ pub(super) fn rendered_char_width(ch: char, col: usize, options: &RenderOptions<
         options.echo_control,
         options.output_meta,
         options.byte_oriented,
+        options.utf8_locale,
         col,
     )
     .chars()
@@ -55,20 +58,29 @@ pub(super) fn display_char(
     echo_control: bool,
     output_meta: bool,
     byte_oriented: bool,
+    utf8_locale: bool,
     col: usize,
 ) -> String {
     if let Some(byte) = private_byte_value(ch) {
         if byte_oriented || !output_meta || byte.is_ascii_control() {
             return format!("\\{byte:03o}");
         }
-        return (byte as char).to_string();
+        return private_byte_char(byte).to_string();
     }
-    if (byte_oriented || !output_meta) && !ch.is_ascii() {
+    // UTF-8 locales preserve valid multibyte characters regardless of
+    // `output-meta`; non-UTF-8 locales render their constituent bytes instead.
+    if !ch.is_ascii() && (byte_oriented || !utf8_locale) {
         return ch
             .to_string()
             .as_bytes()
             .iter()
-            .map(|byte| format!("\\{byte:03o}"))
+            .map(|byte| {
+                if !byte_oriented && output_meta {
+                    private_byte_char(*byte).to_string()
+                } else {
+                    format!("\\{byte:03o}")
+                }
+            })
             .collect();
     }
     // GNU expands TAB to spaces up to the next multiple-of-8 tab stop
@@ -219,6 +231,7 @@ impl LineBuffer {
                 options.echo_control,
                 options.output_meta,
                 options.byte_oriented,
+                options.utf8_locale,
                 abs_col,
             );
             for rendered in display.chars() {
@@ -286,6 +299,7 @@ impl LineBuffer {
                 options.echo_control,
                 options.output_meta,
                 options.byte_oriented,
+                options.utf8_locale,
                 rel_col,
             );
             if ch == '\n' {
@@ -335,6 +349,7 @@ impl LineBuffer {
                     options.echo_control,
                     options.output_meta,
                     options.byte_oriented,
+                    options.utf8_locale,
                     tab_col,
                 );
                 out.push_str(&display);
@@ -346,6 +361,7 @@ impl LineBuffer {
                 options.echo_control,
                 options.output_meta,
                 options.byte_oriented,
+                options.utf8_locale,
                 tab_col,
             );
             let w = display.chars().map(char_width).sum::<usize>();
@@ -431,5 +447,26 @@ impl LineBuffer {
         let start = mark.min(self.point);
         let end = mark.max(self.point);
         (start != end).then_some((start, end))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn output_meta_uses_locale_and_preserves_raw_invalid_bytes() {
+        let invalid = private_byte_char(0xff);
+        let raw_invalid = display_char(invalid, true, true, false, true, 0);
+        assert_eq!(rendered_string_to_bytes(&raw_invalid), vec![0xff]);
+        assert_eq!(display_char(invalid, true, false, false, true, 0), "\\377");
+
+        assert_eq!(display_char('é', true, false, false, true, 0), "é");
+        assert_eq!(
+            display_char('é', true, false, false, false, 0),
+            "\\303\\251"
+        );
+        let raw_c_locale = display_char('é', true, true, false, false, 0);
+        assert_eq!(rendered_string_to_bytes(&raw_c_locale), "é".as_bytes());
     }
 }

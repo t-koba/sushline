@@ -116,6 +116,7 @@ pub struct Variables {
     strings: BTreeMap<String, String>,
     bytes: BTreeMap<String, Vec<u8>>,
     flags: [bool; BoolVariable::COUNT],
+    utf8_locale: bool,
 }
 
 impl Variables {
@@ -156,6 +157,7 @@ impl Variables {
             strings,
             bytes,
             flags: [false; BoolVariable::COUNT],
+            utf8_locale: locale_uses_meta(),
         };
         this.rebuild_flags();
         this
@@ -231,6 +233,10 @@ impl Variables {
 
     pub(crate) fn flag(&self, variable: BoolVariable) -> bool {
         self.flags[variable.index()]
+    }
+
+    pub(crate) fn utf8_locale(&self) -> bool {
+        self.utf8_locale
     }
 }
 

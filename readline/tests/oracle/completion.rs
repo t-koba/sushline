@@ -706,6 +706,64 @@ fn bash_readline_and_sushline_query_completion_items_at_measured_boundaries() {
 
 #[cfg(unix)]
 #[test]
+fn bash_readline_and_sushline_page_filename_completions_at_narrow_terminal_size() {
+    use portable_pty::PtySize;
+
+    // Bash 5.3 PTY runtime evidence, not Readline source proof: this fixture
+    // and 8x40 terminal show the first seven long, one-column candidates before
+    // the pager; `q` stops the list. No general column/layout behavior is claimed.
+    let dir = tempfile::tempdir().expect("temp completion directory");
+    let candidates = (1..=10)
+        .map(|index| format!("alpha-long-completion-item-{index:02}"))
+        .collect::<Vec<_>>();
+    for candidate in &candidates {
+        fs::write(dir.path().join(candidate), "").expect("write completion fixture");
+    }
+
+    let size = PtySize {
+        rows: 8,
+        cols: 40,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    for (page_completions, expected_count) in [("on", 7), ("off", 10)] {
+        let inputrc = format!(
+            "\"\\C-o\": possible-filename-completions\nset completion-query-items 0\nset print-completions-horizontally off\nset page-completions {page_completions}"
+        );
+        let inputrc_path = dir.path().join("inputrc");
+        fs::write(&inputrc_path, &inputrc).expect("write inputrc");
+        let inputrc_path = inputrc_path.to_str().expect("UTF-8 inputrc path");
+        let env = [("INPUTRC", inputrc_path)];
+        let keys = format!("{}/al\x0fq\r", dir.path().display());
+
+        let bash = run_bash_readline_with_size_and_env(keys.as_bytes(), "", &[], size, &env);
+        let sushline = run_sushline_harness_with_size(keys.as_bytes(), &inputrc, &[], size);
+        let pager_visible = page_completions == "on";
+
+        for (output, implementation) in [(&bash, "bash"), (&sushline, "sushline")] {
+            for (index, candidate) in candidates.iter().enumerate() {
+                let expected = if !pager_visible || index < expected_count {
+                    1
+                } else {
+                    0
+                };
+                assert_eq!(
+                    output.matches(candidate).count(),
+                    expected,
+                    "candidate={candidate:?}, page-completions={page_completions}, implementation={implementation}\n{output}"
+                );
+            }
+            assert_eq!(
+                output.contains("--More--"),
+                pager_visible,
+                "page-completions={page_completions}, implementation={implementation}\n{output}"
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn bash_readline_and_sushline_abbreviate_normal_and_hidden_completion_prefixes() {
     // Bash 5.3 PTY runtime evidence for these four names and threshold 4 only;
     // this is not Readline source proof or a claim about other names/thresholds.

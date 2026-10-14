@@ -1586,3 +1586,49 @@ fn bash_readline_and_sushline_render_quoted_controls_independent_of_echo_control
         }
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_blink_matching_paren_on_self_insert() {
+    let env = [("LC_ALL", "C"), ("TERM", "xterm")];
+    let keys = b"()\r";
+    let on = "set blink-matching-paren on";
+    let off = "set blink-matching-paren off";
+    let bash_on = run_bash_readline_with_inputrc_file_and_env(keys, on, &env);
+    let bash_off = run_bash_readline_with_inputrc_file_and_env(keys, off, &env);
+    let sushline_on = run_sushline_harness_with_inputrc_and_env(keys, on, &env);
+    let sushline_off = run_sushline_harness_with_inputrc_and_env(keys, off, &env);
+    let bash_motion = ")\x08\x08";
+    let sushline_motion = "\x1b[s\x1b[16G\x1b[u";
+
+    assert_eq!(accepted_line(&bash_on), Some("()".to_string()), "{bash_on}");
+    assert_eq!(
+        accepted_line(&bash_off),
+        Some("()".to_string()),
+        "{bash_off}"
+    );
+    assert_eq!(
+        accepted_line(&sushline_on),
+        Some("()".to_string()),
+        "{sushline_on}"
+    );
+    assert_eq!(
+        accepted_line(&sushline_off),
+        Some("()".to_string()),
+        "{sushline_off}"
+    );
+    assert!(bash_on.contains(bash_motion), "{bash_on:?}");
+    assert!(!bash_off.contains(bash_motion), "{bash_off:?}");
+    assert!(sushline_on.contains(sushline_motion), "{sushline_on:?}");
+    assert!(!sushline_off.contains(sushline_motion), "{sushline_off:?}");
+
+    let unmatched = b")\r";
+    let bash_unmatched = run_bash_readline_with_inputrc_file_and_env(unmatched, on, &env);
+    let sushline_unmatched = run_sushline_harness_with_inputrc_and_env(unmatched, on, &env);
+    assert_eq!(accepted_line(&bash_unmatched), Some(")".to_string()));
+    assert_eq!(accepted_line(&sushline_unmatched), Some(")".to_string()));
+    assert!(!bash_unmatched.contains("\x08\x08"), "{bash_unmatched:?}");
+    assert!(
+        !sushline_unmatched.contains("\x1b[s"),
+        "{sushline_unmatched:?}"
+    );
+}

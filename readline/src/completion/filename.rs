@@ -58,8 +58,8 @@ fn complete_filenames_with_tilde_context(
     // In the measured Bash 5.3 cases, an unquoted ~/ resolves against HOME
     // for lookup regardless of expand-tilde, while the option controls whether
     // that expanded path is inserted. A quoted ~/ also resolves and inserts
-    // the HOME path with the option off. Escaped-leading-tilde calls are
-    // suppressed by the context-aware entry point above.
+    // the HOME path with the option off. An escaped tilde that dequotes to
+    // a leading `~/` is not expanded by the context-aware entry point.
     let expands_leading_tilde =
         word.starts_with(b"~/") && !matches!(tilde_context, LeadingTildeContext::Escaped);
     let lookup_word = if opts.expand_tilde || expands_leading_tilde {

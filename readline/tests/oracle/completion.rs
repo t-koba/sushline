@@ -841,6 +841,44 @@ fn filename_tilde_completion_respects_raw_quote_and_escape_context() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn bash_readline_and_sushline_complete_literal_escaped_tilde_in_double_quotes() {
+    // Bash 5.3 PTY runtime evidence for this isolated cwd fixture and the two
+    // expand-tilde settings only; it does not establish broader tilde behavior.
+    let cwd = tempfile::tempdir().expect("temp cwd");
+    let literal_tilde_dir_name = ['\\', '~'].iter().collect::<String>();
+    let literal_tilde_dir = cwd.path().join(literal_tilde_dir_name);
+    fs::create_dir(&literal_tilde_dir).expect("create literal tilde directory");
+    fs::write(literal_tilde_dir.join("Alpha"), "").expect("write fixture");
+    let keys = b"\"\\\\~/Al\t\r";
+    let expected = "\"\\\\~/Alpha\" ".to_string();
+
+    for expand_tilde in ["off", "on"] {
+        let inputrc = format!("set expand-tilde {expand_tilde}");
+        let bash =
+            run_bash_readline_with_inputrc_file_and_env_in_dir(keys, &inputrc, &[], cwd.path());
+        let sushline =
+            run_sushline_harness_with_inputrc_and_env_in_dir(keys, &inputrc, &[], cwd.path());
+
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.clone()),
+            "expand-tilde={expand_tilde}\n{bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            Some(expected.clone()),
+            "expand-tilde={expand_tilde}\n{sushline}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "expand-tilde={expand_tilde}\nbash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
 #[test]
 fn bash_readline_and_sushline_complete_same_single_quoted_filename_with_space() {
     let dir = tempfile::tempdir().expect("tempdir");

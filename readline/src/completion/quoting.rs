@@ -64,7 +64,15 @@ pub(super) fn dequote_completion_word_bytes(raw: &[u8]) -> (Vec<u8>, Option<char
             continue;
         }
         if byte == b'\\' && quote != Some('\'') {
-            escaped = true;
+            if quote == Some('"') {
+                match raw.get(idx).copied() {
+                    Some(b'$' | b'`' | b'"' | b'\\') => escaped = true,
+                    Some(b'\n') => idx += 1,
+                    Some(_) | None => out.push(b'\\'),
+                }
+            } else {
+                escaped = true;
+            }
             continue;
         }
         if quote == Some(byte as char) {
@@ -177,4 +185,33 @@ pub(super) fn quote_double_quoted_bytes(value: &[u8]) -> Vec<u8> {
     }
     out.push(b'"');
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dequote_completion_word_bytes;
+
+    #[test]
+    fn double_quotes_only_dequote_bash_escapable_bytes() {
+        assert_eq!(
+            dequote_completion_word_bytes(b"\"\\~/Al"),
+            (b"\\~/Al".to_vec(), Some('"')),
+        );
+        assert_eq!(
+            dequote_completion_word_bytes(b"\"\\x"),
+            (b"\\x".to_vec(), Some('"')),
+        );
+        for (raw, expected) in [
+            (b"\"\\$".as_slice(), b"$".as_slice()),
+            (b"\"\\`".as_slice(), b"`".as_slice()),
+            (b"\"\\\"".as_slice(), b"\"".as_slice()),
+            (b"\"\\\\".as_slice(), b"\\".as_slice()),
+            (b"\"\\\n".as_slice(), b"".as_slice()),
+        ] {
+            assert_eq!(
+                dequote_completion_word_bytes(raw),
+                (expected.to_vec(), Some('"'))
+            );
+        }
+    }
 }

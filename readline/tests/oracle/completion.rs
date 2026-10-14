@@ -199,21 +199,73 @@ fn completion_ignore_case_matches_held_out_kelvin_byte_offsets_and_rejects_non_c
 }
 
 #[test]
+fn completion_map_case_requires_ignore_case_and_preserves_filename_spelling() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    // Bash 5.3 PTY runtime observations under C.UTF-8 (not source proof):
+    // separator mapping applies only when both variables are on, in either
+    // direction. Successful completion inserts the candidate's spelling.
+    let locale_env = [("LC_ALL", "C.UTF-8")];
+    for (candidate, prefix) in [
+        ("alpha-dir", "alpha_dir"),
+        ("alpha_dir", "alpha-dir"),
+        ("Alpha-DIR", "alpha_d"),
+        ("Älpha-dir", "älpha_dir"),
+    ] {
+        let dir = tempfile::tempdir().expect("tempdir");
+        fs::write(dir.path().join(candidate), "").expect("write fixture");
+
+        for (ignore_case, map_case) in [(false, false), (true, false), (false, true), (true, true)]
+        {
+            let inputrc = format!(
+                "set completion-ignore-case {}\nset completion-map-case {}\nset mark-directories off",
+                if ignore_case { "on" } else { "off" },
+                if map_case { "on" } else { "off" },
+            );
+            let typed = format!("{}/{prefix}\t\r", dir.path().display());
+            let expected = if ignore_case && map_case {
+                format!("{}/{candidate} ", dir.path().display())
+            } else {
+                format!("{}/{prefix}", dir.path().display())
+            };
+
+            let bash = run_bash_readline_with_inputrc_file_and_env(
+                typed.as_bytes(),
+                &inputrc,
+                &locale_env,
+            );
+            let sushline =
+                run_sushline_harness_with_inputrc_and_env(typed.as_bytes(), &inputrc, &locale_env);
+            assert_eq!(
+                accepted_line(&bash),
+                Some(expected.clone()),
+                "candidate={candidate:?} prefix={prefix:?} ignore_case={ignore_case} map_case={map_case}\n{bash}"
+            );
+            assert_eq!(
+                accepted_line(&sushline),
+                Some(expected),
+                "candidate={candidate:?} prefix={prefix:?} ignore_case={ignore_case} map_case={map_case}\n{sushline}"
+            );
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_complete_same_mapped_case_directory_without_marker() {
     let dir = tempfile::tempdir().expect("tempdir");
     fs::create_dir(dir.path().join("alpha-dir")).expect("mkdir fixture");
     let typed = format!("{}/alpha_dir\t\r", dir.path().display());
     let inputrc =
         "set completion-ignore-case on\nset completion-map-case on\nset mark-directories off";
+    let expected = format!("{}/alpha-dir", dir.path().display());
 
     let bash = run_bash_readline_with_inputrc_file(typed.as_bytes(), inputrc);
     let sushline = run_sushline_harness_with_inputrc(typed.as_bytes(), inputrc);
 
-    assert_eq!(
-        accepted_line(&sushline),
-        accepted_line(&bash),
-        "bash={bash}\nsushline={sushline}"
-    );
+    assert_eq!(accepted_line(&bash), Some(expected.clone()), "{bash}");
+    assert_eq!(accepted_line(&sushline), Some(expected), "{sushline}");
 }
 
 #[cfg(unix)]

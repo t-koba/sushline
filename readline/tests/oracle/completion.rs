@@ -299,20 +299,47 @@ fn bash_readline_and_sushline_complete_same_hidden_filename_cases() {
     let dir = tempfile::tempdir().expect("tempdir");
     fs::write(dir.path().join(".alpha"), "").expect("write hidden fixture");
 
-    for (inputrc, typed) in [
-        ("", format!("{}/.a\t\r", dir.path().display())),
+    // Bash 5.3 PTY runtime observations for this isolated fixture only, not
+    // proof of Readline source behavior.
+    for (inputrc, typed, expected) in [
+        (
+            "",
+            format!("{}/\t\r", dir.path().display()),
+            format!("{}/.alpha ", dir.path().display()),
+        ),
+        (
+            "set match-hidden-files on",
+            format!("{}/\t\r", dir.path().display()),
+            format!("{}/.alpha ", dir.path().display()),
+        ),
+        (
+            "set match-hidden-files off",
+            format!("{}/\t\r", dir.path().display()),
+            format!("{}/", dir.path().display()),
+        ),
+        (
+            "set match-hidden-files off",
+            format!("{}/.a\t\r", dir.path().display()),
+            format!("{}/.alpha ", dir.path().display()),
+        ),
         (
             "set match-hidden-files on",
             format!("{}/a\t\r", dir.path().display()),
+            format!("{}/a", dir.path().display()),
         ),
     ] {
         let bash = run_bash_readline_with_inputrc_file(typed.as_bytes(), inputrc);
         let sushline = run_sushline_harness_with_inputrc(typed.as_bytes(), inputrc);
 
         assert_eq!(
-            accepted_line(&sushline),
             accepted_line(&bash),
-            "inputrc={inputrc:?}\ntyped={typed:?}\nbash={bash}\nsushline={sushline}"
+            Some(expected.clone()),
+            "inputrc={inputrc:?}\ntyped={typed:?}\n{bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            Some(expected),
+            "inputrc={inputrc:?}\ntyped={typed:?}\n{sushline}"
         );
     }
 }

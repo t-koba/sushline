@@ -128,6 +128,22 @@ fn history_search_pos_matches_beginning_and_end_boundaries() {
 }
 
 #[test]
+fn history_search_pos_rejects_positions_beyond_end() {
+    let mut h = History::new();
+    h.push("needle first");
+    h.push("needle last");
+    h.set_pos(0);
+
+    for direction in [HistoryDirection::Previous, HistoryDirection::Next] {
+        assert!(
+            h.history_search_pos("needle", direction, 3).is_none(),
+            "out-of-range positions fail closed instead of searching from the current cursor"
+        );
+    }
+    assert_eq!(h.where_history(), 0);
+}
+
+#[test]
 fn searches_history_by_prefix() {
     let mut h = History::new();
     h.push("alpha one");

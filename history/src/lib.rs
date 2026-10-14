@@ -498,13 +498,17 @@ impl History {
 
     /// Search from a zero-based history position, including that entry, without
     /// moving the current cursor. A one-past-end position searches backward
-    /// from the newest entry and has no forward entries.
+    /// from the newest entry and has no forward entries. Positions beyond the
+    /// history end return no match.
     pub fn history_search_pos(
         &self,
         needle: &str,
         direction: HistoryDirection,
         pos: usize,
     ) -> Option<HistorySearchMatch> {
+        if pos > self.entries.len() {
+            return None;
+        }
         self.search_from_pos(needle, direction, pos, false)
     }
 

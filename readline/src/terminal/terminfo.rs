@@ -70,8 +70,6 @@ fn hardcoded_terminfo_fallback(cap: &str) -> Option<Vec<u8>> {
     match cap {
         "clear" => Some(b"\x1b[H\x1b[2J".to_vec()),
         "flash" => Some(b"\x1b[?5h\x1b[?5l".to_vec()),
-        "smkx" => Some(b"\x1b=".to_vec()),
-        "rmkx" => Some(b"\x1b>".to_vec()),
         "smm" if std::env::var("TERM").is_ok_and(|term| term.starts_with("xterm")) => {
             Some(b"\x1b[?1034h".to_vec())
         }
@@ -303,6 +301,12 @@ mod tests {
             .iter()
             .map(|(name, value)| (*name, value.to_vec()))
             .collect()
+    }
+
+    #[test]
+    fn keypad_capabilities_have_no_hardcoded_fallback() {
+        assert_eq!(super::hardcoded_terminfo_fallback("smkx"), None);
+        assert_eq!(super::hardcoded_terminfo_fallback("rmkx"), None);
     }
 
     #[test]

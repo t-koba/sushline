@@ -114,6 +114,70 @@ pub(super) fn run_bash_history_expand(expansion: &str, history: &[&str]) -> Stri
         .to_string()
 }
 
+pub(super) fn run_bash_readline_with_keypad_term(
+    keys: &[u8],
+    inputrc: &str,
+    term: Option<&str>,
+) -> String {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    fs::write(&path, inputrc).expect("write inputrc");
+    let mut command = CommandBuilder::new("bash");
+    command.env("INPUTRC", path.to_string_lossy().as_ref());
+    if let Some(term) = term {
+        command.env("TERM", term);
+    } else {
+        command.env_remove("TERM");
+    }
+    command.args([
+        "--noprofile",
+        "--norc",
+        "-i",
+        "-c",
+        &format!(
+            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+        ),
+    ]);
+    run_pty_with_size_until_preserving_term(
+        command,
+        keys,
+        PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        },
+        "SUSHLINE_ACCEPTED:",
+    )
+}
+
+pub(super) fn run_sushline_harness_with_keypad_term(
+    keys: &[u8],
+    inputrc: &str,
+    term: Option<&str>,
+) -> String {
+    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    command.env("SUSHLINE_INPUTRC", inputrc);
+    command.env("SUSHLINE_PROMPT", READY_PROMPT);
+    command.env("SUSHLINE_HISTORY", "");
+    if let Some(term) = term {
+        command.env("TERM", term);
+    } else {
+        command.env_remove("TERM");
+    }
+    run_pty_with_size_until_preserving_term(
+        command,
+        keys,
+        PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        },
+        "SUSHLINE_ACCEPTED:",
+    )
+}
+
 pub(super) fn run_bash_readline_with_inputrc_file(keys: &[u8], inputrc: &str) -> String {
     run_bash_readline_with_inputrc_file_and_env(keys, inputrc, &[])
 }
@@ -650,9 +714,31 @@ pub(super) fn run_pty_with_size_until_after_prompt(
     keys: &[u8],
     size: PtySize,
     stop_marker: &str,
-    mut after_prompt: Option<impl FnOnce()>,
+    after_prompt: Option<impl FnOnce()>,
 ) -> String {
+    // Existing oracle helpers always use xterm, even if their caller sets TERM.
     command.env("TERM", "xterm-256color");
+    run_pty_with_size_until_after_prompt_inner(command, keys, size, stop_marker, after_prompt)
+}
+
+// Only the keypad TERM matrix bypasses the usual xterm override, including
+// preserving an explicitly empty or removed TERM in the command environment.
+fn run_pty_with_size_until_preserving_term(
+    command: CommandBuilder,
+    keys: &[u8],
+    size: PtySize,
+    stop_marker: &str,
+) -> String {
+    run_pty_with_size_until_after_prompt_inner(command, keys, size, stop_marker, None::<fn()>)
+}
+
+fn run_pty_with_size_until_after_prompt_inner<F: FnOnce()>(
+    mut command: CommandBuilder,
+    keys: &[u8],
+    size: PtySize,
+    stop_marker: &str,
+    mut after_prompt: Option<F>,
+) -> String {
     // portable-pty uses $HOME as the child cwd; the sandbox HOME may not
     // exist (ENOENT on spawn), and oracle cases use absolute paths only.
     command.cwd("/");

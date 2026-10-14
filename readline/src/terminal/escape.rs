@@ -6,8 +6,6 @@ pub(crate) const SAVE_CURSOR: &str = "\x1b[s";
 pub(crate) const RESTORE_CURSOR: &str = "\x1b[u";
 pub(crate) const BRACKETED_PASTE_ON: &str = "\x1b[?2004h";
 pub(crate) const BRACKETED_PASTE_OFF: &str = "\x1b[?2004l";
-pub(crate) const APPLICATION_KEYPAD_ON: &str = "\x1b=";
-pub(crate) const APPLICATION_KEYPAD_OFF: &str = "\x1b>";
 pub(crate) const XTERM_META_ON: &str = "\x1b[?1034h";
 pub(crate) const XTERM_META_OFF: &str = "\x1b[?1034l";
 pub(crate) const VISIBLE_BELL: &str = "\x1b[?5h\x1b[?5l";

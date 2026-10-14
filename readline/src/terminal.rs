@@ -299,12 +299,8 @@ impl TerminalIo for Terminal {
     fn set_application_keypad_enabled(&mut self, enabled: bool) -> io::Result<()> {
         if let Some(sequence) = terminfo_keypad_sequence(enabled) {
             self.stdout.write_all(&sequence)
-        } else if enabled {
-            self.stdout
-                .write_all(escape::APPLICATION_KEYPAD_ON.as_bytes())
         } else {
-            self.stdout
-                .write_all(escape::APPLICATION_KEYPAD_OFF.as_bytes())
+            Ok(())
         }
     }
 

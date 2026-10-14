@@ -250,3 +250,100 @@ fn bash_readline_and_sushline_print_same_last_keyboard_macro() {
     assert!(sushline.contains("\\C-aX"), "{sushline}");
     assert!(!sushline.contains("\"\\C-aX\""), "{sushline}");
 }
+
+#[test]
+fn bash_readline_and_sushline_enable_keypad_sequences_follow_terminfo_runtime_boundary() {
+    let keys = b"\r";
+    let inputrc = "set enable-keypad on\n";
+    let terms = [
+        Some("xterm-256color"),
+        Some("vt100"),
+        Some("vt52"),
+        Some("dumb"),
+        Some("unknown"),
+        Some(""),
+        None,
+    ];
+
+    for term in terms {
+        let bash = run_bash_readline_with_keypad_term(keys, inputrc, term);
+        let sushline = run_sushline_harness_with_keypad_term(keys, inputrc, term);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(String::new()),
+            "TERM={term:?}: {bash:?}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            Some(String::new()),
+            "TERM={term:?}: bash={bash:?} sushline={sushline:?}"
+        );
+
+        let sequences: &[&str] = match term {
+            Some("xterm-256color") | Some("vt100") => &["\x1b[?1h\x1b=", "\x1b[?1l\x1b>"],
+            Some("vt52") => &["\x1b=", "\x1b>"],
+            _ => &[],
+        };
+        for sequence in sequences {
+            assert!(
+                bash.contains(sequence),
+                "Bash 5.3 should emit terminfo keypad sequence {sequence:?} for TERM={term:?}: {bash:?}"
+            );
+            assert!(
+                sushline.contains(sequence),
+                "Sushline should emit terminfo keypad sequence {sequence:?} for TERM={term:?}: {sushline:?}"
+            );
+        }
+        if let [entry, exit] = sequences {
+            for (name, output) in [("Bash 5.3", &bash), ("Sushline", &sushline)] {
+                let entry_pos = output.find(entry).unwrap();
+                let prompt_pos = output.find(READY_PROMPT).expect("ready prompt");
+                let exit_pos = output.find(exit).unwrap();
+                let accepted_pos = output.find("SUSHLINE_ACCEPTED:").expect("accepted marker");
+                assert!(
+                    entry_pos < prompt_pos && prompt_pos < exit_pos && exit_pos < accepted_pos,
+                    "{name} should enter keypad mode before the prompt and leave before acceptance, TERM={term:?}: {output:?}"
+                );
+            }
+        }
+        if sequences.is_empty() {
+            for forbidden in ["\x1b=", "\x1b>"] {
+                assert!(
+                    !bash.contains(forbidden),
+                    "Bash 5.3 unexpectedly emitted keypad sequence {forbidden:?} for TERM={term:?}: {bash:?}"
+                );
+                assert!(
+                    !sushline.contains(forbidden),
+                    "Sushline emitted keypad sequence {forbidden:?} without terminfo capability for TERM={term:?}: {sushline:?}"
+                );
+            }
+        }
+        for (disabled_inputrc, behavior) in [
+            ("set enable-keypad off\n", "explicit off"),
+            ("", "default off"),
+        ] {
+            let bash = run_bash_readline_with_keypad_term(keys, disabled_inputrc, term);
+            let sushline = run_sushline_harness_with_keypad_term(keys, disabled_inputrc, term);
+            assert_eq!(
+                accepted_line(&bash),
+                Some(String::new()),
+                "{behavior}, TERM={term:?}: {bash:?}"
+            );
+            assert_eq!(
+                accepted_line(&sushline),
+                Some(String::new()),
+                "{behavior}, TERM={term:?}: bash={bash:?} sushline={sushline:?}"
+            );
+            for forbidden in ["\x1b=", "\x1b>"] {
+                assert!(
+                    !bash.contains(forbidden),
+                    "Bash 5.3 emitted keypad sequence {forbidden:?} with {behavior}, TERM={term:?}: {bash:?}"
+                );
+                assert!(
+                    !sushline.contains(forbidden),
+                    "Sushline emitted keypad sequence {forbidden:?} with {behavior}, TERM={term:?}: {sushline:?}"
+                );
+            }
+        }
+    }
+}

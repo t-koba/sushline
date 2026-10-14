@@ -60,6 +60,22 @@ fn output_meta_and_enable_meta_key_have_terminal_side_effects() {
 }
 
 #[test]
+fn enable_keypad_off_does_not_call_terminal_mode_hooks() {
+    for inputrc in ["", "set enable-keypad off"] {
+        let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(b"\r".to_vec())]);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        assert!(!line.variables().is_on("enable-keypad"));
+        line.load_inputrc_str(inputrc).unwrap();
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        assert_eq!(result, ReadlineResult::Line(Vec::new()));
+        assert!(
+            line.terminal().keypad_enabled.is_empty(),
+            "default/explicit off must skip both entry and exit keypad mode calls: {inputrc:?}"
+        );
+    }
+}
+
+#[test]
 fn enable_keypad_has_terminal_side_effects() {
     let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(b"\r".to_vec())]);
     let mut line = Editor::new(Config::default(), terminal, History::new());

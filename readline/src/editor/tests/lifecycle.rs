@@ -1004,13 +1004,21 @@ fn setup_failure_after_raw_entry_still_restores_terminal_mode() {
         make_terminal(&mut terminal);
         let mut line = Editor::new(Config::default(), terminal, History::new());
         // Keep this failure-path test independent of TERM-sensitive defaults:
-        // it explicitly needs bracketed paste to exercise setup writes.
-        line.load_inputrc_str("set enable-bracketed-paste on")
-            .unwrap();
+        // keypad failure requires an explicit on override, and bracketed paste
+        // exercises setup writes for the write/flush cases.
+        let inputrc = if name == "keypad" {
+            "set enable-keypad on\nset enable-bracketed-paste on"
+        } else {
+            "set enable-bracketed-paste on"
+        };
+        line.load_inputrc_str(inputrc).unwrap();
         assert!(
             line.flag(crate::variables::BoolVariable::EnableBracketedPaste),
             "{name}: bracketed paste must be on for write/flush coverage"
         );
+        if name == "keypad" {
+            assert!(line.flag(crate::variables::BoolVariable::EnableKeypad));
+        }
         let err = match line.read_line(Prompt::new("> "), &mut ()) {
             Ok(_) => panic!("{name}: setup failure must error"),
             Err(err) => err,

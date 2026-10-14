@@ -195,6 +195,7 @@ fn bind_variable_terminal_defaults_match_gnu_readline_oracle() {
     let terminal_variables = [
         "enable-active-region",
         "enable-bracketed-paste",
+        "enable-keypad",
         "active-region-start-color",
         "active-region-end-color",
     ];

@@ -218,8 +218,9 @@ where
         self.terminal.enter_raw_mode()?;
         self.terminal
             .set_meta_key_enabled(self.flag(BoolVariable::EnableMetaKey))?;
-        self.terminal
-            .set_application_keypad_enabled(self.flag(BoolVariable::EnableKeypad))?;
+        if self.flag(BoolVariable::EnableKeypad) {
+            self.terminal.set_application_keypad_enabled(true)?;
+        }
         if self.flag(BoolVariable::EnableBracketedPaste) {
             self.terminal.write(escape::BRACKETED_PASTE_ON)?;
             self.terminal.flush()?;

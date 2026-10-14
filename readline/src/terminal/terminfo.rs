@@ -23,21 +23,47 @@ pub(super) fn terminfo_sequence(cap: &str) -> Option<Vec<u8>> {
         .or_else(|| hardcoded_terminfo_fallback(cap))
 }
 
-pub(crate) fn active_region_default_sequences() -> (String, String) {
-    let (start, end) = active_region_default_sequence_bytes();
-    (
-        String::from_utf8_lossy(&start).into_owned(),
-        String::from_utf8_lossy(&end).into_owned(),
-    )
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct DefaultCapabilities {
+    pub(crate) bracketed_paste: bool,
+    pub(crate) active_region_colors: Option<(Vec<u8>, Vec<u8>)>,
 }
 
-pub(crate) fn active_region_default_sequence_bytes() -> (Vec<u8>, Vec<u8>) {
-    (
-        terminfo_sequence("smso").unwrap_or_else(|| b"\x1b[7m".to_vec()),
-        terminfo_sequence("rmso")
-            .or_else(|| terminfo_sequence("sgr0"))
-            .unwrap_or_else(|| b"\x1b[0m".to_vec()),
-    )
+pub(crate) fn default_capabilities() -> DefaultCapabilities {
+    #[cfg(unix)]
+    {
+        default_capabilities_from_terminfo(terminfo_capabilities())
+    }
+    #[cfg(not(unix))]
+    {
+        DefaultCapabilities::default()
+    }
+}
+
+fn default_capabilities_from_terminfo(
+    capabilities: Option<&HashMap<&'static str, Vec<u8>>>,
+) -> DefaultCapabilities {
+    let Some(capabilities) = capabilities else {
+        return DefaultCapabilities::default();
+    };
+    let capability = |name: &str| {
+        capabilities
+            .get(name)
+            .map(Vec::as_slice)
+            .filter(|sequence| !sequence.is_empty())
+    };
+    // Both defaults require clear and a complete standout pair. Clear alone
+    // is insufficient: Bash also leaves bracketed paste off for vt52/adm3a.
+    // This is Sushline's capability policy, not GNU's source-level mechanism.
+    let active_region_colors = capability("clear").and_then(|_| {
+        capability("smso")
+            .zip(capability("rmso").or_else(|| capability("sgr0")))
+            .map(|(start, end)| (start.to_vec(), end.to_vec()))
+    });
+    DefaultCapabilities {
+        bracketed_paste: active_region_colors.is_some(),
+        active_region_colors,
+    }
 }
 
 fn hardcoded_terminfo_fallback(cap: &str) -> Option<Vec<u8>> {
@@ -266,6 +292,96 @@ const STANDARD_STRING_CAPS: &[(&str, usize)] = &[
     ("smm", 102),
     ("E3", 300),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::{DefaultCapabilities, default_capabilities_from_terminfo};
+    use std::collections::HashMap;
+
+    fn caps(entries: &[(&'static str, &[u8])]) -> HashMap<&'static str, Vec<u8>> {
+        entries
+            .iter()
+            .map(|(name, value)| (*name, value.to_vec()))
+            .collect()
+    }
+
+    #[test]
+    fn terminal_defaults_fail_closed_without_usable_capabilities() {
+        assert_eq!(
+            default_capabilities_from_terminfo(None),
+            DefaultCapabilities::default()
+        );
+        let empty = caps(&[]);
+        let standout_only = caps(&[("smso", b"standout"), ("rmso", b"reset")]);
+        let empty_clear = caps(&[("clear", b""), ("smso", b"standout"), ("rmso", b"reset")]);
+        for capabilities in [&empty, &standout_only, &empty_clear] {
+            let defaults = default_capabilities_from_terminfo(Some(capabilities));
+            assert!(!defaults.bracketed_paste);
+            assert!(defaults.active_region_colors.is_none());
+        }
+    }
+
+    #[test]
+    fn clear_without_standout_disables_both_terminal_defaults() {
+        let capabilities = caps(&[("clear", b"clear")]);
+        assert_eq!(
+            default_capabilities_from_terminfo(Some(&capabilities)),
+            DefaultCapabilities::default()
+        );
+    }
+
+    #[test]
+    fn incomplete_standout_capabilities_disable_both_terminal_defaults() {
+        for capabilities in [
+            caps(&[("clear", b"clear"), ("smso", b"standout")]),
+            caps(&[("clear", b"clear"), ("rmso", b"reset")]),
+            caps(&[("clear", b"clear"), ("smso", b""), ("rmso", b"reset")]),
+            caps(&[
+                ("clear", b"clear"),
+                ("smso", b"standout"),
+                ("rmso", b""),
+                ("sgr0", b""),
+            ]),
+        ] {
+            assert_eq!(
+                default_capabilities_from_terminfo(Some(&capabilities)),
+                DefaultCapabilities::default()
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_defaults_use_clear_and_standout_capabilities() {
+        let capabilities = caps(&[
+            ("clear", b"clear"),
+            ("smso", b"standout"),
+            ("rmso", b"standout-reset"),
+        ]);
+        assert_eq!(
+            default_capabilities_from_terminfo(Some(&capabilities)),
+            DefaultCapabilities {
+                bracketed_paste: true,
+                active_region_colors: Some((b"standout".to_vec(), b"standout-reset".to_vec())),
+            }
+        );
+    }
+
+    #[test]
+    fn full_reset_capability_can_end_active_region_when_rmso_is_missing() {
+        let capabilities = caps(&[
+            ("clear", b"clear"),
+            ("smso", b"standout"),
+            ("sgr0", b"reset-all"),
+        ]);
+        assert_eq!(
+            default_capabilities_from_terminfo(Some(&capabilities)),
+            DefaultCapabilities {
+                bracketed_paste: true,
+                active_region_colors: Some((b"standout".to_vec(), b"reset-all".to_vec())),
+            }
+        );
+    }
+}
 
 #[cfg(not(unix))]
 pub(super) fn terminfo_meta_sequence(_enabled: bool) -> Option<Vec<u8>> {

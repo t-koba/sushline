@@ -219,6 +219,31 @@ fn show_mode_in_prompt_adds_mode_string() {
 }
 
 #[test]
+fn inputrc_explicitly_overrides_terminal_sensitive_defaults() {
+    let terminal = MemoryTerminal::with_events(Vec::new());
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str(
+        "set enable-active-region on\nset enable-bracketed-paste on\nset active-region-start-color \"START\"\nset active-region-end-color \"END\"",
+    )
+    .unwrap();
+    assert!(line.variables().is_on("enable-active-region"));
+    assert!(line.variables().is_on("enable-bracketed-paste"));
+    assert_eq!(
+        line.variables().get_bytes("active-region-start-color"),
+        Some(&b"START".to_vec())
+    );
+    assert_eq!(
+        line.variables().get_bytes("active-region-end-color"),
+        Some(&b"END".to_vec())
+    );
+
+    line.load_inputrc_str("set enable-active-region off\nset enable-bracketed-paste off")
+        .unwrap();
+    assert!(!line.variables().is_on("enable-active-region"));
+    assert!(!line.variables().is_on("enable-bracketed-paste"));
+}
+
+#[test]
 fn bracketed_paste_off_still_pastes_without_terminal_mode() {
     // Oracle (patch 0 baseline, Bash 5.3 PTY): the variable gates terminal
     // DEC mode only; injected `ESC[200~...ESC[201~` still pastes literally

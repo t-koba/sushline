@@ -17,7 +17,7 @@ use std::time::Duration;
 
 pub(crate) mod escape;
 mod terminfo;
-pub(crate) use terminfo::{active_region_default_sequence_bytes, active_region_default_sequences};
+pub(crate) use terminfo::{DefaultCapabilities, default_capabilities};
 use terminfo::{terminfo_keypad_sequence, terminfo_meta_sequence, terminfo_sequence};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

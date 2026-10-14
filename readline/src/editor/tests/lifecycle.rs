@@ -1003,8 +1003,10 @@ fn setup_failure_after_raw_entry_still_restores_terminal_mode() {
         let mut terminal = FailingSetupTerminal::default();
         make_terminal(&mut terminal);
         let mut line = Editor::new(Config::default(), terminal, History::new());
-        // Defaults enable bracketed paste and meta-key, so the failing
-        // write/flush/meta paths are exercised during setup.
+        // Keep this failure-path test independent of TERM-sensitive defaults:
+        // it explicitly needs bracketed paste to exercise setup writes.
+        line.load_inputrc_str("set enable-bracketed-paste on")
+            .unwrap();
         assert!(
             line.flag(crate::variables::BoolVariable::EnableBracketedPaste),
             "{name}: bracketed paste must be on for write/flush coverage"

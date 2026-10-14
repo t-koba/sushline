@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::terminal::active_region_default_sequences;
+use crate::terminal::{DefaultCapabilities, default_capabilities};
 use std::collections::BTreeMap;
 use std::ops::Index;
 
@@ -124,16 +124,30 @@ impl Variables {
         Self::from_maps(BTreeMap::new(), BTreeMap::new())
     }
 
-    /// Default for config.
+    /// Defaults for the editor configuration and the process's terminal description.
+    ///
+    /// Active-region and bracketed-paste default on only when terminfo provides
+    /// non-empty clear, standout-on, and standout-reset capabilities. Otherwise
+    /// both default off and the active-region color variables are omitted.
+    /// Values subsequently inserted (including inputrc settings) override these
+    /// defaults.
     pub fn default_for_config(config: &Config) -> Self {
-        let strings = default_variable_strings(config);
+        Self::with_terminal_defaults(config, &default_capabilities())
+    }
+
+    fn with_terminal_defaults(config: &Config, terminal: &DefaultCapabilities) -> Self {
+        let strings = default_variable_strings(config, terminal);
         let mut bytes = strings
             .iter()
             .map(|(key, value)| (key.clone(), value.as_bytes().to_vec()))
             .collect::<BTreeMap<_, _>>();
-        let (region_start, region_end) = crate::terminal::active_region_default_sequence_bytes();
-        bytes.insert("active-region-start-color".to_string(), region_start);
-        bytes.insert("active-region-end-color".to_string(), region_end);
+        if let Some((region_start, region_end)) = &terminal.active_region_colors {
+            bytes.insert(
+                "active-region-start-color".to_string(),
+                region_start.clone(),
+            );
+            bytes.insert("active-region-end-color".to_string(), region_end.clone());
+        }
         Self::from_maps(strings, bytes)
     }
 
@@ -238,13 +252,23 @@ impl Default for Variables {
     }
 }
 
-fn default_variable_strings(config: &Config) -> BTreeMap<String, String> {
+fn default_variable_strings(
+    config: &Config,
+    terminal: &DefaultCapabilities,
+) -> BTreeMap<String, String> {
     let mut variables = BTreeMap::new();
     let locale_meta = locale_uses_meta();
-    let (active_start, active_end) = active_region_default_sequences();
     variables.insert("bind-tty-special-chars".to_string(), "on".to_string());
-    variables.insert("active-region-start-color".to_string(), active_start);
-    variables.insert("active-region-end-color".to_string(), active_end);
+    if let Some((active_start, active_end)) = &terminal.active_region_colors {
+        variables.insert(
+            "active-region-start-color".to_string(),
+            String::from_utf8_lossy(active_start).into_owned(),
+        );
+        variables.insert(
+            "active-region-end-color".to_string(),
+            String::from_utf8_lossy(active_end).into_owned(),
+        );
+    }
     variables.insert("blink-matching-paren".to_string(), "off".to_string());
     variables.insert("byte-oriented".to_string(), "off".to_string());
     variables.insert("colored-completion-prefix".to_string(), "off".to_string());
@@ -257,8 +281,24 @@ fn default_variable_strings(config: &Config) -> BTreeMap<String, String> {
     );
     variables.insert("disable-completion".to_string(), "off".to_string());
     variables.insert("echo-control-characters".to_string(), "on".to_string());
-    variables.insert("enable-active-region".to_string(), "on".to_string());
-    variables.insert("enable-bracketed-paste".to_string(), "on".to_string());
+    variables.insert(
+        "enable-active-region".to_string(),
+        if terminal.active_region_colors.is_some() {
+            "on"
+        } else {
+            "off"
+        }
+        .to_string(),
+    );
+    variables.insert(
+        "enable-bracketed-paste".to_string(),
+        if terminal.bracketed_paste {
+            "on"
+        } else {
+            "off"
+        }
+        .to_string(),
+    );
     variables.insert("enable-keypad".to_string(), "off".to_string());
     variables.insert("enable-meta-key".to_string(), "on".to_string());
     variables.insert("expand-tilde".to_string(), "off".to_string());
@@ -390,6 +430,73 @@ mod tests {
         BoolVariable::MetaFlag,
         BoolVariable::SearchIgnoreCase,
     ];
+
+    #[test]
+    fn terminal_capabilities_control_active_region_and_paste_defaults() {
+        let config = Config::default();
+        let unavailable =
+            Variables::with_terminal_defaults(&config, &DefaultCapabilities::default());
+        assert!(!unavailable.is_on("enable-active-region"));
+        assert!(!unavailable.is_on("enable-bracketed-paste"));
+        assert!(!unavailable.contains_key("active-region-start-color"));
+        assert!(!unavailable.contains_key("active-region-end-color"));
+        assert!(unavailable.get_bytes("active-region-start-color").is_none());
+        assert!(unavailable.get_bytes("active-region-end-color").is_none());
+
+        let available = Variables::with_terminal_defaults(
+            &config,
+            &DefaultCapabilities {
+                bracketed_paste: true,
+                active_region_colors: Some((b"<standout>".to_vec(), b"<reset>".to_vec())),
+            },
+        );
+        assert!(available.is_on("enable-active-region"));
+        assert!(available.is_on("enable-bracketed-paste"));
+        assert_eq!(
+            available
+                .get("active-region-start-color")
+                .map(String::as_str),
+            Some("<standout>")
+        );
+        assert_eq!(
+            available.get("active-region-end-color").map(String::as_str),
+            Some("<reset>")
+        );
+        assert_eq!(
+            available.get_bytes("active-region-start-color"),
+            Some(&b"<standout>".to_vec())
+        );
+        assert_eq!(
+            available.get_bytes("active-region-end-color"),
+            Some(&b"<reset>".to_vec())
+        );
+    }
+
+    #[test]
+    fn explicit_terminal_variable_overrides_survive_capability_defaults() {
+        let config = Config::default();
+        let mut unavailable =
+            Variables::with_terminal_defaults(&config, &DefaultCapabilities::default());
+        unavailable.insert("enable-active-region".to_string(), "on".to_string());
+        unavailable.insert("enable-bracketed-paste".to_string(), "on".to_string());
+        unavailable.insert("active-region-start-color".to_string(), "start".to_string());
+        unavailable.insert("active-region-end-color".to_string(), "end".to_string());
+        assert!(unavailable.is_on("enable-active-region"));
+        assert!(unavailable.is_on("enable-bracketed-paste"));
+        assert_eq!(
+            unavailable.get_bytes("active-region-start-color"),
+            Some(&b"start".to_vec())
+        );
+        assert_eq!(
+            unavailable.get_bytes("active-region-end-color"),
+            Some(&b"end".to_vec())
+        );
+
+        unavailable.insert("enable-active-region".to_string(), "off".to_string());
+        unavailable.insert("enable-bracketed-paste".to_string(), "off".to_string());
+        assert!(!unavailable.is_on("enable-active-region"));
+        assert!(!unavailable.is_on("enable-bracketed-paste"));
+    }
 
     #[test]
     fn bool_flags_match_string_lookup_and_update_on_insert() {

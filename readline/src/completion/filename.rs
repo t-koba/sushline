@@ -17,6 +17,8 @@ pub(crate) struct FilenameOptions {
     pub(crate) match_hidden_files: bool,
     pub(crate) expand_tilde: bool,
     pub(crate) colored_stats: bool,
+    utf8_locale: bool,
+    lc_ctype: Option<String>,
 }
 
 impl FilenameOptions {
@@ -29,6 +31,8 @@ impl FilenameOptions {
             match_hidden_files: variables.is_on("match-hidden-files"),
             expand_tilde: variables.is_on("expand-tilde"),
             colored_stats: variables.is_on("colored-stats"),
+            utf8_locale: variables.utf8_locale(),
+            lc_ctype: variables.lc_ctype().map(str::to_owned),
         }
     }
 }
@@ -42,6 +46,11 @@ pub(crate) fn complete_filenames_bytes(word: &[u8], opts: &FilenameOptions) -> C
     let (dir_bytes, prefix, display_dir) = split_word_path_bytes(&completion_word);
     let Some(dir) = path_from_bytes(&dir_bytes) else {
         return filename_response(Vec::new(), 0);
+    };
+    let locale_lowercase = if opts.ignore_case && opts.utf8_locale {
+        opts.lc_ctype.as_deref().and_then(LocaleLowercase::new)
+    } else {
+        None
     };
     let mut candidates = Vec::new();
     let mut directory_candidate_count = 0;
@@ -57,7 +66,12 @@ pub(crate) fn complete_filenames_bytes(word: &[u8], opts: &FilenameOptions) -> C
             {
                 continue;
             }
-            if !completion_prefix_matches_bytes(&name_bytes, prefix, opts) {
+            if !completion_prefix_matches_bytes(
+                &name_bytes,
+                prefix,
+                opts,
+                locale_lowercase.as_ref(),
+            ) {
                 continue;
             }
             let name = filename_display_name(&name_bytes);
@@ -347,6 +361,7 @@ fn completion_prefix_matches_bytes(
     candidate: &[u8],
     prefix: &[u8],
     opts: &FilenameOptions,
+    locale_lowercase: Option<&LocaleLowercase>,
 ) -> bool {
     if candidate.starts_with(prefix) {
         return true;
@@ -354,10 +369,171 @@ fn completion_prefix_matches_bytes(
     if !opts.ignore_case || candidate.len() < prefix.len() {
         return false;
     }
+    if let Some(locale_lowercase) = locale_lowercase {
+        return completion_prefix_matches_utf8(candidate, prefix, opts.map_case, |character| {
+            locale_lowercase.lowercase(character)
+        });
+    }
     candidate
         .iter()
         .zip(prefix.iter())
         .all(|(candidate, prefix)| completion_byte_eq(*candidate, *prefix, opts.map_case))
+}
+
+fn completion_prefix_matches_utf8(
+    candidate: &[u8],
+    prefix: &[u8],
+    map_case: bool,
+    mut lowercase: impl FnMut(char) -> char,
+) -> bool {
+    let mut offset = 0;
+    while offset < prefix.len() {
+        match (
+            decode_utf8_scalar(candidate, offset),
+            decode_utf8_scalar(prefix, offset),
+        ) {
+            (Some((candidate_char, candidate_width)), Some((prefix_char, _))) => {
+                let candidate_char = map_completion_case_char(candidate_char, map_case);
+                let prefix_char = map_completion_case_char(prefix_char, map_case);
+                if lowercase(candidate_char) != lowercase(prefix_char) {
+                    return false;
+                }
+                offset += candidate_width;
+            }
+            _ => {
+                if !completion_byte_eq(candidate[offset], prefix[offset], map_case) {
+                    return false;
+                }
+                offset += 1;
+            }
+        }
+    }
+    offset == prefix.len()
+}
+
+fn decode_utf8_scalar(bytes: &[u8], offset: usize) -> Option<(char, usize)> {
+    let first = *bytes.get(offset)?;
+    let width = match first {
+        0x00..=0x7f => 1,
+        0xc2..=0xdf => 2,
+        0xe0..=0xef => 3,
+        0xf0..=0xf4 => 4,
+        _ => return None,
+    };
+    let end = offset.checked_add(width)?;
+    let scalar = std::str::from_utf8(bytes.get(offset..end)?)
+        .ok()?
+        .chars()
+        .next()?;
+    Some((scalar, width))
+}
+
+fn map_completion_case_char(character: char, map_case: bool) -> char {
+    if map_case && character == '-' {
+        '_'
+    } else {
+        character
+    }
+}
+
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
+struct LocaleLowercase {
+    locale: libc::locale_t,
+}
+
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
+impl LocaleLowercase {
+    fn new(locale_name: &str) -> Option<Self> {
+        use std::ffi::CString;
+        let locale_name = CString::new(locale_name).ok()?;
+        // An owned locale object keeps casing independent of process-global
+        // setlocale state and does not change any thread's active locale.
+        let locale = unsafe {
+            libc::newlocale(
+                libc::LC_CTYPE_MASK,
+                locale_name.as_ptr(),
+                std::ptr::null_mut(),
+            )
+        };
+        (!locale.is_null()).then_some(Self { locale })
+    }
+
+    fn lowercase(&self, character: char) -> char {
+        use std::os::raw::c_uint;
+        unsafe extern "C" {
+            fn towlower_l(character: c_uint, locale: libc::locale_t) -> c_uint;
+        }
+        let lowered = unsafe { towlower_l(character as c_uint, self.locale) };
+        char::from_u32(lowered).unwrap_or(character)
+    }
+}
+
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
+impl Drop for LocaleLowercase {
+    fn drop(&mut self) {
+        unsafe { libc::freelocale(self.locale) };
+    }
+}
+
+// Targets without POSIX locale_t/towlower_l retain the existing byte-folding
+// path; this is intentionally a narrow fallback, not a Unicode casefold claim.
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "netbsd",
+    target_os = "openbsd"
+)))]
+struct LocaleLowercase;
+
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "netbsd",
+    target_os = "openbsd"
+)))]
+impl LocaleLowercase {
+    fn new(_locale_name: &str) -> Option<Self> {
+        None
+    }
+
+    fn lowercase(&self, character: char) -> char {
+        character
+    }
 }
 
 fn completion_byte_eq(candidate: u8, prefix: u8, map_case: bool) -> bool {
@@ -671,7 +847,134 @@ mod tests {
             match_hidden_files: true,
             expand_tilde: false,
             colored_stats: false,
+            utf8_locale: false,
+            lc_ctype: None,
         }
+    }
+
+    #[test]
+    fn utf8_prefix_comparison_advances_by_candidate_byte_width() {
+        let lowercase = |character: char| character.to_lowercase().next().unwrap_or(character);
+        assert!(completion_prefix_matches_utf8(
+            "Kelvin".as_bytes(),
+            b"kzz",
+            false,
+            lowercase,
+        ));
+        assert!(completion_prefix_matches_utf8(
+            "Kelvin".as_bytes(),
+            b"kzze",
+            false,
+            lowercase,
+        ));
+        assert!(!completion_prefix_matches_utf8(
+            "Kelvin".as_bytes(),
+            b"kzzz",
+            false,
+            lowercase,
+        ));
+    }
+
+    #[test]
+    fn locale_lowercase_uses_the_owned_utf8_ctype_locale() {
+        let Some(locale) = LocaleLowercase::new("C.UTF-8") else {
+            return;
+        };
+        assert_eq!(locale.lowercase('Ä'), 'ä');
+        assert_eq!(locale.lowercase('K'), 'k');
+        assert_eq!(locale.lowercase('Σ'), 'σ');
+        assert_eq!(locale.lowercase('ς'), 'ς');
+        assert!(!completion_prefix_matches_utf8(
+            "İndex".as_bytes(),
+            b"i",
+            false,
+            |character| locale.lowercase(character),
+        ));
+        assert!(completion_prefix_matches_utf8(
+            "İndex".as_bytes(),
+            b"in",
+            false,
+            |character| locale.lowercase(character),
+        ));
+        assert!(!completion_prefix_matches_utf8(
+            "Σigma".as_bytes(),
+            "ς".as_bytes(),
+            false,
+            |character| locale.lowercase(character),
+        ));
+        assert!(completion_prefix_matches_utf8(
+            "ÄLPHA".as_bytes(),
+            "älp".as_bytes(),
+            false,
+            |character| locale.lowercase(character),
+        ));
+        assert!(completion_prefix_matches_utf8(
+            "Kelvin".as_bytes(),
+            b"kzz",
+            false,
+            |character| locale.lowercase(character),
+        ));
+
+        let Some(c_locale) = LocaleLowercase::new("C") else {
+            return;
+        };
+        assert_eq!(c_locale.lowercase('Ä'), 'Ä');
+        assert!(!completion_prefix_matches_utf8(
+            "ÄLPHA".as_bytes(),
+            "älp".as_bytes(),
+            false,
+            |character| c_locale.lowercase(character),
+        ));
+    }
+
+    #[test]
+    fn utf8_prefix_comparison_falls_back_to_bytewise_matching_for_invalid_units() {
+        let lowercase = |character: char| character.to_lowercase().next().unwrap_or(character);
+        let candidate = [0xff, b' ', b'A', b'l', b'p', b'h', b'a'];
+        assert!(completion_prefix_matches_utf8(
+            &candidate,
+            &[0xff, b' ', b'a', b'l', b'p'],
+            false,
+            lowercase,
+        ));
+        assert!(!completion_prefix_matches_utf8(
+            &candidate,
+            &[0xfe, b' ', b'a', b'l', b'p'],
+            false,
+            lowercase,
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn invalid_utf8_filename_bytes_survive_matching_and_replacement() {
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+        if LocaleLowercase::new("C.UTF-8").is_none() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let filename = [0xff, b' ', b'A', b'l', b'p', b'h', b'a'];
+        fs::write(
+            dir.path()
+                .join(std::ffi::OsString::from_vec(filename.to_vec())),
+            b"",
+        )
+        .unwrap();
+        let mut word = dir.path().as_os_str().as_bytes().to_vec();
+        word.extend_from_slice(b"/\xff alp");
+        let mut opts = test_options();
+        opts.ignore_case = true;
+        opts.utf8_locale = true;
+        opts.lc_ctype = Some("C.UTF-8".to_string());
+
+        let response = complete_filenames_bytes(&word, &opts);
+        assert_eq!(response.candidates.len(), 1);
+        assert!(
+            response.candidates[0]
+                .replacement_bytes()
+                .ends_with(&filename)
+        );
     }
 
     #[test]

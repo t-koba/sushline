@@ -120,30 +120,82 @@ fn bash_readline_and_sushline_complete_filename_ignoring_case() {
 }
 
 #[test]
-fn completion_ignore_case_uses_bytewise_folding_for_utf8_filename_case_pairs() {
+fn completion_ignore_case_matches_utf8_case_pairs_only_in_utf8_locale() {
     if !c_utf8_locale_available() {
         return;
     }
 
-    // Bash 5.3 PTY runtime evidence under C.UTF-8; this is not source evidence
-    // for the host-linked Readline version.
+    // Bash 5.3 PTY runtime observations, not source proof: the accented pair
+    // matches under C.UTF-8 and remains distinct under C.
     let dir = tempfile::tempdir().expect("tempdir");
     fs::write(dir.path().join("ÄLPHA"), "").expect("write fixture");
     let typed = format!("{}/älp\t\r", dir.path().display());
-    let bash_expected = format!("{}/ÄLPHA ", dir.path().display());
-    let sushline_expected = format!("{}/älp", dir.path().display());
+    let matched = format!("{}/ÄLPHA ", dir.path().display());
+    let unmatched = format!("{}/älp", dir.path().display());
     let inputrc = "set completion-ignore-case on";
+
     let locale_env = [("LC_ALL", "C.UTF-8")];
     let bash = run_bash_readline_with_inputrc_file_and_env(typed.as_bytes(), inputrc, &locale_env);
     let sushline =
         run_sushline_harness_with_inputrc_and_env(typed.as_bytes(), inputrc, &locale_env);
+    assert_eq!(accepted_line(&bash), Some(matched.clone()), "{bash}");
+    assert_eq!(accepted_line(&sushline), Some(matched), "{sushline}");
 
-    assert_eq!(accepted_line(&bash), Some(bash_expected), "{bash}");
-    assert_eq!(
-        accepted_line(&sushline),
-        Some(sushline_expected),
-        "Sushline's byte-wise fold does not match Ä/ä: {sushline}"
-    );
+    let locale_env = [("LC_ALL", "C")];
+    let c_typed = format!("{}/alp\t\r", dir.path().display());
+    let c_unmatched = format!("{}/alp", dir.path().display());
+    let bash =
+        run_bash_readline_with_inputrc_file_and_env(c_typed.as_bytes(), inputrc, &locale_env);
+    let sushline =
+        run_sushline_harness_with_inputrc_and_env(c_typed.as_bytes(), inputrc, &locale_env);
+    assert_eq!(accepted_line(&bash), Some(c_unmatched.clone()), "{bash}");
+    assert_eq!(accepted_line(&sushline), Some(c_unmatched), "{sushline}");
+    // Bash preserves the non-ASCII typed pair in C. Sushline's input-meta
+    // policy is separately byte-oriented there, so its matcher is covered by
+    // the direct C-locale unit test instead of this PTY input path.
+    let bash = run_bash_readline_with_inputrc_file_and_env(typed.as_bytes(), inputrc, &locale_env);
+    assert_eq!(accepted_line(&bash), Some(unmatched), "{bash}");
+}
+
+#[test]
+fn completion_ignore_case_matches_held_out_kelvin_byte_offsets_and_rejects_non_casefolds() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    // Runtime-only Bash 5.3 PTY observations. The kzz/kzze results exercise
+    // the candidate-byte-width offset rule; kzzz and final-sigma are negatives.
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::write(dir.path().join("Kelvin"), "").expect("write Kelvin fixture");
+    fs::write(dir.path().join("Σigma"), "").expect("write sigma fixture");
+    fs::write(dir.path().join("İndex"), "").expect("write dotted-I fixture");
+    let inputrc = "set completion-ignore-case on";
+    let locale_env = [("LC_ALL", "C.UTF-8")];
+
+    for (prefix, expected) in [
+        ("kzz", format!("{}/Kelvin ", dir.path().display())),
+        ("kzze", format!("{}/Kelvin ", dir.path().display())),
+        ("kzzz", format!("{}/kzzz", dir.path().display())),
+        ("i", format!("{}/i", dir.path().display())),
+        ("in", format!("{}/İndex ", dir.path().display())),
+        ("ς", format!("{}/ς", dir.path().display())),
+    ] {
+        let typed = format!("{}/{prefix}\t\r", dir.path().display());
+        let bash =
+            run_bash_readline_with_inputrc_file_and_env(typed.as_bytes(), inputrc, &locale_env);
+        let sushline =
+            run_sushline_harness_with_inputrc_and_env(typed.as_bytes(), inputrc, &locale_env);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.clone()),
+            "prefix={prefix:?}\n{bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            Some(expected),
+            "prefix={prefix:?}\n{sushline}"
+        );
+    }
 }
 
 #[test]

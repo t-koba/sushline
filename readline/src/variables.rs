@@ -117,6 +117,7 @@ pub struct Variables {
     bytes: BTreeMap<String, Vec<u8>>,
     flags: [bool; BoolVariable::COUNT],
     utf8_locale: bool,
+    lc_ctype: Option<String>,
 }
 
 impl Variables {
@@ -153,11 +154,13 @@ impl Variables {
     }
 
     fn from_maps(strings: BTreeMap<String, String>, bytes: BTreeMap<String, Vec<u8>>) -> Self {
+        let lc_ctype = effective_lc_ctype();
         let mut this = Self {
             strings,
             bytes,
             flags: [false; BoolVariable::COUNT],
-            utf8_locale: locale_uses_meta(),
+            utf8_locale: lc_ctype.as_deref().is_some_and(locale_value_uses_meta),
+            lc_ctype,
         };
         this.rebuild_flags();
         this
@@ -237,6 +240,10 @@ impl Variables {
 
     pub(crate) fn utf8_locale(&self) -> bool {
         self.utf8_locale
+    }
+
+    pub(crate) fn lc_ctype(&self) -> Option<&str> {
+        self.lc_ctype.as_deref()
     }
 }
 
@@ -381,12 +388,16 @@ fn default_variable_strings(
 }
 
 fn locale_uses_meta() -> bool {
+    effective_lc_ctype()
+        .as_deref()
+        .is_some_and(locale_value_uses_meta)
+}
+
+fn effective_lc_ctype() -> Option<String> {
     let lc_all = std::env::var("LC_ALL").ok();
     let lc_ctype = std::env::var("LC_CTYPE").ok();
     let lang = std::env::var("LANG").ok();
-    select_lc_ctype(lc_all.as_deref(), lc_ctype.as_deref(), lang.as_deref())
-        .map(locale_value_uses_meta)
-        .unwrap_or(false)
+    select_lc_ctype(lc_all.as_deref(), lc_ctype.as_deref(), lang.as_deref()).map(str::to_owned)
 }
 
 /// Effective LC_CTYPE value by POSIX precedence: first non-empty of

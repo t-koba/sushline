@@ -860,3 +860,62 @@ pub(super) fn candidate_order(output: &str, candidates: &[&str]) -> Vec<String> 
 pub(super) fn shell_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
+
+/// Capture settled redisplay checkpoints without accepting the line. Each
+/// write is separated by an output-idle interval, so a byte-at-a-time test
+/// does not accidentally become a single batched-input test.
+pub(super) fn run_pty_checkpoints(
+    mut command: CommandBuilder,
+    prompt: &str,
+    steps: &[Vec<u8>],
+    size: PtySize,
+) -> Vec<String> {
+    command.env("TERM", "xterm-256color");
+    command.env("LC_ALL", "C");
+    command.cwd("/");
+    let pair = NativePtySystem::default().openpty(size).expect("open pty");
+    let mut child = pair.slave.spawn_command(command).expect("spawn command");
+    drop(pair.slave);
+    let mut reader = pair.master.try_clone_reader().expect("pty reader");
+    let mut writer = pair.master.take_writer().expect("pty writer");
+    let (tx, rx) = mpsc::channel();
+    let reader_thread = thread::spawn(move || {
+        let mut buf = [0; 4096];
+        while let Ok(n) = reader.read(&mut buf) {
+            if n == 0 || tx.send(buf[..n].to_vec()).is_err() {
+                break;
+            }
+        }
+    });
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut output = Vec::new();
+    let mut frames = Vec::new();
+    let mut sent = 0;
+    let mut ready = false;
+    while Instant::now() < deadline {
+        match rx.recv_timeout(Duration::from_millis(40)) {
+            Ok(chunk) => {
+                output.extend_from_slice(&chunk);
+                ready |= String::from_utf8_lossy(&output).contains(prompt);
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) if ready => {
+                if sent > 0 {
+                    frames.push(String::from_utf8_lossy(&output).into_owned());
+                }
+                if sent == steps.len() {
+                    break;
+                }
+                writer.write_all(&steps[sent]).expect("write keys");
+                writer.flush().expect("flush keys");
+                sent += 1;
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = reader_thread.join();
+    assert_eq!(frames.len(), steps.len(), "PTY checkpoints: {output:?}");
+    frames
+}

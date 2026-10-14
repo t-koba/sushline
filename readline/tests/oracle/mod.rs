@@ -2,6 +2,7 @@ mod completion;
 mod display;
 mod editing;
 mod history;
+mod horizontal_scroll;
 mod inputrc;
 pub(super) mod pty;
 

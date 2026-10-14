@@ -37,19 +37,6 @@ pub(crate) fn tab_expansion(col: usize) -> &'static str {
     &SPACES[..8 - col % 8]
 }
 
-pub(super) fn rendered_char_width(ch: char, col: usize, options: &RenderOptions<'_>) -> usize {
-    display_char(
-        ch,
-        options.output_meta,
-        options.byte_oriented,
-        options.utf8_locale,
-        col,
-    )
-    .chars()
-    .map(|ch| if ch == '\n' { 0 } else { char_width(ch) })
-    .sum()
-}
-
 pub(super) fn display_char(
     ch: char,
     output_meta: bool,
@@ -247,66 +234,47 @@ impl LineBuffer {
         positions
     }
 
-    /// Horizontal window with options.
-    pub(crate) fn horizontal_window_with_options(
+    /// Indivisible display units on the prompt's absolute tab-stop basis.
+    pub(crate) fn horizontal_line(
         &self,
-        max_width: usize,
         mark: Option<usize>,
         options: RenderOptions<'_>,
-    ) -> (String, usize) {
-        if max_width == 0 {
-            return (String::new(), 0);
-        }
-        // Cumulative window-relative sizing: each candidate width is
-        // measured from the candidate window start so per-grapheme TAB
-        // stops agree with the cumulative `rel_col` render below.
-        let mut start = self.point;
-        while let Some(prev) = self.prev_grapheme_boundary_checked(start) {
-            if self.window_slice_width(prev, self.point, &options) > max_width.saturating_sub(1) {
-                break;
-            }
-            start = prev;
-        }
-        let width = self.window_slice_width(start, self.point, &options);
-        let mut end = self.point;
-        while end < self.bytes.len() {
-            let next = self.next_grapheme_boundary(end);
-            if self.window_slice_width(start, next, &options) > max_width {
-                break;
-            }
-            end = next;
-        }
+        base_col: usize,
+    ) -> crate::display::horizontal::DisplayLine {
+        let mut line = crate::display::horizontal::DisplayLine::default();
         let region = self.region(mark, options.active_region);
-        let mut visible = String::new();
-        // Window-relative tab stops: the scrolled window has no prompt
-        // context, so stops restart at the window start (self-consistent
-        // within horizontal-scroll mode).
-        let mut rel_col = 0usize;
-        for (idx, ch) in self.decoded_char_indices_in_range(start, end) {
-            if Some(idx) == region.map(|(region_start, _)| region_start) {
-                append_bytes_lossless(&mut visible, options.active_region_start.as_ref());
+        for (idx, ch) in self.decoded_char_indices() {
+            if Some(idx) == region.map(|(start, _)| start) {
+                line.push_hidden(bytes_lossless(options.active_region_start.as_ref()));
             }
-            if Some(idx) == region.map(|(_, region_end)| region_end) {
-                append_bytes_lossless(&mut visible, options.active_region_end.as_ref());
+            if Some(idx) == region.map(|(_, end)| end) {
+                line.push_hidden(bytes_lossless(options.active_region_end.as_ref()));
             }
-            let display = display_char(
-                ch,
-                options.output_meta,
-                options.byte_oriented,
-                options.utf8_locale,
-                rel_col,
-            );
-            if ch == '\n' {
-                rel_col = 0;
+            if idx == self.point {
+                line.point = line.width;
+            }
+            // Keep horizontal mode on one row even for quoted newlines.
+            let display = if ch == '\n' {
+                "^J".to_string()
             } else {
-                rel_col += display.chars().map(char_width).sum::<usize>();
-            }
-            visible.push_str(&display);
+                display_char(
+                    ch,
+                    options.output_meta,
+                    options.byte_oriented,
+                    options.utf8_locale,
+                    base_col + line.width,
+                )
+            };
+            let width = display.chars().map(char_width).sum();
+            line.push_cell(display, width);
         }
-        if region.is_some_and(|(_, region_end)| region_end == end) {
-            append_bytes_lossless(&mut visible, options.active_region_end.as_ref());
+        if self.point == self.bytes.len() {
+            line.point = line.width;
         }
-        (visible, width)
+        if region.is_some_and(|(_, end)| end == self.bytes.len()) {
+            line.push_hidden(bytes_lossless(options.active_region_end.as_ref()));
+        }
+        line
     }
 
     /// Render text.
@@ -399,36 +367,6 @@ impl LineBuffer {
             .iter()
             .find_map(|(idx, pos)| (*idx == target.min(self.bytes.len())).then_some(*pos))
             .unwrap_or((0, prompt_width % columns.max(1)))
-    }
-
-    pub(crate) fn rendered_width_until(&self, end: usize, options: &RenderOptions<'_>) -> usize {
-        self.rendered_slice_width(0, end.min(self.bytes.len()), options)
-    }
-
-    fn rendered_slice_width(&self, start: usize, end: usize, options: &RenderOptions<'_>) -> usize {
-        // Slice-relative tab stops (horizontal-scroll windowing has no
-        // prompt context); matches the window-relative render above.
-        // `tab_col` restarts after each newline like `screen_positions`
-        // so a TAB after `\\n` uses the new line as its basis, while the
-        // returned width stays cumulative (newlines are zero width).
-        let mut width = 0usize;
-        let mut tab_col = 0usize;
-        for ch in self.decoded_chars_in_range(start, end) {
-            if ch == '\n' {
-                tab_col = 0;
-                continue;
-            }
-            let w = rendered_char_width(ch, tab_col, options);
-            width += w;
-            tab_col += w;
-        }
-        width
-    }
-
-    /// Cumulative window width from `start` to `end` on a window-relative
-    /// tab basis (stops restart at `start` and after each newline).
-    fn window_slice_width(&self, start: usize, end: usize, options: &RenderOptions<'_>) -> usize {
-        self.rendered_slice_width(start, end, options)
     }
 
     fn region(&self, mark: Option<usize>, active: bool) -> Option<(usize, usize)> {

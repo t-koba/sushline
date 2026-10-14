@@ -35,6 +35,32 @@ impl Prompt {
         self.width
     }
 
+    /// Cell units for horizontal redisplay, retaining explicitly hidden bytes.
+    pub(crate) fn horizontal_line(&self) -> crate::display::horizontal::DisplayLine {
+        let mut line = crate::display::horizontal::DisplayLine::default();
+        let mut span = String::new();
+        let mut was_hidden = false;
+        let flush = |line: &mut crate::display::horizontal::DisplayLine,
+                     span: &mut String,
+                     hidden: bool| {
+            if hidden {
+                line.push_hidden(std::mem::take(span));
+            } else {
+                line.push_prompt_text(span);
+                span.clear();
+            }
+        };
+        parse_prompt(&self.raw, |ch, hidden| {
+            if hidden != was_hidden {
+                flush(&mut line, &mut span, was_hidden);
+                was_hidden = hidden;
+            }
+            span.push(ch);
+        });
+        flush(&mut line, &mut span, was_hidden);
+        line
+    }
+
     /// Width after a mode/operator prefix on the final line.
     ///
     /// A multiline prompt starts its last line after the prefix, so only the
@@ -69,21 +95,21 @@ impl From<&[u8]> for Prompt {
 fn strip_readline_markers(raw: &str) -> (String, usize) {
     let mut visible = String::new();
     let mut measurable = String::new();
+    parse_prompt(raw, |ch, hidden| {
+        visible.push(ch);
+        // Newlines still break lines even inside hidden regions.
+        if ch == '\n' || !hidden {
+            measurable.push(ch);
+        }
+    });
+    let width = last_line_width(&measurable);
+    (visible, width)
+}
+
+fn parse_prompt(raw: &str, mut push_decoded: impl FnMut(char, bool)) {
     let mut hidden_soh = false;
     let mut hidden_bracket = false;
     let mut chars = raw.chars().peekable();
-
-    let push_decoded = |ch: char,
-                        visible: &mut String,
-                        measurable: &mut String,
-                        hidden_soh: bool,
-                        hidden_bracket: bool| {
-        visible.push(ch);
-        // Newlines still break lines even inside hidden regions.
-        if ch == '\n' || (!hidden_soh && !hidden_bracket) {
-            measurable.push(ch);
-        }
-    };
 
     while let Some(ch) = chars.next() {
         if ch == '\x01' {
@@ -108,13 +134,7 @@ fn strip_readline_markers(raw: &str) -> (String, usize) {
                 }
                 Some('e' | 'E') => {
                     chars.next();
-                    push_decoded(
-                        '\x1b',
-                        &mut visible,
-                        &mut measurable,
-                        hidden_soh,
-                        hidden_bracket,
-                    );
+                    push_decoded('\x1b', hidden_soh || hidden_bracket);
                     continue;
                 }
                 Some(c) if c.is_ascii_digit() && c < '8' => {
@@ -132,13 +152,7 @@ fn strip_readline_markers(raw: &str) -> (String, usize) {
                         consumed += 1;
                     }
                     if let Some(decoded) = char::from_u32(value) {
-                        push_decoded(
-                            decoded,
-                            &mut visible,
-                            &mut measurable,
-                            hidden_soh,
-                            hidden_bracket,
-                        );
+                        push_decoded(decoded, hidden_soh || hidden_bracket);
                     }
                     continue;
                 }
@@ -146,17 +160,8 @@ fn strip_readline_markers(raw: &str) -> (String, usize) {
             }
         }
 
-        push_decoded(
-            ch,
-            &mut visible,
-            &mut measurable,
-            hidden_soh,
-            hidden_bracket,
-        );
+        push_decoded(ch, hidden_soh || hidden_bracket);
     }
-
-    let width = last_line_width(&measurable);
-    (visible, width)
 }
 
 #[cfg(test)]

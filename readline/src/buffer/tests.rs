@@ -149,7 +149,7 @@ fn tab_cursor_column_agrees_between_render_and_positions() {
 }
 
 #[test]
-fn tab_basis_agrees_after_newline_and_in_hscroll_window() {
+fn tab_basis_agrees_after_newline_and_in_horizontal_line() {
     // Multiline: TAB after `\\n` restarts at column 0, matching
     // `screen_positions` (8 spaces), not the pre-newline width (6).
     let b = LineBuffer::from("ab\n\t");
@@ -161,8 +161,9 @@ fn tab_basis_agrees_after_newline_and_in_hscroll_window() {
     // renders 9 cells (1 + 7 + 1) and reports the same point width.
     let mut w = LineBuffer::from("a\tb");
     w.move_end();
+    let line = w.horizontal_line(None, RenderOptions::default(), 0);
     let (visible, point_width) =
-        w.horizontal_window_with_options(80, None, RenderOptions::default());
+        crate::display::horizontal::HorizontalViewport::default().layout(&line, 80);
     assert_eq!(visible, "a       b");
     assert_eq!(point_width, 9);
 }

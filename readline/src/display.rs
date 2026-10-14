@@ -4,6 +4,8 @@
 //! Cell-width calculations go through `crate::width`; byte rendering remains
 //! owned by `buffer::render`.
 
+pub(crate) mod horizontal;
+
 use crate::buffer::{RenderOptions, bytes_lossless, rendered_string_to_bytes};
 use crate::editor::{Editor, ReadlineError};
 use crate::keymap::KeyMapName;
@@ -75,24 +77,45 @@ where
             let width = last_line_width(&prompt);
             return (prompt, width);
         }
-        let (mut mode, mut mode_width) = self.mode_prompt_prefix();
+        let mode = self.mode_prompt();
+        let decorations = self.prompt_decorations(state);
+        let width = state
+            .prompt
+            .width_after_prefix(mode.width() + last_line_width(&decorations));
+        (
+            format!("{}{decorations}{}", mode.visible(), state.prompt.visible()),
+            width,
+        )
+    }
+
+    fn prompt_decorations(&self, state: &EditorState) -> String {
+        let mut decorations = String::new();
         if self.flag(BoolVariable::MarkModifiedLines)
             && self
                 .history
                 .current_history()
                 .is_some_and(|entry| entry.line_bytes != state.buffer.as_bytes())
         {
-            mode.push('*');
-            mode_width += 1;
+            decorations.push('*');
         }
         if self.flag(BoolVariable::ShowModeInPrompt)
             && let Some(operator) = state.vi_operator_prompt()
         {
-            mode.push_str(operator);
-            mode_width += last_line_width(operator);
+            decorations.push_str(operator);
         }
-        let width = state.prompt.width_after_prefix(mode_width);
-        (format!("{mode}{}", state.prompt.visible()), width)
+        decorations
+    }
+
+    fn horizontal_prompt(&self, state: &EditorState) -> horizontal::DisplayLine {
+        if let Some(prompt) = active_search_prompt(state) {
+            return Prompt::new(prompt).horizontal_line();
+        }
+        // Parse the raw mode Prompt separately, just like the normal Prompt:
+        // marker-stripped output loses the hidden spans' cell annotations.
+        let mut line = self.mode_prompt().horizontal_line();
+        line.push_prompt_text(&self.prompt_decorations(state));
+        line.append(state.prompt.horizontal_line());
+        line
     }
 
     pub(super) fn render_options(&self) -> RenderOptions<'_> {
@@ -124,8 +147,6 @@ where
         }
         self.terminal.move_to_column(0)?;
         let (prompt, prompt_width) = self.effective_prompt(state);
-        self.terminal
-            .write_bytes(&rendered_string_to_bytes(&prompt))?;
         let columns = self.tracked_terminal_columns(state);
         // GNU non-incremental search (emacs `:` and vi `/`/`?`, patch 0
         // Bash 5.3 PTY oracle) replaces the line with the search prompt
@@ -133,6 +154,8 @@ where
         // executes. Render prompt-only here so the original line stays
         // hidden until execute/abort.
         if state.search.non_incremental_search.is_some() {
+            self.terminal
+                .write_bytes(&rendered_string_to_bytes(&prompt))?;
             self.terminal.clear_after_cursor()?;
             let rendered_output = prompt.clone();
             let (rendered_rows, ends_at_wrap_boundary) =
@@ -146,17 +169,28 @@ where
                 .move_to_column((prompt_width % columns.max(1)) as u16)?;
             return self.terminal.flush();
         }
-        let (buffer, point_width) = if self.flag(BoolVariable::HorizontalScrollMode) {
-            state.buffer.horizontal_window_with_options(
-                columns.saturating_sub(prompt_width).max(1),
-                state.mark,
-                self.render_options(),
-            )
-        } else {
-            state
-                .buffer
-                .render_text(state.mark, self.render_options(), prompt_width)
-        };
+        if self.flag(BoolVariable::HorizontalScrollMode) {
+            let mut line = self.horizontal_prompt(state);
+            let buffer =
+                state
+                    .buffer
+                    .horizontal_line(state.mark, self.render_options(), prompt_width);
+            line.append(buffer);
+            let (output, column) = state.display.horizontal.layout(&line, columns);
+            self.terminal
+                .write_bytes(&rendered_string_to_bytes(&output))?;
+            self.terminal.clear_after_cursor()?;
+            state.display.rendered_rows = rendered_rows_for_output(&output, columns);
+            state.display.rendered_cursor_row = state.display.rendered_rows;
+            self.terminal.move_to_column(column as u16)?;
+            return self.terminal.flush();
+        }
+        state.display.horizontal = horizontal::HorizontalViewport::default();
+        self.terminal
+            .write_bytes(&rendered_string_to_bytes(&prompt))?;
+        let (buffer, _) = state
+            .buffer
+            .render_text(state.mark, self.render_options(), prompt_width);
         self.terminal
             .write_bytes(&rendered_string_to_bytes(&buffer))?;
         self.terminal.clear_after_cursor()?;
@@ -166,25 +200,17 @@ where
         if ends_at_wrap_boundary {
             self.terminal.write("\r\n")?;
         }
-        if self.flag(BoolVariable::HorizontalScrollMode) {
-            let column = (prompt_width + point_width) % columns;
-            state.display.rendered_rows = rendered_rows;
-            state.display.rendered_cursor_row = state.display.rendered_rows;
-            self.terminal.move_to_column(column as u16)?;
-        } else {
-            let (last_row, point_row, point_col) =
-                state
-                    .buffer
-                    .rendered_rows_and_point(prompt_width, columns, self.render_options());
-            state.display.rendered_rows = rendered_rows;
-            let rows_back = last_row.saturating_sub(point_row) as u16;
-            if rows_back > 0 {
-                self.terminal.move_up(rows_back)?;
-            }
-            state.display.rendered_cursor_row =
-                state.display.rendered_rows.saturating_sub(rows_back);
-            self.terminal.move_to_column(point_col as u16)?;
+        let (last_row, point_row, point_col) =
+            state
+                .buffer
+                .rendered_rows_and_point(prompt_width, columns, self.render_options());
+        state.display.rendered_rows = rendered_rows;
+        let rows_back = last_row.saturating_sub(point_row) as u16;
+        if rows_back > 0 {
+            self.terminal.move_up(rows_back)?;
         }
+        state.display.rendered_cursor_row = state.display.rendered_rows.saturating_sub(rows_back);
+        self.terminal.move_to_column(point_col as u16)?;
         self.terminal.flush()
     }
 
@@ -247,9 +273,9 @@ where
         Ok(())
     }
 
-    pub(super) fn mode_prompt_prefix(&self) -> (String, usize) {
+    fn mode_prompt(&self) -> Prompt {
         if !self.flag(BoolVariable::ShowModeInPrompt) {
-            return (String::new(), 0);
+            return Prompt::new("");
         }
         let raw = match self.keymap.current() {
             KeyMapName::ViCommand => self
@@ -271,8 +297,7 @@ where
                 .map(bytes_lossless)
                 .unwrap_or_else(|| "@".to_string()),
         };
-        let prompt = Prompt::new(raw);
-        (prompt.visible().to_string(), prompt.width())
+        Prompt::new(raw)
     }
 }
 
@@ -304,7 +329,7 @@ where
 {
     pub(crate) fn blink_matching_paren(
         &mut self,
-        state: &EditorState,
+        state: &mut EditorState,
         inserted: &str,
     ) -> Result<(), ReadlineError> {
         if !inserted.ends_with(')') {
@@ -316,10 +341,21 @@ where
         let prompt_width = self.current_prompt_width(state);
         let columns = self.tracked_terminal_columns(state);
         if self.flag(BoolVariable::HorizontalScrollMode) {
-            let column = prompt_width
-                + state
-                    .buffer
-                    .rendered_width_until(match_pos, &self.render_options());
+            // Self-insert calls blink before its ordinary redisplay. First
+            // update the horizontal viewport so the mapping and the screen
+            // describe the same prompt, buffer, and scroll margin.
+            self.render(state)?;
+            let mut buffer = state.buffer.clone();
+            buffer.set_point(match_pos);
+            let position = prompt_width
+                + buffer
+                    .horizontal_line(None, self.render_options(), prompt_width)
+                    .point;
+            let Some(column) = state.display.horizontal.visible_column(position) else {
+                // Offscreen GNU blink semantics remain unconfirmed. Do not
+                // move to a marker, clamp to another glyph, or leave the row.
+                return Ok(());
+            };
             self.terminal.write(escape::SAVE_CURSOR)?;
             self.terminal.move_to_column(column as u16)?;
             self.terminal.flush()?;

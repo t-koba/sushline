@@ -132,13 +132,8 @@ fn tab_expands_to_next_eight_column_stop() {
     b.set_point(2);
     let (_, point_width) = b.render_text(None, RenderOptions::default(), 0);
     assert_eq!(point_width, 8);
-    // Unconditional: also expands with `echo-control-characters` off.
-    let off = RenderOptions {
-        echo_control: false,
-        ..RenderOptions::default()
-    };
     b.set_point(3);
-    let (rendered, _) = b.render_text(None, off, 0);
+    let (rendered, _) = b.render_text(None, RenderOptions::default(), 0);
     assert_eq!(rendered, "a       b");
 }
 

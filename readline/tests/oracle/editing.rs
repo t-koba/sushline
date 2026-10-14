@@ -1505,3 +1505,84 @@ fn bash_readline_and_sushline_render_output_meta_per_locale() {
         );
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_render_byte_oriented_with_output_meta() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    let valid_utf8 = b"\xc3\xa9\r";
+    let invalid_byte = b"\xff\r";
+    for locale in ["C", "C.UTF-8"] {
+        for byte_oriented in ["off", "on"] {
+            for output_meta in ["off", "on"] {
+                let inputrc = format!(
+                    "set convert-meta off\nset input-meta off\nset meta-flag off\nset byte-oriented {byte_oriented}\nset output-meta {output_meta}"
+                );
+                let env = [("LC_ALL", locale)];
+                let valid_bash =
+                    run_bash_readline_with_inputrc_file_and_env(valid_utf8, &inputrc, &env);
+                let valid_sushline =
+                    run_sushline_harness_with_inputrc_and_env(valid_utf8, &inputrc, &env);
+                let escaped_valid =
+                    output_meta == "off" && (locale == "C" || byte_oriented == "on");
+                let expected_valid = if escaped_valid { "\\303\\251" } else { "é" };
+                let expected_valid_render = format!("{READY_PROMPT}{expected_valid}");
+                assert!(
+                    valid_bash.contains(&expected_valid_render),
+                    "Bash 5.3 {locale}, byte-oriented {byte_oriented}, output-meta {output_meta}: {valid_bash:?}"
+                );
+                assert!(
+                    valid_sushline.contains(&expected_valid_render),
+                    "Sushline {locale}, byte-oriented {byte_oriented}, output-meta {output_meta}: {valid_sushline:?}"
+                );
+
+                let expected_invalid = if output_meta == "off" { "\\377" } else { "�" };
+                let invalid_bash =
+                    run_bash_readline_with_inputrc_file_and_env(invalid_byte, &inputrc, &env);
+                let invalid_sushline =
+                    run_sushline_harness_with_inputrc_and_env(invalid_byte, &inputrc, &env);
+                let expected_invalid_render = format!("{READY_PROMPT}{expected_invalid}");
+                assert!(
+                    invalid_bash.contains(&expected_invalid_render),
+                    "Bash 5.3 {locale}, byte-oriented {byte_oriented}, output-meta {output_meta}, invalid byte: {invalid_bash:?}"
+                );
+                assert!(
+                    invalid_sushline.contains(&expected_invalid_render),
+                    "Sushline {locale}, byte-oriented {byte_oriented}, output-meta {output_meta}, invalid byte: {invalid_sushline:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_render_quoted_controls_independent_of_echo_control_setting() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    // Quoted-insert places SOH, DEL, and TAB in the line buffer without
+    // dispatching them as editing commands. Bash keeps controls visible even
+    // when echo-control-characters is off; TAB remains expanded at its stop.
+    let keys = b"\x16\x01\x16\x7f\x16\t\r";
+    for locale in ["C", "C.UTF-8"] {
+        for echo_control in ["off", "on"] {
+            let inputrc =
+                format!("set byte-oriented off\nset echo-control-characters {echo_control}");
+            let env = [("LC_ALL", locale)];
+            let bash = run_bash_readline_with_inputrc_file_and_env(keys, &inputrc, &env);
+            let sushline = run_sushline_harness_with_inputrc_and_env(keys, &inputrc, &env);
+            let expected = format!("{READY_PROMPT}^A^?     ");
+            assert!(
+                bash.contains(&expected),
+                "Bash 5.3 {locale}, echo-control-characters {echo_control}: {bash:?}"
+            );
+            assert!(
+                sushline.contains(&expected),
+                "Sushline {locale}, echo-control-characters {echo_control}: {sushline:?}"
+            );
+        }
+    }
+}

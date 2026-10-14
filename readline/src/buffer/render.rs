@@ -12,7 +12,6 @@ pub struct RenderOptions<'a> {
     pub active_region: bool,
     pub active_region_start: Cow<'a, [u8]>,
     pub active_region_end: Cow<'a, [u8]>,
-    pub echo_control: bool,
     pub output_meta: bool,
     pub byte_oriented: bool,
     pub utf8_locale: bool,
@@ -24,7 +23,6 @@ impl Default for RenderOptions<'static> {
             active_region: false,
             active_region_start: Cow::Borrowed(b""),
             active_region_end: Cow::Borrowed(b""),
-            echo_control: true,
             output_meta: true,
             byte_oriented: false,
             utf8_locale: true,
@@ -42,7 +40,6 @@ pub(crate) fn tab_expansion(col: usize) -> &'static str {
 pub(super) fn rendered_char_width(ch: char, col: usize, options: &RenderOptions<'_>) -> usize {
     display_char(
         ch,
-        options.echo_control,
         options.output_meta,
         options.byte_oriented,
         options.utf8_locale,
@@ -55,27 +52,27 @@ pub(super) fn rendered_char_width(ch: char, col: usize, options: &RenderOptions<
 
 pub(super) fn display_char(
     ch: char,
-    echo_control: bool,
     output_meta: bool,
     byte_oriented: bool,
     utf8_locale: bool,
     col: usize,
 ) -> String {
     if let Some(byte) = private_byte_value(ch) {
-        if byte_oriented || !output_meta || byte.is_ascii_control() {
+        if !output_meta || byte.is_ascii_control() {
             return format!("\\{byte:03o}");
         }
         return private_byte_char(byte).to_string();
     }
-    // UTF-8 locales preserve valid multibyte characters regardless of
-    // `output-meta`; non-UTF-8 locales render their constituent bytes instead.
+    // UTF-8 locales preserve valid multibyte characters in character mode.
+    // Byte-oriented mode or a non-UTF-8 locale renders constituent bytes;
+    // `output-meta` selects raw bytes versus octal notation.
     if !ch.is_ascii() && (byte_oriented || !utf8_locale) {
         return ch
             .to_string()
             .as_bytes()
             .iter()
             .map(|byte| {
-                if !byte_oriented && output_meta {
+                if output_meta {
                     private_byte_char(*byte).to_string()
                 } else {
                     format!("\\{byte:03o}")
@@ -92,9 +89,8 @@ pub(super) fn display_char(
     if ch == '\t' {
         return tab_expansion(col).to_string();
     }
-    if !echo_control {
-        return ch.to_string();
-    }
+    // Bash 5.3 PTY probes keep quoted-inserted SOH and DEL caret-visible
+    // regardless of `echo-control-characters`.
     match ch {
         '\n' => "\r\n".to_string(),
         '\x00'..='\x1f' => {
@@ -228,7 +224,6 @@ impl LineBuffer {
         for (idx, ch) in self.decoded_char_indices() {
             let display = display_char(
                 ch,
-                options.echo_control,
                 options.output_meta,
                 options.byte_oriented,
                 options.utf8_locale,
@@ -296,7 +291,6 @@ impl LineBuffer {
             }
             let display = display_char(
                 ch,
-                options.echo_control,
                 options.output_meta,
                 options.byte_oriented,
                 options.utf8_locale,
@@ -346,7 +340,6 @@ impl LineBuffer {
             if ch == '\n' {
                 let display = display_char(
                     ch,
-                    options.echo_control,
                     options.output_meta,
                     options.byte_oriented,
                     options.utf8_locale,
@@ -358,7 +351,6 @@ impl LineBuffer {
             }
             let display = display_char(
                 ch,
-                options.echo_control,
                 options.output_meta,
                 options.byte_oriented,
                 options.utf8_locale,
@@ -457,16 +449,20 @@ mod tests {
     #[test]
     fn output_meta_uses_locale_and_preserves_raw_invalid_bytes() {
         let invalid = private_byte_char(0xff);
-        let raw_invalid = display_char(invalid, true, true, false, true, 0);
+        let raw_invalid = display_char(invalid, true, false, true, 0);
         assert_eq!(rendered_string_to_bytes(&raw_invalid), vec![0xff]);
-        assert_eq!(display_char(invalid, true, false, false, true, 0), "\\377");
+        assert_eq!(display_char(invalid, false, false, true, 0), "\\377");
+        let raw_byte_oriented = display_char(invalid, true, true, true, 0);
+        assert_eq!(rendered_string_to_bytes(&raw_byte_oriented), vec![0xff]);
 
-        assert_eq!(display_char('é', true, false, false, true, 0), "é");
-        assert_eq!(
-            display_char('é', true, false, false, false, 0),
-            "\\303\\251"
-        );
-        let raw_c_locale = display_char('é', true, true, false, false, 0);
+        assert_eq!(display_char('é', false, false, true, 0), "é");
+        assert_eq!(display_char('é', false, false, false, 0), "\\303\\251");
+        let raw_c_locale = display_char('é', true, false, false, 0);
         assert_eq!(rendered_string_to_bytes(&raw_c_locale), "é".as_bytes());
+        let raw_byte_oriented = display_char('é', true, true, true, 0);
+        assert_eq!(rendered_string_to_bytes(&raw_byte_oriented), "é".as_bytes());
+        assert_eq!(display_char('é', false, true, true, 0), "\\303\\251");
+        assert_eq!(display_char('\x01', false, false, true, 0), "^A");
+        assert_eq!(display_char('\x7f', false, false, true, 0), "^?");
     }
 }

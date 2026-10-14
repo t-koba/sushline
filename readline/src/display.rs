@@ -108,7 +108,6 @@ where
                 .get_bytes("active-region-end-color")
                 .map(|bytes| Cow::Borrowed(bytes.as_slice()))
                 .unwrap_or(Cow::Borrowed(b"\x1b[0m")),
-            echo_control: self.flag(BoolVariable::EchoControlCharacters),
             output_meta: self.flag(BoolVariable::OutputMeta),
             byte_oriented: self.flag(BoolVariable::ByteOriented),
             utf8_locale: self.variables.utf8_locale(),

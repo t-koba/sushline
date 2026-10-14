@@ -147,7 +147,7 @@ fn less_common_variables_have_observable_side_effects() {
         .unwrap();
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
     assert_eq!(result, ReadlineResult::Line("é".as_bytes().to_vec()));
-    assert!(line.terminal().out.contains("\\303\\251"));
+    assert!(line.terminal().out.contains("é"));
 }
 
 #[test]

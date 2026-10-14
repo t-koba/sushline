@@ -982,6 +982,58 @@ fn bash_readline_and_sushline_cycle_same_menu_completion_items() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn bash_readline_and_sushline_menu_completion_display_prefix_matches_bash_5_3() {
+    let dir = tempfile::tempdir().expect("temp completion directory");
+    for name in ["alpha-one", "alpine-two"] {
+        fs::write(dir.path().join(name), "").expect("write completion fixture");
+    }
+
+    // Bash 5.3 PTY runtime observations for this exact fixture and first
+    // menu-completion action only; this is not source proof or a general menu
+    // semantics claim.
+    for (display_prefix, command, expected_line, expected_bells) in [
+        ("off", "menu-complete", "alpha-one ", 0),
+        ("off", "menu-complete-backward", "alpine-two ", 0),
+        ("on", "menu-complete", "alp", 1),
+        ("on", "menu-complete-backward", "alp", 1),
+    ] {
+        let inputrc = format!(
+            "\"\\C-o\": {command}\nset menu-complete-display-prefix {display_prefix}\nset page-completions off\nset completion-query-items 999"
+        );
+        let keys = b"al\x0f\r";
+        let bash =
+            run_bash_readline_with_inputrc_file_and_env_in_dir(keys, &inputrc, &[], dir.path());
+        let sushline =
+            run_sushline_harness_with_inputrc_and_env_in_dir(keys, &inputrc, &[], dir.path());
+        let expected = Some(expected_line.to_string());
+
+        for (output, implementation) in [(&bash, "bash"), (&sushline, "sushline")] {
+            assert_eq!(
+                accepted_line(output),
+                expected,
+                "display-prefix={display_prefix}, command={command}, implementation={implementation}\n{output}"
+            );
+            assert_eq!(
+                bell_count(output),
+                expected_bells,
+                "display-prefix={display_prefix}, command={command}, implementation={implementation}\n{output}"
+            );
+        }
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "display-prefix={display_prefix}, command={command}\nbash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bell_count(&bash),
+            "display-prefix={display_prefix}, command={command}\nbash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
 #[test]
 fn bash_readline_and_sushline_delete_char_or_list_matches_edit_and_list_cases() {
     let inputrc = r#""\C-o": delete-char-or-list"#;

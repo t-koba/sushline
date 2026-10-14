@@ -221,7 +221,7 @@ fn leading_tilde_context(context: &CompletionContext) -> LeadingTildeContext {
     let Some(raw_word) = context.line.get(context.word_start..context.word_end) else {
         return LeadingTildeContext::Unquoted;
     };
-    if raw_word.starts_with(b"\\~/") {
+    if raw_word.starts_with(b"\\~/") || raw_word.starts_with(b"\"\\~/") {
         return LeadingTildeContext::Escaped;
     }
     if raw_word.starts_with(b"'~/") || raw_word.starts_with(b"\"~/") {

@@ -817,8 +817,11 @@ fn filename_tilde_completion_respects_raw_quote_and_escape_context() {
         ("~/Al", "on", format!("{home_path}/Alpha ")),
         ("'~/Al", "off", format!("'{home_path}/Alpha' ")),
         ("\"~/Al", "off", format!("\"{home_path}/Alpha\" ")),
+        ("\"~/Al", "on", format!("\"{home_path}/Alpha\" ")),
         ("\\~/Al", "off", "\\~/Al".to_string()),
         ("\\~/Al", "on", "\\~/Al".to_string()),
+        ("\"\\~/Al", "off", "\"\\~/Al".to_string()),
+        ("\"\\~/Al", "on", "\"\\~/Al".to_string()),
     ] {
         let inputrc = format!("set expand-tilde {expand_tilde}\nset mark-directories off");
         let keys = format!("{word}\t\r");

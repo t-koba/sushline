@@ -42,6 +42,45 @@ fn bash_readline_and_sushline_history_search_forward_restores_edit() {
 }
 
 #[test]
+fn bash_readline_and_sushline_prefix_search_steps_past_current_entry() {
+    let inputrc = r#""\C-]": history-search-backward
+"\C-^": history-search-forward"#;
+    let history = ["alpha old", "beta", "alpha new"];
+
+    // Starting from `alpha new`, backward prefix search must skip the current
+    // entry and find `alpha old`.
+    let backward_keys = b"\x10\x01\x0balp\x1d\r";
+    let bash = run_bash_readline_with_inputrc_file_and_history(backward_keys, inputrc, &history);
+    let sushline = run_sushline_harness_with_inputrc_and_history(backward_keys, inputrc, &history);
+    assert_eq!(
+        accepted_line(&bash),
+        Some("alpha old".to_string()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+
+    // Starting from `alpha old`, forward prefix search must skip the current
+    // entry and find `alpha new`.
+    let forward_keys = b"\x10\x10\x10\x01\x0balp\x1e\r";
+    let bash = run_bash_readline_with_inputrc_file_and_history(forward_keys, inputrc, &history);
+    let sushline = run_sushline_harness_with_inputrc_and_history(forward_keys, inputrc, &history);
+    assert_eq!(
+        accepted_line(&bash),
+        Some("alpha new".to_string()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_reverse_search_accepts_match() {
     let keys = b"\x12two\r";
     let history = ["alpha one", "beta", "alpha two"];

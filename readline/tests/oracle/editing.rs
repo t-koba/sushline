@@ -504,16 +504,15 @@ fn bash_readline_and_sushline_accept_same_execute_named_command() {
 }
 
 #[test]
-fn bash_readline_and_sushline_accept_same_prefix_meta_command() {
-    let inputrc = "\"\\C-o\": prefix-meta\n\"\\M-a\": beginning-of-line";
+fn sushline_prefix_meta_inputrc_extension_preserves_literal_fallback() {
+    let inputrc = "set convert-meta off\nset force-meta-prefix off\n\"\\C-o\": prefix-meta\n\"\\M-a\": beginning-of-line";
     let keys = b"abc\x0faX\r";
-    let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
     let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
 
     assert_eq!(
         accepted_line(&sushline),
-        accepted_line(&bash),
-        "bash={bash}\nsushline={sushline}"
+        Some("abcaX".to_string()),
+        "{sushline}"
     );
 }
 

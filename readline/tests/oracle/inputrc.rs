@@ -159,6 +159,90 @@ Meta-p: end-of-line
 }
 
 #[test]
+fn bash_readline_and_sushline_match_meta_prefix_input_across_locales() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    let high_bit = b"\xe1\r";
+    let escape_prefix = b"\x1ba\r";
+    let cases = [
+        (
+            "C",
+            "",
+            high_bit.as_slice(),
+            "X",
+            false,
+            "C converts high-bit input",
+        ),
+        (
+            "C.UTF-8",
+            "",
+            high_bit.as_slice(),
+            "X",
+            false,
+            "UTF-8 keeps 8-bit Meta input",
+        ),
+        (
+            "C.UTF-8",
+            "",
+            escape_prefix.as_slice(),
+            "",
+            true,
+            "unforced ESC-prefixed Meta is unbound",
+        ),
+        (
+            "C.UTF-8",
+            "set force-meta-prefix on\n",
+            escape_prefix.as_slice(),
+            "X",
+            false,
+            "forced Meta prefix uses ESC",
+        ),
+        (
+            "C.UTF-8",
+            "set force-meta-prefix on\n",
+            high_bit.as_slice(),
+            "\u{fffd}",
+            false,
+            "forced Meta prefix leaves a raw high bit literal",
+        ),
+        (
+            "C.UTF-8",
+            "set convert-meta off\nset input-meta off\nset meta-flag off\n",
+            high_bit.as_slice(),
+            "X",
+            false,
+            "input flags do not strip the received high bit",
+        ),
+    ];
+
+    for (locale, settings, keys, expected, expect_bell, case) in cases {
+        let inputrc = format!("{settings}\"\\M-a\": \"X\"\n");
+        let env = [("LC_ALL", locale)];
+        let bash = run_bash_readline_with_inputrc_file_and_env(keys, &inputrc, &env);
+        let sushline = run_sushline_harness_with_inputrc_and_env(keys, &inputrc, &env);
+
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "{case}: {bash:?}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "{case}: bash={bash:?} sushline={sushline:?}"
+        );
+        assert_eq!(bell_count(&bash) > 0, expect_bell, "{case}: {bash:?}");
+        assert_eq!(
+            bell_count(&sushline) > 0,
+            expect_bell,
+            "{case}: {sushline:?}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_apply_same_inputrc_keymap_targets() {
     let inputrc = r#"
 set editing-mode vi

@@ -10,6 +10,8 @@ pub(crate) struct InputState {
     pub(crate) pending_replace: bool,
     pub(crate) named_command: Option<String>,
     pub(crate) prefix_meta: bool,
+    // Distinguishes Sushline’s synthetic prefix command from physical ESC input.
+    pub(crate) prefix_meta_command_dispatch: bool,
 }
 
 impl EditorState {

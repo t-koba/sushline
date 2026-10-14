@@ -88,10 +88,23 @@ where
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
         state.input.prefix_meta = false;
-        let mut prefixed = Vec::with_capacity(bytes.len() + 1);
+        if bytes.is_empty() {
+            return Ok(EditorOutcome::Continue);
+        }
+
+        let (next, rest) = split_first_unit(bytes);
+        let mut prefixed = Vec::with_capacity(next.len() + 1);
         prefixed.push(0x1b);
-        prefixed.extend_from_slice(bytes);
-        self.handle_bytes(state, &prefixed, hooks)
+        prefixed.extend_from_slice(next);
+        let was_prefix_meta_command_dispatch = state.input.prefix_meta_command_dispatch;
+        state.input.prefix_meta_command_dispatch = true;
+        let result = self.handle_bytes(state, &prefixed, hooks);
+        state.input.prefix_meta_command_dispatch = was_prefix_meta_command_dispatch;
+        let outcome = result?;
+        if rest.is_empty() || !matches!(&outcome, EditorOutcome::Continue) {
+            return Ok(outcome);
+        }
+        self.handle_bytes(state, rest, hooks)
     }
 
     fn handle_csi_skip(&mut self, state: &mut EditorState, bytes: &[u8]) -> EditorOutcome {
@@ -348,12 +361,10 @@ where
 
         let stripped = byte & 0x7f;
         if self.flag(BoolVariable::ConvertMeta) {
-            return Some(vec![0x1b, stripped]);
+            Some(vec![0x1b, stripped])
+        } else {
+            None
         }
-        if !self.flag(BoolVariable::InputMeta) && !self.flag(BoolVariable::MetaFlag) {
-            return Some(vec![stripped]);
-        }
-        None
     }
 
     pub(super) fn handle_pending_vi_mark(
@@ -507,6 +518,16 @@ where
         if matches!(self.keymap.current(), KeyMapName::ViCommand) {
             state.cancel_pending_command();
             self.ding()?;
+            return Ok(EditorOutcome::Continue);
+        }
+
+        // Unknown Meta-style ESC keys ring; CSI and SS3 keep their literal fallback.
+        let unbound_meta_prefix = bytes.len() > 1
+            && bytes.first() == Some(&0x1b)
+            && !matches!(bytes.get(1), Some(&b'[') | Some(&b'O'));
+        if unbound_meta_prefix && !state.input.prefix_meta_command_dispatch {
+            self.ding()?;
+            state.consume_numeric_arg_unless_prefix();
             return Ok(EditorOutcome::Continue);
         }
 

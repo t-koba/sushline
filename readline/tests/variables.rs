@@ -22,7 +22,7 @@ fn variables_api_exposes_variables_without_map_leakage() {
 }
 
 #[test]
-fn meta_variables_translate_eight_bit_input() {
+fn meta_variables_convert_high_bit_input_only_when_enabled() {
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(vec![0xe1]),
         TerminalEvent::Bytes(b"\r".to_vec()),
@@ -38,10 +38,10 @@ fn meta_variables_translate_eight_bit_input() {
         TerminalEvent::Bytes(b"\r".to_vec()),
     ]);
     let mut line = Editor::new(Config::default(), terminal, History::new());
-    line.load_inputrc_str("set input-meta off\nset meta-flag off")
+    line.load_inputrc_str("set convert-meta off\nset input-meta off\nset meta-flag off")
         .unwrap();
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
-    assert_eq!(result, ReadlineResult::Line("a".as_bytes().to_vec()));
+    assert_eq!(result, ReadlineResult::Line(vec![0xe1]));
 }
 
 #[test]

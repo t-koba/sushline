@@ -265,6 +265,62 @@ fn history_navigation_search_ignore_case_is_ascii_only_in_utf8_locale() {
 }
 
 #[test]
+fn history_navigation_search_ignore_case_is_ascii_only_in_forward_commands() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    // Bash 5.3 PTY runtime evidence under C.UTF-8; this is not source evidence
+    // for the host-linked Readline version.
+    let locale_env = [("LC_ALL", "C.UTF-8")];
+    let history = ["älpha old", "ÄLPHA new"];
+    let cases = [
+        (
+            "history-search-backward",
+            "history-search-forward",
+            "älpha o",
+        ),
+        (
+            "history-substring-search-backward",
+            "history-substring-search-forward",
+            "älpha",
+        ),
+    ];
+    for (backward, forward, expected_sushline) in cases {
+        let inputrc =
+            format!("set search-ignore-case on\n\"\\C-o\": {backward}\n\"\\C-^\": {forward}");
+        // The longer query selects the older lowercase entry; then search
+        // forward with `älpha` to the uppercase entry.
+        let mut keys = "älpha o".as_bytes().to_vec();
+        keys.extend_from_slice(b"\x0f\x01\x0b");
+        keys.extend_from_slice("älpha".as_bytes());
+        keys.extend_from_slice(b"\x1e\r");
+        let bash = run_bash_readline_with_inputrc_file_and_history_and_env(
+            &keys,
+            &inputrc,
+            &history,
+            &locale_env,
+        );
+        let sushline = run_sushline_harness_with_inputrc_and_history_and_env(
+            &keys,
+            &inputrc,
+            &history,
+            &locale_env,
+        );
+        assert_eq!(
+            accepted_line(&bash),
+            Some("ÄLPHA new".to_string()),
+            "{forward}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            Some(expected_sushline.to_string()),
+            "Sushline's ASCII-only fold does not match Ä/ä: {sushline}"
+        );
+    }
+}
+
+#[test]
 fn search_ignore_case_differs_on_non_ascii_in_utf8_locale() {
     if !c_utf8_locale_available() {
         return;

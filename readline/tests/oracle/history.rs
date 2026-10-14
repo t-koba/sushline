@@ -140,6 +140,131 @@ fn bash_readline_and_sushline_substring_search_skips_selected_match() {
 }
 
 #[test]
+fn search_ignore_case_applies_to_history_navigation_commands() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    let locale_env = [("LC_ALL", "C.UTF-8")];
+    type SearchCase<'a> = (
+        &'a str,
+        &'a str,
+        &'a [&'a str],
+        &'a [u8],
+        &'a str,
+        u8,
+        &'a str,
+    );
+    let cases: &[SearchCase<'_>] = &[
+        (
+            r#""\C-o""#,
+            "history-search-backward",
+            &["ALPHA old"],
+            b"",
+            "alpha",
+            0x0f,
+            "ALPHA old",
+        ),
+        (
+            r#""\C-o""#,
+            "history-substring-search-backward",
+            &["ALPHA old"],
+            b"",
+            "alpha",
+            0x0f,
+            "ALPHA old",
+        ),
+        (
+            r#""\C-^""#,
+            "history-search-forward",
+            &["alpha old", "ALPHA new"],
+            b"\x10\x10\x01\x0b",
+            "alpha",
+            0x1e,
+            "ALPHA new",
+        ),
+        (
+            r#""\C-o""#,
+            "history-substring-search-forward",
+            &["alpha old", "ALPHA new"],
+            b"\x10\x10\x01\x0b",
+            "alpha",
+            0x0f,
+            "ALPHA new",
+        ),
+    ];
+    for (binding, command, history, prefix, query, search_key, expected) in cases {
+        let inputrc = format!("set search-ignore-case on\n{binding}: {command}");
+        let mut keys = prefix.to_vec();
+        keys.extend_from_slice(query.as_bytes());
+        keys.push(*search_key);
+        keys.push(b'\r');
+        let bash = run_bash_readline_with_inputrc_file_and_history_and_env(
+            &keys,
+            &inputrc,
+            history,
+            &locale_env,
+        );
+        let sushline = run_sushline_harness_with_inputrc_and_history_and_env(
+            &keys,
+            &inputrc,
+            history,
+            &locale_env,
+        );
+        assert_eq!(
+            accepted_line(&bash),
+            Some((*expected).to_string()),
+            "{command}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            Some((*expected).to_string()),
+            "{command}: {sushline}"
+        );
+    }
+}
+
+#[test]
+fn history_navigation_search_ignore_case_is_ascii_only_in_utf8_locale() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    let history = ["ÄLPHA old"];
+    let locale_env = [("LC_ALL", "C.UTF-8")];
+    for command in [
+        "history-search-backward",
+        "history-substring-search-backward",
+    ] {
+        let inputrc = format!("set search-ignore-case on\n\"\\C-o\": {command}");
+        let mut keys = "älpha".as_bytes().to_vec();
+        keys.extend_from_slice(b"\x0f\r");
+        let bash = run_bash_readline_with_inputrc_file_and_history_and_env(
+            &keys,
+            &inputrc,
+            &history,
+            &locale_env,
+        );
+        let sushline = run_sushline_harness_with_inputrc_and_history_and_env(
+            &keys,
+            &inputrc,
+            &history,
+            &locale_env,
+        );
+        assert_eq!(
+            accepted_line(&bash),
+            Some("ÄLPHA old".to_string()),
+            "{command}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            Some("älpha".to_string()),
+            "Sushline's ASCII-only fold does not match Ä/ä: {sushline}"
+        );
+    }
+}
+
+#[test]
 fn search_ignore_case_differs_on_non_ascii_in_utf8_locale() {
     if !c_utf8_locale_available() {
         return;

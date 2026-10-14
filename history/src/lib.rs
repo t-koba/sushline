@@ -387,6 +387,16 @@ impl History {
         prefix: &[u8],
         current: Vec<u8>,
     ) -> Option<Vec<u8>> {
+        self.search_prefix_backward_bytes_with_case(prefix, current, false)
+    }
+
+    /// Search prefix backward bytes with optional ASCII-only case-insensitive matching.
+    pub fn search_prefix_backward_bytes_with_case(
+        &mut self,
+        prefix: &[u8],
+        current: Vec<u8>,
+        ignore_case: bool,
+    ) -> Option<Vec<u8>> {
         if self.entries.is_empty() {
             return None;
         }
@@ -397,18 +407,27 @@ impl History {
         let start = self.cursor.unwrap_or(self.entries.len());
         let found = self.entries[..start]
             .iter()
-            .rposition(|entry| entry.line_bytes.starts_with(prefix))?;
+            .rposition(|entry| starts_with_bytes(&entry.line_bytes, prefix, ignore_case))?;
         self.cursor = Some(found);
         Some(self.entries[found].line_bytes.clone())
     }
 
     /// Search prefix forward bytes.
     pub fn search_prefix_forward_bytes(&mut self, prefix: &[u8]) -> Option<Vec<u8>> {
+        self.search_prefix_forward_bytes_with_case(prefix, false)
+    }
+
+    /// Search prefix forward bytes with optional ASCII-only case-insensitive matching.
+    pub fn search_prefix_forward_bytes_with_case(
+        &mut self,
+        prefix: &[u8],
+        ignore_case: bool,
+    ) -> Option<Vec<u8>> {
         let cursor = self.cursor?;
 
         if let Some(offset) = self.entries[cursor + 1..]
             .iter()
-            .position(|entry| entry.line_bytes.starts_with(prefix))
+            .position(|entry| starts_with_bytes(&entry.line_bytes, prefix, ignore_case))
         {
             let found = cursor + 1 + offset;
             self.cursor = Some(found);
@@ -592,6 +611,16 @@ impl History {
         needle: &[u8],
         current: Vec<u8>,
     ) -> Option<Vec<u8>> {
+        self.search_containing_forward_from_cursor_bytes_with_case(needle, current, false)
+    }
+
+    /// Search containing forward from cursor bytes with optional ASCII-only case-insensitive matching.
+    pub fn search_containing_forward_from_cursor_bytes_with_case(
+        &mut self,
+        needle: &[u8],
+        current: Vec<u8>,
+        ignore_case: bool,
+    ) -> Option<Vec<u8>> {
         if needle.is_empty() || self.entries.is_empty() {
             return None;
         }
@@ -600,10 +629,13 @@ impl History {
             return None;
         }
         let start = self.cursor?;
-        let current_matches = find_bytes(&self.entries[start].line_bytes, needle).is_some();
+        let current_matches =
+            find_bytes_with_case(&self.entries[start].line_bytes, needle, ignore_case).is_some();
         let found = self.entries[start + usize::from(current_matches)..]
             .iter()
-            .position(|entry| find_bytes(&entry.line_bytes, needle).is_some())
+            .position(|entry| {
+                find_bytes_with_case(&entry.line_bytes, needle, ignore_case).is_some()
+            })
             .map(|offset| start + usize::from(current_matches) + offset)?;
         self.cursor = Some(found);
         Some(self.entries[found].line_bytes.clone())
@@ -615,6 +647,16 @@ impl History {
         needle: &[u8],
         current: Vec<u8>,
     ) -> Option<Vec<u8>> {
+        self.search_containing_backward_from_cursor_bytes_with_case(needle, current, false)
+    }
+
+    /// Search containing backward from cursor bytes with optional ASCII-only case-insensitive matching.
+    pub fn search_containing_backward_from_cursor_bytes_with_case(
+        &mut self,
+        needle: &[u8],
+        current: Vec<u8>,
+        ignore_case: bool,
+    ) -> Option<Vec<u8>> {
         if needle.is_empty() || self.entries.is_empty() {
             return None;
         }
@@ -622,9 +664,9 @@ impl History {
             self.current_edit = current;
         }
         let start = self.cursor.unwrap_or(self.entries.len());
-        let found = self.entries[..start]
-            .iter()
-            .rposition(|entry| find_bytes(&entry.line_bytes, needle).is_some())?;
+        let found = self.entries[..start].iter().rposition(|entry| {
+            find_bytes_with_case(&entry.line_bytes, needle, ignore_case).is_some()
+        })?;
         self.cursor = Some(found);
         Some(self.entries[found].line_bytes.clone())
     }

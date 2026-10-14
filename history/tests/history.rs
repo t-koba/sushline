@@ -233,6 +233,69 @@ fn searches_history_by_prefix() {
 }
 
 #[test]
+fn case_insensitive_byte_search_variants_fold_ascii_only() {
+    let mut h = History::new();
+    h.push("ALPHA old");
+    h.push("beta");
+    h.push("ALPHA new");
+
+    assert_eq!(
+        h.search_prefix_backward_bytes_with_case(b"alpha", b"alpha".to_vec(), true),
+        Some(b"ALPHA new".to_vec())
+    );
+    assert_eq!(
+        h.search_prefix_backward_bytes_with_case(b"alpha", b"alpha".to_vec(), true),
+        Some(b"ALPHA old".to_vec())
+    );
+    assert_eq!(
+        h.search_prefix_forward_bytes_with_case(b"alpha", true),
+        Some(b"ALPHA new".to_vec())
+    );
+
+    let mut substring = History::new();
+    substring.push("ALPHA old");
+    substring.push("beta");
+    substring.push("ALPHA new");
+    assert_eq!(
+        substring.search_containing_backward_from_cursor_bytes_with_case(
+            b"alpha",
+            b"alpha".to_vec(),
+            true,
+        ),
+        Some(b"ALPHA new".to_vec())
+    );
+    assert_eq!(
+        substring.search_containing_backward_from_cursor_bytes_with_case(
+            b"alpha",
+            b"alpha".to_vec(),
+            true,
+        ),
+        Some(b"ALPHA old".to_vec())
+    );
+
+    let mut forward = History::new();
+    forward.push("alpha old");
+    forward.push("ALPHA new");
+    forward.set_pos(0);
+    assert_eq!(
+        forward.search_containing_forward_from_cursor_bytes_with_case(
+            b"alpha",
+            b"alpha old".to_vec(),
+            true,
+        ),
+        Some(b"ALPHA new".to_vec())
+    );
+
+    let mut non_ascii = History::new();
+    non_ascii.push("ÄLPHA old");
+    assert!(
+        non_ascii
+            .search_prefix_backward_bytes_with_case("älpha".as_bytes(), Vec::new(), true)
+            .is_none()
+    );
+}
+
+#[test]
 fn forward_substring_search_at_end_preserves_current_edit_and_cursor() {
     let mut h = History::new();
     h.push("needle old");

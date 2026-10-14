@@ -31,10 +31,11 @@ where
             }
             EditCommand::HistorySearchBackward => {
                 let prefix = state.buffer.range_bytes(0, state.buffer.point());
-                if let Some(line) = self
-                    .history
-                    .search_prefix_backward_bytes(&prefix, state.buffer.as_bytes().to_vec())
-                {
+                if let Some(line) = self.history.search_prefix_backward_bytes_with_case(
+                    &prefix,
+                    state.buffer.as_bytes().to_vec(),
+                    self.flag(BoolVariable::SearchIgnoreCase),
+                ) {
                     self.replace_from_history(state, &line);
                 }
                 state.after_non_kill_command();
@@ -42,7 +43,10 @@ where
             }
             EditCommand::HistorySearchForward => {
                 let prefix = state.buffer.range_bytes(0, state.buffer.point());
-                if let Some(line) = self.history.search_prefix_forward_bytes(&prefix) {
+                if let Some(line) = self.history.search_prefix_forward_bytes_with_case(
+                    &prefix,
+                    self.flag(BoolVariable::SearchIgnoreCase),
+                ) {
                     self.replace_from_history(state, &line);
                 }
                 state.after_non_kill_command();
@@ -162,20 +166,28 @@ where
             }
             "history-substring-search-forward" => {
                 let needle = state.buffer.range_bytes(0, state.buffer.point());
-                if let Some(line) = self.history.search_containing_forward_from_cursor_bytes(
-                    &needle,
-                    state.buffer.as_bytes().to_vec(),
-                ) {
+                if let Some(line) = self
+                    .history
+                    .search_containing_forward_from_cursor_bytes_with_case(
+                        &needle,
+                        state.buffer.as_bytes().to_vec(),
+                        self.flag(BoolVariable::SearchIgnoreCase),
+                    )
+                {
                     self.replace_from_history(state, &line);
                 }
                 state.after_non_kill_command();
             }
             "history-substring-search-backward" => {
                 let needle = state.buffer.range_bytes(0, state.buffer.point());
-                if let Some(line) = self.history.search_containing_backward_from_cursor_bytes(
-                    &needle,
-                    state.buffer.as_bytes().to_vec(),
-                ) {
+                if let Some(line) = self
+                    .history
+                    .search_containing_backward_from_cursor_bytes_with_case(
+                        &needle,
+                        state.buffer.as_bytes().to_vec(),
+                        self.flag(BoolVariable::SearchIgnoreCase),
+                    )
+                {
                     self.replace_from_history(state, &line);
                 }
                 state.after_non_kill_command();

@@ -1003,6 +1003,65 @@ fn bash_readline_and_sushline_display_colored_filename_stats_for_tested_types() 
         assert_color(output, "alpha-link", "36", "");
     }
 
+    // Bash 5.3 PTY runtime evidence for this regular-file case only: the
+    // common prefix is highlighted before the remaining filename keeps fi=31.
+    let prefix_dir = tempfile::tempdir().expect("tempdir");
+    for name in ["alpha-one", "alpha-two"] {
+        fs::write(prefix_dir.path().join(name), "").expect("write prefix fixture");
+    }
+    let prefix_typed = format!("{}/al\x0f\r", prefix_dir.path().display());
+    let prefix_inputrc = "\"\\C-o\": possible-filename-completions\nset completion-query-items 999\nset colored-stats on\nset colored-completion-prefix on";
+    let prefix_env = [("LS_COLORS", "fi=31")];
+    let bash = run_bash_readline_with_inputrc_file_and_env(
+        prefix_typed.as_bytes(),
+        prefix_inputrc,
+        &prefix_env,
+    );
+    let sushline = run_sushline_harness_with_inputrc_and_env(
+        prefix_typed.as_bytes(),
+        prefix_inputrc,
+        &prefix_env,
+    );
+    for (output, prefix_code) in [(&bash, "01;35"), (&sushline, "1")] {
+        assert!(
+            output.contains(&format!("\x1b[{prefix_code}malpha-\x1b[0m")),
+            "missing highlighted full shared prefix in {output:?}"
+        );
+        for suffix in ["one", "two"] {
+            assert!(
+                output.contains(&format!("\x1b[31m{suffix}\x1b[0m")),
+                "file type color must remain on suffix {suffix:?}: {output:?}"
+            );
+        }
+    }
+    assert!(
+        !sushline.contains("\x1b[31malpha-"),
+        "file style must not override prefix highlight: {sushline:?}"
+    );
+
+    // Runtime-only Bash 5.3 oracle for this exact regular-file duplicate: the
+    // final fi assignment wins; no other duplicate token is covered here.
+    let duplicate_colors = "fi=31:fi=32";
+    let (bash, sushline) = run_pair(typed.as_bytes(), &enabled, Some(duplicate_colors));
+    for (output, implementation) in [(&bash, "bash"), (&sushline, "sushline")] {
+        assert_color(output, "alpha-file", "32", "");
+        assert!(
+            !output.contains("\x1b[31malpha-file\x1b[0m"),
+            "earlier fi assignment unexpectedly won ({implementation}): {output:?}"
+        );
+    }
+
+    // Runtime-only Bash 5.3 oracle for a symlink to this regular-file fixture:
+    // ln=target takes the target's tested fi style, without emitting `target`.
+    let (bash, sushline) = run_pair(typed.as_bytes(), &enabled, Some("ln=target:fi=31"));
+    for (output, implementation) in [(&bash, "bash"), (&sushline, "sushline")] {
+        assert_color(output, "alpha-link", "31", "");
+        assert!(
+            !output.contains("\x1b[targetm"),
+            "LS_COLORS target token leaked into SGR ({implementation}): {output:?}"
+        );
+    }
+
     let colored_and_visible = format!("{binding}\nset colored-stats on\nset visible-stats on");
     let (bash, sushline) = run_pair(typed.as_bytes(), &colored_and_visible, Some(explicit));
     for output in [&bash, &sushline] {

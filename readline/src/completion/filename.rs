@@ -277,6 +277,16 @@ pub(crate) fn filename_ls_color_code(word: &[u8], replacement: &[u8]) -> Option<
         // extended to other candidate kinds by the measured type-code change.
         return Some(color);
     }
+    if kind == "ln" && ls_color_type_code(&colors, "ln").as_deref() == Some("target") {
+        // The measured ln=target case follows a regular, non-executable file
+        // target and uses its fi style. Unknown target kinds fail closed rather
+        // than treating the token `target` as an SGR parameter.
+        let target = fs::metadata(&path).ok()?;
+        if target.is_file() && !filename_is_executable(&path) {
+            return ls_color_type_code(&colors, "fi").filter(|color| color != "target");
+        }
+        return None;
+    }
     ls_color_type_code(&colors, kind).or_else(|| match kind {
         "di" => Some("01;34".to_string()),
         "ex" => Some("01;32".to_string()),
@@ -298,7 +308,7 @@ fn filename_is_executable(_path: &Path) -> bool {
 }
 
 fn ls_color_type_code(colors: &str, kind: &str) -> Option<String> {
-    colors.split(':').find_map(|part| {
+    colors.split(':').rev().find_map(|part| {
         let (key, value) = part.split_once('=')?;
         (key == kind).then(|| value.to_string())
     })

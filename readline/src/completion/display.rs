@@ -182,13 +182,70 @@ pub(crate) fn color_completion_prefix(item: &str, replacement: &str, prefix: &st
     }
     let color = ls_color_named_code("readline-colored-completion-prefix")
         .unwrap_or_else(|| "1".to_string());
-    let prefix_chars = prefix.chars().count();
-    let split = item
-        .char_indices()
-        .nth(prefix_chars)
-        .map(|(idx, _)| idx)
-        .unwrap_or(item.len());
-    format!("\x1b[{color}m{}\x1b[0m{}", &item[..split], &item[split..])
+    let (split, suffix_style) = split_ansi_visible_prefix(item, prefix.chars().count());
+    let highlighted_prefix = strip_sgr_sequences(&item[..split]);
+    let suffix_style = suffix_style.unwrap_or_default();
+    format!(
+        "\x1b[{color}m{highlighted_prefix}\x1b[0m{suffix_style}{}",
+        &item[split..]
+    )
+}
+
+// Return a UTF-8 boundary after `visible_chars` while ignoring CSI sequences,
+// along with the active SGR at that boundary. Filename stats color the whole
+// item before prefix highlighting; carrying the active style onto the suffix
+// prevents ANSI bytes from shortening the highlighted prefix or losing the
+// candidate's type color.
+fn split_ansi_visible_prefix(item: &str, visible_chars: usize) -> (usize, Option<String>) {
+    let bytes = item.as_bytes();
+    let mut offset = 0;
+    let mut chars = 0;
+    let mut active_sgr = None;
+    while offset < bytes.len() && chars < visible_chars {
+        if bytes[offset..].starts_with(b"\x1b[")
+            && let Some(end) = csi_sequence_end(bytes, offset)
+        {
+            if bytes[end - 1] == b'm' {
+                let sequence = &item[offset..end];
+                active_sgr = if sequence == "\x1b[m" || sequence == "\x1b[0m" {
+                    None
+                } else {
+                    Some(sequence.to_string())
+                };
+            }
+            offset = end;
+            continue;
+        }
+        let character = item[offset..].chars().next().expect("valid UTF-8 boundary");
+        offset += character.len_utf8();
+        chars += 1;
+    }
+    (offset, active_sgr)
+}
+
+fn strip_sgr_sequences(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut output = String::with_capacity(text.len());
+    let mut offset = 0;
+    while offset < bytes.len() {
+        if bytes[offset..].starts_with(b"\x1b[")
+            && let Some(end) = csi_sequence_end(bytes, offset)
+            && bytes[end - 1] == b'm'
+        {
+            offset = end;
+            continue;
+        }
+        let character = text[offset..].chars().next().expect("valid UTF-8 boundary");
+        output.push(character);
+        offset += character.len_utf8();
+    }
+    output
+}
+
+fn csi_sequence_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let final_byte =
+        (start + 2..bytes.len()).find(|index| (0x40..=0x7e).contains(&bytes[*index]))?;
+    Some(final_byte + 1)
 }
 
 fn ls_color_named_code(name: &str) -> Option<String> {

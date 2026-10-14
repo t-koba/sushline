@@ -93,7 +93,11 @@ pub trait TerminalIo {
     }
 }
 
-/// Terminal.
+/// Built-in stdin/stdout terminal backend.
+///
+/// Only one built-in `Terminal` may hold raw mode at a time because termios and
+/// signal dispositions are process-wide; a second active entry returns
+/// `WouldBlock`.
 pub struct Terminal {
     stdout: Stdout,
     raw: bool,
@@ -164,10 +168,22 @@ impl TerminalIo for Terminal {
         }
         #[cfg(unix)]
         {
+            if RAW_TERMINAL_ACTIVE
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_err()
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "another built-in terminal already holds raw mode",
+                ));
+            }
             // Acquire terminal state before installing process-global handlers
             // so a failed entry (for example ENOTTY on non-TTY stdin) leaves
-            // no handlers behind; restore stays gated on `raw`.
-            enable_readline_mode(&mut self.saved_termios)?;
+            // no handlers behind and releases the process-wide raw-mode lease.
+            if let Err(error) = enable_readline_mode(&mut self.saved_termios) {
+                RAW_TERMINAL_ACTIVE.store(false, Ordering::SeqCst);
+                return Err(error);
+            }
             install_signal_handlers(self.catch_signals, self.catch_sigwinch);
             self.raw = true;
             Ok(())
@@ -185,6 +201,7 @@ impl TerminalIo for Terminal {
                 restore_readline_mode(&mut self.saved_termios)?;
                 restore_signal_handlers();
                 self.raw = false;
+                RAW_TERMINAL_ACTIVE.store(false, Ordering::SeqCst);
             }
             #[cfg(not(unix))]
             {
@@ -357,6 +374,8 @@ fn restore_readline_mode(saved: &mut Option<libc::termios>) -> io::Result<()> {
 static SIGWINCH_RECEIVED: AtomicBool = AtomicBool::new(false);
 #[cfg(unix)]
 static READLINE_SIGNAL_RECEIVED: AtomicI32 = AtomicI32::new(0);
+#[cfg(unix)]
+static RAW_TERMINAL_ACTIVE: AtomicBool = AtomicBool::new(false);
 #[cfg(unix)]
 static SIGNAL_HANDLERS_INSTALLED: AtomicBool = AtomicBool::new(false);
 #[cfg(unix)]

@@ -92,6 +92,15 @@ fn failed_raw_entry_child_probe() {
         before,
         "Drop after failed entry must preserve disposition"
     );
+    let mut retry = Terminal::new();
+    let retry_error = retry
+        .enter_raw_mode()
+        .expect_err("non-TTY raw-mode retry must still fail for the terminal, not the lease");
+    assert_ne!(
+        retry_error.kind(),
+        std::io::ErrorKind::WouldBlock,
+        "failed entry must release the process-wide raw-mode lease"
+    );
 }
 
 #[cfg(unix)]
@@ -296,6 +305,44 @@ mod terminal_signal_options {
                 }
             }
         }
+
+        // The process-wide lease prevents a second Terminal, even one opted
+        // out of signal catching, from restoring handlers while the first is
+        // still raw. Releasing the first allows a later entry.
+        set_action(libc::SIGTERM, application_handler as *const () as usize);
+        let original_term = current_action(libc::SIGTERM);
+        let mut first = Terminal::new();
+        first.enter_raw_mode().unwrap();
+        assert_ne!(
+            current_action(libc::SIGTERM).sa_sigaction,
+            original_term.sa_sigaction
+        );
+
+        let mut second = Terminal::new();
+        second.set_catch_signals(false);
+        second.set_catch_sigwinch(false);
+        let error = second.enter_raw_mode().unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
+        second.restore_mode().unwrap();
+        drop(second);
+        assert_ne!(
+            current_action(libc::SIGTERM).sa_sigaction,
+            original_term.sa_sigaction
+        );
+        assert_eq!(unsafe { libc::raise(libc::SIGTERM) }, 0);
+        assert_eq!(
+            first.read_event(Some(Duration::ZERO)).unwrap(),
+            TerminalEvent::Signal(libc::SIGTERM)
+        );
+        first.restore_mode().unwrap();
+        assert_same_action(libc::SIGTERM, &original_term);
+
+        let mut later = Terminal::new();
+        later.set_catch_signals(false);
+        later.set_catch_sigwinch(false);
+        later.enter_raw_mode().unwrap();
+        later.restore_mode().unwrap();
+        assert_same_action(libc::SIGTERM, &original_term);
     }
 
     #[test]

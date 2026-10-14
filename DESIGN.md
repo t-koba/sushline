@@ -146,8 +146,10 @@ The built-in `Terminal` has independent pre-read signal policies:
 `set_catch_signals(bool)` selects the eight non-`SIGWINCH` signals and
 `set_catch_sigwinch(bool)` selects resize catching; both default to `true`.
 They apply on raw-mode entry, preserve inherited `SIG_IGN`, and restore only
-changed dispositions on exit. Custom `TerminalIo` implementations own their
-signal policy. An interrupted built-in poll/read without a caught event yields
+changed dispositions on exit. Because termios and signal dispositions are
+process-wide, the built-in backend allows only one active raw-mode session; a
+second entry returns `WouldBlock`. Custom `TerminalIo` implementations own
+their signal policy. An interrupted built-in poll/read without a caught event yields
 `TerminalEvent::Timeout` so the editor can recheck `Hooks::check_signals`.
 
 During an active `read_line`, Sushline may translate terminal and signal events

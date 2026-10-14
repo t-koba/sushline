@@ -81,6 +81,65 @@ fn bash_readline_and_sushline_prefix_search_steps_past_current_entry() {
 }
 
 #[test]
+fn bash_readline_and_sushline_forward_substring_search_at_end_preserves_edit() {
+    let inputrc = r#""\C-o": history-substring-search-forward"#;
+    let history = ["needle old", "other", "needle new"];
+    // From the end cursor, forward search must not wrap to `needle new`; Up
+    // then Down must still restore the typed edit.
+    let keys = b"needle\x0f\x10\x0e\r";
+    let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &history);
+    let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+
+    assert_eq!(accepted_line(&bash), Some("needle".to_string()), "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+}
+
+#[test]
+fn bash_readline_and_sushline_substring_search_skips_selected_match() {
+    let history = ["needle old", "needle mid", "needle new"];
+
+    // Forward from the selected oldest matching entry advances to the middle.
+    let forward_inputrc = r#""\C-o": history-substring-search-forward"#;
+    let forward_keys = b"\x10\x10\x10\x01\x0bneedle\x0f\r";
+    let bash =
+        run_bash_readline_with_inputrc_file_and_history(forward_keys, forward_inputrc, &history);
+    let sushline =
+        run_sushline_harness_with_inputrc_and_history(forward_keys, forward_inputrc, &history);
+    assert_eq!(
+        accepted_line(&bash),
+        Some("needle mid".to_string()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+
+    // Backward from the selected newest matching entry also skips itself.
+    let backward_inputrc = r#""\C-o": history-substring-search-backward"#;
+    let backward_keys = b"\x10\x01\x0bneedle\x0f\r";
+    let bash =
+        run_bash_readline_with_inputrc_file_and_history(backward_keys, backward_inputrc, &history);
+    let sushline =
+        run_sushline_harness_with_inputrc_and_history(backward_keys, backward_inputrc, &history);
+    assert_eq!(
+        accepted_line(&bash),
+        Some("needle mid".to_string()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_reverse_search_accepts_match() {
     let keys = b"\x12two\r";
     let history = ["alpha one", "beta", "alpha two"];

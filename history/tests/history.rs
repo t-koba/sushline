@@ -111,6 +111,33 @@ fn searches_history_by_prefix() {
 }
 
 #[test]
+fn forward_substring_search_at_end_preserves_current_edit_and_cursor() {
+    let mut h = History::new();
+    h.push("needle old");
+    h.push("other");
+    h.push("needle new");
+
+    assert!(
+        h.search_containing_forward_from_cursor_bytes(b"needle", b"needle".to_vec())
+            .is_none()
+    );
+    assert_eq!(
+        h.where_history(),
+        3,
+        "forward search at history end must not wrap"
+    );
+    assert_eq!(
+        h.navigate_bytes(HistoryDirection::Previous, b"needle".to_vec()),
+        Some(b"needle new".to_vec())
+    );
+    assert_eq!(
+        h.navigate_bytes(HistoryDirection::Next, b"needle new".to_vec()),
+        Some(b"needle".to_vec()),
+        "navigating back to the end must restore the current edit"
+    );
+}
+
+#[test]
 fn searches_history_by_substring() {
     let mut h = History::new();
     h.push("alpha one");

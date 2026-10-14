@@ -580,7 +580,7 @@ impl History {
         }
     }
 
-    /// Search containing forward from cursor bytes.
+    /// Search containing forward from cursor bytes without wrapping at history end.
     pub fn search_containing_forward_from_cursor_bytes(
         &mut self,
         needle: &[u8],
@@ -591,9 +591,9 @@ impl History {
         }
         if self.cursor.is_none() {
             self.current_edit = current;
-            self.cursor = Some(0);
+            return None;
         }
-        let start = self.cursor.unwrap_or(0);
+        let start = self.cursor?;
         let current_matches = find_bytes(&self.entries[start].line_bytes, needle).is_some();
         let found = self.entries[start + usize::from(current_matches)..]
             .iter()

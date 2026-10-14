@@ -898,6 +898,65 @@ fn bash_readline_and_sushline_complete_same_single_quoted_filename_with_space() 
 
 #[cfg(unix)]
 #[test]
+fn bash_readline_and_sushline_display_visible_filename_stats_for_tested_types() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    // Bash 5.3 PTY runtime evidence (record e5a1d1fc120e49798bd7529883774a92):
+    // with possible-filename-completions, mark-directories off, and
+    // colored-stats off, visible-stats marks only these tested fixture types.
+    let cwd = tempfile::tempdir().expect("temp cwd");
+    fs::create_dir(cwd.path().join("alpha-dir")).expect("mkdir directory fixture");
+    fs::write(cwd.path().join("alpha-file"), "").expect("write regular-file fixture");
+    let executable = cwd.path().join("alpha-exec");
+    fs::write(&executable, "").expect("write executable fixture");
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o755))
+        .expect("chmod executable fixture");
+    symlink(cwd.path().join("alpha-file"), cwd.path().join("alpha-link"))
+        .expect("symlink to regular-file fixture");
+
+    let keys = b"al\x0f\r";
+    let env = [("LS_COLORS", "")];
+    let binding = r#""\C-o": possible-filename-completions
+set completion-query-items 999
+set mark-directories off
+set colored-stats off"#;
+
+    for (visible_stats, should_mark) in [(None, false), (Some("off"), false), (Some("on"), true)] {
+        let inputrc = visible_stats.map_or_else(
+            || binding.to_string(),
+            |value| format!("{binding}\nset visible-stats {value}"),
+        );
+        let bash =
+            run_bash_readline_with_inputrc_file_and_env_in_dir(keys, &inputrc, &env, cwd.path());
+        let sushline =
+            run_sushline_harness_with_inputrc_and_env_in_dir(keys, &inputrc, &env, cwd.path());
+
+        for (output, implementation) in [(&bash, "bash"), (&sushline, "sushline")] {
+            for (name, marker) in [
+                ("alpha-dir", Some('/')),
+                ("alpha-exec", Some('*')),
+                ("alpha-link", Some('@')),
+                ("alpha-file", None),
+            ] {
+                assert!(
+                    output.contains(name),
+                    "missing candidate {name:?}, implementation={implementation}, visible-stats={visible_stats:?}\n{output}"
+                );
+                for possible_marker in ['/', '*', '@'] {
+                    let rendered = format!("{name}{possible_marker}");
+                    assert_eq!(
+                        output.contains(&rendered),
+                        should_mark && marker == Some(possible_marker),
+                        "unexpected marker state for {rendered:?}, implementation={implementation}, visible-stats={visible_stats:?}\n{output}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn bash_readline_and_sushline_display_colored_filename_stats_for_tested_types() {
     use std::os::unix::fs::{PermissionsExt, symlink};
 

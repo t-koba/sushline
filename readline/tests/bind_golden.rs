@@ -607,7 +607,7 @@ fn compatibility_document_covers_bind_commands_and_variables() {
 }
 
 #[test]
-fn compatibility_document_has_no_editor_bind_history_gap_rows() {
+fn compatibility_document_classifies_editor_bind_and_history_coverage() {
     let compatibility =
         std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../COMPATIBILITY.md"))
             .expect("read compatibility document");
@@ -629,13 +629,13 @@ fn compatibility_document_has_no_editor_bind_history_gap_rows() {
         "| Emacs keymap, bindable names, and `bind` | Compatible |",
         "| vi mode | Compatible |",
         "| Init file/inputrc | Compatible |",
-        "| History navigation/search | Compatible |",
+        "| History navigation/search | Mixed |",
         "| History expansion | Compatible |",
         "| History file storage | Compatible |",
     ] {
         assert!(
             compatibility.contains(area),
-            "COMPATIBILITY.md must mark {area} as compatible"
+            "COMPATIBILITY.md must classify {area}"
         );
     }
 }

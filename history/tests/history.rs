@@ -90,6 +90,24 @@ fn history_search_includes_positioned_entry_with_directional_offsets() {
 }
 
 #[test]
+fn history_search_ignore_case_folds_ascii_bytes_only() {
+    let mut h = History::new();
+    h.push("ÄLPHA");
+
+    assert!(
+        h.history_search_bytes_with_case("älpha".as_bytes(), HistoryDirection::Previous, true)
+            .is_none()
+    );
+
+    h.push("ALPHA");
+    let found = h
+        .history_search_bytes_with_case(b"alpha", HistoryDirection::Previous, true)
+        .expect("ASCII case-insensitive search");
+    assert_eq!(found.entry_index, 1);
+    assert_eq!(found.byte_offset, 0);
+}
+
+#[test]
 fn history_search_pos_matches_beginning_and_end_boundaries() {
     // GNU Readline 8.3 histsearch.c starts at the requested position: position
     // zero is searchable in both directions; one-past-end searches the newest

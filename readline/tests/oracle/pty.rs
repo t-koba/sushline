@@ -120,6 +120,15 @@ pub(super) fn run_bash_readline_with_inputrc_file_and_history(
     inputrc: &str,
     history: &[&str],
 ) -> String {
+    run_bash_readline_with_inputrc_file_and_history_and_env(keys, inputrc, history, &[])
+}
+
+pub(super) fn run_bash_readline_with_inputrc_file_and_history_and_env(
+    keys: &[u8],
+    inputrc: &str,
+    history: &[&str],
+    env: &[(&str, &str)],
+) -> String {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("inputrc");
     fs::write(&path, inputrc).expect("write inputrc");
@@ -133,6 +142,9 @@ pub(super) fn run_bash_readline_with_inputrc_file_and_history(
     }
     let mut command = CommandBuilder::new("bash");
     command.env("INPUTRC", path.to_string_lossy().as_ref());
+    for (name, value) in env {
+        command.env(name, value);
+    }
     command.args([
         "--noprofile",
         "--norc",
@@ -363,7 +375,16 @@ pub(super) fn run_sushline_harness_with_inputrc_and_history(
     inputrc: &str,
     history: &[&str],
 ) -> String {
-    run_sushline_harness_with_size(
+    run_sushline_harness_with_inputrc_and_history_and_env(keys, inputrc, history, &[])
+}
+
+pub(super) fn run_sushline_harness_with_inputrc_and_history_and_env(
+    keys: &[u8],
+    inputrc: &str,
+    history: &[&str],
+    env: &[(&str, &str)],
+) -> String {
+    run_sushline_harness_with_size_and_env(
         keys,
         inputrc,
         history,
@@ -373,6 +394,7 @@ pub(super) fn run_sushline_harness_with_inputrc_and_history(
             pixel_width: 0,
             pixel_height: 0,
         },
+        env,
     )
 }
 
@@ -382,10 +404,23 @@ pub(super) fn run_sushline_harness_with_size(
     history: &[&str],
     size: PtySize,
 ) -> String {
+    run_sushline_harness_with_size_and_env(keys, inputrc, history, size, &[])
+}
+
+fn run_sushline_harness_with_size_and_env(
+    keys: &[u8],
+    inputrc: &str,
+    history: &[&str],
+    size: PtySize,
+    env: &[(&str, &str)],
+) -> String {
     let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
     command.env("SUSHLINE_INPUTRC", inputrc);
     command.env("SUSHLINE_PROMPT", READY_PROMPT);
     command.env("SUSHLINE_HISTORY", history.join("\n"));
+    for (name, value) in env {
+        command.env(name, value);
+    }
     run_pty_with_size(command, keys, size)
 }
 

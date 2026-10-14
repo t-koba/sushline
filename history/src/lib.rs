@@ -466,7 +466,7 @@ impl History {
         self.history_search_bytes_with_case(needle, direction, false)
     }
 
-    /// History search bytes with case.
+    /// History search bytes with optional ASCII-only case-insensitive matching.
     ///
     /// Like GNU `history_search`, the positioned entry is included in both
     /// directions; repeat commands express their step-past policy at their

@@ -230,6 +230,8 @@ fn history_navigation_search_ignore_case_is_ascii_only_in_utf8_locale() {
         return;
     }
 
+    // Bash 5.3 PTY runtime evidence under C.UTF-8; this does not establish the
+    // host's linked Readline version.
     let history = ["ÄLPHA old"];
     let locale_env = [("LC_ALL", "C.UTF-8")];
     for command in [

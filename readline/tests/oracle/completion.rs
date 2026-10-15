@@ -1156,6 +1156,123 @@ set page-completions off"#;
 
 #[cfg(unix)]
 #[test]
+fn complete_filename_quotes_shell_operator_characters_like_bash_5_3() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    // Runtime-only Bash 5.3 PTY probe d1ae9790e3794a9993c5ae9f93f40f5c under LC_ALL=C.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let fixtures = [
+        (
+            "semicolon-internal",
+            b"safe-semi-;item".as_slice(),
+            b"safe-semi-\\;item ".as_slice(),
+        ),
+        (
+            "semicolon-trailing",
+            b"safe-trail;".as_slice(),
+            b"safe-trail\\; ".as_slice(),
+        ),
+        (
+            "ampersand-internal",
+            b"safe-amp-&item".as_slice(),
+            b"safe-amp-\\&item ".as_slice(),
+        ),
+        (
+            "ampersand-trailing",
+            b"safe-trail&".as_slice(),
+            b"safe-trail\\& ".as_slice(),
+        ),
+        (
+            "pipe-internal",
+            b"safe-pipe-|item".as_slice(),
+            b"safe-pipe-\\|item ".as_slice(),
+        ),
+        (
+            "pipe-trailing",
+            b"safe-trail|".as_slice(),
+            b"safe-trail\\| ".as_slice(),
+        ),
+        (
+            "less-internal",
+            b"safe-less-<item".as_slice(),
+            b"safe-less-\\<item ".as_slice(),
+        ),
+        (
+            "less-trailing",
+            b"safe-trail<".as_slice(),
+            b"safe-trail\\< ".as_slice(),
+        ),
+        (
+            "greater-internal",
+            b"safe-greater->item".as_slice(),
+            b"safe-greater-\\>item ".as_slice(),
+        ),
+        (
+            "greater-trailing",
+            b"safe-trail>".as_slice(),
+            b"safe-trail\\> ".as_slice(),
+        ),
+        (
+            "open-paren-internal",
+            b"safe-open-(item".as_slice(),
+            b"safe-open-\\(item ".as_slice(),
+        ),
+        (
+            "open-paren-trailing",
+            b"safe-trail(".as_slice(),
+            b"safe-trail\\( ".as_slice(),
+        ),
+        (
+            "close-paren-internal",
+            b"safe-close-)item".as_slice(),
+            b"safe-close-\\)item ".as_slice(),
+        ),
+        (
+            "close-paren-trailing",
+            b"safe-trail)".as_slice(),
+            b"safe-trail\\) ".as_slice(),
+        ),
+    ];
+    let inputrc = r#""\C-o": complete-filename
+set expand-tilde off
+set mark-directories off
+set completion-query-items 999
+set page-completions off"#;
+
+    for (fixture, basename, expected_unquoted) in fixtures {
+        let dir = root.path().join(fixture);
+        fs::create_dir(&dir).expect("create shell-operator fixture directory");
+        fs::write(dir.join(OsString::from_vec(basename.to_vec())), "")
+            .expect("write shell-operator fixture");
+        for (form, prefix, quote) in [
+            ("unquoted", b"safe-".as_slice(), None),
+            ("single-quoted", b"'safe-".as_slice(), Some(b'\'')),
+            ("double-quoted", b"\"safe-".as_slice(), Some(b'"')),
+        ] {
+            let mut expected = Vec::new();
+            if let Some(quote) = quote {
+                expected.push(quote);
+                expected.extend_from_slice(basename);
+                expected.push(quote);
+                expected.push(b' ');
+            } else {
+                expected.extend_from_slice(expected_unquoted);
+            }
+            let mut bash_keys = prefix.to_vec();
+            bash_keys.extend_from_slice(b"\x0f\x07\r");
+            let mut sushline_keys = prefix.to_vec();
+            sushline_keys.extend_from_slice(b"\x0f\r");
+            let (bash, sushline) =
+                run_filename_line_buffer_hex_pair(&dir, inputrc, &bash_keys, &sushline_keys, "");
+            let context = format!("{fixture}/{form} completion");
+            assert_filename_line_buffer_bytes(&bash, &sushline, &expected, &context);
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn complete_filename_quotes_brace_expansion_characters_like_bash_5_3() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;

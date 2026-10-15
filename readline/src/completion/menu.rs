@@ -145,6 +145,7 @@ where
                 + preserve_quoted_filename_closer(
                     &response,
                     &context.edit,
+                    is_directory,
                     suffix.get(completion_suffix_overlap..).unwrap_or_default(),
                     &mut replacement_bytes,
                 )

@@ -2844,54 +2844,82 @@ fn multi_candidate_consecutive_single_quoted_apostrophes_match_bash_5_3() {
     fs::write(cwd.join("safe''two"), b"").expect("write fixture file");
     let home_path = home.to_string_lossy().into_owned();
     let env = [("HOME", home_path.as_str())];
-    let raw_suffix = concat!("'\\''", "'\\''", "'").as_bytes();
-    let expected_skip_off =
-        concat!("echo 'safe", "'\\''", "'\\''", "X", "\\'''", "\\'''").as_bytes();
-    let expected_skip_on = concat!("echo 'safe", "'\\''", "'\\''", "X'").as_bytes();
+    struct SuffixCase {
+        raw_suffix: &'static [u8],
+        left_count: usize,
+        expected_skip_off: &'static [u8],
+        expected_skip_on: &'static [u8],
+    }
+    let suffix_cases = [
+        SuffixCase {
+            raw_suffix: concat!("'\\''", "'\\''", "'").as_bytes(),
+            left_count: 9,
+            expected_skip_off: concat!("echo 'safe", "'\\''", "'\\''", "X", "\\'''", "\\'''")
+                .as_bytes(),
+            expected_skip_on: concat!("echo 'safe", "'\\''", "'\\''", "X'").as_bytes(),
+        },
+        SuffixCase {
+            raw_suffix: concat!("'\\''", "'\\''", "z'").as_bytes(),
+            left_count: 10,
+            expected_skip_off: concat!("echo 'safe", "'\\''", "'\\''", "X", "\\'''", "\\''", "z'")
+                .as_bytes(),
+            expected_skip_on: concat!("echo 'safe", "'\\''", "'\\''", "Xz'").as_bytes(),
+        },
+    ];
 
-    for command in ["complete", "complete-filename"] {
-        for (skip_completed_text, expected) in
-            [("off", expected_skip_off), ("on", expected_skip_on)]
-        {
-            let inputrc = format!(
-                "\"\\C-o\": {command}\nset skip-completed-text {skip_completed_text}\nset show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off"
-            );
-            let mut bash_keys = b"echo 'safe".to_vec();
-            bash_keys.extend_from_slice(raw_suffix);
-            let mut sushline_keys = bash_keys.clone();
-            for _ in 0..raw_suffix.len() {
-                bash_keys.push(0x02);
-                sushline_keys.push(0x02);
+    for SuffixCase {
+        raw_suffix,
+        left_count,
+        expected_skip_off,
+        expected_skip_on,
+    } in suffix_cases
+    {
+        for command in ["complete", "complete-filename"] {
+            for (skip_completed_text, expected) in
+                [("off", expected_skip_off), ("on", expected_skip_on)]
+            {
+                let inputrc = format!(
+                    "\"\\C-o\": {command}\nset skip-completed-text {skip_completed_text}\nset show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off"
+                );
+                let mut bash_keys = b"echo 'safe".to_vec();
+                bash_keys.extend_from_slice(raw_suffix);
+                let mut sushline_keys = bash_keys.clone();
+                for _ in 0..left_count {
+                    bash_keys.push(0x02);
+                    sushline_keys.push(0x02);
+                }
+                bash_keys.extend_from_slice(b"\x0fX\x07\r");
+                sushline_keys.extend_from_slice(b"\x0fX\r");
+                let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+                    &cwd,
+                    &inputrc,
+                    &bash_keys,
+                    &sushline_keys,
+                    "set +H",
+                    &env,
+                );
+                let bash_hex = raw_line_after_marker(&bash, b"BASH_READLINE_HEX:")
+                    .expect("Bash line-buffer marker");
+                let (bash_hex_pairs, bash_hex_remainder) = bash_hex.as_chunks::<2>();
+                assert!(bash_hex_remainder.is_empty(), "odd Bash hex marker");
+                let bash_bytes = bash_hex_pairs
+                    .iter()
+                    .map(|pair| {
+                        (hex_digit(pair[0]).expect("Bash hex digit") << 4)
+                            | hex_digit(pair[1]).expect("Bash hex digit")
+                    })
+                    .collect::<Vec<_>>();
+                let sushline_bytes =
+                    raw_accepted_hex(&sushline).expect("Sushline accepted-line marker");
+                let context = format!(
+                    "suffix={raw_suffix:?}, {command}, skip-completed-text={skip_completed_text}"
+                );
+                assert_eq!(bash_bytes, expected, "Bash bytes and point for {context}");
+                assert_eq!(
+                    sushline_bytes, expected,
+                    "Sushline bytes and point for {context}"
+                );
             }
-            bash_keys.extend_from_slice(b"\x0fX\x07\r");
-            sushline_keys.extend_from_slice(b"\x0fX\r");
-            let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
-                &cwd,
-                &inputrc,
-                &bash_keys,
-                &sushline_keys,
-                "set +H",
-                &env,
-            );
-            let bash_hex = raw_line_after_marker(&bash, b"BASH_READLINE_HEX:")
-                .expect("Bash line-buffer marker");
-            let (bash_hex_pairs, bash_hex_remainder) = bash_hex.as_chunks::<2>();
-            assert!(bash_hex_remainder.is_empty(), "odd Bash hex marker");
-            let bash_bytes = bash_hex_pairs
-                .iter()
-                .map(|pair| {
-                    (hex_digit(pair[0]).expect("Bash hex digit") << 4)
-                        | hex_digit(pair[1]).expect("Bash hex digit")
-                })
-                .collect::<Vec<_>>();
-            let sushline_bytes =
-                raw_accepted_hex(&sushline).expect("Sushline accepted-line marker");
-            let context = format!("{command}, skip-completed-text={skip_completed_text}");
-            assert_eq!(bash_bytes, expected, "Bash bytes and point for {context}");
-            assert_eq!(
-                sushline_bytes, expected,
-                "Sushline bytes and point for {context}"
-            );
         }
     }
 }

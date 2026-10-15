@@ -904,6 +904,73 @@ set page-completions off"#;
 
 #[cfg(unix)]
 #[test]
+fn filename_completion_redraw_shows_raw_invalid_byte_differently_by_locale() {
+    use portable_pty::CommandBuilder;
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let dir = tempfile::tempdir().expect("temp completion directory");
+    fs::write(
+        dir.path()
+            .join(OsString::from_vec(b"raw-\xff-item".to_vec())),
+        "",
+    )
+    .expect("write raw-byte fixture");
+    let inputrc = r#""\C-o": complete-filename"#;
+    let inputrc_path = dir.path().join("inputrc");
+    fs::write(&inputrc_path, inputrc).expect("write inputrc");
+    let keys = b"raw-\x0f";
+
+    for locale in ["C", "C.UTF-8"] {
+        if locale == "C.UTF-8" && !c_utf8_locale_available() {
+            continue;
+        }
+
+        let mut bash_command = CommandBuilder::new("bash");
+        bash_command.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
+        bash_command.args([
+            "--noprofile",
+            "--norc",
+            "-i",
+            "-c",
+            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "SUSHLINE_READY>" line; :"#,
+        ]);
+        let bash = run_pty_redraw_after_prompt(bash_command, keys, dir.path(), locale);
+
+        let mut sushline_command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+        sushline_command.env("SUSHLINE_INPUTRC", inputrc);
+        sushline_command.env("SUSHLINE_PROMPT", READY_PROMPT);
+        sushline_command.env("SUSHLINE_HISTORY", "");
+        let sushline = run_pty_redraw_after_prompt(sushline_command, keys, dir.path(), locale);
+
+        let expected_bash = if locale == "C" {
+            "raw-\\377-item "
+        } else {
+            "raw-�-item "
+        };
+        for (output, implementation, expected) in [
+            (&bash, "Bash", expected_bash),
+            (&sushline, "Sushline", "raw-�-item "),
+        ] {
+            assert!(
+                output.contains(expected),
+                "missing expected pre-accept filename redraw for {implementation} under LC_ALL={locale}"
+            );
+            assert_eq!(
+                bell_count(output),
+                0,
+                "unexpected completion bell for {implementation} under LC_ALL={locale}"
+            );
+            assert!(
+                !output.contains("SUSHLINE_ACCEPTED:"),
+                "line was accepted before the pre-accept redraw was captured"
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn bash_readline_and_sushline_pack_completion_columns_at_width_boundary() {
     use portable_pty::PtySize;
 

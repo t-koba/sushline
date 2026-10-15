@@ -987,18 +987,65 @@ pub(super) fn shell_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
+/// Capture the redraw after sending keys at the prompt, without accepting
+/// the edited line. The lossy string is intended for display assertions only.
+pub(super) fn run_pty_redraw_after_prompt(
+    command: CommandBuilder,
+    keys: &[u8],
+    cwd: &std::path::Path,
+    locale: &str,
+) -> String {
+    run_pty_checkpoints_with_environment(
+        command,
+        READY_PROMPT,
+        &[keys.to_vec()],
+        PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        },
+        locale,
+        cwd,
+        Duration::from_millis(200),
+    )
+    .into_iter()
+    .next()
+    .expect("redraw checkpoint")
+}
+
 /// Capture settled redisplay checkpoints without accepting the line. Each
 /// write is separated by an output-idle interval, so a byte-at-a-time test
 /// does not accidentally become a single batched-input test.
 pub(super) fn run_pty_checkpoints(
-    mut command: CommandBuilder,
+    command: CommandBuilder,
     prompt: &str,
     steps: &[Vec<u8>],
     size: PtySize,
 ) -> Vec<String> {
+    run_pty_checkpoints_with_environment(
+        command,
+        prompt,
+        steps,
+        size,
+        "C",
+        std::path::Path::new("/"),
+        Duration::from_millis(40),
+    )
+}
+
+fn run_pty_checkpoints_with_environment(
+    mut command: CommandBuilder,
+    prompt: &str,
+    steps: &[Vec<u8>],
+    size: PtySize,
+    locale: &str,
+    cwd: &std::path::Path,
+    settled: Duration,
+) -> Vec<String> {
     command.env("TERM", "xterm-256color");
-    command.env("LC_ALL", "C");
-    command.cwd("/");
+    command.env("LC_ALL", locale);
+    command.cwd(cwd);
     let pair = NativePtySystem::default().openpty(size).expect("open pty");
     let mut child = pair.slave.spawn_command(command).expect("spawn command");
     drop(pair.slave);
@@ -1019,7 +1066,7 @@ pub(super) fn run_pty_checkpoints(
     let mut sent = 0;
     let mut ready = false;
     while Instant::now() < deadline {
-        match rx.recv_timeout(Duration::from_millis(40)) {
+        match rx.recv_timeout(settled) {
             Ok(chunk) => {
                 output.extend_from_slice(&chunk);
                 ready |= String::from_utf8_lossy(&output).contains(prompt);
@@ -1042,6 +1089,10 @@ pub(super) fn run_pty_checkpoints(
     let _ = child.kill();
     let _ = child.wait();
     let _ = reader_thread.join();
-    assert_eq!(frames.len(), steps.len(), "PTY checkpoints: {output:?}");
+    assert_eq!(
+        frames.len(),
+        steps.len(),
+        "PTY checkpoints did not settle all requested steps"
+    );
     frames
 }

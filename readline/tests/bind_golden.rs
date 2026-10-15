@@ -593,7 +593,19 @@ fn compatibility_document_classifies_editor_bind_and_history_coverage() {
         .split("## Compatibility Boundaries")
         .nth(1)
         .expect("compatibility boundary section");
-    for forbidden in ["| Known deviation |", "| Not implemented |", "| Untested |"] {
+    let known_deviation_rows = documented_rows
+        .lines()
+        .filter(|line| line.starts_with('|') && line.contains("| Known deviation |"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        known_deviation_rows.len(),
+        1,
+        "only the specifically measured ANSI-C menu-completion deviation is allowed"
+    );
+    assert!(known_deviation_rows[0].starts_with(
+        "| `menu-complete`, `menu-complete-backward`, `old-menu-complete` | Known deviation |"
+    ));
+    for forbidden in ["| Not implemented |", "| Untested |"] {
         let rows = documented_rows
             .lines()
             .filter(|line| line.starts_with('|') && line.contains(forbidden))

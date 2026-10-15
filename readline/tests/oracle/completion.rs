@@ -4404,6 +4404,53 @@ fn menu_completion_cycles_ansi_c_filename_tails_like_bash_5_3() {
 
 #[cfg(unix)]
 #[test]
+fn menu_completion_consumes_case_insensitive_ansi_c_tail_unlike_bash_5_3() {
+    // Runtime-only Bash 5.3 observation for this fixture and option set; Bash
+    // duplicates the existing tail, while Sushline consumes it by case-insensitive
+    // filename-prefix matching. This is not GNU source proof or a general claim.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    let home = root.path().join("home");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(&home).expect("create fixture HOME");
+    for name in ["safe-Alpha", "safe-Alpine"] {
+        fs::write(cwd.join(name), b"").expect("create fixture file");
+    }
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+    let inputrc = "\"\\C-o\": menu-complete\nset completion-ignore-case on\nset skip-completed-text on\nset menu-complete-display-prefix off\nset show-all-if-ambiguous off\nset page-completions off\nset completion-query-items 999";
+    let mut bash_keys = b"echo $'safe-alpha'".to_vec();
+    let mut sushline_keys = bash_keys.clone();
+    for _ in 0..4 {
+        bash_keys.push(0x02);
+        sushline_keys.push(0x02);
+    }
+    bash_keys.extend_from_slice(b"\x0f\x07\r");
+    sushline_keys.extend_from_slice(b"\x0f\r");
+    let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+        &cwd,
+        inputrc,
+        &bash_keys,
+        &sushline_keys,
+        "set +H",
+        &env,
+    );
+    assert_eq!(
+        raw_line_after_marker(&bash, b"BASH_READLINE_HEX:"),
+        Some(b"6563686f202427736166652d416c70686170686127".as_slice()),
+        "Bash 5.3 PTY line buffer for the case-insensitive ANSI-C suffix fixture"
+    );
+    assert_eq!(
+        raw_accepted_hex(&sushline).as_deref(),
+        Some(b"echo $'safe-Alpha' ".as_slice()),
+        "Sushline consumes the matching suffix and places the separator after the quote"
+    );
+    assert_eq!(raw_bell_count(&bash), 0);
+    assert_eq!(raw_bell_count(&sushline), 0);
+}
+
+#[cfg(unix)]
+#[test]
 fn bash_readline_and_sushline_menu_completion_display_prefix_matches_bash_5_3() {
     let dir = tempfile::tempdir().expect("temp completion directory");
     for name in ["alpha-one", "alpine-two"] {

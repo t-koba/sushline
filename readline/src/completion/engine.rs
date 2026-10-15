@@ -85,6 +85,7 @@ where
                         &edit,
                         completion_type,
                         response.options.quote_filename(),
+                        response.options.filenames,
                         hooks,
                     );
                     state.buffer.insert_bytes(&replacement_bytes);

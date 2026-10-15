@@ -166,6 +166,7 @@ where
                 &edit,
                 CompletionType::Complete,
                 quote_filename,
+                response.options.filenames,
                 hooks,
             )
         } else {
@@ -174,6 +175,7 @@ where
                 &edit,
                 CompletionType::Complete,
                 quote_filename,
+                response.options.filenames,
                 hooks,
             );
             joined.push(b'{');
@@ -186,6 +188,7 @@ where
                     &edit,
                     CompletionType::Complete,
                     quote_filename,
+                    response.options.filenames,
                     hooks,
                 ));
             }
@@ -205,6 +208,7 @@ where
         edit: &CompletionEdit,
         completion_type: CompletionType,
         quote_filename: bool,
+        filename_candidates: bool,
         hooks: &mut impl Hooks,
     ) -> Vec<u8> {
         if let Some(quoted) = hooks.quote_completion(QuoteContext {
@@ -220,10 +224,20 @@ where
         }) {
             return quoted;
         }
+        let escape_leading_tilde = filename_candidates
+            && !edit.word_bytes.starts_with(b"~/")
+            && matches!(
+                completion_type,
+                CompletionType::Complete
+                    | CompletionType::Filename
+                    | CompletionType::MenuComplete
+                    | CompletionType::MenuCompleteBackward
+                    | CompletionType::InsertCompletions
+            );
         match edit.quote {
             Some('\'') => quote_single_quoted_bytes(value),
             Some('"') => quote_double_quoted_bytes(value),
-            _ if quote_filename => quote_filename_bytes(value),
+            _ if quote_filename => quote_filename_bytes(value, escape_leading_tilde),
             _ => value.to_vec(),
         }
     }
@@ -241,6 +255,7 @@ where
             edit,
             completion_type,
             response.options.quote_filename(),
+            response.options.filenames,
             hooks,
         ))
     }
@@ -276,6 +291,7 @@ where
             edit,
             completion_type,
             response.options.quote_filename(),
+            response.options.filenames,
             hooks,
         );
         let is_directory =

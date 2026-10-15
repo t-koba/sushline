@@ -85,8 +85,11 @@ pub(super) fn dequote_completion_word_bytes(raw: &[u8]) -> (Vec<u8>, Option<char
     }
     (out, quote)
 }
-pub(super) fn quote_filename_bytes(bytes: &[u8]) -> Vec<u8> {
+pub(super) fn quote_filename_bytes(bytes: &[u8], escape_leading_tilde: bool) -> Vec<u8> {
     let mut out = Vec::with_capacity(bytes.len());
+    if escape_leading_tilde && bytes.first() == Some(&b'~') {
+        out.push(b'\\');
+    }
     for byte in bytes {
         if matches!(
             byte,
@@ -187,7 +190,16 @@ pub(super) fn quote_double_quoted_bytes(value: &[u8]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::dequote_completion_word_bytes;
+    use super::{dequote_completion_word_bytes, quote_filename_bytes};
+
+    #[test]
+    fn filename_quoting_escapes_only_a_leading_tilde() {
+        assert_eq!(quote_filename_bytes(b"~", true), b"\\~");
+        assert_eq!(quote_filename_bytes(b"~Alpha", true), b"\\~Alpha");
+        assert_eq!(quote_filename_bytes(b"alpha~beta", true), b"alpha~beta");
+        assert_eq!(quote_filename_bytes(b"alpha/~beta", true), b"alpha/~beta");
+        assert_eq!(quote_filename_bytes(b"~user/", false), b"~user/");
+    }
 
     #[test]
     fn double_quotes_only_dequote_bash_escapable_bytes() {

@@ -1276,6 +1276,44 @@ fn bash_readline_and_sushline_leave_bare_named_user_filename_completion_unchange
 
 #[cfg(unix)]
 #[test]
+fn bash_readline_and_sushline_escape_literal_leading_tilde_filename() {
+    // Bash 5.3 PTY runtime evidence for this isolated cwd/HOME fixture only:
+    // a literal `~` filename is accepted escaped, without a bell, regardless
+    // of expand-tilde. This is not source proof or a general tilde claim.
+    let cwd = tempfile::tempdir().expect("temp cwd");
+    fs::write(cwd.path().join("~"), "").expect("write literal tilde fixture");
+    let home = tempfile::tempdir().expect("temp HOME");
+    fs::write(home.path().join("Alpha"), "").expect("write HOME fixture");
+    let home_path = home.path().to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+    let keys = b"~\x0f\r";
+
+    for expand_tilde in ["off", "on"] {
+        let inputrc = format!(
+            "\"\\C-o\": complete-filename\nset mark-directories off\nset expand-tilde {expand_tilde}"
+        );
+        let bash =
+            run_bash_readline_with_inputrc_file_and_env_in_dir(keys, &inputrc, &env, cwd.path());
+        let sushline =
+            run_sushline_harness_with_inputrc_and_env_in_dir(keys, &inputrc, &env, cwd.path());
+
+        for (output, implementation) in [(&bash, "bash"), (&sushline, "sushline")] {
+            assert_eq!(
+                accepted_line(output),
+                Some("\\~".to_string()),
+                "expand-tilde={expand_tilde}, implementation={implementation}\n{output}"
+            );
+            assert_eq!(
+                bell_count(output),
+                0,
+                "expand-tilde={expand_tilde}, implementation={implementation}\n{output}"
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn bash_readline_and_sushline_leave_bare_tilde_filename_completion_unchanged() {
     // Bash 5.3 PTY runtime evidence for this isolated HOME/cwd fixture only:
     // complete-filename leaves a bare `~` unchanged and rings once with either

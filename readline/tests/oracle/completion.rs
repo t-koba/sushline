@@ -1027,7 +1027,7 @@ set page-completions off"#;
             let mut sushline_keys = prefix.to_vec();
             sushline_keys.extend_from_slice(b"\x0f\r");
             let (bash, sushline) =
-                run_filename_line_buffer_hex_pair(&dir, inputrc, &bash_keys, &sushline_keys);
+                run_filename_line_buffer_hex_pair(&dir, inputrc, &bash_keys, &sushline_keys, "");
             let context = format!("{fixture}/{form} backslash completion");
             assert_filename_line_buffer_bytes(&bash, &sushline, expected, &context);
         }
@@ -1069,7 +1069,7 @@ set page-completions off"#;
         let mut sushline_keys = prefix.to_vec();
         sushline_keys.extend_from_slice(b"\x0f\r");
         let (bash, sushline) =
-            run_filename_line_buffer_hex_pair(dir.path(), inputrc, &bash_keys, &sushline_keys);
+            run_filename_line_buffer_hex_pair(dir.path(), inputrc, &bash_keys, &sushline_keys, "");
         let context = format!("{form} apostrophe completion");
         assert_filename_line_buffer_bytes(&bash, &sushline, expected, &context);
     }
@@ -1147,9 +1147,77 @@ set page-completions off"#;
             let mut sushline_keys = prefix.to_vec();
             sushline_keys.extend_from_slice(b"\x0f\r");
             let (bash, sushline) =
-                run_filename_line_buffer_hex_pair(&dir, inputrc, &bash_keys, &sushline_keys);
+                run_filename_line_buffer_hex_pair(&dir, inputrc, &bash_keys, &sushline_keys, "");
             let context = format!("{fixture}/{form} completion");
             assert_filename_line_buffer_bytes(&bash, &sushline, expected, &context);
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn complete_filename_quotes_exclamation_marks_with_bash_history_expansion() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    // Runtime-only Bash 5.3 PTY probes fd00643bc4884d47891859def4c4a35e and
+    // 0ab22fd1610847feb11392dc08bfda78 under LC_ALL=C.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let fixtures = [
+        (
+            "internal",
+            b"safe-bang!item".as_slice(),
+            [
+                b"safe-bang\\!item ".as_slice(),
+                b"'safe-bang!item' ".as_slice(),
+                b"\"safe-bang!item\" ".as_slice(),
+            ],
+        ),
+        (
+            "trailing",
+            b"safe-trail!".as_slice(),
+            [
+                b"safe-trail\\! ".as_slice(),
+                b"'safe-trail!' ".as_slice(),
+                b"\"safe-trail!\" ".as_slice(),
+            ],
+        ),
+    ];
+    let inputrc = r#""\C-o": complete-filename
+set expand-tilde off
+set mark-directories off
+set completion-query-items 999
+set page-completions off"#;
+
+    for (fixture, basename, expected) in fixtures {
+        let dir = root.path().join(fixture);
+        fs::create_dir(&dir).expect("create exclamation fixture directory");
+        fs::write(dir.join(OsString::from_vec(basename.to_vec())), "")
+            .expect("write exclamation fixture");
+        for history in ["on", "off"] {
+            let bash_setup = if history == "on" { "set -H" } else { "set +H" };
+            for ((form, prefix), expected) in [
+                ("unquoted", b"safe-".as_slice()),
+                ("single-quoted", b"'safe-".as_slice()),
+                ("double-quoted", b"\"safe-".as_slice()),
+            ]
+            .into_iter()
+            .zip(expected)
+            {
+                let mut bash_keys = prefix.to_vec();
+                bash_keys.extend_from_slice(b"\x0f\x07\r");
+                let mut sushline_keys = prefix.to_vec();
+                sushline_keys.extend_from_slice(b"\x0f\r");
+                let (bash, sushline) = run_filename_line_buffer_hex_pair(
+                    &dir,
+                    inputrc,
+                    &bash_keys,
+                    &sushline_keys,
+                    bash_setup,
+                );
+                let context = format!("{fixture}/{form}, history expansion {history}");
+                assert_filename_line_buffer_bytes(&bash, &sushline, expected, &context);
+            }
         }
     }
 }
@@ -1207,7 +1275,7 @@ set page-completions off"#;
             let mut sushline_keys = prefix.to_vec();
             sushline_keys.extend_from_slice(b"\x0f\r");
             let (bash, sushline) =
-                run_filename_line_buffer_hex_pair(&dir, inputrc, &bash_keys, &sushline_keys);
+                run_filename_line_buffer_hex_pair(&dir, inputrc, &bash_keys, &sushline_keys, "");
             let context = format!("{fixture}/{form} double-quote completion");
             assert_filename_line_buffer_bytes(&bash, &sushline, expected, &context);
         }
@@ -1374,16 +1442,22 @@ fn run_filename_line_buffer_hex_pair(
     inputrc: &str,
     bash_keys: &[u8],
     sushline_keys: &[u8],
+    bash_setup: &str,
 ) -> (Vec<u8>, Vec<u8>) {
     use portable_pty::{CommandBuilder, PtySize};
 
     let inputrc_path = cwd.join("inputrc");
     fs::write(&inputrc_path, inputrc).expect("write inputrc");
-    let bash_script = r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; bind -x '"\C-g": printf "BASH_READLINE_HEX:"; printf "%s" "$READLINE_LINE" | od -An -tx1 | tr -d " \n"; printf "\n"'; IFS= read -r -e -p "SUSHLINE_READY>" line; :"#;
+    let bash_script = format!(
+        "{}{}{}",
+        bash_setup,
+        if bash_setup.is_empty() { "" } else { "; " },
+        r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; bind -x '"\C-g": printf "BASH_READLINE_HEX:"; printf "%s" "$READLINE_LINE" | od -An -tx1 | tr -d " \n"; printf "\n"'; IFS= read -r -e -p "SUSHLINE_READY>" line; :"#
+    );
     let mut bash_command = CommandBuilder::new("bash");
     bash_command.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
     bash_command.env("LC_ALL", "C");
-    bash_command.args(["--noprofile", "--norc", "-i", "-c", bash_script]);
+    bash_command.args(["--noprofile", "--norc", "-i", "-c", &bash_script]);
 
     let mut sushline_command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
     sushline_command.env("SUSHLINE_INPUTRC", inputrc);

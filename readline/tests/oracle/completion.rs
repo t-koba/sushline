@@ -4594,6 +4594,132 @@ fn menu_completion_appends_quoted_filename_separators_like_bash_5_3() {
 
 #[cfg(unix)]
 #[test]
+fn menu_completion_preserves_existing_quoted_suffixes_like_bash_5_3() {
+    // Runtime-only Bash 5.3 observations for these files, cursor offsets, and
+    // first menu-completion action; not source proof or a general claim.
+    struct Case {
+        line: &'static [u8],
+        expected_skip_on: &'static [u8],
+        expected_skip_off: &'static [u8],
+    }
+    let cases = [
+        Case {
+            line: b"echo 'tail-Alpha'",
+            expected_skip_on: b"echo 'tail-Alpha'",
+            expected_skip_off: b"echo 'tail-Alphapha'",
+        },
+        Case {
+            line: b"echo \"tail-Alpha\"",
+            expected_skip_on: b"echo \"tail-Alpha\"",
+            expected_skip_off: b"echo \"tail-Alphapha\"",
+        },
+        Case {
+            line: b"echo $'tail-Alpha'",
+            expected_skip_on: b"echo $'tail-Alpha'",
+            expected_skip_off: b"echo $'tail-Alphapha'",
+        },
+        Case {
+            line: b"echo 'tail space-Alpha'",
+            expected_skip_on: b"echo 'tail space-Alpha' ",
+            expected_skip_off: b"echo 'tail space-Alpha'pha'",
+        },
+        Case {
+            line: b"echo \"tail space-Alpha\"",
+            expected_skip_on: b"echo \"tail space-Alpha\" ",
+            expected_skip_off: b"echo \"tail space-Alpha\"pha\"",
+        },
+        Case {
+            line: b"echo $'tail space-Alpha'",
+            expected_skip_on: b"echo $'tail space-Alpha' ",
+            expected_skip_off: b"echo $'tail space-Alpha'pha'",
+        },
+        Case {
+            line: b"echo 'unique-Alpha'",
+            expected_skip_on: b"echo 'unique-Alpha'",
+            expected_skip_off: b"echo 'unique-Alphapha'",
+        },
+        Case {
+            line: b"echo \"unique-Alpha\"",
+            expected_skip_on: b"echo \"unique-Alpha\"",
+            expected_skip_off: b"echo \"unique-Alphapha\"",
+        },
+        Case {
+            line: b"echo $'unique-Alpha'",
+            expected_skip_on: b"echo $'unique-Alpha'",
+            expected_skip_off: b"echo $'unique-Alphapha'",
+        },
+        Case {
+            line: b"echo 'unique space-Alpha'",
+            expected_skip_on: b"echo 'unique space-Alpha' ",
+            expected_skip_off: b"echo 'unique space-Alpha'pha'",
+        },
+        Case {
+            line: b"echo \"unique space-Alpha\"",
+            expected_skip_on: b"echo \"unique space-Alpha\" ",
+            expected_skip_off: b"echo \"unique space-Alpha\"pha\"",
+        },
+        Case {
+            line: b"echo $'unique space-Alpha'",
+            expected_skip_on: b"echo $'unique space-Alpha' ",
+            expected_skip_off: b"echo $'unique space-Alpha'pha'",
+        },
+    ];
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    let home = root.path().join("home");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(&home).expect("create fixture HOME");
+    for name in [
+        "tail-Alpha",
+        "tail-Alpine",
+        "tail space-Alpha",
+        "tail space-Alpine",
+        "unique-Alpha",
+        "unique space-Alpha",
+    ] {
+        fs::write(cwd.join(name), b"").expect("create fixture file");
+    }
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+
+    for skip_completed_text in ["on", "off"] {
+        let inputrc = format!(
+            "\"\\C-o\": menu-complete\nset skip-completed-text {skip_completed_text}\nset menu-complete-display-prefix off\nset show-all-if-ambiguous off\nset page-completions off\nset completion-query-items 999"
+        );
+        for (index, case) in cases.iter().enumerate() {
+            let mut bash_keys = case.line.to_vec();
+            let mut sushline_keys = case.line.to_vec();
+            for _ in 0..4 {
+                bash_keys.push(0x02);
+                sushline_keys.push(0x02);
+            }
+            bash_keys.extend_from_slice(b"\x0f\x07\r");
+            sushline_keys.extend_from_slice(b"\x0f\r");
+            let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+                &cwd,
+                &inputrc,
+                &bash_keys,
+                &sushline_keys,
+                "set +H",
+                &env,
+            );
+            let expected = if skip_completed_text == "on" {
+                case.expected_skip_on
+            } else {
+                case.expected_skip_off
+            };
+            assert_filename_line_buffer_bytes(
+                &bash,
+                &sushline,
+                expected,
+                &format!("quoted existing suffix skip={skip_completed_text} case={index}"),
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn bash_readline_and_sushline_menu_completion_display_prefix_matches_bash_5_3() {
     let dir = tempfile::tempdir().expect("temp completion directory");
     for name in ["alpha-one", "alpine-two"] {

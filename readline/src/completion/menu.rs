@@ -1,7 +1,8 @@
 use crate::completion::filename::filename_candidate_prefix_len;
 use crate::completion::insert::{
     CompletionReplacement, ansi_c_quote_suffix_bytes, extend_with_trailing_char,
-    preserve_quoted_filename_closer, should_append_completion_char,
+    leave_quoted_filename_suffix_open, preserve_quoted_filename_closer,
+    should_append_completion_char,
 };
 use crate::completion::quoting::{
     CompletionEdit, completion_suffix_bytes_at, completion_suffix_overlap_len,
@@ -102,11 +103,12 @@ where
         let completion_type = menu_completion_type(backward);
         let skip_completed_text = self.variable_is_on("skip-completed-text");
         let suffix = completion_suffix_bytes_at(context.end, state);
-        let ansi_c_filename_completion = context.edit.ansi_c_quote
+        let quoted_filename_completion = context.edit.quote.is_some()
             && response.options.filenames
             && response.options.quote_filename();
+        let ansi_c_filename_completion = context.edit.ansi_c_quote && quoted_filename_completion;
         let completion_suffix_overlap = if skip_completed_text
-            && ansi_c_filename_completion
+            && quoted_filename_completion
             && next_index > 0
             && context.previous_match_index.is_none()
         {
@@ -139,12 +141,13 @@ where
             );
         let mut ansi_c_suffix_overlap = completion_suffix_overlap;
         let quoted_suffix_overlap = if next_index > 0 {
-            preserve_quoted_filename_closer(
-                &response,
-                &context.edit,
-                &suffix,
-                &mut replacement_bytes,
-            )
+            completion_suffix_overlap
+                + preserve_quoted_filename_closer(
+                    &response,
+                    &context.edit,
+                    suffix.get(completion_suffix_overlap..).unwrap_or_default(),
+                    &mut replacement_bytes,
+                )
         } else {
             0
         };
@@ -189,6 +192,16 @@ where
         } else {
             quoted_suffix_overlap
         };
+        if next_index > 0 && !is_directory {
+            leave_quoted_filename_suffix_open(
+                &response,
+                &context.edit,
+                &suffix,
+                suffix_overlap,
+                response.candidates[next_index - 1].replacement_bytes(),
+                &mut replacement_bytes,
+            );
+        }
         let replacement_end = context.end + suffix_overlap;
         let append_completion_char = next_index > 0
             && should_append_completion_char(
@@ -199,7 +212,9 @@ where
         if next_index > 0
             && !is_directory
             && append_completion_char
-            && (!ansi_c_filename_completion || suffix_overlap == suffix.len())
+            && (!quoted_filename_completion
+                || suffix_overlap == suffix.len()
+                || response.options.append_character.is_some())
             && !state
                 .buffer
                 .as_bytes()

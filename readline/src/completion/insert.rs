@@ -54,6 +54,31 @@ pub(super) fn preserve_quoted_filename_closer(
     1
 }
 
+pub(super) fn leave_quoted_filename_suffix_open(
+    response: &CompletionResponse,
+    edit: &CompletionEdit,
+    suffix: &[u8],
+    suffix_overlap: usize,
+    candidate: &[u8],
+    replacement: &mut Vec<u8>,
+) {
+    // Keep the original closer after an unconsumed suffix for safe filenames.
+    if suffix_overlap >= suffix.len()
+        || should_append_completion_char(response, edit, candidate)
+        || !response.options.filenames
+        || !response.options.quote_filename()
+    {
+        return;
+    }
+    let Some(quote) = edit.quote else {
+        return;
+    };
+    let quote_byte = quote as u8;
+    if suffix.last() == Some(&quote_byte) && replacement.last() == Some(&quote_byte) {
+        replacement.pop();
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct RequoteOptions {
     pub(super) quote_filename: bool,
@@ -209,6 +234,20 @@ where
                 && append_completion_char
             {
                 extend_with_trailing_char(&mut replacement_bytes, &response.options);
+            }
+            if matches!(
+                completion_type,
+                CompletionType::MenuComplete | CompletionType::MenuCompleteBackward
+            ) && !is_directory
+            {
+                leave_quoted_filename_suffix_open(
+                    &response,
+                    edit,
+                    &suffix,
+                    replacement_end.saturating_sub(edit.end),
+                    candidate.replacement_bytes(),
+                    &mut replacement_bytes,
+                );
             }
             state
                 .buffer

@@ -1,3 +1,4 @@
+use super::insert::RequoteOptions;
 use crate::completion::builtin::*;
 use crate::completion::display::*;
 use crate::completion::filename::{
@@ -84,8 +85,11 @@ where
                         candidate.replacement_bytes(),
                         &edit,
                         completion_type,
-                        response.options.quote_filename(),
-                        response.options.filenames,
+                        RequoteOptions {
+                            quote_filename: response.options.quote_filename(),
+                            filename_candidates: response.options.filenames,
+                            close_ansi_c_quote: true,
+                        },
                         hooks,
                     );
                     state.buffer.insert_bytes(&replacement_bytes);

@@ -10,6 +10,13 @@ use crate::state::{CompletionAttemptState, EditorState};
 use crate::terminal::TerminalIo;
 use crate::variables::BoolVariable;
 
+#[derive(Clone, Copy)]
+pub(super) struct RequoteOptions {
+    pub(super) quote_filename: bool,
+    pub(super) filename_candidates: bool,
+    pub(super) close_ansi_c_quote: bool,
+}
+
 impl<T> Editor<T>
 where
     T: TerminalIo,
@@ -149,7 +156,11 @@ where
         }
 
         let prefix = common_prefix_bytes(&response.candidates).unwrap_or_default();
-        let quote_filename = response.options.quote_filename();
+        let quote_options = RequoteOptions {
+            quote_filename: response.options.quote_filename(),
+            filename_candidates: response.options.filenames,
+            close_ansi_c_quote: true,
+        };
         let mut joined = if edit.quote.is_some() {
             let mut braced = Vec::with_capacity(prefix.len() + 2);
             braced.extend_from_slice(&prefix);
@@ -165,8 +176,7 @@ where
                 &braced,
                 &edit,
                 CompletionType::Complete,
-                quote_filename,
-                response.options.filenames,
+                quote_options,
                 hooks,
             )
         } else {
@@ -174,8 +184,7 @@ where
                 &prefix,
                 &edit,
                 CompletionType::Complete,
-                quote_filename,
-                response.options.filenames,
+                quote_options,
                 hooks,
             );
             joined.push(b'{');
@@ -187,8 +196,7 @@ where
                     candidate_suffix(candidate, &prefix),
                     &edit,
                     CompletionType::Complete,
-                    quote_filename,
-                    response.options.filenames,
+                    quote_options,
                     hooks,
                 ));
             }
@@ -207,8 +215,7 @@ where
         value: &[u8],
         edit: &CompletionEdit,
         completion_type: CompletionType,
-        quote_filename: bool,
-        filename_candidates: bool,
+        options: RequoteOptions,
         hooks: &mut impl Hooks,
     ) -> Vec<u8> {
         if let Some(quoted) = hooks.quote_completion(QuoteContext {
@@ -220,14 +227,14 @@ where
             word: &edit.word_bytes,
             quote: edit.quote,
             completion_type,
-            quote_filename,
+            quote_filename: options.quote_filename,
         }) {
             return quoted;
         }
         let raw_word = edit.line.get(edit.start..edit.end).unwrap_or_default();
         let is_unescaped_named_user_path =
             is_named_user_tilde_path(&edit.word_bytes) && !raw_word.starts_with(b"\\~");
-        let escape_leading_tilde = filename_candidates
+        let escape_leading_tilde = options.filename_candidates
             && !edit.word_bytes.starts_with(b"~/")
             && !is_unescaped_named_user_path
             && matches!(
@@ -245,17 +252,23 @@ where
                 .get(edit.start.saturating_sub(1))
                 .is_some_and(u8::is_ascii_whitespace);
         let escape_leading_hash =
-            filename_candidates && starts_shell_word && value.first() == Some(&b'#');
+            options.filename_candidates && starts_shell_word && value.first() == Some(&b'#');
         // Preserve Bash's backslash-LF spelling for an unexpanded `~/` path.
         let single_quote_line_feeds = !(raw_word.starts_with(b"~/") && value.starts_with(b"~/"));
         match edit.quote {
-            Some('\'') if edit.ansi_c_quote && filename_candidates && quote_filename => {
-                quote_ansi_c_quoted_filename_bytes(value)
+            Some('\'')
+                if edit.ansi_c_quote && options.filename_candidates && options.quote_filename =>
+            {
+                let mut quoted = quote_ansi_c_quoted_filename_bytes(value);
+                if !options.close_ansi_c_quote {
+                    quoted.pop();
+                }
+                quoted
             }
             Some('\'') => quote_single_quoted_bytes(value),
-            Some('"') if filename_candidates => quote_double_quoted_filename_bytes(value),
+            Some('"') if options.filename_candidates => quote_double_quoted_filename_bytes(value),
             Some('"') => quote_double_quoted_bytes(value),
-            _ if quote_filename => quote_filename_bytes(
+            _ if options.quote_filename => quote_filename_bytes(
                 value,
                 escape_leading_tilde,
                 escape_leading_hash,
@@ -277,8 +290,12 @@ where
             &prefix,
             edit,
             completion_type,
-            response.options.quote_filename(),
-            response.options.filenames,
+            RequoteOptions {
+                quote_filename: response.options.quote_filename(),
+                filename_candidates: response.options.filenames,
+                // Bash leaves an ANSI-C quote open after ambiguous common-prefix insertion.
+                close_ansi_c_quote: false,
+            },
             hooks,
         ))
     }
@@ -313,8 +330,11 @@ where
             &raw,
             edit,
             completion_type,
-            response.options.quote_filename(),
-            response.options.filenames,
+            RequoteOptions {
+                quote_filename: response.options.quote_filename(),
+                filename_candidates: response.options.filenames,
+                close_ansi_c_quote: true,
+            },
             hooks,
         );
         let is_directory =

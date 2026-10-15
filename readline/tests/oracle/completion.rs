@@ -1618,6 +1618,53 @@ set page-completions off"#;
 
 #[cfg(unix)]
 #[test]
+fn complete_filename_keeps_ambiguous_ansi_c_quote_open_like_bash_5_3() {
+    // Runtime-only Bash 5.3 PTY probe 5495fc787df04b9599f9836b9177fd86.
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let root = tempfile::tempdir().expect("temp completion root");
+    let dir = root.path().join("ambiguous-ansi-c");
+    fs::create_dir(&dir).expect("create ambiguous ANSI-C fixture directory");
+    for basename in [b"safe-alpha".as_slice(), b"safe-alpine".as_slice()] {
+        fs::write(dir.join(OsString::from_vec(basename.to_vec())), "")
+            .expect("write ambiguous ANSI-C fixture");
+    }
+    let inputrc = r#""\C-o": complete-filename
+set expand-tilde off
+set mark-directories off
+set completion-query-items 999
+set page-completions off"#;
+    let bash_keys = b"echo $'safe-a\x0f\x07\r";
+    let sushline_keys = b"echo $'safe-a\x0f\r";
+    let (bash, sushline) =
+        run_filename_line_buffer_hex_pair(&dir, inputrc, bash_keys, sushline_keys, "set +H");
+    let expected = b"echo $'safe-alp";
+    let bash_hex = raw_line_after_marker(&bash, b"BASH_READLINE_HEX:");
+    let sushline_hex = raw_accepted_hex_marker(&sushline);
+    assert!(
+        bash_hex.is_some() && bash_hex == sushline_hex,
+        "Bash and Sushline line buffers differed for ambiguous ANSI-C completion"
+    );
+    assert_eq!(
+        raw_accepted_hex(&sushline).as_deref(),
+        Some(expected.as_slice()),
+        "ambiguous completion did not leave the ANSI-C quote open"
+    );
+    assert_eq!(
+        raw_bell_count(&bash),
+        1,
+        "unexpected Bash ambiguity bell count"
+    );
+    assert_eq!(
+        raw_bell_count(&sushline),
+        1,
+        "unexpected Sushline ambiguity bell count"
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn complete_filename_handles_ansi_c_quoted_words_like_bash_5_3() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;

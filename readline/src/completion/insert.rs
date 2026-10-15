@@ -445,6 +445,15 @@ where
                     if replacement_bytes.last() == Some(&b'\'') {
                         replacement_bytes.pop();
                     }
+                } else if single_quoted_regular_filename
+                    && suffix.first() == Some(&b'\'')
+                    && suffix.len() > 1
+                {
+                    // Keep a standalone closer before adjacent text at point, but leave
+                    // the inserted common prefix open so the marker lands before it.
+                    if replacement_bytes.last() == Some(&b'\'') {
+                        replacement_bytes.pop();
+                    }
                 } else if response.options.filenames {
                     leave_quoted_filename_suffix_open(
                         &response,

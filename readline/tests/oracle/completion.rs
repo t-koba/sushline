@@ -2162,6 +2162,156 @@ fn complete_filename_skips_ansi_c_directory_suffix_overlap_without_duplicate_sla
 
 #[cfg(unix)]
 #[test]
+fn complete_filename_consumes_ansi_c_closing_quote_suffix_like_bash_5_3() {
+    // Runtime-only Bash 5.3 PTY probe 9113d5b9ec9c4c73abccc2faa54f1671.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    let home = root.path().join("home");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(&home).expect("create fixture HOME");
+    fs::create_dir(cwd.join("only space-dir")).expect("create fixture directory");
+    fs::write(cwd.join("only space-dir/leaf-file"), b"").expect("create fixture file");
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+    let inputrc = "\"\\C-o\": complete-filename\nset skip-completed-text on\nset mark-directories on\nset page-completions off";
+    let line = b"echo $'only space-dir/leaf-file'";
+    let mut bash_keys = line.to_vec();
+    let mut sushline_keys = line.to_vec();
+    for _ in 0..5 {
+        bash_keys.push(0x02);
+        sushline_keys.push(0x02);
+    }
+    bash_keys.extend_from_slice(b"\x0f\x07\r");
+    sushline_keys.extend_from_slice(b"\x0f\r");
+    let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+        &cwd,
+        inputrc,
+        &bash_keys,
+        &sushline_keys,
+        "set +H",
+        &env,
+    );
+    assert_filename_line_buffer_bytes(
+        &bash,
+        &sushline,
+        b"echo $'only space-dir/leaf-file' ",
+        "ANSI-C existing closing quote suffix",
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn complete_filename_handles_ansi_c_directory_quote_suffix_and_slash_like_bash_5_3() {
+    // Runtime-only Bash 5.3 PTY probe 307dd44870264eda894a46a55a1290de.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    let home = root.path().join("home");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(&home).expect("create fixture HOME");
+    fs::create_dir(cwd.join("only space-dir")).expect("create fixture directory");
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+
+    for mark_directories in ["off", "on"] {
+        for existing_slash in [false, true] {
+            let inputrc = format!(
+                "\"\\C-o\": complete-filename\nset skip-completed-text on\nset mark-directories {mark_directories}\nset page-completions off"
+            );
+            let mut line = b"echo $'only space-dir'".to_vec();
+            if existing_slash {
+                line.push(b'/');
+            }
+            let mut bash_keys = line.clone();
+            let mut sushline_keys = line;
+            for _ in 0..(4 + usize::from(existing_slash)) {
+                bash_keys.push(0x02);
+                sushline_keys.push(0x02);
+            }
+            bash_keys.extend_from_slice(b"\x0f\x07\r");
+            sushline_keys.extend_from_slice(b"\x0f\r");
+            let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+                &cwd,
+                &inputrc,
+                &bash_keys,
+                &sushline_keys,
+                "set +H",
+                &env,
+            );
+            let expected = if mark_directories == "on" || existing_slash {
+                b"echo $'only space-dir'/".as_slice()
+            } else {
+                b"echo $'only space-dir'".as_slice()
+            };
+            assert_filename_line_buffer_bytes(
+                &bash,
+                &sushline,
+                expected,
+                &format!(
+                    "ANSI-C directory quote suffix with mark-directories {mark_directories} and existing slash {existing_slash}"
+                ),
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn complete_filename_keeps_plain_ansi_c_directory_quote_open_after_suffix() {
+    // Runtime-only Bash 5.3 PTY probe 3c501ee211f1406494c0468526c76fec.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    let home = root.path().join("home");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(&home).expect("create fixture HOME");
+    fs::create_dir(cwd.join("plain-dir")).expect("create fixture directory");
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+
+    for mark_directories in ["off", "on"] {
+        for existing_slash in [false, true] {
+            let inputrc = format!(
+                "\"\\C-o\": complete-filename\nset skip-completed-text on\nset mark-directories {mark_directories}\nset page-completions off"
+            );
+            let mut line = b"echo $'plain-dir'".to_vec();
+            if existing_slash {
+                line.push(b'/');
+            }
+            let mut bash_keys = line.clone();
+            let mut sushline_keys = line;
+            for _ in 0..(4 + usize::from(existing_slash)) {
+                bash_keys.push(0x02);
+                sushline_keys.push(0x02);
+            }
+            bash_keys.extend_from_slice(b"\x0f\x07\r");
+            sushline_keys.extend_from_slice(b"\x0f\r");
+            let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+                &cwd,
+                &inputrc,
+                &bash_keys,
+                &sushline_keys,
+                "set +H",
+                &env,
+            );
+            let expected = match (mark_directories, existing_slash) {
+                ("on", false) => b"echo $'plain-dir/'".as_slice(),
+                ("on", true) => b"echo $'plain-dir/'/".as_slice(),
+                ("off", true) => b"echo $'plain-dir'/".as_slice(),
+                _ => b"echo $'plain-dir'".as_slice(),
+            };
+            assert_filename_line_buffer_bytes(
+                &bash,
+                &sushline,
+                expected,
+                &format!(
+                    "ANSI-C plain directory quote suffix with mark-directories {mark_directories} and existing slash {existing_slash}"
+                ),
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn complete_filename_keeps_ansi_c_escape_spelling_distinct_from_raw_suffix_overlap() {
     // Runtime-only Bash 5.3 PTY probe fc18a96b33bc4c1b9b85ec25e861466d.
     use std::os::unix::ffi::OsStringExt;

@@ -45,7 +45,7 @@ where
             let ansi_c_filename_completion = edit.ansi_c_quote
                 && response.options.filenames
                 && response.options.quote_filename();
-            let ansi_c_suffix_overlap = if skip_completed_text && ansi_c_filename_completion {
+            let mut ansi_c_suffix_overlap = if skip_completed_text && ansi_c_filename_completion {
                 completed_suffix_overlap_len(candidate.replacement_bytes(), &suffix)
             } else {
                 0
@@ -63,6 +63,20 @@ where
                 hooks,
                 next_byte,
             );
+            let has_existing_ansi_c_quote = ansi_c_filename_completion
+                && ansi_c_suffix_overlap > 0
+                && suffix.get(ansi_c_suffix_overlap) == Some(&b'\'')
+                && (replacement_bytes.ends_with(b"'") || replacement_bytes.ends_with(b"'/"));
+            if has_existing_ansi_c_quote {
+                ansi_c_suffix_overlap += 1;
+                if replacement_bytes.ends_with(b"'/")
+                    && suffix.get(ansi_c_suffix_overlap) == Some(&b'/')
+                {
+                    // The completion added a marker slash after the quote,
+                    // but the original suffix already supplies one.
+                    replacement_bytes.pop();
+                }
+            }
             let mut replacement_end = edit.end;
             if skip_completed_text && !suffix.is_empty() {
                 let overlap = if ansi_c_filename_completion {

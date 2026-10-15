@@ -2162,6 +2162,112 @@ fn complete_filename_skips_ansi_c_directory_suffix_overlap_without_duplicate_sla
 
 #[cfg(unix)]
 #[test]
+fn complete_filename_keeps_ansi_c_escape_spelling_distinct_from_raw_suffix_overlap() {
+    // Runtime-only Bash 5.3 PTY probe fc18a96b33bc4c1b9b85ec25e861466d.
+    use std::os::unix::ffi::OsStringExt;
+
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    let home = root.path().join("home");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(&home).expect("create fixture HOME");
+    fs::write(
+        cwd.join(std::ffi::OsString::from_vec(b"safe\nfile".to_vec())),
+        b"",
+    )
+    .expect("create fixture with LF in its name");
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+    let mut expected = b"echo $'safe".to_vec();
+    expected.push(b'\n');
+    expected.extend_from_slice(b"file'\\nfile");
+
+    for skip_completed_text in ["off", "on"] {
+        let inputrc = format!(
+            "\"\\C-o\": complete-filename\nset skip-completed-text {skip_completed_text}\nset completion-query-items 999\nset page-completions off"
+        );
+        let mut bash_keys = b"echo $'safe\\nfile".to_vec();
+        let mut sushline_keys = bash_keys.clone();
+        for _ in 0..6 {
+            bash_keys.push(0x02);
+            sushline_keys.push(0x02);
+        }
+        bash_keys.extend_from_slice(b"\x0f\x07\r");
+        sushline_keys.extend_from_slice(b"\x0f\r");
+        let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+            &cwd,
+            &inputrc,
+            &bash_keys,
+            &sushline_keys,
+            "set +H",
+            &env,
+        );
+        assert_filename_line_buffer_bytes(
+            &bash,
+            &sushline,
+            &expected,
+            &format!("ANSI-C escape suffix with skip-completed-text {skip_completed_text}"),
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn complete_filename_skips_ansi_c_ambiguous_common_prefix_overlap_like_bash_5_3() {
+    // Runtime-only Bash 5.3 PTY probe 23742dd34f5c4b058fa6f5969675005c.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    let home = root.path().join("home");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(&home).expect("create fixture HOME");
+    fs::write(cwd.join("safe-prefix-one"), b"").expect("create first fixture file");
+    fs::write(cwd.join("safe-prefix-two"), b"").expect("create second fixture file");
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+
+    for skip_completed_text in ["off", "on"] {
+        let inputrc = format!(
+            "\"\\C-o\": complete-filename\nset skip-completed-text {skip_completed_text}\nset completion-query-items 999\nset page-completions off"
+        );
+        let mut bash_keys = b"echo $'safe-prefix-".to_vec();
+        let mut sushline_keys = bash_keys.clone();
+        for _ in 0..7 {
+            bash_keys.push(0x02);
+            sushline_keys.push(0x02);
+        }
+        bash_keys.extend_from_slice(b"\x0f\x07\r");
+        sushline_keys.extend_from_slice(b"\x0f\r");
+        let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+            &cwd,
+            &inputrc,
+            &bash_keys,
+            &sushline_keys,
+            "set +H",
+            &env,
+        );
+        let expected = if skip_completed_text == "on" {
+            b"echo $'safe-prefix-".as_slice()
+        } else {
+            b"echo $'safe-prefix-prefix-".as_slice()
+        };
+        let bash_hex = raw_line_after_marker(&bash, b"BASH_READLINE_HEX:");
+        let sushline_hex = raw_accepted_hex_marker(&sushline);
+        assert!(
+            bash_hex.is_some() && bash_hex == sushline_hex,
+            "Bash and Sushline line-buffer hex differed for ANSI-C ambiguous suffix overlap with skip-completed-text {skip_completed_text}"
+        );
+        assert_eq!(
+            raw_accepted_hex(&sushline).as_deref(),
+            Some(expected),
+            "accepted bytes differed for ANSI-C ambiguous suffix overlap with skip-completed-text {skip_completed_text}"
+        );
+        assert_eq!(raw_bell_count(&bash), 1);
+        assert_eq!(raw_bell_count(&sushline), 1);
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn complete_filename_handles_ansi_c_symlink_directories_and_existing_slash_like_bash_5_3() {
     // Runtime-only Bash 5.3 PTY probe ae85f3af04694cea9a8bb46015a75f64.
     for mark_directories in ["off", "on"] {

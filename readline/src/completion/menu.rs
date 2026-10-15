@@ -1,6 +1,7 @@
 use crate::completion::filename::filename_candidate_prefix_len;
 use crate::completion::insert::{
     CompletionReplacement, ansi_c_quote_suffix_bytes, extend_with_trailing_char,
+    preserve_quoted_filename_closer, should_append_completion_char,
 };
 use crate::completion::quoting::{
     CompletionEdit, completion_suffix_bytes_at, completion_suffix_overlap_len,
@@ -137,6 +138,16 @@ where
                 next_byte,
             );
         let mut ansi_c_suffix_overlap = completion_suffix_overlap;
+        let quoted_suffix_overlap = if next_index > 0 {
+            preserve_quoted_filename_closer(
+                &response,
+                &context.edit,
+                &suffix,
+                &mut replacement_bytes,
+            )
+        } else {
+            0
+        };
         let has_quote_suffix = suffix.get(ansi_c_suffix_overlap) == Some(&b'\'')
             && suffix.len() == ansi_c_suffix_overlap + 1;
         let has_existing_ansi_c_quote = ansi_c_filename_completion
@@ -176,11 +187,18 @@ where
         {
             ansi_c_suffix_overlap
         } else {
-            0
+            quoted_suffix_overlap
         };
         let replacement_end = context.end + suffix_overlap;
+        let append_completion_char = next_index > 0
+            && should_append_completion_char(
+                &response,
+                &context.edit,
+                response.candidates[next_index - 1].replacement_bytes(),
+            );
         if next_index > 0
             && !is_directory
+            && append_completion_char
             && (!ansi_c_filename_completion || suffix_overlap == suffix.len())
             && !state
                 .buffer

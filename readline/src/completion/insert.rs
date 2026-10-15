@@ -16,6 +16,44 @@ pub(super) struct CompletionReplacement {
     pub(super) ansi_c_suffix_bytes: usize,
 }
 
+pub(super) fn should_append_completion_char(
+    response: &CompletionResponse,
+    edit: &CompletionEdit,
+    candidate: &[u8],
+) -> bool {
+    if response.options.filenames
+        && edit.quote.is_some()
+        && response.options.quote_filename()
+        && response.options.append_character.is_none()
+    {
+        quote_filename_bytes(candidate, false, false, true).as_slice() != candidate
+    } else {
+        true
+    }
+}
+
+pub(super) fn preserve_quoted_filename_closer(
+    response: &CompletionResponse,
+    edit: &CompletionEdit,
+    suffix: &[u8],
+    replacement: &mut Vec<u8>,
+) -> usize {
+    if edit.ansi_c_quote || !response.options.filenames || !response.options.quote_filename() {
+        return 0;
+    }
+    let Some(quote @ ('\'' | '"')) = edit.quote else {
+        return 0;
+    };
+    let quote_byte = quote as u8;
+    if suffix != [quote_byte] {
+        return 0;
+    }
+    if replacement.last() != Some(&quote_byte) {
+        replacement.push(quote_byte);
+    }
+    1
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct RequoteOptions {
     pub(super) quote_filename: bool,
@@ -95,8 +133,33 @@ where
                 }
                 preserves_existing_ansi_c_quote = true;
             }
+            let menu_quote_suffix_overlap = if matches!(
+                completion_type,
+                CompletionType::MenuComplete | CompletionType::MenuCompleteBackward
+            ) {
+                preserve_quoted_filename_closer(&response, edit, &suffix, &mut replacement_bytes)
+            } else {
+                0
+            };
+            let append_completion_char =
+                !matches!(
+                    completion_type,
+                    CompletionType::MenuComplete | CompletionType::MenuCompleteBackward
+                ) || should_append_completion_char(&response, edit, candidate.replacement_bytes());
             let mut replacement_end = edit.end;
-            if skip_completed_text && !suffix.is_empty() {
+            if menu_quote_suffix_overlap > 0 {
+                replacement_end += menu_quote_suffix_overlap;
+                if !state
+                    .buffer
+                    .as_bytes()
+                    .get(replacement_end)
+                    .is_some_and(u8::is_ascii_whitespace)
+                    && !is_directory
+                    && append_completion_char
+                {
+                    extend_with_trailing_char(&mut replacement_bytes, &response.options);
+                }
+            } else if skip_completed_text && !suffix.is_empty() {
                 let overlap = if ansi_c_filename_completion {
                     ansi_c_suffix_overlap
                 } else {
@@ -110,6 +173,7 @@ where
                         .get(replacement_end)
                         .is_some_and(u8::is_ascii_whitespace)
                         && !is_directory
+                        && append_completion_char
                     {
                         extend_with_trailing_char(&mut replacement_bytes, &response.options);
                     }
@@ -131,6 +195,7 @@ where
                         .get(replacement_end)
                         .is_some_and(u8::is_ascii_whitespace)
                     && !is_directory
+                    && append_completion_char
                 {
                     extend_with_trailing_char(&mut replacement_bytes, &response.options);
                 }
@@ -141,6 +206,7 @@ where
                     .get(edit.end)
                     .is_some_and(u8::is_ascii_whitespace)
                 && !is_directory
+                && append_completion_char
             {
                 extend_with_trailing_char(&mut replacement_bytes, &response.options);
             }

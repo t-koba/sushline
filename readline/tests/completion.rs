@@ -547,6 +547,37 @@ fn menu_complete_uses_programmable_filter_replacement_and_append_options() {
 }
 
 #[test]
+fn menu_completion_respects_explicit_append_character_inside_quotes() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"echo $'a'".to_vec()),
+        TerminalEvent::Bytes(vec![0x02]),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = OptionCompletion {
+        options: CompletionOptions {
+            filenames: true,
+            append_character: Some(':'),
+            ..Default::default()
+        },
+        candidates: vec![
+            CompletionCandidate {
+                replacement: b"alpha".to_vec(),
+                display: None,
+            },
+            CompletionCandidate {
+                replacement: b"alpine".to_vec(),
+                display: None,
+            },
+        ],
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": menu-complete").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"echo $'alpha':".to_vec()));
+}
+
+#[test]
 fn completion_sort_removes_duplicate_replacements_even_when_display_differs() {
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(vec![0x0f]),
@@ -662,7 +693,7 @@ fn menu_completion_preserves_existing_ansi_c_quote_from_quote_hook() {
                     };
                     let mut expected = b"echo $'".to_vec();
                     expected.extend_from_slice(candidate);
-                    expected.extend_from_slice(b"' ");
+                    expected.extend_from_slice(b"'");
                     assert_eq!(
                         result,
                         ReadlineResult::Line(expected),
@@ -710,10 +741,7 @@ fn menu_completion_skips_ansi_c_tail_after_case_insensitive_prefix_match() {
     )
     .unwrap();
     let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
-    assert_eq!(
-        result,
-        ReadlineResult::Line(b"echo $'safe-Alpha' ".to_vec())
-    );
+    assert_eq!(result, ReadlineResult::Line(b"echo $'safe-Alpha'".to_vec()));
 }
 
 #[test]

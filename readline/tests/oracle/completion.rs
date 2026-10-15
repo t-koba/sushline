@@ -4442,11 +4442,154 @@ fn menu_completion_consumes_case_insensitive_ansi_c_tail_unlike_bash_5_3() {
     );
     assert_eq!(
         raw_accepted_hex(&sushline).as_deref(),
-        Some(b"echo $'safe-Alpha' ".as_slice()),
-        "Sushline consumes the matching suffix and places the separator after the quote"
+        Some(b"echo $'safe-Alpha'".as_slice()),
+        "Sushline consumes the matching suffix without adding a separator for a plain name"
     );
     assert_eq!(raw_bell_count(&bash), 0);
     assert_eq!(raw_bell_count(&sushline), 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn menu_completion_appends_quoted_filename_separators_like_bash_5_3() {
+    // Runtime-only Bash 5.3 observations for these filenames, quote forms,
+    // cursor positions, and first menu-completion action; not source proof.
+    struct Case {
+        line: &'static [u8],
+        left_count: usize,
+        expected: &'static [u8],
+    }
+    let cases = [
+        Case {
+            line: b"echo plain-Al",
+            left_count: 0,
+            expected: b"echo plain-Alpha ",
+        },
+        Case {
+            line: b"echo 'plain-Al'",
+            left_count: 1,
+            expected: b"echo 'plain-Alpha'",
+        },
+        Case {
+            line: b"echo \"plain-Al\"",
+            left_count: 1,
+            expected: b"echo \"plain-Alpha\"",
+        },
+        Case {
+            line: b"echo $'plain-Al'",
+            left_count: 1,
+            expected: b"echo $'plain-Alpha'",
+        },
+        Case {
+            line: b"echo 'space A'",
+            left_count: 1,
+            expected: b"echo 'space Alpha' ",
+        },
+        Case {
+            line: b"echo \"space A\"",
+            left_count: 1,
+            expected: b"echo \"space Alpha\" ",
+        },
+        Case {
+            line: b"echo $'space A'",
+            left_count: 1,
+            expected: b"echo $'space Alpha' ",
+        },
+        Case {
+            line: b"echo 'meta;Al'",
+            left_count: 1,
+            expected: b"echo 'meta;Alpha' ",
+        },
+        Case {
+            line: b"echo \"meta;Al\"",
+            left_count: 1,
+            expected: b"echo \"meta;Alpha\" ",
+        },
+        Case {
+            line: b"echo $'meta;Al'",
+            left_count: 1,
+            expected: b"echo $'meta;Alpha' ",
+        },
+        Case {
+            line: b"echo 'only-Al'",
+            left_count: 1,
+            expected: b"echo 'only-Alpha'",
+        },
+        Case {
+            line: b"echo \"only-Al\"",
+            left_count: 1,
+            expected: b"echo \"only-Alpha\"",
+        },
+        Case {
+            line: b"echo $'only-Al'",
+            left_count: 1,
+            expected: b"echo $'only-Alpha'",
+        },
+        Case {
+            line: b"echo 'solo space A'",
+            left_count: 1,
+            expected: b"echo 'solo space Alpha' ",
+        },
+        Case {
+            line: b"echo \"solo space A\"",
+            left_count: 1,
+            expected: b"echo \"solo space Alpha\" ",
+        },
+        Case {
+            line: b"echo $'solo space A'",
+            left_count: 1,
+            expected: b"echo $'solo space Alpha' ",
+        },
+    ];
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    let home = root.path().join("home");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(&home).expect("create fixture HOME");
+    for name in [
+        "plain-Alpha",
+        "plain-Alpine",
+        "space Alpha",
+        "space Alpine",
+        "meta;Alpha",
+        "meta;Alpine",
+        "only-Alpha",
+        "solo space Alpha",
+    ] {
+        fs::write(cwd.join(name), b"").expect("create fixture file");
+    }
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+
+    for skip_completed_text in ["on", "off"] {
+        let inputrc = format!(
+            "\"\\C-o\": menu-complete\nset skip-completed-text {skip_completed_text}\nset menu-complete-display-prefix off\nset show-all-if-ambiguous off\nset page-completions off\nset completion-query-items 999"
+        );
+        for (index, case) in cases.iter().enumerate() {
+            let mut bash_keys = case.line.to_vec();
+            let mut sushline_keys = case.line.to_vec();
+            for _ in 0..case.left_count {
+                bash_keys.push(0x02);
+                sushline_keys.push(0x02);
+            }
+            bash_keys.extend_from_slice(b"\x0f\x07\r");
+            sushline_keys.extend_from_slice(b"\x0f\r");
+            let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+                &cwd,
+                &inputrc,
+                &bash_keys,
+                &sushline_keys,
+                "set +H",
+                &env,
+            );
+            assert_filename_line_buffer_bytes(
+                &bash,
+                &sushline,
+                case.expected,
+                &format!("quoted menu filename separator skip={skip_completed_text} case={index}"),
+            );
+        }
+    }
 }
 
 #[cfg(unix)]

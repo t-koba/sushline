@@ -976,6 +976,117 @@ set page-completions off"#;
 
 #[cfg(unix)]
 #[test]
+fn complete_filename_quotes_backslashes_like_bash_5_3() {
+    use portable_pty::{CommandBuilder, PtySize};
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    // Runtime-only Bash 5.3 PTY probes b8620c97f7a64e82bf8f948d3b846943 and
+    // 14d0d010a29d42b2a1b2b3dc96a6eddb under LC_ALL=C.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let fixtures = [
+        (
+            "internal",
+            b"safe-back\\slash".as_slice(),
+            [
+                b"safe-back\\\\slash ".as_slice(),
+                b"'safe-back\\slash' ".as_slice(),
+                b"\"safe-back\\\\slash\" ".as_slice(),
+            ],
+        ),
+        (
+            "trailing",
+            b"safe-trail\\".as_slice(),
+            [
+                b"safe-trail\\\\ ".as_slice(),
+                b"'safe-trail\\' ".as_slice(),
+                b"\"safe-trail\\\\\" ".as_slice(),
+            ],
+        ),
+    ];
+    let inputrc = r#""\C-o": complete-filename
+set expand-tilde off
+set mark-directories off
+set completion-query-items 999
+set page-completions off"#;
+    let bash_script = r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; bind -x '"\C-g": printf "BASH_READLINE_HEX:"; printf "%s" "$READLINE_LINE" | od -An -tx1 | tr -d " \n"; printf "\n"'; IFS= read -r -e -p "SUSHLINE_READY>" line; :"#;
+
+    for (fixture, basename, expected) in fixtures {
+        let dir = root.path().join(fixture);
+        fs::create_dir(&dir).expect("create backslash fixture directory");
+        fs::write(dir.join(OsString::from_vec(basename.to_vec())), "")
+            .expect("write backslash fixture");
+        let inputrc_path = dir.join("inputrc");
+        fs::write(&inputrc_path, inputrc).expect("write inputrc");
+        for ((form, prefix), expected) in [
+            ("unquoted", b"safe-".as_slice()),
+            ("single-quoted", b"'safe-".as_slice()),
+            ("double-quoted", b"\"safe-".as_slice()),
+        ]
+        .into_iter()
+        .zip(expected)
+        {
+            let mut bash_keys = prefix.to_vec();
+            bash_keys.extend_from_slice(b"\x0f\x07\r");
+            let mut sushline_keys = prefix.to_vec();
+            sushline_keys.extend_from_slice(b"\x0f\r");
+
+            let mut bash_command = CommandBuilder::new("bash");
+            bash_command.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
+            bash_command.env("LC_ALL", "C");
+            bash_command.args(["--noprofile", "--norc", "-i", "-c", bash_script]);
+            let bash = run_pty_in_dir_with_size_raw_until(
+                bash_command,
+                &bash_keys,
+                &dir,
+                PtySize {
+                    rows: 24,
+                    cols: 80,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                },
+                "BASH_READLINE_HEX:",
+            );
+
+            let mut sushline_command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+            sushline_command.env("SUSHLINE_INPUTRC", inputrc);
+            sushline_command.env("SUSHLINE_PROMPT", READY_PROMPT);
+            sushline_command.env("SUSHLINE_HISTORY", "");
+            sushline_command.env("SUSHLINE_ACCEPTED_HEX", "1");
+            sushline_command.env("LC_ALL", "C");
+            let sushline = run_pty_in_dir_with_size_raw_until(
+                sushline_command,
+                &sushline_keys,
+                &dir,
+                PtySize {
+                    rows: 24,
+                    cols: 80,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                },
+                "SUSHLINE_ACCEPTED_HEX:",
+            );
+
+            let bash_hex = raw_line_after_marker(&bash, b"BASH_READLINE_HEX:");
+            let sushline_hex = raw_accepted_hex_marker(&sushline);
+            assert!(
+                bash_hex.is_some() && bash_hex == sushline_hex,
+                "line-buffer hex mismatch for {fixture}/{form} backslash completion"
+            );
+            assert!(
+                raw_accepted_hex(&sushline).as_deref() == Some(expected),
+                "accepted-line bytes mismatch for {fixture}/{form} backslash completion"
+            );
+            assert!(
+                raw_bell_count(&bash) == 0 && raw_bell_count(&sushline) == 0,
+                "unexpected completion bell for {fixture}/{form} backslash completion"
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn complete_filename_quotes_apostrophes_like_bash_5_3() {
     use portable_pty::{CommandBuilder, PtySize};
 

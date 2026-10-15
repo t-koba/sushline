@@ -102,6 +102,7 @@ pub(super) fn quote_filename_bytes(
         out.push(b'\\');
     }
     let escape_closing_brackets = bytes.contains(&b'[');
+    let escape_brace_expansion = bytes.contains(&b'{');
     for byte in bytes {
         if matches!(
             byte,
@@ -122,10 +123,10 @@ pub(super) fn quote_filename_bytes(
                 | b')'
                 | b'['
                 | b'{'
-                | b'}'
                 | b'*'
                 | b'?'
         ) || (*byte == b']' && escape_closing_brackets)
+            || (escape_brace_expansion && matches!(*byte, b'}' | b','))
         {
             out.push(b'\\');
         }
@@ -269,6 +270,30 @@ mod tests {
         assert_eq!(
             quote_filename_bytes(b"safe-rev]open[", false, false, true),
             b"safe-rev\\]open\\["
+        );
+    }
+
+    #[test]
+    fn filename_quoting_escapes_brace_closers_and_commas_with_open_braces() {
+        assert_eq!(
+            quote_filename_bytes(b"safe-right}item", false, false, true),
+            b"safe-right}item"
+        );
+        assert_eq!(
+            quote_filename_bytes(b"safe-a,b", false, false, true),
+            b"safe-a,b"
+        );
+        assert_eq!(
+            quote_filename_bytes(b"safe-pair{a,b}", false, false, true),
+            b"safe-pair\\{a\\,b\\}"
+        );
+        assert_eq!(
+            quote_filename_bytes(b"safe-open{a,b", false, false, true),
+            b"safe-open\\{a\\,b"
+        );
+        assert_eq!(
+            quote_filename_bytes(b"safe-rev}a,b{", false, false, true),
+            b"safe-rev\\}a\\,b\\{"
         );
     }
 

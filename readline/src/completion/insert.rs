@@ -123,14 +123,8 @@ where
             let ansi_c_filename_completion = edit.ansi_c_quote
                 && response.options.filenames
                 && response.options.quote_filename();
-            // The single-candidate menu fast path must keep suffix handling aligned
-            // with the multi-candidate path when only case-folded matching succeeds.
-            let menu_case_insensitive_prefix_only_match = skip_completed_text
-                && matches!(
-                    completion_type,
-                    CompletionType::MenuComplete | CompletionType::MenuCompleteBackward
-                )
-                && edit.quote.is_some()
+            // Only an exact typed filename prefix can justify consuming its right suffix.
+            let filename_case_insensitive_prefix_only_match = skip_completed_text
                 && response.options.filenames
                 && response.options.quote_filename()
                 && filename_candidate_prefix_len(
@@ -142,7 +136,7 @@ where
                 && !candidate.replacement_bytes().starts_with(&edit.word_bytes);
             let mut ansi_c_suffix_overlap = if skip_completed_text
                 && ansi_c_filename_completion
-                && !menu_case_insensitive_prefix_only_match
+                && !filename_case_insensitive_prefix_only_match
             {
                 completed_suffix_overlap_len(candidate.replacement_bytes(), &suffix)
             } else {
@@ -221,7 +215,7 @@ where
                     extend_with_trailing_char(&mut replacement_bytes, &response.options);
                 }
             } else if skip_completed_text && !suffix.is_empty() {
-                let overlap = if menu_case_insensitive_prefix_only_match {
+                let overlap = if filename_case_insensitive_prefix_only_match {
                     0
                 } else if ansi_c_filename_completion {
                     ansi_c_suffix_overlap
@@ -230,6 +224,11 @@ where
                 };
                 if overlap == suffix.len() {
                     replacement_end += suffix.len();
+                    let suffix_ends_with_quote = edit
+                        .quote
+                        .is_some_and(|quote| suffix.last() == Some(&(quote as u8)));
+                    // Keep the existing delimiter behavior for a closer-only suffix,
+                    // but do not append another delimiter after consuming a quoted filename tail.
                     if !state
                         .buffer
                         .as_bytes()
@@ -237,6 +236,13 @@ where
                         .is_some_and(u8::is_ascii_whitespace)
                         && !is_directory
                         && append_completion_char
+                        && (!suffix_ends_with_quote
+                            || suffix.len() == 1
+                            || should_append_completion_char(
+                                &response,
+                                edit,
+                                candidate.replacement_bytes(),
+                            ))
                     {
                         extend_with_trailing_char(&mut replacement_bytes, &response.options);
                     }
@@ -273,11 +279,7 @@ where
             {
                 extend_with_trailing_char(&mut replacement_bytes, &response.options);
             }
-            if matches!(
-                completion_type,
-                CompletionType::MenuComplete | CompletionType::MenuCompleteBackward
-            ) && !is_directory
-            {
+            if !is_directory {
                 leave_quoted_filename_suffix_open(
                     &response,
                     edit,

@@ -55,6 +55,40 @@ impl Hooks for OptionCompletion {
     }
 }
 
+struct AnsiCQuoteCompletion {
+    candidates: Vec<Vec<u8>>,
+    closes_quote: bool,
+}
+
+impl Hooks for AnsiCQuoteCompletion {
+    fn complete(&mut self, _: CompletionRequest) -> Option<CompletionResponse> {
+        Some(CompletionResponse {
+            candidates: self
+                .candidates
+                .iter()
+                .map(|replacement| CompletionCandidate {
+                    replacement: replacement.clone(),
+                    display: None,
+                })
+                .collect(),
+            options: CompletionOptions {
+                filenames: true,
+                ..Default::default()
+            },
+        })
+    }
+
+    fn quote_completion(&mut self, context: QuoteContext<'_>) -> Option<Vec<u8>> {
+        assert_eq!(context.quote, Some('\''));
+        let mut quoted = b"$'".to_vec();
+        quoted.extend_from_slice(context.value);
+        if self.closes_quote {
+            quoted.push(b'\'');
+        }
+        Some(quoted)
+    }
+}
+
 struct ThreeCompletion {
     options: CompletionOptions,
 }
@@ -596,6 +630,82 @@ fn menu_complete_marks_and_quotes_filename_candidates() {
         line.ends_with(b"alpha\\ dir/") || line.ends_with(b"alpha\\ file "),
         "{line:?}"
     );
+}
+
+#[test]
+fn menu_completion_preserves_existing_ansi_c_quote_from_quote_hook() {
+    for skip_completed_text in ["on", "off"] {
+        for closes_quote in [false, true] {
+            for cursor_before_quote in [false, true] {
+                for actions in [1, 2] {
+                    let mut events = vec![TerminalEvent::Bytes(b"echo $'al'".to_vec())];
+                    if cursor_before_quote {
+                        events.push(TerminalEvent::Bytes(vec![0x02]));
+                    }
+                    events.extend((0..actions).map(|_| TerminalEvent::Bytes(vec![0x0f])));
+                    events.push(TerminalEvent::Bytes(b"\r".to_vec()));
+                    let terminal = MemoryTerminal::with_events(events);
+                    let mut hooks = AnsiCQuoteCompletion {
+                        candidates: vec![b"alpha".to_vec(), b"alpine".to_vec()],
+                        closes_quote,
+                    };
+                    let mut line = Editor::new(Config::default(), terminal, History::new());
+                    line.load_inputrc_str(&format!(
+                        "\"\\C-o\": menu-complete\nset skip-completed-text {skip_completed_text}"
+                    ))
+                    .unwrap();
+                    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+                    let candidate = if actions == 1 {
+                        b"alpha".as_slice()
+                    } else {
+                        b"alpine".as_slice()
+                    };
+                    let mut expected = b"echo $'".to_vec();
+                    expected.extend_from_slice(candidate);
+                    expected.extend_from_slice(b"' ");
+                    assert_eq!(
+                        result,
+                        ReadlineResult::Line(expected),
+                        "skip_completed_text={skip_completed_text}, closes_quote={closes_quote}, cursor_before_quote={cursor_before_quote}, actions={actions}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn single_completion_preserves_existing_ansi_c_quote_from_quote_hook() {
+    for skip_completed_text in ["on", "off"] {
+        for closes_quote in [false, true] {
+            for cursor_before_quote in [false, true] {
+                let mut events = vec![TerminalEvent::Bytes(b"echo $'al'".to_vec())];
+                if cursor_before_quote {
+                    events.push(TerminalEvent::Bytes(vec![0x02]));
+                }
+                events.extend([
+                    TerminalEvent::Bytes(vec![0x0f]),
+                    TerminalEvent::Bytes(b"\r".to_vec()),
+                ]);
+                let terminal = MemoryTerminal::with_events(events);
+                let mut hooks = AnsiCQuoteCompletion {
+                    candidates: vec![b"alpha".to_vec()],
+                    closes_quote,
+                };
+                let mut line = Editor::new(Config::default(), terminal, History::new());
+                line.load_inputrc_str(&format!(
+                    "\"\\C-o\": complete\nset skip-completed-text {skip_completed_text}"
+                ))
+                .unwrap();
+                let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+                assert_eq!(
+                    result,
+                    ReadlineResult::Line(b"echo $'alpha' ".to_vec()),
+                    "skip_completed_text={skip_completed_text}, closes_quote={closes_quote}, cursor_before_quote={cursor_before_quote}"
+                );
+            }
+        }
+    }
 }
 
 #[test]

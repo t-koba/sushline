@@ -4296,6 +4296,114 @@ fn menu_completion_handles_ansi_c_filename_tails_like_bash_5_3() {
 
 #[cfg(unix)]
 #[test]
+fn menu_completion_cycles_ansi_c_filename_tails_like_bash_5_3() {
+    // Runtime-only Bash 5.3 observations for this fixture, cursor position,
+    // menu direction, number of actions, and skip-completed-text setting.
+    struct MenuCycleCase {
+        command: &'static str,
+        skip_completed_text: &'static str,
+        actions: usize,
+        expected: &'static [u8],
+    }
+    let cases = [
+        MenuCycleCase {
+            command: "menu-complete",
+            skip_completed_text: "on",
+            actions: 1,
+            expected: b"echo $'multi space-dir/leaf-one' ",
+        },
+        MenuCycleCase {
+            command: "menu-complete",
+            skip_completed_text: "on",
+            actions: 2,
+            expected: b"echo $'multi space-dir/leaf-two' ",
+        },
+        MenuCycleCase {
+            command: "menu-complete",
+            skip_completed_text: "off",
+            actions: 1,
+            expected: b"echo $'multi space-dir/leaf-one'one'",
+        },
+        MenuCycleCase {
+            command: "menu-complete",
+            skip_completed_text: "off",
+            actions: 2,
+            expected: b"echo $'multi space-dir/leaf-two'one'",
+        },
+        MenuCycleCase {
+            command: "menu-complete-backward",
+            skip_completed_text: "on",
+            actions: 1,
+            expected: b"echo $'multi space-dir/leaf-two'one'",
+        },
+        MenuCycleCase {
+            command: "menu-complete-backward",
+            skip_completed_text: "on",
+            actions: 2,
+            expected: b"echo $'multi space-dir/leaf-one'one'",
+        },
+        MenuCycleCase {
+            command: "menu-complete-backward",
+            skip_completed_text: "off",
+            actions: 1,
+            expected: b"echo $'multi space-dir/leaf-two'one'",
+        },
+        MenuCycleCase {
+            command: "menu-complete-backward",
+            skip_completed_text: "off",
+            actions: 2,
+            expected: b"echo $'multi space-dir/leaf-one'one'",
+        },
+    ];
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    let home = root.path().join("home");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(&home).expect("create fixture HOME");
+    fs::create_dir(cwd.join("multi space-dir")).expect("create fixture directory");
+    for name in ["leaf-one", "leaf-two"] {
+        fs::write(cwd.join("multi space-dir").join(name), b"").expect("create fixture file");
+    }
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+
+    for (index, case) in cases.iter().enumerate() {
+        let inputrc = format!(
+            "\"\\C-o\": {}\nset skip-completed-text {}\nset show-all-if-ambiguous off\nset menu-complete-display-prefix off\nset mark-directories on\nset page-completions off\nset completion-query-items 999",
+            case.command, case.skip_completed_text
+        );
+        let mut bash_keys = b"echo $'multi space-dir/leaf-one'".to_vec();
+        let mut sushline_keys = bash_keys.clone();
+        for _ in 0..4 {
+            bash_keys.push(0x02);
+            sushline_keys.push(0x02);
+        }
+        for _ in 0..case.actions {
+            bash_keys.push(0x0f);
+            sushline_keys.push(0x0f);
+        }
+        bash_keys.extend_from_slice(b"\x07\r");
+        sushline_keys.push(b'\r');
+        let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+            &cwd,
+            &inputrc,
+            &bash_keys,
+            &sushline_keys,
+            "set +H",
+            &env,
+        );
+        let context = format!(
+            "menu cycle case {index}: command={}, skip-completed-text={}, actions={}",
+            case.command, case.skip_completed_text, case.actions
+        );
+        assert_filename_line_buffer_bytes(&bash, &sushline, case.expected, &context);
+        assert_eq!(raw_bell_count(&bash), 0, "{context}");
+        assert_eq!(raw_bell_count(&sushline), 0, "{context}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn bash_readline_and_sushline_menu_completion_display_prefix_matches_bash_5_3() {
     let dir = tempfile::tempdir().expect("temp completion directory");
     for name in ["alpha-one", "alpine-two"] {

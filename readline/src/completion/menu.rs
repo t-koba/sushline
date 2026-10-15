@@ -1,4 +1,6 @@
-use crate::completion::insert::{CompletionReplacement, extend_with_trailing_char};
+use crate::completion::insert::{
+    CompletionReplacement, ansi_c_quote_suffix_bytes, extend_with_trailing_char,
+};
 use crate::completion::quoting::{
     CompletionEdit, completion_suffix_bytes_at, completion_suffix_overlap_len,
 };
@@ -14,6 +16,7 @@ struct MenuCompleteContext {
     end: usize,
     previous_match_index: Option<usize>,
     original: Vec<u8>,
+    ansi_c_quote_closer_available: bool,
 }
 
 fn menu_completion_type(backward: bool) -> CompletionType {
@@ -51,11 +54,13 @@ where
             return Ok(());
         }
 
+        let original = state.buffer.range_bytes(edit.start, edit.end);
         let context = MenuCompleteContext {
             edit: edit.clone(),
             end: edit.end,
             previous_match_index: None,
-            original: state.buffer.range_bytes(edit.start, edit.end),
+            ansi_c_quote_closer_available: ansi_c_quote_suffix_bytes(&original) > 0,
+            original,
         };
         self.menu_complete_with_context(state, response, backward, hooks, context)
     }
@@ -71,6 +76,7 @@ where
             end: previous.end,
             previous_match_index: Some(previous.index),
             original: previous.original,
+            ansi_c_quote_closer_available: previous.ansi_c_quote_closer_available,
             edit: previous.edit,
         };
         let response = previous.response;
@@ -97,16 +103,19 @@ where
         let ansi_c_filename_completion = context.edit.ansi_c_quote
             && response.options.filenames
             && response.options.quote_filename();
-        let completion_suffix_overlap =
-            if skip_completed_text && ansi_c_filename_completion && next_index > 0 {
-                let candidate = response.candidates[next_index - 1].replacement_bytes();
-                let candidate_suffix = candidate
-                    .strip_prefix(context.edit.word_bytes.as_slice())
-                    .unwrap_or(candidate);
-                completion_suffix_overlap_len(candidate_suffix, &suffix)
-            } else {
-                0
-            };
+        let completion_suffix_overlap = if skip_completed_text
+            && ansi_c_filename_completion
+            && next_index > 0
+            && context.previous_match_index.is_none()
+        {
+            let candidate = response.candidates[next_index - 1].replacement_bytes();
+            let candidate_suffix = candidate
+                .strip_prefix(context.edit.word_bytes.as_slice())
+                .unwrap_or(candidate);
+            completion_suffix_overlap_len(candidate_suffix, &suffix)
+        } else {
+            0
+        };
         let next_byte = if completion_suffix_overlap > 0 {
             suffix.get(completion_suffix_overlap).copied()
         } else {
@@ -122,15 +131,32 @@ where
                 next_byte,
             );
         let mut ansi_c_suffix_overlap = completion_suffix_overlap;
+        let has_quote_suffix = suffix.get(ansi_c_suffix_overlap) == Some(&b'\'')
+            && suffix.len() == ansi_c_suffix_overlap + 1;
         let has_existing_ansi_c_quote = ansi_c_filename_completion
             && next_index > 0
             && ansi_c_suffix_bytes > 0
             && suffix.get(ansi_c_suffix_overlap) == Some(&b'\'');
+        let mut preserves_existing_ansi_c_quote = has_existing_ansi_c_quote;
         if has_existing_ansi_c_quote {
             ansi_c_suffix_overlap += 1;
             if ansi_c_suffix_bytes > 1 && suffix.get(ansi_c_suffix_overlap) == Some(&b'/') {
                 ansi_c_suffix_overlap += 1;
             }
+        } else if ansi_c_filename_completion
+            && next_index > 0
+            && ansi_c_suffix_bytes == 0
+            && (has_quote_suffix
+                || context.ansi_c_quote_closer_available
+                || ansi_c_quote_suffix_bytes(&context.original) > 0)
+        {
+            // Carry the existing closer forward when the quote hook leaves it open,
+            // so any appended completion character stays outside the quote.
+            replacement_bytes.push(b'\'');
+            if has_quote_suffix {
+                ansi_c_suffix_overlap += 1;
+            }
+            preserves_existing_ansi_c_quote = true;
         }
         self.menu_complete_display(
             state,
@@ -139,12 +165,13 @@ where
             context.previous_match_index,
             next_index,
         )?;
-        let suffix_overlap =
-            if (skip_completed_text && ansi_c_filename_completion) || has_existing_ansi_c_quote {
-                ansi_c_suffix_overlap
-            } else {
-                0
-            };
+        let suffix_overlap = if (skip_completed_text && ansi_c_filename_completion)
+            || preserves_existing_ansi_c_quote
+        {
+            ansi_c_suffix_overlap
+        } else {
+            0
+        };
         let replacement_end = context.end + suffix_overlap;
         if next_index > 0
             && !is_directory
@@ -164,6 +191,8 @@ where
             index: next_index,
             end: context.edit.start + replacement_bytes.len(),
             original: context.original,
+            ansi_c_quote_closer_available: context.ansi_c_quote_closer_available
+                || preserves_existing_ansi_c_quote,
             edit: context.edit,
             response: response.clone(),
         });

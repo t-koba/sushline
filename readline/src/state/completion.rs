@@ -25,5 +25,6 @@ pub(crate) struct MenuCompletionState {
     pub(crate) edit: CompletionEdit,
     pub(crate) end: usize,
     pub(crate) original: Vec<u8>,
+    pub(crate) ansi_c_quote_closer_available: bool,
     pub(crate) response: CompletionResponse,
 }

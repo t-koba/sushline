@@ -61,10 +61,11 @@ where
             } else {
                 suffix.first().copied()
             };
+            let original = state.buffer.range_bytes(edit.start, edit.end);
             let CompletionReplacement {
                 bytes: mut replacement_bytes,
                 is_directory,
-                ..
+                ansi_c_suffix_bytes,
             } = self.completion_replacement_with_directory(
                 &response,
                 edit,
@@ -73,18 +74,26 @@ where
                 hooks,
                 next_byte,
             );
+            let has_quote_suffix = suffix.get(ansi_c_suffix_overlap) == Some(&b'\'')
+                && suffix.len() == ansi_c_suffix_overlap + 1;
             let has_existing_ansi_c_quote = ansi_c_filename_completion
-                && suffix.get(ansi_c_suffix_overlap) == Some(&b'\'')
-                && (replacement_bytes.ends_with(b"'") || replacement_bytes.ends_with(b"'/"));
+                && ansi_c_suffix_bytes > 0
+                && suffix.get(ansi_c_suffix_overlap) == Some(&b'\'');
+            let mut preserves_existing_ansi_c_quote = has_existing_ansi_c_quote;
             if has_existing_ansi_c_quote {
                 ansi_c_suffix_overlap += 1;
-                if replacement_bytes.ends_with(b"'/")
-                    && suffix.get(ansi_c_suffix_overlap) == Some(&b'/')
-                {
-                    // The completion added a marker slash after the quote,
-                    // but the original suffix already supplies one.
-                    replacement_bytes.pop();
+                if ansi_c_suffix_bytes > 1 && suffix.get(ansi_c_suffix_overlap) == Some(&b'/') {
+                    ansi_c_suffix_overlap += 1;
                 }
+            } else if ansi_c_filename_completion
+                && ansi_c_suffix_bytes == 0
+                && (has_quote_suffix || ansi_c_quote_suffix_bytes(&original) > 0)
+            {
+                replacement_bytes.push(b'\'');
+                if has_quote_suffix {
+                    ansi_c_suffix_overlap += 1;
+                }
+                preserves_existing_ansi_c_quote = true;
             }
             let mut replacement_end = edit.end;
             if skip_completed_text && !suffix.is_empty() {
@@ -111,11 +120,11 @@ where
                 } else {
                     replacement_bytes.truncate(replacement_bytes.len().saturating_sub(overlap));
                 }
-            } else if has_existing_ansi_c_quote {
+            } else if preserves_existing_ansi_c_quote {
                 // The closing quote is syntax, not completed filename text;
                 // consume it even when skip-completed-text is disabled.
-                replacement_end += 1;
-                if suffix.len() == 1
+                replacement_end += ansi_c_suffix_overlap;
+                if suffix.len() == ansi_c_suffix_overlap
                     && !state
                         .buffer
                         .as_bytes()
@@ -403,12 +412,6 @@ where
             && quote_filename_bytes(candidate.replacement_bytes(), false, false, true).as_slice()
                 != candidate.replacement_bytes();
         let close_ansi_c_quote = !ansi_c_directory || ansi_c_directory_needs_quote;
-        let ansi_c_closes_quote = edit.ansi_c_quote
-            && response.options.filenames
-            && response.options.quote_filename()
-            && close_ansi_c_quote;
-        let ansi_c_suffix_bytes = usize::from(ansi_c_closes_quote)
-            + usize::from(ansi_c_closes_quote && append_slash && ansi_c_directory_needs_quote);
         let mut raw = candidate.replacement_bytes().to_vec();
         if append_slash {
             raw.push(b'/');
@@ -427,11 +430,38 @@ where
         );
         let is_directory =
             filename_directory.is_some() || candidate.replacement_bytes().ends_with(b"/");
+        let ansi_c_suffix_bytes =
+            if edit.ansi_c_quote && response.options.filenames && response.options.quote_filename()
+            {
+                ansi_c_quote_suffix_bytes(&replacement)
+            } else {
+                0
+            };
         CompletionReplacement {
             bytes: replacement,
             is_directory,
             ansi_c_suffix_bytes,
         }
+    }
+}
+
+pub(super) fn ansi_c_quote_suffix_bytes(bytes: &[u8]) -> usize {
+    let (quote_index, suffix_bytes) = if bytes.ends_with(b"'/") {
+        (bytes.len() - 2, 2)
+    } else if bytes.last() == Some(&b'\'') {
+        (bytes.len() - 1, 1)
+    } else {
+        return 0;
+    };
+    let preceding_backslashes = bytes[..quote_index]
+        .iter()
+        .rev()
+        .take_while(|&&byte| byte == b'\\')
+        .count();
+    if preceding_backslashes % 2 == 0 {
+        suffix_bytes
+    } else {
+        0
     }
 }
 

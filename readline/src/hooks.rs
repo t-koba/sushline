@@ -181,6 +181,10 @@ pub trait Hooks {
     }
 
     /// Quotes a completion candidate for insertion.
+    ///
+    /// Returned bytes supply the replacement spelling. During ANSI-C filename
+    /// candidate insertion, an open spelling reuses any existing closing delimiter;
+    /// an appended completion separator follows that delimiter.
     fn quote_completion(&mut self, _context: QuoteContext<'_>) -> Option<Vec<u8>> {
         None
     }

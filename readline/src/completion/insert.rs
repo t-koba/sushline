@@ -15,6 +15,7 @@ pub(super) struct RequoteOptions {
     pub(super) quote_filename: bool,
     pub(super) filename_candidates: bool,
     pub(super) close_ansi_c_quote: bool,
+    pub(super) ansi_c_slash_after_quote: bool,
 }
 
 impl<T> Editor<T>
@@ -160,6 +161,7 @@ where
             quote_filename: response.options.quote_filename(),
             filename_candidates: response.options.filenames,
             close_ansi_c_quote: true,
+            ansi_c_slash_after_quote: false,
         };
         let mut joined = if edit.quote.is_some() {
             let mut braced = Vec::with_capacity(prefix.len() + 2);
@@ -259,9 +261,18 @@ where
             Some('\'')
                 if edit.ansi_c_quote && options.filename_candidates && options.quote_filename =>
             {
-                let mut quoted = quote_ansi_c_quoted_filename_bytes(value);
+                let slash_after_quote = options.ansi_c_slash_after_quote && value.ends_with(b"/");
+                let quoted_value = if slash_after_quote {
+                    &value[..value.len() - 1]
+                } else {
+                    value
+                };
+                let mut quoted = quote_ansi_c_quoted_filename_bytes(quoted_value);
                 if !options.close_ansi_c_quote {
                     quoted.pop();
+                }
+                if slash_after_quote {
+                    quoted.push(b'/');
                 }
                 quoted
             }
@@ -295,6 +306,7 @@ where
                 filename_candidates: response.options.filenames,
                 // Bash leaves an ANSI-C quote open after ambiguous common-prefix insertion.
                 close_ansi_c_quote: false,
+                ansi_c_slash_after_quote: false,
             },
             hooks,
         ))
@@ -318,12 +330,22 @@ where
         } else {
             None
         };
-        let mut raw = candidate.replacement_bytes().to_vec();
-        if filename_directory.as_ref().is_some_and(|directory| {
+        let append_slash = filename_directory.as_ref().is_some_and(|directory| {
             directory.append_slash
                 && !candidate.replacement_bytes().ends_with(b"/")
                 && next_byte != Some(b'/')
-        }) {
+        });
+        let ansi_c_directory = edit.ansi_c_quote
+            && response.options.filenames
+            && response.options.quote_filename()
+            && filename_directory.is_some();
+        // Bash leaves plain directory names open, but closes the quote before
+        // an appended slash when the completed name requires shell escaping.
+        let ansi_c_directory_needs_quote = ansi_c_directory
+            && quote_filename_bytes(candidate.replacement_bytes(), false, false, true).as_slice()
+                != candidate.replacement_bytes();
+        let mut raw = candidate.replacement_bytes().to_vec();
+        if append_slash {
             raw.push(b'/');
         }
         let replacement = self.requote_completion_bytes(
@@ -333,7 +355,8 @@ where
             RequoteOptions {
                 quote_filename: response.options.quote_filename(),
                 filename_candidates: response.options.filenames,
-                close_ansi_c_quote: true,
+                close_ansi_c_quote: !ansi_c_directory || ansi_c_directory_needs_quote,
+                ansi_c_slash_after_quote: append_slash && ansi_c_directory_needs_quote,
             },
             hooks,
         );

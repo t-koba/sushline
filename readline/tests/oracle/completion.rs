@@ -1938,6 +1938,101 @@ fn complete_filename_handles_escaped_and_literal_ansi_c_tildes_like_bash_5_3() {
 
 #[cfg(unix)]
 #[test]
+fn complete_filename_inserts_ansi_c_directory_suffixes_like_bash_5_3() {
+    // Runtime-only Bash 5.3 PTY probes 62bc4dbb95404d379844650b2240cfb3
+    // and ff8743cd38384f12815b0a6bc84d80a3.
+    #[derive(Clone, Copy)]
+    struct Fixture {
+        name: &'static str,
+        prefix: &'static [u8],
+        parent: &'static str,
+        basename: &'static str,
+        directory: bool,
+        expected_off: &'static [u8],
+        expected_on: &'static [u8],
+    }
+    let fixtures = [
+        Fixture {
+            name: "plain-directory",
+            prefix: b"echo $'only",
+            parent: "",
+            basename: "only-dir",
+            directory: true,
+            expected_off: b"echo $'only-dir",
+            expected_on: b"echo $'only-dir/",
+        },
+        Fixture {
+            name: "space-directory",
+            prefix: b"echo $'only",
+            parent: "",
+            basename: "only space-dir",
+            directory: true,
+            expected_off: b"echo $'only space-dir'",
+            expected_on: b"echo $'only space-dir'/",
+        },
+        Fixture {
+            name: "child-file",
+            prefix: b"echo $'only-dir/leaf",
+            parent: "only-dir",
+            basename: "leaf-file",
+            directory: false,
+            expected_off: b"echo $'only-dir/leaf-file' ",
+            expected_on: b"echo $'only-dir/leaf-file' ",
+        },
+    ];
+    let root = tempfile::tempdir().expect("temp completion root");
+
+    for mark_directories in ["off", "on"] {
+        let inputrc = format!(
+            "\"\\C-o\": complete-filename\nset mark-directories {mark_directories}\nset completion-query-items 999\nset page-completions off"
+        );
+        for fixture in fixtures {
+            let scenario = root.path().join(fixture.name).join(mark_directories);
+            let cwd = scenario.join("cwd");
+            let home = scenario.join("home");
+            fs::create_dir_all(&cwd).expect("create fixture cwd");
+            fs::create_dir_all(&home).expect("create fixture HOME");
+            let target = cwd.join(fixture.parent);
+            if fixture.directory {
+                fs::create_dir(target.join(fixture.basename)).expect("create directory fixture");
+            } else {
+                fs::create_dir_all(&target).expect("create child directory");
+                fs::write(target.join(fixture.basename), "").expect("write child fixture");
+            }
+            let home_path = home.to_string_lossy().into_owned();
+            let env = [("HOME", home_path.as_str())];
+            let mut bash_keys = fixture.prefix.to_vec();
+            bash_keys.extend_from_slice(b"\x0f\x07\r");
+            let mut sushline_keys = fixture.prefix.to_vec();
+            sushline_keys.extend_from_slice(b"\x0f\r");
+            let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+                &cwd,
+                &inputrc,
+                &bash_keys,
+                &sushline_keys,
+                "set +H",
+                &env,
+            );
+            let expected = if mark_directories == "on" {
+                fixture.expected_on
+            } else {
+                fixture.expected_off
+            };
+            assert_filename_line_buffer_bytes(
+                &bash,
+                &sushline,
+                expected,
+                &format!(
+                    "ANSI-C {} with mark-directories {mark_directories}",
+                    fixture.name
+                ),
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn complete_filename_keeps_ambiguous_ansi_c_quote_open_like_bash_5_3() {
     // Runtime-only Bash 5.3 PTY probe 5495fc787df04b9599f9836b9177fd86.
     use std::ffi::OsString;

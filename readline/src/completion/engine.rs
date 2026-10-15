@@ -89,6 +89,7 @@ where
                             quote_filename: response.options.quote_filename(),
                             filename_candidates: response.options.filenames,
                             close_ansi_c_quote: true,
+                            ansi_c_slash_after_quote: false,
                         },
                         hooks,
                     );

@@ -1,5 +1,7 @@
 use crate::completion::display::common_prefix_bytes;
-use crate::completion::filename::{filename_directory_completion, is_named_user_tilde_path};
+use crate::completion::filename::{
+    filename_candidate_prefix_len, filename_directory_completion, is_named_user_tilde_path,
+};
 use crate::completion::quoting::*;
 use crate::completion::{
     CompletionAction, CompletionCandidate, CompletionOptions, CompletionResponse, CompletionType,
@@ -121,7 +123,27 @@ where
             let ansi_c_filename_completion = edit.ansi_c_quote
                 && response.options.filenames
                 && response.options.quote_filename();
-            let mut ansi_c_suffix_overlap = if skip_completed_text && ansi_c_filename_completion {
+            // The single-candidate menu fast path must keep suffix handling aligned
+            // with the multi-candidate path when only case-folded matching succeeds.
+            let menu_case_insensitive_prefix_only_match = skip_completed_text
+                && matches!(
+                    completion_type,
+                    CompletionType::MenuComplete | CompletionType::MenuCompleteBackward
+                )
+                && edit.quote.is_some()
+                && response.options.filenames
+                && response.options.quote_filename()
+                && filename_candidate_prefix_len(
+                    candidate.replacement_bytes(),
+                    &edit.word_bytes,
+                    &self.filename_options(),
+                )
+                .is_some()
+                && !candidate.replacement_bytes().starts_with(&edit.word_bytes);
+            let mut ansi_c_suffix_overlap = if skip_completed_text
+                && ansi_c_filename_completion
+                && !menu_case_insensitive_prefix_only_match
+            {
                 completed_suffix_overlap_len(candidate.replacement_bytes(), &suffix)
             } else {
                 0
@@ -199,7 +221,9 @@ where
                     extend_with_trailing_char(&mut replacement_bytes, &response.options);
                 }
             } else if skip_completed_text && !suffix.is_empty() {
-                let overlap = if ansi_c_filename_completion {
+                let overlap = if menu_case_insensitive_prefix_only_match {
+                    0
+                } else if ansi_c_filename_completion {
                     ansi_c_suffix_overlap
                 } else {
                     completed_suffix_overlap_len(&replacement_bytes, &suffix)

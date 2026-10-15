@@ -4482,6 +4482,185 @@ fn menu_completion_skips_filename_suffix_only_after_exact_prefix_like_bash_5_3()
 
 #[cfg(unix)]
 #[test]
+fn multi_match_backward_and_old_menu_suffix_overlap_match_bash_5_3() {
+    // Runtime-only Bash 5.3 observations for the backward and old menu actions;
+    // the selected candidate is deliberately first/last in its sorted fixture.
+    let quotes = [
+        ("single", b"'".as_slice(), b'\''),
+        ("double", b"\"".as_slice(), b'\"'),
+        ("ansi-c", b"$'".as_slice(), b'\''),
+    ];
+    let root = tempfile::tempdir().expect("temp completion root");
+    let home = root.path().join("home");
+    fs::create_dir(&home).expect("create fixture HOME");
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+
+    for (command, filenames, expected_candidate) in [
+        (
+            "menu-complete-backward",
+            ["safe-Zph0", "safe-Zpha"],
+            "safe-Zpha",
+        ),
+        (
+            "old-menu-complete",
+            ["safe-Alpha", "safe-Alpine"],
+            "safe-Alpha",
+        ),
+    ] {
+        let cwd = root.path().join(command);
+        fs::create_dir(&cwd).expect("create fixture cwd");
+        for filename in filenames {
+            fs::write(cwd.join(filename), b"").expect("write fixture file");
+        }
+        let (exact_prefix, case_different_prefix) = if command == "old-menu-complete" {
+            (b"safe-Al".as_slice(), b"safe-al".as_slice())
+        } else {
+            (b"safe-Z".as_slice(), b"safe-z".as_slice())
+        };
+        let prefixes = [
+            ("exact", exact_prefix, true),
+            ("case-different", case_different_prefix, false),
+        ];
+
+        for (quote_name, opening, closing) in &quotes {
+            for (prefix_name, prefix, exact_prefix) in &prefixes {
+                for ignore_case in ["off", "on"] {
+                    if !exact_prefix && ignore_case == "off" {
+                        continue;
+                    }
+                    for skip_completed_text in ["off", "on"] {
+                        let inputrc = format!(
+                            "\"\\C-o\": {command}\nset completion-ignore-case {ignore_case}\nset skip-completed-text {skip_completed_text}\nset menu-complete-display-prefix off\nset show-all-if-ambiguous off\nset page-completions off\nset completion-query-items 999"
+                        );
+                        let mut line = b"echo ".to_vec();
+                        line.extend_from_slice(opening);
+                        line.extend_from_slice(prefix);
+                        line.extend_from_slice(b"pha");
+                        line.push(*closing);
+                        let mut bash_keys = line.clone();
+                        let mut sushline_keys = line;
+                        for _ in 0..4 {
+                            bash_keys.push(0x02);
+                            sushline_keys.push(0x02);
+                        }
+                        bash_keys.extend_from_slice(b"\x0f\x07\r");
+                        sushline_keys.extend_from_slice(b"\x0f\r");
+
+                        let mut expected = b"echo ".to_vec();
+                        expected.extend_from_slice(opening);
+                        expected.extend_from_slice(expected_candidate.as_bytes());
+                        if skip_completed_text == "off" || !exact_prefix {
+                            expected.extend_from_slice(b"pha");
+                        }
+                        expected.push(*closing);
+                        let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+                            &cwd,
+                            &inputrc,
+                            &bash_keys,
+                            &sushline_keys,
+                            "set +H",
+                            &env,
+                        );
+                        assert_filename_line_buffer_bytes(
+                            &bash,
+                            &sushline,
+                            &expected,
+                            &format!(
+                                "multi-match {command} suffix quote={quote_name} prefix={prefix_name} ignore-case={ignore_case} skip={skip_completed_text}"
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn single_match_menu_actions_preserve_case_insensitive_suffix_like_bash_5_3() {
+    // Runtime-only Bash 5.3 observations for these menu actions, quote forms,
+    // prefix spellings, and option combinations; not source proof.
+    let quotes = [
+        ("single", b"'".as_slice(), b'\''),
+        ("double", b"\"".as_slice(), b'\"'),
+        ("ansi-c", b"$'".as_slice(), b'\''),
+    ];
+    let prefixes = [
+        ("exact", b"safe-Al".as_slice(), true),
+        ("case-different", b"safe-al".as_slice(), false),
+    ];
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    let home = root.path().join("home");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(&home).expect("create fixture HOME");
+    fs::write(cwd.join("safe-Alpha"), b"").expect("write fixture file");
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+
+    for command in [
+        "menu-complete",
+        "menu-complete-backward",
+        "old-menu-complete",
+    ] {
+        for (quote_name, opening, closing) in &quotes {
+            for (prefix_name, prefix, exact_prefix) in &prefixes {
+                for ignore_case in ["off", "on"] {
+                    if !exact_prefix && ignore_case == "off" {
+                        continue;
+                    }
+                    for skip_completed_text in ["off", "on"] {
+                        let inputrc = format!(
+                            "\"\\C-o\": {command}\nset completion-ignore-case {ignore_case}\nset skip-completed-text {skip_completed_text}\nset menu-complete-display-prefix off\nset show-all-if-ambiguous off\nset page-completions off\nset completion-query-items 999"
+                        );
+                        let mut line = b"echo ".to_vec();
+                        line.extend_from_slice(opening);
+                        line.extend_from_slice(prefix);
+                        line.extend_from_slice(b"pha");
+                        line.push(*closing);
+                        let mut bash_keys = line.clone();
+                        let mut sushline_keys = line;
+                        for _ in 0..4 {
+                            bash_keys.push(0x02);
+                            sushline_keys.push(0x02);
+                        }
+                        bash_keys.extend_from_slice(b"\x0f\x07\r");
+                        sushline_keys.extend_from_slice(b"\x0f\r");
+
+                        let mut expected = b"echo ".to_vec();
+                        expected.extend_from_slice(opening);
+                        expected.extend_from_slice(b"safe-Alpha");
+                        if skip_completed_text == "off" || !exact_prefix {
+                            expected.extend_from_slice(b"pha");
+                        }
+                        expected.push(*closing);
+                        let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+                            &cwd,
+                            &inputrc,
+                            &bash_keys,
+                            &sushline_keys,
+                            "set +H",
+                            &env,
+                        );
+                        assert_filename_line_buffer_bytes(
+                            &bash,
+                            &sushline,
+                            &expected,
+                            &format!(
+                                "single-match {command} suffix quote={quote_name} prefix={prefix_name} ignore-case={ignore_case} skip={skip_completed_text}"
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn menu_completion_appends_quoted_filename_separators_like_bash_5_3() {
     // Runtime-only Bash 5.3 observations for these filenames, quote forms,
     // cursor positions, and first menu-completion action; not source proof.

@@ -1,6 +1,51 @@
 use super::pty::*;
 use std::fs;
 
+#[cfg(unix)]
+#[test]
+fn bash_readline_and_sushline_skip_completed_filename_text_like_bash_5_3() {
+    let dir = tempfile::tempdir().expect("temp completion directory");
+    fs::write(dir.path().join("alpha-one"), "").expect("write completion fixture");
+
+    // Bash 5.3 PTY runtime observations for this single filename and a cursor
+    // immediately before its `one` suffix; these are not source proof.
+    for (skip_completed, initial, expected) in [
+        ("off", "alpha-one", "alpha-oneone"),
+        ("on", "alpha-one", "alpha-one "),
+        ("on", "alpha-oneX", "alpha-oneX"),
+        ("on", "alpha-z", "alpha-onez"),
+        ("off", "alpha-one rest", "alpha-oneone rest"),
+        ("on", "alpha-one rest", "alpha-one rest"),
+        ("off", "alpha- rest", "alpha-one rest"),
+        ("on", "alpha- rest", "alpha-one rest"),
+    ] {
+        let inputrc = format!(
+            "\"\\C-o\": complete-filename\nset skip-completed-text {skip_completed}\nset completion-query-items 999\nset page-completions off"
+        );
+        let mut keys = initial.as_bytes().to_vec();
+        keys.extend_from_slice(b"\x01");
+        keys.extend_from_slice(&[b'\x06'; b"alpha-".len()]);
+        keys.extend_from_slice(b"\x0f\r");
+
+        let bash =
+            run_bash_readline_with_inputrc_file_and_env_in_dir(&keys, &inputrc, &[], dir.path());
+        let sushline =
+            run_sushline_harness_with_inputrc_and_env_in_dir(&keys, &inputrc, &[], dir.path());
+        let expected = Some(expected.to_string());
+
+        assert_eq!(
+            accepted_line(&bash),
+            expected,
+            "skip-completed-text={skip_completed}, initial={initial:?}\n{bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            expected,
+            "skip-completed-text={skip_completed}, initial={initial:?}\n{sushline}"
+        );
+    }
+}
+
 #[test]
 fn bash_readline_and_sushline_dynamic_history_completion_uses_common_prefix() {
     let inputrc = r#""\C-o": dynamic-complete-history"#;

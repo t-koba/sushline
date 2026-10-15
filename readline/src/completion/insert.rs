@@ -42,16 +42,36 @@ where
                 hooks,
                 suffix.first().copied(),
             );
-            let skipped_completed_text = skip_completed_text && !suffix.is_empty();
-            if skip_completed_text {
-                replacement_bytes = skip_completed_suffix_bytes(&replacement_bytes, &suffix);
-            }
-            if !skipped_completed_text && !is_directory {
+            let mut replacement_end = edit.end;
+            if skip_completed_text && !suffix.is_empty() {
+                let overlap = completed_suffix_overlap_len(&replacement_bytes, &suffix);
+                if overlap == suffix.len() {
+                    replacement_end += suffix.len();
+                    if !state
+                        .buffer
+                        .as_bytes()
+                        .get(replacement_end)
+                        .is_some_and(u8::is_ascii_whitespace)
+                        && !is_directory
+                    {
+                        extend_with_trailing_char(&mut replacement_bytes, &response.options);
+                    }
+                } else {
+                    replacement_bytes.truncate(replacement_bytes.len().saturating_sub(overlap));
+                }
+            } else if suffix.is_empty()
+                && !state
+                    .buffer
+                    .as_bytes()
+                    .get(edit.end)
+                    .is_some_and(u8::is_ascii_whitespace)
+                && !is_directory
+            {
                 extend_with_trailing_char(&mut replacement_bytes, &response.options);
             }
             state
                 .buffer
-                .replace_range_bytes(edit.start, edit.end, &replacement_bytes);
+                .replace_range_bytes(edit.start, replacement_end, &replacement_bytes);
         } else {
             let before_line = state.buffer.as_bytes().to_vec();
             let before_point = state.buffer.byte_point();

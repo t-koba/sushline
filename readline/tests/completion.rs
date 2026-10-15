@@ -1234,7 +1234,7 @@ fn completion_variables_display_and_skip_completed_text() {
     line.load_inputrc_str("\"\\C-o\": complete\nset skip-completed-text on")
         .unwrap();
     let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
-    assert_eq!(result, ReadlineResult::Line("alpine".as_bytes().to_vec()));
+    assert_eq!(result, ReadlineResult::Line("alpine ".as_bytes().to_vec()));
 
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"a".to_vec()),

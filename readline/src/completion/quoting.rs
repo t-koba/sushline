@@ -120,17 +120,15 @@ pub(super) fn quote_filename_bytes(bytes: &[u8]) -> Vec<u8> {
 }
 
 pub(super) fn skip_completed_suffix_bytes(replacement: &[u8], suffix: &[u8]) -> Vec<u8> {
-    if suffix.is_empty() {
-        return replacement.to_vec();
-    }
-    let mut end = replacement.len();
-    for count in (1..=suffix.len()).rev() {
-        if replacement.ends_with(&suffix[..count]) {
-            end = replacement.len().saturating_sub(count);
-            break;
-        }
-    }
-    replacement[..end].to_vec()
+    let overlap = completed_suffix_overlap_len(replacement, suffix);
+    replacement[..replacement.len().saturating_sub(overlap)].to_vec()
+}
+
+pub(super) fn completed_suffix_overlap_len(replacement: &[u8], suffix: &[u8]) -> usize {
+    (1..=suffix.len())
+        .rev()
+        .find(|count| replacement.ends_with(&suffix[..*count]))
+        .unwrap_or(0)
 }
 
 pub(super) fn completion_suffix_bytes(edit: &CompletionEdit, state: &EditorState) -> Vec<u8> {

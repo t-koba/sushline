@@ -97,6 +97,15 @@ fn main() -> ExitCode {
                         String::from_utf8_lossy(&bytes)
                     );
                 }
+                if std::env::var_os("SUSHLINE_ACCEPTED_HEX").is_some() {
+                    const HEX: &[u8; 16] = b"0123456789abcdef";
+                    let mut hex = String::with_capacity(bytes.len() * 2);
+                    for byte in bytes {
+                        hex.push(HEX[(byte >> 4) as usize] as char);
+                        hex.push(HEX[(byte & 0x0f) as usize] as char);
+                    }
+                    println!("SUSHLINE_ACCEPTED_HEX:{hex}");
+                }
             }
             Ok(ReadlineResult::Interrupted) => {
                 println!("SUSHLINE_INTERRUPTED");

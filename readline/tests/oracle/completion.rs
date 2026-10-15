@@ -850,6 +850,7 @@ fn run_raw_filename_completion_pair(
     inputrc: &str,
     env: &[(&str, &str)],
     cwd: &std::path::Path,
+    report_sushline_accepted_hex: bool,
 ) -> (Vec<u8>, Vec<u8>) {
     use portable_pty::{CommandBuilder, PtySize};
 
@@ -872,6 +873,9 @@ fn run_raw_filename_completion_pair(
     sushline_command.env("SUSHLINE_INPUTRC", inputrc);
     sushline_command.env("SUSHLINE_PROMPT", READY_PROMPT);
     sushline_command.env("SUSHLINE_HISTORY", "");
+    if report_sushline_accepted_hex {
+        sushline_command.env("SUSHLINE_ACCEPTED_HEX", "1");
+    }
     for (name, value) in env {
         sushline_command.env(name, value);
     }
@@ -882,15 +886,23 @@ fn run_raw_filename_completion_pair(
         pixel_width: 0,
         pixel_height: 0,
     };
-    (
-        run_pty_in_dir_with_size_raw(bash_command, keys, cwd, size),
-        run_pty_in_dir_with_size_raw(sushline_command, keys, cwd, size),
-    )
+    let bash = run_pty_in_dir_with_size_raw(bash_command, keys, cwd, size);
+    let sushline = if report_sushline_accepted_hex {
+        run_pty_in_dir_with_size_raw_until(
+            sushline_command,
+            keys,
+            cwd,
+            size,
+            "SUSHLINE_ACCEPTED_HEX:",
+        )
+    } else {
+        run_pty_in_dir_with_size_raw(sushline_command, keys, cwd, size)
+    };
+    (bash, sushline)
 }
 
 #[cfg(unix)]
-fn raw_accepted_line(output: &[u8]) -> Option<&[u8]> {
-    let marker = b"SUSHLINE_ACCEPTED:";
+fn raw_line_after_marker<'a>(output: &'a [u8], marker: &[u8]) -> Option<&'a [u8]> {
     let start = output
         .windows(marker.len())
         .position(|window| window == marker)?
@@ -901,6 +913,36 @@ fn raw_accepted_line(output: &[u8]) -> Option<&[u8]> {
         .position(|byte| matches!(byte, b'\r' | b'\n'))
         .unwrap_or(rest.len());
     Some(&rest[..end])
+}
+
+#[cfg(unix)]
+fn raw_accepted_line(output: &[u8]) -> Option<&[u8]> {
+    raw_line_after_marker(output, b"SUSHLINE_ACCEPTED:")
+}
+
+#[cfg(unix)]
+fn raw_accepted_hex_marker(output: &[u8]) -> Option<&[u8]> {
+    raw_line_after_marker(output, b"SUSHLINE_ACCEPTED_HEX:")
+}
+
+#[cfg(unix)]
+fn raw_accepted_hex(output: &[u8]) -> Option<Vec<u8>> {
+    let hex = raw_accepted_hex_marker(output)?;
+    if hex.len() % 2 != 0 {
+        return None;
+    }
+    hex.chunks(2)
+        .map(|pair| Some((hex_digit(pair[0])? << 4) | hex_digit(pair[1])?))
+        .collect()
+}
+
+#[cfg(unix)]
+fn hex_digit(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        _ => None,
+    }
 }
 
 #[cfg(unix)]
@@ -943,8 +985,13 @@ set page-completions off"#;
         if locale == "C.UTF-8" && !c_utf8_locale_available() {
             continue;
         }
-        let (bash, sushline) =
-            run_raw_filename_completion_pair(keys, inputrc, &[("LC_ALL", locale)], dir.path());
+        let (bash, sushline) = run_raw_filename_completion_pair(
+            keys,
+            inputrc,
+            &[("LC_ALL", locale)],
+            dir.path(),
+            false,
+        );
 
         for (output, implementation) in [(&bash, "Bash"), (&sushline, "Sushline")] {
             assert_eq!(
@@ -975,6 +1022,66 @@ set page-completions off"#;
 
 #[cfg(unix)]
 #[test]
+fn complete_filename_accepts_exact_raw_invalid_byte_filename_under_tested_locales() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let dir = tempfile::tempdir().expect("temp completion directory");
+    fs::write(
+        dir.path()
+            .join(OsString::from_vec(b"raw-\xff-item".to_vec())),
+        "",
+    )
+    .expect("write raw-byte fixture");
+    let inputrc = r#""\C-o": complete-filename"#;
+    let keys = b"raw-\x0f\r";
+    let expected = b"raw-\xff-item ";
+    let expected_hex = b"7261772dff2d6974656d20";
+
+    for locale in ["C", "C.UTF-8"] {
+        if locale == "C.UTF-8" && !c_utf8_locale_available() {
+            continue;
+        }
+        let (bash, sushline) = run_raw_filename_completion_pair(
+            keys,
+            inputrc,
+            &[("LC_ALL", locale)],
+            dir.path(),
+            true,
+        );
+        let bash_line = raw_accepted_line(&bash);
+        let sushline_hex = raw_accepted_hex(&sushline);
+
+        assert_eq!(
+            bash_line,
+            Some(expected.as_slice()),
+            "Bash accepted-line bytes differed under LC_ALL={locale}"
+        );
+        assert_eq!(
+            raw_accepted_hex_marker(&sushline),
+            Some(expected_hex.as_slice()),
+            "Sushline accepted-line hex marker differed under LC_ALL={locale}"
+        );
+        assert_eq!(
+            sushline_hex.as_deref(),
+            bash_line,
+            "Bash raw bytes and Sushline accepted-line hex differed under LC_ALL={locale}"
+        );
+        assert_eq!(
+            raw_bell_count(&bash),
+            0,
+            "unexpected completion bell for Bash under LC_ALL={locale}"
+        );
+        assert_eq!(
+            raw_bell_count(&sushline),
+            0,
+            "unexpected completion bell for Sushline under LC_ALL={locale}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn filename_completion_redraw_shows_raw_invalid_byte_differently_by_locale() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;
@@ -994,8 +1101,13 @@ fn filename_completion_redraw_shows_raw_invalid_byte_differently_by_locale() {
         if locale == "C.UTF-8" && !c_utf8_locale_available() {
             continue;
         }
-        let (bash, sushline) =
-            run_raw_filename_completion_pair(keys, inputrc, &[("LC_ALL", locale)], dir.path());
+        let (bash, sushline) = run_raw_filename_completion_pair(
+            keys,
+            inputrc,
+            &[("LC_ALL", locale)],
+            dir.path(),
+            false,
+        );
         let expected_bash: &[u8] = if locale == "C" {
             b"raw-\\377-item "
         } else {

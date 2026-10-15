@@ -690,20 +690,24 @@ pub(super) fn run_pty_in_dir(
 }
 
 pub(super) fn run_pty_in_dir_with_size_raw(
-    mut command: CommandBuilder,
+    command: CommandBuilder,
     keys: &[u8],
     cwd: &std::path::Path,
     size: PtySize,
 ) -> Vec<u8> {
+    run_pty_in_dir_with_size_raw_until(command, keys, cwd, size, "SUSHLINE_ACCEPTED:")
+}
+
+pub(super) fn run_pty_in_dir_with_size_raw_until(
+    mut command: CommandBuilder,
+    keys: &[u8],
+    cwd: &std::path::Path,
+    size: PtySize,
+    stop_marker: &str,
+) -> Vec<u8> {
     command.env("TERM", "xterm-256color");
     command.cwd(cwd);
-    run_pty_with_size_until_after_prompt_inner_raw(
-        command,
-        keys,
-        size,
-        "SUSHLINE_ACCEPTED:",
-        None::<fn()>,
-    )
+    run_pty_with_size_until_after_prompt_inner_raw(command, keys, size, stop_marker, None::<fn()>)
 }
 
 pub(super) fn run_pty_with_size(command: CommandBuilder, keys: &[u8], size: PtySize) -> String {

@@ -437,7 +437,7 @@ where
                             skip_completed_suffix_bytes(&replacement_bytes, &suffix);
                     }
                 }
-                if single_quoted_regular_filename && suffix.first() == Some(&b'\'') {
+                if single_quoted_regular_filename && raw_suffix.starts_with(b"'\\''") {
                     // Reconcile the closer at point even with skipping disabled.
                     // Semantic overlap may consume the whole apostrophe concatenation,
                     // but the newly inserted common prefix still leaves its quote open.

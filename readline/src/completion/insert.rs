@@ -249,6 +249,9 @@ where
         // Preserve Bash's backslash-LF spelling for an unexpanded `~/` path.
         let single_quote_line_feeds = !(raw_word.starts_with(b"~/") && value.starts_with(b"~/"));
         match edit.quote {
+            Some('\'') if edit.ansi_c_quote && filename_candidates && quote_filename => {
+                quote_ansi_c_quoted_filename_bytes(value)
+            }
             Some('\'') => quote_single_quoted_bytes(value),
             Some('"') if filename_candidates => quote_double_quoted_filename_bytes(value),
             Some('"') => quote_double_quoted_bytes(value),

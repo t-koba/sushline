@@ -1571,6 +1571,73 @@ set page-completions off"#;
 
 #[cfg(unix)]
 #[test]
+fn complete_filename_handles_ansi_c_quoted_words_like_bash_5_3() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    // Runtime-only Bash 5.3 PTY probes 67152a0e1459401c90a38eaad29a6b99,
+    // eae6778c995d4ff98f3e6125e3e9693f, and e120dd1dc41241d6919c7393c13651ab.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let fixtures = [
+        (
+            "plain",
+            b"safe-plain".as_slice(),
+            b"$'safe-plain' ".as_slice(),
+        ),
+        (
+            "space",
+            b"safe-space name".as_slice(),
+            b"$'safe-space name' ".as_slice(),
+        ),
+        (
+            "apostrophe",
+            b"safe-apostrophe'name".as_slice(),
+            b"$'safe-apostrophe'\\''name' ".as_slice(),
+        ),
+        (
+            "backslash",
+            b"safe-back\\slash".as_slice(),
+            b"$'safe-back\\slash' ".as_slice(),
+        ),
+        (
+            "backslash-escape-letter",
+            b"safe-back\\n".as_slice(),
+            b"$'safe-back\\n' ".as_slice(),
+        ),
+        (
+            "dollar",
+            b"safe-dollar$name".as_slice(),
+            b"$'safe-dollar$name' ".as_slice(),
+        ),
+    ];
+    let inputrc = r#""\C-o": complete-filename
+set expand-tilde off
+set mark-directories off
+set completion-query-items 999
+set page-completions off"#;
+
+    for (fixture, basename, expected_suffix) in fixtures {
+        let dir = root.path().join(fixture);
+        fs::create_dir(&dir).expect("create ANSI-C quote fixture directory");
+        fs::write(dir.join(OsString::from_vec(basename.to_vec())), "")
+            .expect("write ANSI-C quote fixture");
+        let mut expected = b"echo ".to_vec();
+        expected.extend_from_slice(expected_suffix);
+        let bash_keys = b"echo $'safe-\x0f\x07\r";
+        let sushline_keys = b"echo $'safe-\x0f\r";
+        let (bash, sushline) =
+            run_filename_line_buffer_hex_pair(&dir, inputrc, bash_keys, sushline_keys, "set +H");
+        assert_filename_line_buffer_bytes(
+            &bash,
+            &sushline,
+            &expected,
+            &format!("{fixture}/ANSI-C quoted completion"),
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn complete_filename_quotes_extglob_patterns_like_bash_5_3() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;

@@ -6,6 +6,7 @@ pub(crate) struct CompletionEdit {
     pub(crate) end: usize,
     pub(crate) word_bytes: Vec<u8>,
     pub(crate) quote: Option<char>,
+    pub(crate) ansi_c_quote: bool,
     pub(crate) line: Vec<u8>,
     pub(crate) point: usize,
 }
@@ -30,29 +31,36 @@ pub(super) fn completion_edit(
         .get(start..end)
         .unwrap_or_default()
         .to_vec();
+    let ansi_c_quote = raw_bytes.starts_with(b"$'");
     let (word_bytes, quote) = dequote_completion_word_bytes(&raw_bytes);
     CompletionEdit {
         start,
         end,
         word_bytes,
         quote,
+        ansi_c_quote,
         line: bytes.to_vec(),
         point: state.buffer.byte_point(),
     }
 }
 
 pub(super) fn dequote_completion_word_bytes(raw: &[u8]) -> (Vec<u8>, Option<char>) {
-    let mut idx = 0;
-    let quote = match raw.first().copied() {
-        Some(b'\'') => {
-            idx = 1;
-            Some('\'')
+    let ansi_c_quote = raw.starts_with(b"$'");
+    let mut idx = if ansi_c_quote { 2 } else { 0 };
+    let quote = if ansi_c_quote {
+        Some('\'')
+    } else {
+        match raw.first().copied() {
+            Some(b'\'') => {
+                idx = 1;
+                Some('\'')
+            }
+            Some(b'"') => {
+                idx = 1;
+                Some('"')
+            }
+            _ => None,
         }
-        Some(b'"') => {
-            idx = 1;
-            Some('"')
-        }
-        _ => None,
     };
     let mut out = Vec::with_capacity(raw.len().saturating_sub(idx));
     let mut escaped = false;
@@ -185,6 +193,16 @@ pub(super) fn quote_single_quoted_bytes(value: &[u8]) -> Vec<u8> {
         }
     }
     out.push(b'\'');
+    out
+}
+
+// Bash PTY probes use `$'…'` spelling and leave backslashes raw; apostrophes
+// use the same shell quote-concatenation form as ordinary single quotes.
+pub(super) fn quote_ansi_c_quoted_filename_bytes(value: &[u8]) -> Vec<u8> {
+    let quoted = quote_single_quoted_bytes(value);
+    let mut out = Vec::with_capacity(quoted.len() + 1);
+    out.push(b'$');
+    out.extend_from_slice(&quoted);
     out
 }
 
@@ -340,5 +358,9 @@ mod tests {
                 (expected.to_vec(), Some('"'))
             );
         }
+        assert_eq!(
+            dequote_completion_word_bytes(b"$'safe-prefix"),
+            (b"safe-prefix".to_vec(), Some('\'')),
+        );
     }
 }

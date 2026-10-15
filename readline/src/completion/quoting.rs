@@ -195,9 +195,25 @@ pub(super) fn quote_double_quoted_bytes(value: &[u8]) -> Vec<u8> {
     out
 }
 
+// Bash filename completion leaves `$` and backtick bytes raw in double quotes.
+pub(super) fn quote_double_quoted_filename_bytes(value: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(value.len() + 2);
+    out.push(b'"');
+    for byte in value {
+        if matches!(*byte, b'"' | b'\\') {
+            out.push(b'\\');
+        }
+        out.push(*byte);
+    }
+    out.push(b'"');
+    out
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{dequote_completion_word_bytes, quote_filename_bytes};
+    use super::{
+        dequote_completion_word_bytes, quote_double_quoted_filename_bytes, quote_filename_bytes,
+    };
 
     #[test]
     fn filename_quoting_uses_single_quotes_for_line_feeds() {
@@ -208,6 +224,14 @@ mod tests {
         assert_eq!(
             quote_filename_bytes(b"~/safe-lf\nitem", false, false),
             b"~/safe-lf\\\nitem",
+        );
+    }
+
+    #[test]
+    fn double_quoted_filename_quoting_leaves_dollar_and_backtick_unescaped() {
+        assert_eq!(
+            quote_double_quoted_filename_bytes(b"$`\"\\"),
+            b"\"$`\\\"\\\\\""
         );
     }
 

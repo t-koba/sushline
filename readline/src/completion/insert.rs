@@ -242,6 +242,7 @@ where
         let single_quote_line_feeds = !(raw_word.starts_with(b"~/") && value.starts_with(b"~/"));
         match edit.quote {
             Some('\'') => quote_single_quoted_bytes(value),
+            Some('"') if filename_candidates => quote_double_quoted_filename_bytes(value),
             Some('"') => quote_double_quoted_bytes(value),
             _ if quote_filename => {
                 quote_filename_bytes(value, escape_leading_tilde, single_quote_line_feeds)

@@ -1077,6 +1077,85 @@ set page-completions off"#;
 
 #[cfg(unix)]
 #[test]
+fn complete_filename_preserves_double_quoted_expansion_chars_like_bash_5_3() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    // Runtime-only Bash 5.3 PTY probes ec3edb033ef8468b9a40853b149d0fbc,
+    // 71471b23cb424d6dad8c7492e124602c, 0bd483637223455c9391b038ea5ed5fe,
+    // and 7876ffb301424d8b9cc2172a7faa0b1b under LC_ALL=C.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let fixtures = [
+        (
+            "dollar-internal",
+            b"safe-dollar$value".as_slice(),
+            [
+                b"safe-dollar\\$value ".as_slice(),
+                b"'safe-dollar$value' ".as_slice(),
+                b"\"safe-dollar$value\" ".as_slice(),
+            ],
+        ),
+        (
+            "dollar-trailing",
+            b"safe-trail$".as_slice(),
+            [
+                b"safe-trail\\$ ".as_slice(),
+                b"'safe-trail$' ".as_slice(),
+                b"\"safe-trail$\" ".as_slice(),
+            ],
+        ),
+        (
+            "backtick-internal",
+            b"safe-back`tick".as_slice(),
+            [
+                b"safe-back\\`tick ".as_slice(),
+                b"'safe-back`tick' ".as_slice(),
+                b"\"safe-back`tick\" ".as_slice(),
+            ],
+        ),
+        (
+            "backtick-trailing",
+            b"safe-trail`".as_slice(),
+            [
+                b"safe-trail\\` ".as_slice(),
+                b"'safe-trail`' ".as_slice(),
+                b"\"safe-trail`\" ".as_slice(),
+            ],
+        ),
+    ];
+    let inputrc = r#""\C-o": complete-filename
+set expand-tilde off
+set mark-directories off
+set completion-query-items 999
+set page-completions off"#;
+
+    for (fixture, basename, expected) in fixtures {
+        let dir = root.path().join(fixture);
+        fs::create_dir(&dir).expect("create expansion-character fixture directory");
+        fs::write(dir.join(OsString::from_vec(basename.to_vec())), "")
+            .expect("write expansion-character fixture");
+        for ((form, prefix), expected) in [
+            ("unquoted", b"safe-".as_slice()),
+            ("single-quoted", b"'safe-".as_slice()),
+            ("double-quoted", b"\"safe-".as_slice()),
+        ]
+        .into_iter()
+        .zip(expected)
+        {
+            let mut bash_keys = prefix.to_vec();
+            bash_keys.extend_from_slice(b"\x0f\x07\r");
+            let mut sushline_keys = prefix.to_vec();
+            sushline_keys.extend_from_slice(b"\x0f\r");
+            let (bash, sushline) =
+                run_filename_line_buffer_hex_pair(&dir, inputrc, &bash_keys, &sushline_keys);
+            let context = format!("{fixture}/{form} completion");
+            assert_filename_line_buffer_bytes(&bash, &sushline, expected, &context);
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn complete_filename_quotes_double_quotes_like_bash_5_3() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;

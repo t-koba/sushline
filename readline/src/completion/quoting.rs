@@ -47,7 +47,11 @@ pub(super) fn completion_edit(
 pub(super) fn dequote_completion_word_bytes(raw: &[u8]) -> (Vec<u8>, Option<char>) {
     let ansi_c_quote = raw.starts_with(b"$'");
     let mut idx = if ansi_c_quote { 2 } else { 0 };
-    let quote = if ansi_c_quote {
+    // A plain single-quoted word can continue through unquoted escaped bytes
+    // and reopened quotes. Its quote at point, not its first delimiter, governs
+    // both filename requoting and decoding the right-hand suffix.
+    let track_quote_transitions = raw.first() == Some(&b'\'');
+    let mut quote = if ansi_c_quote {
         Some('\'')
     } else {
         match raw.first().copied() {
@@ -84,6 +88,13 @@ pub(super) fn dequote_completion_word_bytes(raw: &[u8]) -> (Vec<u8>, Option<char
             continue;
         }
         if quote == Some(byte as char) {
+            if track_quote_transitions {
+                quote = None;
+            }
+            continue;
+        }
+        if track_quote_transitions && quote.is_none() && matches!(byte, b'\'' | b'"') {
+            quote = Some(byte as char);
             continue;
         }
         out.push(byte);
@@ -347,6 +358,31 @@ mod tests {
         assert_eq!(
             quote_filename_bytes(b"~user/", false, false, true),
             b"~user/"
+        );
+    }
+
+    #[test]
+    fn single_quoted_words_decode_concatenated_segments_and_track_quote_at_point() {
+        for (raw, expected, quote) in [
+            (b"'safe".as_slice(), b"safe".as_slice(), Some('\'')),
+            (b"'safe'".as_slice(), b"safe".as_slice(), None),
+            (br"'safe'\''".as_slice(), b"safe'".as_slice(), Some('\'')),
+            (br"'safe'\'''".as_slice(), b"safe'".as_slice(), None),
+            (
+                br"'safe'\'''\''".as_slice(),
+                b"safe''".as_slice(),
+                Some('\''),
+            ),
+        ] {
+            assert_eq!(
+                dequote_completion_word_bytes(raw),
+                (expected.to_vec(), quote)
+            );
+        }
+        // A backslash inside the single-quoted segment is still literal.
+        assert_eq!(
+            dequote_completion_word_bytes(br"'safe\name"),
+            (br"safe\name".to_vec(), Some('\'')),
         );
     }
 

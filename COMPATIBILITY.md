@@ -142,6 +142,15 @@ sections; Sushline-only extensions are marked `Implementation-specific`.
 | `bash-vi-complete` | Hook-backed | Dispatches through command completion; embedder-owned command categories are supplied through `Hooks::command_names`. |
 | `export-completions` | Compatible | The Readline export-completions protocol is implemented and tested. |
 
+A fixture-scoped Bash 5.3 PTY probe (`278ab1fcb026463abaad34437e452b3c`; runtime evidence, not source proof) and exact-byte regression use a directory containing
+only `safe''one` and `safe''two`. Input consists of `echo 'safe`, two copies of
+`'\''`, then `' rest`. Moving point left nine bytes places it after the closing
+quote of the second close/escape/reopen group, before that group's backslash;
+it does not place point before both groups. For `complete` and `complete-filename`,
+with `skip-completed-text` off and on, completing and inserting `X` yields
+`echo safe\'\'X\''' rest` in both Bash and Sushline. This is runtime evidence for
+this fixture and cursor position, not source proof or a general shell-quoting claim.
+
 ### Miscellaneous Commands
 
 | Command(s) | Status | Notes |

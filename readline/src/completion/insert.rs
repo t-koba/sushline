@@ -101,7 +101,25 @@ pub(super) struct RequoteOptions {
     pub(super) slash_after_quote: bool,
 }
 
-fn unquoted_filename_suffix_overlap_len(completion: &[u8], raw_suffix: &[u8]) -> Option<usize> {
+// Include the actual closer, but not adjacent shell words. Whitespace and escaped
+// quotes within the open double-quoted filename are still part of its raw suffix.
+fn double_quoted_filename_suffix(raw_suffix: &[u8]) -> &[u8] {
+    let mut index = 0;
+    while let Some(byte) = raw_suffix.get(index) {
+        match byte {
+            b'\\' => index += 2,
+            b'"' => return &raw_suffix[..=index],
+            _ => index += 1,
+        }
+    }
+    raw_suffix
+}
+
+fn shell_filename_suffix_overlap_len(
+    completion: &[u8],
+    raw_suffix: &[u8],
+    double_quoted: bool,
+) -> Option<usize> {
     let mut semantic_suffix = Vec::new();
     let mut raw_prefix_lengths = Vec::new();
     let mut index = 0;
@@ -109,19 +127,22 @@ fn unquoted_filename_suffix_overlap_len(completion: &[u8], raw_suffix: &[u8]) ->
         match byte {
             b'\\' => match raw_suffix.get(index + 1).copied() {
                 Some(b'\n') => index += 2,
-                Some(escaped) => {
+                Some(escaped)
+                    if !double_quoted || matches!(escaped, b'"' | b'\\' | b'$' | b'`') =>
+                {
                     semantic_suffix.push(escaped);
                     index += 2;
                     raw_prefix_lengths.push(index);
                 }
-                None => {
+                _ => {
                     semantic_suffix.push(b'\\');
                     index += 1;
                     raw_prefix_lengths.push(index);
                 }
             },
-            b'\'' | b'"' => return None,
-            byte if byte.is_ascii_whitespace() => break,
+            b'"' if double_quoted => break, // Keep the existing shell closer.
+            b'\'' | b'"' if !double_quoted => return None,
+            byte if !double_quoted && byte.is_ascii_whitespace() => break,
             byte => {
                 semantic_suffix.push(byte);
                 index += 1;
@@ -353,14 +374,19 @@ where
             if let Some((common_prefix, mut replacement_bytes)) =
                 self.requote_common_prefix_with_prefix(&response, edit, completion_type, hooks)
             {
-                let unquoted_regular_filename = response.options.filenames
-                    && edit.quote.is_none()
+                let shell_escaped_regular_filename = response.options.filenames
+                    && matches!(edit.quote, None | Some('"'))
                     && !edit.ansi_c_quote
                     && !matches!(
                         completion_type,
                         CompletionType::MenuComplete | CompletionType::MenuCompleteBackward
                     );
-                let suffix = completion_suffix_bytes(edit, state);
+                let raw_suffix = state.buffer.as_bytes().get(edit.end..).unwrap_or_default();
+                let suffix = if shell_escaped_regular_filename && edit.quote == Some('"') {
+                    double_quoted_filename_suffix(raw_suffix).to_vec()
+                } else {
+                    completion_suffix_bytes(edit, state)
+                };
                 let mut replacement_end = edit.end;
                 if skip_completed_text {
                     if response.options.filenames {
@@ -376,11 +402,16 @@ where
                             let completion_suffix =
                                 common_prefix.get(prefix_len..).unwrap_or_default();
                             let overlap = completion_suffix_overlap_len(completion_suffix, &suffix);
-                            if unquoted_regular_filename {
+                            if shell_escaped_regular_filename {
                                 // Match shell-decoded bytes but consume the encoded buffer length.
-                                unquoted_filename_suffix_overlap_len(
+                                shell_filename_suffix_overlap_len(
                                     completion_suffix,
-                                    state.buffer.as_bytes().get(edit.end..).unwrap_or_default(),
+                                    if edit.quote == Some('"') {
+                                        &suffix
+                                    } else {
+                                        raw_suffix
+                                    },
+                                    edit.quote == Some('"'),
                                 )
                                 .unwrap_or(overlap)
                             } else {
@@ -773,5 +804,72 @@ pub(super) fn extend_with_trailing_char(replacement: &mut Vec<u8>, options: &Com
     if let Some(ch) = trailing {
         let mut buf = [0; 4];
         replacement.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{double_quoted_filename_suffix, shell_filename_suffix_overlap_len};
+
+    #[test]
+    fn double_quoted_filename_suffix_includes_spaces_and_only_the_unescaped_closer() {
+        for (raw, expected) in [
+            (br#"\" a-" rest"#.as_slice(), br#"\" a-""#.as_slice()),
+            (br#"\\" rest"#, br#"\\""#),
+            (br#"\\\" a-"tail"#, br#"\\\" a-""#),
+            (br#"\q a-" rest"#, br#"\q a-""#),
+            (br#"a-" rest"#, br#"a-""#),
+            (br#"\" a-"#, br#"\" a-"#),
+            (b"a\\", b"a\\"),
+        ] {
+            assert_eq!(double_quoted_filename_suffix(raw), expected, "{raw:?}");
+        }
+    }
+
+    #[test]
+    fn double_quoted_suffix_overlap_consumes_raw_escape_lengths_not_the_closer() {
+        for (completion, raw_suffix, expected) in [
+            (b"\"".as_slice(), b"\\\"\"".as_slice(), 2),
+            (b"\" a-", b"\\\" a-\"", 5),
+            (b"\" a-", b"\\\" a-X\"", 5),
+            (b"\" a-", b"\\\" b-\"", 3),
+            (b"\" a-", b"\\\"\" a-", 2),
+            (b"\\", b"\\\\\"", 2),
+            (b"$", b"\\$\"", 2),
+            (b"`", b"\\`\"", 2),
+            (b"\\q", b"\\q\"", 2),
+            (b"q", b"\\q\"", 0),
+            (b"\"", b"\"", 0),
+            (b"\"", b"\\\"X\"", 2),
+            (b" '", b" '\"", 2),
+            (b"ab", b"a\\\nb\"", 4),
+            (b"b", b"\\\nb\"", 3),
+            (b"x", b"\\\nb\"", 0),
+        ] {
+            assert_eq!(
+                shell_filename_suffix_overlap_len(completion, raw_suffix, true),
+                Some(expected),
+                "completion={completion:?}, raw_suffix={raw_suffix:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn unquoted_suffix_overlap_keeps_its_existing_escape_and_quote_rules() {
+        for (completion, raw_suffix, expected) in [
+            (b"*".as_slice(), b"\\*X".as_slice(), Some(2)),
+            (b"\\", b"\\\\", Some(2)),
+            (b"q", b"\\q", Some(2)),
+            (b"a b", b"a b", Some(1)),
+            (b"ab", b"a\\\nb", Some(4)),
+            (b"\"", b"\"", None),
+            (b"'", b"'", None),
+        ] {
+            assert_eq!(
+                shell_filename_suffix_overlap_len(completion, raw_suffix, false),
+                expected,
+                "completion={completion:?}, raw_suffix={raw_suffix:?}"
+            );
+        }
     }
 }

@@ -1807,6 +1807,137 @@ fn complete_filename_expands_ansi_c_named_user_path_like_bash_5_3() {
 
 #[cfg(unix)]
 #[test]
+fn complete_filename_handles_escaped_and_literal_ansi_c_tildes_like_bash_5_3() {
+    // Runtime-only Bash 5.3 PTY probes 71687d476b6d4639b08a2c3c0814bcd0,
+    // c81c921d3256408780d8baa41f9255fd, and eaa40ffcfb354dd68f561294d9ffc448.
+    let root = tempfile::tempdir().expect("temp completion root");
+    #[derive(Clone, Copy)]
+    struct Fixture {
+        name: &'static str,
+        prefix: &'static [u8],
+        directory: &'static str,
+        basename: &'static str,
+        expected: &'static [u8],
+        has_candidate: bool,
+        target_home: bool,
+    }
+    let cases = [
+        Fixture {
+            name: "literal-basename",
+            prefix: b"echo $'~safe-",
+            directory: "",
+            basename: "~safe-literal-file",
+            expected: b"echo $'~safe-literal-file' ",
+            has_candidate: true,
+            target_home: false,
+        },
+        Fixture {
+            name: "escaped-basename",
+            prefix: br"echo $'\~safe-",
+            directory: "",
+            basename: r"\~safe-escaped-file",
+            expected: br"echo $'\~safe-escaped-file' ",
+            has_candidate: true,
+            target_home: false,
+        },
+        Fixture {
+            name: "escaped-directory",
+            prefix: br"echo $'\~/safe-",
+            directory: r"\~",
+            basename: "safe-escaped-directory-file",
+            expected: br"echo $'\~/safe-escaped-directory-file' ",
+            has_candidate: true,
+            target_home: false,
+        },
+        Fixture {
+            name: "literal-directory",
+            prefix: b"echo $'~/safe-",
+            directory: "~",
+            basename: "safe-literal-directory-file",
+            expected: b"echo $'~/safe-",
+            has_candidate: false,
+            target_home: false,
+        },
+        Fixture {
+            name: "hex-tilde-escape",
+            prefix: br"echo $'\x7e/safe-",
+            directory: "",
+            basename: "safe-home-file",
+            expected: br"echo $'\x7e/safe-",
+            has_candidate: false,
+            target_home: true,
+        },
+        Fixture {
+            name: "octal-tilde-escape",
+            prefix: br"echo $'\176/safe-",
+            directory: "",
+            basename: "safe-home-file",
+            expected: br"echo $'\176/safe-",
+            has_candidate: false,
+            target_home: true,
+        },
+    ];
+
+    for expand_tilde in ["off", "on"] {
+        let inputrc = format!(
+            "\"\\C-o\": complete-filename\nset expand-tilde {expand_tilde}\nset mark-directories off\nset completion-query-items 999\nset page-completions off"
+        );
+        for fixture in cases {
+            let scenario = root.path().join(fixture.name);
+            let cwd = scenario.join("cwd");
+            let home = scenario.join("home");
+            fs::create_dir_all(&cwd).expect("create fixture cwd");
+            fs::create_dir_all(&home).expect("create fixture HOME");
+            let target = if fixture.target_home {
+                home.clone()
+            } else {
+                cwd.join(fixture.directory)
+            };
+            fs::create_dir_all(&target).expect("create tilde fixture directory");
+            fs::write(target.join(fixture.basename), "").expect("write tilde fixture");
+
+            let home_path = home.to_string_lossy().into_owned();
+            let env = [("HOME", home_path.as_str())];
+            let mut bash_keys = fixture.prefix.to_vec();
+            bash_keys.extend_from_slice(b"\x0f\x07\r");
+            let mut sushline_keys = fixture.prefix.to_vec();
+            sushline_keys.extend_from_slice(b"\x0f\r");
+            let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+                &cwd,
+                &inputrc,
+                &bash_keys,
+                &sushline_keys,
+                "set +H",
+                &env,
+            );
+            let context = format!("ANSI-C {} with expand-tilde {expand_tilde}", fixture.name);
+            if fixture.has_candidate {
+                assert_filename_line_buffer_bytes(&bash, &sushline, fixture.expected, &context);
+            } else {
+                let bash_hex = raw_line_after_marker(&bash, b"BASH_READLINE_HEX:");
+                let sushline_hex = raw_accepted_hex_marker(&sushline);
+                assert!(
+                    bash_hex.is_some() && bash_hex == sushline_hex,
+                    "Bash and Sushline line buffers differed for {context}"
+                );
+                assert_eq!(
+                    raw_accepted_hex(&sushline).as_deref(),
+                    Some(fixture.expected),
+                    "line buffer changed for {context}"
+                );
+                assert_eq!(raw_bell_count(&bash), 1, "Bash bell count for {context}");
+                assert_eq!(
+                    raw_bell_count(&sushline),
+                    1,
+                    "Sushline bell count for {context}"
+                );
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn complete_filename_keeps_ambiguous_ansi_c_quote_open_like_bash_5_3() {
     // Runtime-only Bash 5.3 PTY probe 5495fc787df04b9599f9836b9177fd86.
     use std::ffi::OsString;

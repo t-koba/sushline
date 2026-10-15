@@ -164,10 +164,11 @@ where
                 }
                 preserves_existing_ansi_c_quote = true;
             }
-            let menu_quote_suffix_overlap = if matches!(
-                completion_type,
-                CompletionType::MenuComplete | CompletionType::MenuCompleteBackward
-            ) {
+            let quoted_filename_suffix_overlap = if is_directory
+                || matches!(
+                    completion_type,
+                    CompletionType::MenuComplete | CompletionType::MenuCompleteBackward
+                ) {
                 preserve_quoted_filename_closer(
                     &response,
                     edit,
@@ -184,8 +185,8 @@ where
                     CompletionType::MenuComplete | CompletionType::MenuCompleteBackward
                 ) || should_append_completion_char(&response, edit, candidate.replacement_bytes());
             let mut replacement_end = edit.end;
-            if menu_quote_suffix_overlap > 0 {
-                replacement_end += menu_quote_suffix_overlap;
+            if quoted_filename_suffix_overlap > 0 {
+                replacement_end += quoted_filename_suffix_overlap;
                 if !state
                     .buffer
                     .as_bytes()
@@ -551,12 +552,7 @@ where
                 && !candidate.replacement_bytes().ends_with(b"/")
                 && next_byte != Some(b'/')
         });
-        let menu_completion = matches!(
-            completion_type,
-            CompletionType::MenuComplete | CompletionType::MenuCompleteBackward
-        );
-        let quoted_directory = menu_completion
-            && !edit.ansi_c_quote
+        let quoted_directory = !edit.ansi_c_quote
             && edit.quote.is_some()
             && response.options.filenames
             && response.options.quote_filename()
@@ -565,16 +561,10 @@ where
             && response.options.filenames
             && response.options.quote_filename()
             && filename_directory.is_some();
-        // Bash 5.3 PTY observations leave safe menu directory quotes open and
+        // Bash 5.3 PTY observations leave safe quoted directories open and
         // put a marked slash after the quote when the name needs shell escaping.
         let directory_needs_quote = (quoted_directory || ansi_c_directory)
-            && quote_filename_bytes(
-                candidate.replacement_bytes(),
-                menu_completion,
-                menu_completion,
-                true,
-            )
-            .as_slice()
+            && quote_filename_bytes(candidate.replacement_bytes(), true, true, true).as_slice()
                 != candidate.replacement_bytes();
         let close_quote = !quoted_directory || directory_needs_quote;
         let close_ansi_c_quote = !ansi_c_directory || directory_needs_quote;

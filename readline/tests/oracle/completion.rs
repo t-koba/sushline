@@ -4929,9 +4929,9 @@ fn menu_completion_handles_partial_and_unmatched_quoted_suffixes_like_bash_5_3()
 
 #[cfg(unix)]
 #[test]
-fn menu_completion_places_quoted_directory_slashes_like_bash_5_3() {
+fn quoted_directory_slashes_match_bash_5_3_for_completion_commands() {
     // Runtime-only Bash 5.3 observations for these directory names, quote
-    // forms, cursor positions, and mark-directories settings; not source proof.
+    // forms, cursor positions, commands, and mark-directories settings; not source proof.
     struct Quote {
         name: &'static str,
         opening: &'static [u8],
@@ -5026,85 +5026,87 @@ fn menu_completion_places_quoted_directory_slashes_like_bash_5_3() {
     let home_path = home.to_string_lossy().into_owned();
     let env = [("HOME", home_path.as_str())];
 
-    for mark_directories in ["on", "off"] {
-        let inputrc = format!(
-            "\"\\C-o\": menu-complete\nset mark-directories {mark_directories}\nset skip-completed-text off\nset menu-complete-display-prefix off\nset show-all-if-ambiguous off\nset page-completions off\nset completion-query-items 999"
-        );
-        for quote in &quotes {
-            for directory in &directories {
-                for cursor in &cursors {
-                    let mut line = b"echo ".to_vec();
-                    line.extend_from_slice(quote.opening);
-                    match cursor.position {
-                        CursorPosition::BeforeCloser | CursorPosition::OpenQuote => {
-                            line.extend_from_slice(directory.typed_prefix);
+    for command in ["complete", "complete-filename", "menu-complete"] {
+        for mark_directories in ["on", "off"] {
+            let inputrc = format!(
+                "\"\\C-o\": {command}\nset mark-directories {mark_directories}\nset skip-completed-text off\nset menu-complete-display-prefix off\nset show-all-if-ambiguous off\nset page-completions off\nset completion-query-items 999"
+            );
+            for quote in &quotes {
+                for directory in &directories {
+                    for cursor in &cursors {
+                        let mut line = b"echo ".to_vec();
+                        line.extend_from_slice(quote.opening);
+                        match cursor.position {
+                            CursorPosition::BeforeCloser | CursorPosition::OpenQuote => {
+                                line.extend_from_slice(directory.typed_prefix);
+                            }
+                            CursorPosition::BeforeSlash => {
+                                line.extend_from_slice(directory.candidate);
+                                line.push(b'/');
+                            }
                         }
-                        CursorPosition::BeforeSlash => {
-                            line.extend_from_slice(directory.candidate);
-                            line.push(b'/');
+                        if !matches!(cursor.position, CursorPosition::OpenQuote) {
+                            line.push(quote.closing);
                         }
-                    }
-                    if !matches!(cursor.position, CursorPosition::OpenQuote) {
-                        line.push(quote.closing);
-                    }
-                    let mut bash_keys = line.clone();
-                    let mut sushline_keys = line;
-                    for _ in 0..cursor.left_count {
-                        bash_keys.push(0x02);
-                        sushline_keys.push(0x02);
-                    }
-                    bash_keys.extend_from_slice(b"\x0f\x07\r");
-                    sushline_keys.extend_from_slice(b"\x0f\r");
+                        let mut bash_keys = line.clone();
+                        let mut sushline_keys = line;
+                        for _ in 0..cursor.left_count {
+                            bash_keys.push(0x02);
+                            sushline_keys.push(0x02);
+                        }
+                        bash_keys.extend_from_slice(b"\x0f\x07\r");
+                        sushline_keys.extend_from_slice(b"\x0f\r");
 
-                    let mark_slash = mark_directories == "on";
-                    let mut expected = b"echo ".to_vec();
-                    expected.extend_from_slice(quote.opening);
-                    expected.extend_from_slice(directory.candidate);
-                    match cursor.position {
-                        CursorPosition::BeforeCloser => {
-                            if mark_slash && directory.needs_shell_escape {
-                                expected.push(quote.closing);
+                        let mark_slash = mark_directories == "on";
+                        let mut expected = b"echo ".to_vec();
+                        expected.extend_from_slice(quote.opening);
+                        expected.extend_from_slice(directory.candidate);
+                        match cursor.position {
+                            CursorPosition::BeforeCloser => {
+                                if mark_slash && directory.needs_shell_escape {
+                                    expected.push(quote.closing);
+                                    expected.push(b'/');
+                                } else {
+                                    if mark_slash {
+                                        expected.push(b'/');
+                                    }
+                                    expected.push(quote.closing);
+                                }
+                            }
+                            CursorPosition::BeforeSlash => {
+                                if directory.needs_shell_escape {
+                                    expected.push(quote.closing);
+                                }
                                 expected.push(b'/');
-                            } else {
+                                expected.push(quote.closing);
+                            }
+                            CursorPosition::OpenQuote => {
+                                if directory.needs_shell_escape {
+                                    expected.push(quote.closing);
+                                }
                                 if mark_slash {
                                     expected.push(b'/');
                                 }
-                                expected.push(quote.closing);
                             }
                         }
-                        CursorPosition::BeforeSlash => {
-                            if directory.needs_shell_escape {
-                                expected.push(quote.closing);
-                            }
-                            expected.push(b'/');
-                            expected.push(quote.closing);
-                        }
-                        CursorPosition::OpenQuote => {
-                            if directory.needs_shell_escape {
-                                expected.push(quote.closing);
-                            }
-                            if mark_slash {
-                                expected.push(b'/');
-                            }
-                        }
+                        let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+                            &cwd,
+                            &inputrc,
+                            &bash_keys,
+                            &sushline_keys,
+                            "set +H",
+                            &env,
+                        );
+                        assert_filename_line_buffer_bytes(
+                            &bash,
+                            &sushline,
+                            &expected,
+                            &format!(
+                                "quoted directory slash command={command} mark={mark_directories} quote={} directory={} cursor={}",
+                                quote.name, directory.name, cursor.name
+                            ),
+                        );
                     }
-                    let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
-                        &cwd,
-                        &inputrc,
-                        &bash_keys,
-                        &sushline_keys,
-                        "set +H",
-                        &env,
-                    );
-                    assert_filename_line_buffer_bytes(
-                        &bash,
-                        &sushline,
-                        &expected,
-                        &format!(
-                            "quoted directory slash mark={mark_directories} quote={} directory={} cursor={}",
-                            quote.name, directory.name, cursor.name
-                        ),
-                    );
                 }
             }
         }

@@ -796,6 +796,56 @@ fn bash_readline_and_sushline_list_completion_candidates_in_same_sorted_order() 
 
 #[cfg(unix)]
 #[test]
+fn bash_readline_and_sushline_list_control_bytes_as_caret_tokens() {
+    // Bash 5.3 PTY runtime record 78277e58dc6d49e1a12488aedb710cc2 measures
+    // these isolated filename-list displays; this is not source proof.
+    let dir = tempfile::tempdir().expect("temp completion directory");
+    let fixtures = [
+        ("escape", "safe-esc\x1b[2J", "safe-esc^[[2J"),
+        ("tab", "safe-tab\t", "safe-tab^I"),
+        ("newline", "safe-lf\n", "safe-lf^J"),
+        ("delete", "safe-del\x7f", "safe-del^?"),
+    ];
+    for (_, filename, _) in fixtures {
+        fs::write(dir.path().join(filename), "").expect("write control-byte fixture");
+    }
+
+    let inputrc = r#""\C-o": possible-filename-completions
+set colored-stats off
+set visible-stats off
+set colored-completion-prefix off
+set completion-query-items 999
+set page-completions off"#;
+    let keys = b"safe-\x0f\r";
+    let bash = run_bash_readline_with_inputrc_file_and_env_in_dir(keys, inputrc, &[], dir.path());
+    let sushline = run_sushline_harness_with_inputrc_and_env_in_dir(keys, inputrc, &[], dir.path());
+
+    for (output, implementation) in [(&bash, "bash"), (&sushline, "sushline")] {
+        assert_eq!(
+            accepted_line(output).as_deref(),
+            Some("safe-"),
+            "accepted prefix mismatch: implementation={implementation}"
+        );
+        assert_eq!(
+            bell_count(output),
+            0,
+            "unexpected completion bell: implementation={implementation}"
+        );
+        for (kind, _, rendered) in fixtures {
+            assert!(
+                output.contains(rendered),
+                "missing caret-rendered filename: implementation={implementation}, kind={kind}, expected={rendered:?}"
+            );
+        }
+        assert!(
+            !output.contains("\x1b[2J"),
+            "raw ESC-[2J terminal sequence was emitted: implementation={implementation}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn bash_readline_and_sushline_pack_completion_columns_at_width_boundary() {
     use portable_pty::PtySize;
 

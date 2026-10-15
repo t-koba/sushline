@@ -2205,6 +2205,103 @@ fn multi_candidate_regular_completion_suffix_and_point_match_bash_5_3() {
 
 #[cfg(unix)]
 #[test]
+fn multi_candidate_special_filename_suffix_matches_bash_5_3() {
+    // Runtime-only Bash 5.3 observations; the inserted marker checks point placement.
+    let quotes = [
+        ("unquoted", b"".as_slice(), None),
+        ("single", b"'".as_slice(), Some(b'\'')),
+        ("double", b"\"".as_slice(), Some(b'\"')),
+        ("ansi-c", b"$'".as_slice(), Some(b'\'')),
+    ];
+    let prefixes = [
+        ("exact", b"safe-Al".as_slice(), true),
+        ("case-different", b"safe-al".as_slice(), false),
+    ];
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    let home = root.path().join("home");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(&home).expect("create fixture HOME");
+    fs::write(cwd.join("safe-Alpha beta"), b"").expect("write fixture file");
+    fs::write(cwd.join("safe-Alpha betamax"), b"").expect("write fixture file");
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+
+    for command in ["complete", "complete-filename"] {
+        for (quote_name, opening, closing) in &quotes {
+            for (prefix_name, prefix, exact_prefix) in &prefixes {
+                for ignore_case in ["off", "on"] {
+                    if !exact_prefix && ignore_case == "off" {
+                        continue;
+                    }
+                    for skip_completed_text in ["off", "on"] {
+                        let inputrc = format!(
+                            "\"\\C-o\": {command}\nset completion-ignore-case {ignore_case}\nset skip-completed-text {skip_completed_text}\nset show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off"
+                        );
+                        let mut line = b"echo ".to_vec();
+                        line.extend_from_slice(opening);
+                        line.extend_from_slice(prefix);
+                        line.extend_from_slice(b"pha");
+                        if let Some(closing) = closing {
+                            line.push(*closing);
+                        }
+                        let mut bash_keys = line.clone();
+                        let mut sushline_keys = line;
+                        for _ in 0..(3 + usize::from(closing.is_some())) {
+                            bash_keys.push(0x02);
+                            sushline_keys.push(0x02);
+                        }
+                        bash_keys.extend_from_slice(b"\x0fX\x07\r");
+                        sushline_keys.extend_from_slice(b"\x0fX\r");
+
+                        let mut expected = b"echo ".to_vec();
+                        expected.extend_from_slice(opening);
+                        if closing.is_none() {
+                            expected.extend_from_slice(b"safe-Alpha\\ betaX");
+                        } else {
+                            expected.extend_from_slice(b"safe-Alpha betaX");
+                        }
+                        if skip_completed_text == "off" || !exact_prefix {
+                            expected.extend_from_slice(b"pha");
+                        }
+                        if let Some(closing) = closing {
+                            expected.push(*closing);
+                        }
+                        let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+                            &cwd,
+                            &inputrc,
+                            &bash_keys,
+                            &sushline_keys,
+                            "set +H",
+                            &env,
+                        );
+                        let bash_hex = raw_line_after_marker(&bash, b"BASH_READLINE_HEX:")
+                            .expect("Bash line-buffer marker");
+                        let (bash_hex_pairs, bash_hex_remainder) = bash_hex.as_chunks::<2>();
+                        assert!(bash_hex_remainder.is_empty(), "odd Bash hex marker");
+                        let bash_bytes = bash_hex_pairs
+                            .iter()
+                            .map(|pair| {
+                                (hex_digit(pair[0]).expect("Bash hex digit") << 4)
+                                    | hex_digit(pair[1]).expect("Bash hex digit")
+                            })
+                            .collect::<Vec<_>>();
+                        let sushline_bytes =
+                            raw_accepted_hex(&sushline).expect("Sushline accepted-line marker");
+                        let context = format!(
+                            "special filename {command} quote={quote_name} prefix={prefix_name} ignore-case={ignore_case} skip={skip_completed_text}"
+                        );
+                        assert_eq!(bash_bytes, expected, "Bash bytes for {context}");
+                        assert_eq!(sushline_bytes, expected, "Sushline bytes for {context}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn complete_filename_skips_ansi_c_suffix_overlap_like_bash_5_3() {
     // Runtime-only Bash 5.3 PTY probes fd9b4cde2d1a4d6ebfc1d0e8e6f4e9ac,
     // 310c48ab3ecc46babeacb3932af2f387, and 6388a4ec690c43c9b13fa0c83cd637c7.

@@ -204,6 +204,7 @@ where
             leave_quoted_filename_suffix_open(
                 &response,
                 &context.edit,
+                completion_type,
                 &suffix,
                 suffix_overlap,
                 response.candidates[next_index - 1].replacement_bytes(),

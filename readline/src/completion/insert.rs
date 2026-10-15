@@ -65,14 +65,19 @@ pub(super) fn preserve_quoted_filename_closer(
 pub(super) fn leave_quoted_filename_suffix_open(
     response: &CompletionResponse,
     edit: &CompletionEdit,
+    completion_type: CompletionType,
     suffix: &[u8],
     suffix_overlap: usize,
     candidate: &[u8],
     replacement: &mut Vec<u8>,
 ) {
-    // Keep the original closer after an unconsumed suffix for safe filenames.
+    // Menu completion retains its special-filename separator policy; regular
+    // filename completion keeps an unconsumed suffix inside its original quote.
     if suffix_overlap >= suffix.len()
-        || should_append_completion_char(response, edit, candidate)
+        || (matches!(
+            completion_type,
+            CompletionType::MenuComplete | CompletionType::MenuCompleteBackward
+        ) && should_append_completion_char(response, edit, candidate))
         || !response.options.filenames
         || !response.options.quote_filename()
     {
@@ -283,6 +288,7 @@ where
                 leave_quoted_filename_suffix_open(
                     &response,
                     edit,
+                    completion_type,
                     &suffix,
                     replacement_end.saturating_sub(edit.end),
                     candidate.replacement_bytes(),
@@ -338,6 +344,7 @@ where
                     leave_quoted_filename_suffix_open(
                         &response,
                         edit,
+                        completion_type,
                         &suffix,
                         replacement_end.saturating_sub(edit.end),
                         &common_prefix,

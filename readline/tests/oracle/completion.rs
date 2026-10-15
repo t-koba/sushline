@@ -699,6 +699,43 @@ fn bash_readline_and_sushline_complete_same_filenames_into_braces() {
 
 #[cfg(unix)]
 #[test]
+fn bash_readline_and_sushline_disable_completion_match_bash_5_3() {
+    let dir = tempfile::tempdir().expect("temp completion directory");
+    for name in ["alpha-one", "alpha-two"] {
+        fs::write(dir.path().join(name), "").expect("write completion fixture");
+    }
+
+    // Bash 5.3 PTY runtime observations for this exact fixture and input only;
+    // these are not source proof or a general disable-completion claim.
+    for (disable_completion, expected, expected_bells) in [("off", "alpha-", 1), ("on", "al\t", 0)]
+    {
+        let inputrc = format!(
+            "set disable-completion {disable_completion}\nset completion-query-items 999\nset page-completions off"
+        );
+        let keys = b"al\t\r";
+        let bash =
+            run_bash_readline_with_inputrc_file_and_env_in_dir(keys, &inputrc, &[], dir.path());
+        let sushline =
+            run_sushline_harness_with_inputrc_and_env_in_dir(keys, &inputrc, &[], dir.path());
+        let expected = Some(expected.to_string());
+
+        for (output, implementation) in [(&bash, "bash"), (&sushline, "sushline")] {
+            assert_eq!(
+                accepted_line(output),
+                expected,
+                "disable-completion={disable_completion}, implementation={implementation}\n{output}"
+            );
+            assert_eq!(
+                bell_count(output),
+                expected_bells,
+                "disable-completion={disable_completion}, implementation={implementation}\n{output}"
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn bash_readline_and_sushline_show_all_for_tested_ambiguous_and_unmodified_filename_completion() {
     let dir = tempfile::tempdir().expect("temp completion directory");
     for name in ["alpha-one", "alpha-two"] {

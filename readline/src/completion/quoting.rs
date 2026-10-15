@@ -155,10 +155,24 @@ pub(super) fn completed_suffix_overlap_len(replacement: &[u8], suffix: &[u8]) ->
         .unwrap_or(0)
 }
 
+// Only skip text at the cursor when it matches the candidate's remaining prefix.
+pub(super) fn completion_suffix_overlap_len(completion: &[u8], suffix: &[u8]) -> usize {
+    completion
+        .iter()
+        .zip(suffix)
+        .take_while(|(completion_byte, suffix_byte)| completion_byte == suffix_byte)
+        .count()
+}
+
 pub(super) fn completion_suffix_bytes(edit: &CompletionEdit, state: &EditorState) -> Vec<u8> {
-    let bytes = state.buffer.as_bytes();
-    bytes
-        .get(edit.end..)
+    completion_suffix_bytes_at(edit.end, state)
+}
+
+pub(super) fn completion_suffix_bytes_at(end: usize, state: &EditorState) -> Vec<u8> {
+    state
+        .buffer
+        .as_bytes()
+        .get(end..)
         .unwrap_or_default()
         .iter()
         .copied()

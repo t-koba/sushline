@@ -1,5 +1,7 @@
 use crate::completion::insert::{CompletionReplacement, extend_with_trailing_char};
-use crate::completion::quoting::CompletionEdit;
+use crate::completion::quoting::{
+    CompletionEdit, completion_suffix_bytes_at, completion_suffix_overlap_len,
+};
 use crate::completion::{CompletionAction, CompletionResponse, CompletionType};
 use crate::editor::{Editor, ReadlineError};
 use crate::hooks::Hooks;
@@ -90,14 +92,46 @@ where
             context.previous_match_index,
         );
         let completion_type = menu_completion_type(backward);
-        let (replacement_bytes, ansi_c_suffix_bytes) = self.menu_complete_replacement(
-            &response,
-            &context,
-            next_index,
-            hooks,
-            state,
-            completion_type,
-        );
+        let skip_completed_text = self.variable_is_on("skip-completed-text");
+        let suffix = completion_suffix_bytes_at(context.end, state);
+        let ansi_c_filename_completion = context.edit.ansi_c_quote
+            && response.options.filenames
+            && response.options.quote_filename();
+        let completion_suffix_overlap =
+            if skip_completed_text && ansi_c_filename_completion && next_index > 0 {
+                let candidate = response.candidates[next_index - 1].replacement_bytes();
+                let candidate_suffix = candidate
+                    .strip_prefix(context.edit.word_bytes.as_slice())
+                    .unwrap_or(candidate);
+                completion_suffix_overlap_len(candidate_suffix, &suffix)
+            } else {
+                0
+            };
+        let next_byte = if completion_suffix_overlap > 0 {
+            suffix.get(completion_suffix_overlap).copied()
+        } else {
+            suffix.first().copied()
+        };
+        let (mut replacement_bytes, is_directory, ansi_c_suffix_bytes) = self
+            .menu_complete_replacement(
+                &response,
+                &context,
+                next_index,
+                hooks,
+                completion_type,
+                next_byte,
+            );
+        let mut ansi_c_suffix_overlap = completion_suffix_overlap;
+        let has_existing_ansi_c_quote = ansi_c_filename_completion
+            && next_index > 0
+            && ansi_c_suffix_bytes > 0
+            && suffix.get(ansi_c_suffix_overlap) == Some(&b'\'');
+        if has_existing_ansi_c_quote {
+            ansi_c_suffix_overlap += 1;
+            if ansi_c_suffix_bytes > 1 && suffix.get(ansi_c_suffix_overlap) == Some(&b'/') {
+                ansi_c_suffix_overlap += 1;
+            }
+        }
         self.menu_complete_display(
             state,
             &response,
@@ -105,14 +139,23 @@ where
             context.previous_match_index,
             next_index,
         )?;
-        let mut replacement_end = context.end;
-        if ansi_c_suffix_bytes > 0 && state.buffer.as_bytes().get(replacement_end) == Some(&b'\'') {
-            replacement_end += 1;
-            if ansi_c_suffix_bytes > 1
-                && state.buffer.as_bytes().get(replacement_end) == Some(&b'/')
-            {
-                replacement_end += 1;
-            }
+        let suffix_overlap =
+            if (skip_completed_text && ansi_c_filename_completion) || has_existing_ansi_c_quote {
+                ansi_c_suffix_overlap
+            } else {
+                0
+            };
+        let replacement_end = context.end + suffix_overlap;
+        if next_index > 0
+            && !is_directory
+            && (!ansi_c_filename_completion || suffix_overlap == suffix.len())
+            && !state
+                .buffer
+                .as_bytes()
+                .get(replacement_end)
+                .is_some_and(u8::is_ascii_whitespace)
+        {
+            extend_with_trailing_char(&mut replacement_bytes, &response.options);
         }
         state
             .buffer
@@ -159,19 +202,20 @@ where
         context: &MenuCompleteContext,
         next_index: usize,
         hooks: &mut impl Hooks,
-        state: &EditorState,
         completion_type: CompletionType,
-    ) -> (Vec<u8>, usize) {
+        next_byte: Option<u8>,
+    ) -> (Vec<u8>, bool, usize) {
         if next_index == 0 {
             return (
                 self.requote_common_prefix(response, &context.edit, completion_type, hooks)
                     .unwrap_or_default(),
+                false,
                 0,
             );
         }
         let candidate = &response.candidates[next_index - 1];
         let CompletionReplacement {
-            bytes: mut replacement,
+            bytes: replacement,
             is_directory,
             ansi_c_suffix_bytes,
         } = self.completion_replacement_with_directory(
@@ -180,12 +224,9 @@ where
             candidate,
             completion_type,
             hooks,
-            state.buffer.as_bytes().get(context.end).copied(),
+            next_byte,
         );
-        if !is_directory {
-            extend_with_trailing_char(&mut replacement, &response.options);
-        }
-        (replacement, ansi_c_suffix_bytes)
+        (replacement, is_directory, ansi_c_suffix_bytes)
     }
 
     fn menu_complete_display(

@@ -845,16 +845,89 @@ set page-completions off"#;
 }
 
 #[cfg(unix)]
+fn run_raw_filename_completion_pair(
+    keys: &[u8],
+    inputrc: &str,
+    env: &[(&str, &str)],
+    cwd: &std::path::Path,
+) -> (Vec<u8>, Vec<u8>) {
+    use portable_pty::{CommandBuilder, PtySize};
+
+    let inputrc_path = cwd.join("inputrc");
+    fs::write(&inputrc_path, inputrc).expect("write inputrc");
+    let mut bash_command = CommandBuilder::new("bash");
+    bash_command.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
+    for (name, value) in env {
+        bash_command.env(name, value);
+    }
+    bash_command.args([
+        "--noprofile",
+        "--norc",
+        "-i",
+        "-c",
+        r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "SUSHLINE_READY>" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#,
+    ]);
+
+    let mut sushline_command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    sushline_command.env("SUSHLINE_INPUTRC", inputrc);
+    sushline_command.env("SUSHLINE_PROMPT", READY_PROMPT);
+    sushline_command.env("SUSHLINE_HISTORY", "");
+    for (name, value) in env {
+        sushline_command.env(name, value);
+    }
+
+    let size = PtySize {
+        rows: 24,
+        cols: 80,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    (
+        run_pty_in_dir_with_size_raw(bash_command, keys, cwd, size),
+        run_pty_in_dir_with_size_raw(sushline_command, keys, cwd, size),
+    )
+}
+
+#[cfg(unix)]
+fn raw_accepted_line(output: &[u8]) -> Option<&[u8]> {
+    let marker = b"SUSHLINE_ACCEPTED:";
+    let start = output
+        .windows(marker.len())
+        .position(|window| window == marker)?
+        + marker.len();
+    let rest = &output[start..];
+    let end = rest
+        .iter()
+        .position(|byte| matches!(byte, b'\r' | b'\n'))
+        .unwrap_or(rest.len());
+    Some(&rest[..end])
+}
+
+#[cfg(unix)]
+fn before_accepted_marker(output: &[u8]) -> Option<&[u8]> {
+    let marker = b"SUSHLINE_ACCEPTED:";
+    let end = output
+        .windows(marker.len())
+        .position(|window| window == marker)?;
+    Some(&output[..end])
+}
+
+#[cfg(unix)]
+fn raw_bell_count(output: &[u8]) -> usize {
+    output.iter().filter(|byte| **byte == b'\x07').count()
+}
+
+#[cfg(unix)]
 #[test]
 fn bash_readline_and_sushline_list_raw_invalid_byte_filename_under_tested_locales() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;
 
-    // Bash 5.3 PTY evidence 6db67d1362dd4ab1a7cac8dd526d566d observed the raw
-    // candidate byte under both locales. PTY helper String captures are lossy,
-    // so assert their replacement-token view rather than dumping captured data.
+    // Prior Bash PTY evidence 6db67d1362dd4ab1a7cac8dd526d566d covered `raw-`
+    // plus byte 0xFF without a suffix. This test captures raw bytes for `raw-`
+    // plus byte 0xFF and suffix `-item`.
     let dir = tempfile::tempdir().expect("temp completion directory");
-    let filename = OsString::from_vec(b"raw-\xff".to_vec());
+    let filename = OsString::from_vec(b"raw-\xff-item".to_vec());
     fs::write(dir.path().join(filename), "").expect("write raw-byte fixture");
 
     let inputrc = r#""\C-o": possible-filename-completions
@@ -864,39 +937,37 @@ set colored-completion-prefix off
 set completion-query-items 999
 set page-completions off"#;
     let keys = b"raw-\x0f\r";
+    let replacement = b"\xef\xbf\xbd";
 
     for locale in ["C", "C.UTF-8"] {
         if locale == "C.UTF-8" && !c_utf8_locale_available() {
             continue;
         }
-        let locale_env = [("LC_ALL", locale)];
-        let bash = run_bash_readline_with_inputrc_file_and_env_in_dir(
-            keys,
-            inputrc,
-            &locale_env,
-            dir.path(),
-        );
-        let sushline = run_sushline_harness_with_inputrc_and_env_in_dir(
-            keys,
-            inputrc,
-            &locale_env,
-            dir.path(),
-        );
+        let (bash, sushline) =
+            run_raw_filename_completion_pair(keys, inputrc, &[("LC_ALL", locale)], dir.path());
 
         for (output, implementation) in [(&bash, "Bash"), (&sushline, "Sushline")] {
             assert_eq!(
-                accepted_line(output).as_deref(),
-                Some("raw-"),
-                "accepted prefix mismatch for {implementation} under LC_ALL={locale}"
+                raw_accepted_line(output),
+                Some(b"raw-".as_slice()),
+                "accepted prefix bytes differ for {implementation} under LC_ALL={locale}"
             );
             assert_eq!(
-                bell_count(output),
+                raw_bell_count(output),
                 0,
                 "unexpected completion bell for {implementation} under LC_ALL={locale}"
             );
             assert!(
-                output.contains("raw-\u{fffd}"),
-                "lossy capture lacks replacement-token representation for {implementation} under LC_ALL={locale}"
+                output
+                    .windows(b"raw-\xff-item".len())
+                    .any(|window| window == b"raw-\xff-item"),
+                "raw filename bytes missing for {implementation} under LC_ALL={locale}"
+            );
+            assert!(
+                !output
+                    .windows(replacement.len())
+                    .any(|window| window == replacement),
+                "UTF-8 replacement bytes present for {implementation} under LC_ALL={locale}"
             );
         }
     }
@@ -905,7 +976,6 @@ set page-completions off"#;
 #[cfg(unix)]
 #[test]
 fn filename_completion_redraw_shows_raw_invalid_byte_differently_by_locale() {
-    use portable_pty::CommandBuilder;
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;
 
@@ -917,53 +987,43 @@ fn filename_completion_redraw_shows_raw_invalid_byte_differently_by_locale() {
     )
     .expect("write raw-byte fixture");
     let inputrc = r#""\C-o": complete-filename"#;
-    let inputrc_path = dir.path().join("inputrc");
-    fs::write(&inputrc_path, inputrc).expect("write inputrc");
-    let keys = b"raw-\x0f";
+    let keys = b"raw-\x0f\r";
+    let replacement = b"\xef\xbf\xbd";
 
     for locale in ["C", "C.UTF-8"] {
         if locale == "C.UTF-8" && !c_utf8_locale_available() {
             continue;
         }
-
-        let mut bash_command = CommandBuilder::new("bash");
-        bash_command.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
-        bash_command.args([
-            "--noprofile",
-            "--norc",
-            "-i",
-            "-c",
-            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "SUSHLINE_READY>" line; :"#,
-        ]);
-        let bash = run_pty_redraw_after_prompt(bash_command, keys, dir.path(), locale);
-
-        let mut sushline_command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
-        sushline_command.env("SUSHLINE_INPUTRC", inputrc);
-        sushline_command.env("SUSHLINE_PROMPT", READY_PROMPT);
-        sushline_command.env("SUSHLINE_HISTORY", "");
-        let sushline = run_pty_redraw_after_prompt(sushline_command, keys, dir.path(), locale);
-
-        let expected_bash = if locale == "C" {
-            "raw-\\377-item "
+        let (bash, sushline) =
+            run_raw_filename_completion_pair(keys, inputrc, &[("LC_ALL", locale)], dir.path());
+        let expected_bash: &[u8] = if locale == "C" {
+            b"raw-\\377-item "
         } else {
-            "raw-�-item "
+            b"raw-\xff-item "
         };
         for (output, implementation, expected) in [
             (&bash, "Bash", expected_bash),
-            (&sushline, "Sushline", "raw-�-item "),
+            (&sushline, "Sushline", b"raw-\xff-item ".as_slice()),
         ] {
+            let redraw = before_accepted_marker(output).unwrap_or_else(|| {
+                panic!("missing acceptance boundary for {implementation} under LC_ALL={locale}")
+            });
             assert!(
-                output.contains(expected),
-                "missing expected pre-accept filename redraw for {implementation} under LC_ALL={locale}"
+                redraw
+                    .windows(expected.len())
+                    .any(|window| window == expected),
+                "expected redraw bytes missing for {implementation} under LC_ALL={locale}"
+            );
+            assert!(
+                !redraw
+                    .windows(replacement.len())
+                    .any(|window| window == replacement),
+                "UTF-8 replacement bytes present before acceptance for {implementation} under LC_ALL={locale}"
             );
             assert_eq!(
-                bell_count(output),
+                raw_bell_count(redraw),
                 0,
-                "unexpected completion bell for {implementation} under LC_ALL={locale}"
-            );
-            assert!(
-                !output.contains("SUSHLINE_ACCEPTED:"),
-                "line was accepted before the pre-accept redraw was captured"
+                "unexpected completion bell before acceptance for {implementation} under LC_ALL={locale}"
             );
         }
     }

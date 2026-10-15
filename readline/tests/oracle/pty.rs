@@ -672,21 +672,35 @@ pub(super) fn run_pty(command: CommandBuilder, keys: &[u8]) -> String {
 }
 
 pub(super) fn run_pty_in_dir(
-    mut command: CommandBuilder,
+    command: CommandBuilder,
     keys: &[u8],
     cwd: &std::path::Path,
 ) -> String {
-    command.env("TERM", "xterm-256color");
-    command.cwd(cwd);
-    run_pty_with_size_until_after_prompt_inner(
+    lossy_output(&run_pty_in_dir_with_size_raw(
         command,
         keys,
+        cwd,
         PtySize {
             rows: 24,
             cols: 80,
             pixel_width: 0,
             pixel_height: 0,
         },
+    ))
+}
+
+pub(super) fn run_pty_in_dir_with_size_raw(
+    mut command: CommandBuilder,
+    keys: &[u8],
+    cwd: &std::path::Path,
+    size: PtySize,
+) -> Vec<u8> {
+    command.env("TERM", "xterm-256color");
+    command.cwd(cwd);
+    run_pty_with_size_until_after_prompt_inner_raw(
+        command,
+        keys,
+        size,
         "SUSHLINE_ACCEPTED:",
         None::<fn()>,
     )
@@ -734,20 +748,44 @@ pub(super) fn run_pty_steps_until(
 /// marker risks parsing a truncated `SUSHLINE_ACCEPTED:*` line. Every harness
 /// marker is printed with a trailing newline, so wait for `\r`/`\n` after
 /// the marker. The outer deadline still bounds the failure path.
-fn stop_marker_line_complete(output: &str, marker: &str) -> bool {
-    let Some(start) = output.find(marker) else {
+fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() {
+        return Some(0);
+    }
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
+}
+
+fn stop_marker_line_complete(output: &[u8], marker: &str) -> bool {
+    let Some(start) = find_bytes(output, marker.as_bytes()) else {
         return false;
     };
-    let rest = &output[start + marker.len()..];
-    rest.contains('\r') || rest.contains('\n')
+    output[start + marker.len()..]
+        .iter()
+        .any(|byte| matches!(byte, b'\r' | b'\n'))
 }
 
 pub(super) fn run_pty_steps_with_size_until(
-    mut command: CommandBuilder,
+    command: CommandBuilder,
     steps: &[(&str, &[u8])],
     size: PtySize,
     stop_marker: &str,
 ) -> String {
+    lossy_output(&run_pty_steps_with_size_until_raw(
+        command,
+        steps,
+        size,
+        stop_marker,
+    ))
+}
+
+fn run_pty_steps_with_size_until_raw(
+    mut command: CommandBuilder,
+    steps: &[(&str, &[u8])],
+    size: PtySize,
+    stop_marker: &str,
+) -> Vec<u8> {
     command.env("TERM", "xterm-256color");
     // portable-pty uses $HOME as the child cwd; the sandbox HOME may not
     // exist (ENOENT on spawn), and oracle cases use absolute paths only.
@@ -785,15 +823,15 @@ pub(super) fn run_pty_steps_with_size_until(
         match rx.recv_timeout(Duration::from_millis(20)) {
             Ok(chunk) => {
                 out.extend_from_slice(&chunk);
-                let output = String::from_utf8_lossy(&out);
-                let new_output = String::from_utf8_lossy(&out[scan_start..]);
-                if next_step < steps.len() && new_output.contains(steps[next_step].0) {
+                if next_step < steps.len()
+                    && find_bytes(&out[scan_start..], steps[next_step].0.as_bytes()).is_some()
+                {
                     writer.write_all(steps[next_step].1).expect("write keys");
                     writer.flush().expect("flush keys");
                     next_step += 1;
                     scan_start = out.len();
                 }
-                if stop_marker_line_complete(&output, stop_marker) {
+                if stop_marker_line_complete(&out, stop_marker) {
                     break;
                 }
             }
@@ -805,7 +843,7 @@ pub(super) fn run_pty_steps_with_size_until(
     let _ = child.kill();
     let _ = child.wait();
     let _ = reader_thread.join();
-    String::from_utf8_lossy(&out).into_owned()
+    out
 }
 
 pub(super) fn run_pty_after_prompt(
@@ -866,8 +904,24 @@ fn run_pty_with_size_until_after_prompt_inner<F: FnOnce()>(
     keys: &[u8],
     size: PtySize,
     stop_marker: &str,
-    mut after_prompt: Option<F>,
+    after_prompt: Option<F>,
 ) -> String {
+    lossy_output(&run_pty_with_size_until_after_prompt_inner_raw(
+        command,
+        keys,
+        size,
+        stop_marker,
+        after_prompt,
+    ))
+}
+
+fn run_pty_with_size_until_after_prompt_inner_raw<F: FnOnce()>(
+    command: CommandBuilder,
+    keys: &[u8],
+    size: PtySize,
+    stop_marker: &str,
+    mut after_prompt: Option<F>,
+) -> Vec<u8> {
     let pty_system = NativePtySystem::default();
     let pair = pty_system.openpty(size).expect("open pty");
 
@@ -903,8 +957,7 @@ fn run_pty_with_size_until_after_prompt_inner<F: FnOnce()>(
         match rx.recv_timeout(Duration::from_millis(20)) {
             Ok(chunk) => {
                 out.extend_from_slice(&chunk);
-                let output = String::from_utf8_lossy(&out);
-                if !sent_keys && output.contains(READY_PROMPT) {
+                if !sent_keys && find_bytes(&out, READY_PROMPT.as_bytes()).is_some() {
                     if let Some(after_prompt) = after_prompt.take() {
                         after_prompt();
                     }
@@ -912,7 +965,7 @@ fn run_pty_with_size_until_after_prompt_inner<F: FnOnce()>(
                     writer.flush().expect("flush keys");
                     sent_keys = true;
                 }
-                if stop_marker_line_complete(&output, stop_marker) {
+                if stop_marker_line_complete(&out, stop_marker) {
                     break;
                 }
             }
@@ -924,7 +977,11 @@ fn run_pty_with_size_until_after_prompt_inner<F: FnOnce()>(
     let _ = child.kill();
     let _ = child.wait();
     let _ = reader_thread.join();
-    String::from_utf8_lossy(&out).into_owned()
+    out
+}
+
+fn lossy_output(output: &[u8]) -> String {
+    String::from_utf8_lossy(output).into_owned()
 }
 
 pub(super) fn accepted_line(output: &str) -> Option<String> {
@@ -987,65 +1044,18 @@ pub(super) fn shell_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-/// Capture the redraw after sending keys at the prompt, without accepting
-/// the edited line. The lossy string is intended for display assertions only.
-pub(super) fn run_pty_redraw_after_prompt(
-    command: CommandBuilder,
-    keys: &[u8],
-    cwd: &std::path::Path,
-    locale: &str,
-) -> String {
-    run_pty_checkpoints_with_environment(
-        command,
-        READY_PROMPT,
-        &[keys.to_vec()],
-        PtySize {
-            rows: 24,
-            cols: 80,
-            pixel_width: 0,
-            pixel_height: 0,
-        },
-        locale,
-        cwd,
-        Duration::from_millis(200),
-    )
-    .into_iter()
-    .next()
-    .expect("redraw checkpoint")
-}
-
 /// Capture settled redisplay checkpoints without accepting the line. Each
 /// write is separated by an output-idle interval, so a byte-at-a-time test
 /// does not accidentally become a single batched-input test.
 pub(super) fn run_pty_checkpoints(
-    command: CommandBuilder,
-    prompt: &str,
-    steps: &[Vec<u8>],
-    size: PtySize,
-) -> Vec<String> {
-    run_pty_checkpoints_with_environment(
-        command,
-        prompt,
-        steps,
-        size,
-        "C",
-        std::path::Path::new("/"),
-        Duration::from_millis(40),
-    )
-}
-
-fn run_pty_checkpoints_with_environment(
     mut command: CommandBuilder,
     prompt: &str,
     steps: &[Vec<u8>],
     size: PtySize,
-    locale: &str,
-    cwd: &std::path::Path,
-    settled: Duration,
 ) -> Vec<String> {
     command.env("TERM", "xterm-256color");
-    command.env("LC_ALL", locale);
-    command.cwd(cwd);
+    command.env("LC_ALL", "C");
+    command.cwd("/");
     let pair = NativePtySystem::default().openpty(size).expect("open pty");
     let mut child = pair.slave.spawn_command(command).expect("spawn command");
     drop(pair.slave);
@@ -1066,14 +1076,14 @@ fn run_pty_checkpoints_with_environment(
     let mut sent = 0;
     let mut ready = false;
     while Instant::now() < deadline {
-        match rx.recv_timeout(settled) {
+        match rx.recv_timeout(Duration::from_millis(40)) {
             Ok(chunk) => {
                 output.extend_from_slice(&chunk);
-                ready |= String::from_utf8_lossy(&output).contains(prompt);
+                ready |= find_bytes(&output, prompt.as_bytes()).is_some();
             }
             Err(mpsc::RecvTimeoutError::Timeout) if ready => {
                 if sent > 0 {
-                    frames.push(String::from_utf8_lossy(&output).into_owned());
+                    frames.push(lossy_output(&output));
                 }
                 if sent == steps.len() {
                     break;

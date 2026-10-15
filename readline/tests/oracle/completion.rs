@@ -2678,56 +2678,6 @@ fn multi_candidate_double_quoted_escaped_quote_with_space_suffix_matches_bash_5_
 
 #[cfg(unix)]
 #[test]
-fn probe_ansi_c_backslash_suffix_pty() {
-    let root = tempfile::tempdir().expect("temp completion root");
-    let cwd = root.path().join("cwd");
-    let home = root.path().join("home");
-    fs::create_dir(&cwd).expect("create fixture cwd");
-    fs::create_dir(&home).expect("create fixture HOME");
-    fs::write(cwd.join("safe\\one"), b"").expect("write fixture file");
-    fs::write(cwd.join("safe\\two"), b"").expect("write fixture file");
-    let home_path = home.to_string_lossy().into_owned();
-    let env = [("HOME", home_path.as_str())];
-
-    for command in ["complete", "complete-filename"] {
-        for skip_completed_text in ["off", "on"] {
-            let inputrc = format!(
-                "\"\\C-o\": {command}\nset skip-completed-text {skip_completed_text}\nset show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off"
-            );
-            let mut bash_keys = b"echo $'safe\\\\'".to_vec();
-            let mut sushline_keys = bash_keys.clone();
-            for _ in 0..3 {
-                bash_keys.push(0x02);
-                sushline_keys.push(0x02);
-            }
-            bash_keys.extend_from_slice(b"\x0fX\x07\r");
-            sushline_keys.extend_from_slice(b"\x0fX\r");
-            let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
-                &cwd,
-                &inputrc,
-                &bash_keys,
-                &sushline_keys,
-                "set +H",
-                &env,
-            );
-            let bash_hex = raw_line_after_marker(&bash, b"BASH_READLINE_HEX:").unwrap();
-            let (pairs, _) = bash_hex.as_chunks::<2>();
-            let bash_bytes = pairs
-                .iter()
-                .map(|pair| (hex_digit(pair[0]).unwrap() << 4) | hex_digit(pair[1]).unwrap())
-                .collect::<Vec<_>>();
-            let sushline_bytes = raw_accepted_hex(&sushline).unwrap();
-            eprintln!(
-                "{command} skip={skip_completed_text}: Bash={bash_bytes:02x?} ({}) Sushline={sushline_bytes:02x?} ({})",
-                String::from_utf8_lossy(&bash_bytes),
-                String::from_utf8_lossy(&sushline_bytes)
-            );
-        }
-    }
-}
-
-#[cfg(unix)]
-#[test]
 fn multi_candidate_ansi_c_backslash_suffix_matches_bash_5_3() {
     let root = tempfile::tempdir().expect("temp completion root");
     let cwd = root.path().join("cwd");

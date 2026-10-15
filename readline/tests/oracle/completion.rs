@@ -846,6 +846,64 @@ set page-completions off"#;
 
 #[cfg(unix)]
 #[test]
+fn bash_readline_and_sushline_list_raw_invalid_byte_filename_under_tested_locales() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    // Bash 5.3 PTY evidence 6db67d1362dd4ab1a7cac8dd526d566d observed the raw
+    // candidate byte under both locales. PTY helper String captures are lossy,
+    // so assert their replacement-token view rather than dumping captured data.
+    let dir = tempfile::tempdir().expect("temp completion directory");
+    let filename = OsString::from_vec(b"raw-\xff".to_vec());
+    fs::write(dir.path().join(filename), "").expect("write raw-byte fixture");
+
+    let inputrc = r#""\C-o": possible-filename-completions
+set colored-stats off
+set visible-stats off
+set colored-completion-prefix off
+set completion-query-items 999
+set page-completions off"#;
+    let keys = b"raw-\x0f\r";
+
+    for locale in ["C", "C.UTF-8"] {
+        if locale == "C.UTF-8" && !c_utf8_locale_available() {
+            continue;
+        }
+        let locale_env = [("LC_ALL", locale)];
+        let bash = run_bash_readline_with_inputrc_file_and_env_in_dir(
+            keys,
+            inputrc,
+            &locale_env,
+            dir.path(),
+        );
+        let sushline = run_sushline_harness_with_inputrc_and_env_in_dir(
+            keys,
+            inputrc,
+            &locale_env,
+            dir.path(),
+        );
+
+        for (output, implementation) in [(&bash, "Bash"), (&sushline, "Sushline")] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some("raw-"),
+                "accepted prefix mismatch for {implementation} under LC_ALL={locale}"
+            );
+            assert_eq!(
+                bell_count(output),
+                0,
+                "unexpected completion bell for {implementation} under LC_ALL={locale}"
+            );
+            assert!(
+                output.contains("raw-\u{fffd}"),
+                "lossy capture lacks replacement-token representation for {implementation} under LC_ALL={locale}"
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn bash_readline_and_sushline_pack_completion_columns_at_width_boundary() {
     use portable_pty::PtySize;
 

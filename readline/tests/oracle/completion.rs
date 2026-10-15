@@ -945,6 +945,103 @@ set page-completions off"#;
 }
 
 #[cfg(unix)]
+#[test]
+fn complete_filename_preserves_control_bytes_in_quoted_contexts_like_bash_5_3() {
+    use portable_pty::{CommandBuilder, PtySize};
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    // Runtime-only Bash 5.3 PTY probe aba58f9a67164d8ab380425ec4d39631.
+    // Capture Bash's live line buffer and Sushline's accepted bytes as hex.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let fixtures = [
+        ("tab", b"safe-tab\titem".as_slice()),
+        ("lf", b"safe-lf\nitem".as_slice()),
+        ("esc", b"safe-esc\x1b[2J".as_slice()),
+        ("del", b"safe-del\x7f".as_slice()),
+    ];
+    let bash_script = r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; bind -x '"\C-g": printf "BASH_READLINE_HEX:"; printf "%s" "$READLINE_LINE" | od -An -tx1 | tr -d " \n"; printf "\n"'; IFS= read -r -e -p "SUSHLINE_READY>" line; :"#;
+
+    for (control_kind, basename) in fixtures {
+        let dir = root.path().join(control_kind);
+        fs::create_dir(&dir).expect("create control-byte fixture directory");
+        fs::write(dir.join(OsString::from_vec(basename.to_vec())), "")
+            .expect("write control-byte fixture");
+        let inputrc = r#""\C-o": complete-filename
+set expand-tilde off
+set mark-directories off
+set completion-query-items 999
+set page-completions off"#;
+        let inputrc_path = dir.join("inputrc");
+        fs::write(&inputrc_path, inputrc).expect("write inputrc");
+
+        for (quote_kind, quote_byte) in [("single", b'\''), ("double", b'"')] {
+            let mut typed = vec![quote_byte];
+            typed.extend_from_slice(b"safe-");
+            let mut bash_keys = typed.clone();
+            bash_keys.extend_from_slice(b"\x0f\x07\r");
+            let mut sushline_keys = typed;
+            sushline_keys.extend_from_slice(b"\x0f\r");
+
+            let mut bash_command = CommandBuilder::new("bash");
+            bash_command.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
+            bash_command.env("LC_ALL", "C");
+            bash_command.args(["--noprofile", "--norc", "-i", "-c", bash_script]);
+            let bash = run_pty_in_dir_with_size_raw_until(
+                bash_command,
+                &bash_keys,
+                &dir,
+                PtySize {
+                    rows: 24,
+                    cols: 80,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                },
+                "BASH_READLINE_HEX:",
+            );
+
+            let mut sushline_command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+            sushline_command.env("SUSHLINE_INPUTRC", inputrc);
+            sushline_command.env("SUSHLINE_PROMPT", READY_PROMPT);
+            sushline_command.env("SUSHLINE_HISTORY", "");
+            sushline_command.env("SUSHLINE_ACCEPTED_HEX", "1");
+            sushline_command.env("LC_ALL", "C");
+            let sushline = run_pty_in_dir_with_size_raw_until(
+                sushline_command,
+                &sushline_keys,
+                &dir,
+                PtySize {
+                    rows: 24,
+                    cols: 80,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                },
+                "SUSHLINE_ACCEPTED_HEX:",
+            );
+
+            let bash_hex = raw_line_after_marker(&bash, b"BASH_READLINE_HEX:");
+            let sushline_hex = raw_accepted_hex_marker(&sushline);
+            assert!(
+                bash_hex.is_some() && bash_hex == sushline_hex,
+                "line-buffer hex mismatch for control={control_kind}, quote={quote_kind}"
+            );
+            let mut expected = vec![quote_byte];
+            expected.extend_from_slice(basename);
+            expected.push(quote_byte);
+            expected.push(b' ');
+            assert!(
+                raw_accepted_hex(&sushline).as_deref() == Some(expected.as_slice()),
+                "accepted bytes mismatch for control={control_kind}, quote={quote_kind}"
+            );
+            assert!(
+                raw_bell_count(&bash) == 0 && raw_bell_count(&sushline) == 0,
+                "unexpected completion bell for control={control_kind}, quote={quote_kind}"
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
 fn run_raw_filename_completion_pair(
     keys: &[u8],
     inputrc: &str,

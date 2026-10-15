@@ -88,6 +88,7 @@ pub(super) fn dequote_completion_word_bytes(raw: &[u8]) -> (Vec<u8>, Option<char
 pub(super) fn quote_filename_bytes(
     bytes: &[u8],
     escape_leading_tilde: bool,
+    escape_leading_hash: bool,
     single_quote_line_feeds: bool,
 ) -> Vec<u8> {
     if single_quote_line_feeds && bytes.contains(&b'\n') {
@@ -95,6 +96,9 @@ pub(super) fn quote_filename_bytes(
     }
     let mut out = Vec::with_capacity(bytes.len());
     if escape_leading_tilde && bytes.first() == Some(&b'~') {
+        out.push(b'\\');
+    }
+    if escape_leading_hash && bytes.first() == Some(&b'#') {
         out.push(b'\\');
     }
     for byte in bytes {
@@ -218,12 +222,28 @@ mod tests {
     #[test]
     fn filename_quoting_uses_single_quotes_for_line_feeds() {
         assert_eq!(
-            quote_filename_bytes(b"safe-lf\nitem", true, true),
+            quote_filename_bytes(b"safe-lf\nitem", true, false, true),
             b"'safe-lf\nitem'",
         );
         assert_eq!(
-            quote_filename_bytes(b"~/safe-lf\nitem", false, false),
+            quote_filename_bytes(b"~/safe-lf\nitem", false, false, false),
             b"~/safe-lf\\\nitem",
+        );
+    }
+
+    #[test]
+    fn filename_quoting_escapes_only_a_shell_comment_leading_hash_when_requested() {
+        assert_eq!(
+            quote_filename_bytes(b"#safe-item", false, true, true),
+            b"\\#safe-item"
+        );
+        assert_eq!(
+            quote_filename_bytes(b"#safe-item", false, false, true),
+            b"#safe-item"
+        );
+        assert_eq!(
+            quote_filename_bytes(b"safe-#item", false, true, true),
+            b"safe-#item"
         );
     }
 
@@ -237,17 +257,23 @@ mod tests {
 
     #[test]
     fn filename_quoting_escapes_only_a_leading_tilde() {
-        assert_eq!(quote_filename_bytes(b"~", true, true), b"\\~");
-        assert_eq!(quote_filename_bytes(b"~Alpha", true, true), b"\\~Alpha");
+        assert_eq!(quote_filename_bytes(b"~", true, false, true), b"\\~");
         assert_eq!(
-            quote_filename_bytes(b"alpha~beta", true, true),
+            quote_filename_bytes(b"~Alpha", true, false, true),
+            b"\\~Alpha"
+        );
+        assert_eq!(
+            quote_filename_bytes(b"alpha~beta", true, false, true),
             b"alpha~beta"
         );
         assert_eq!(
-            quote_filename_bytes(b"alpha/~beta", true, true),
+            quote_filename_bytes(b"alpha/~beta", true, false, true),
             b"alpha/~beta"
         );
-        assert_eq!(quote_filename_bytes(b"~user/", false, true), b"~user/");
+        assert_eq!(
+            quote_filename_bytes(b"~user/", false, false, true),
+            b"~user/"
+        );
     }
 
     #[test]

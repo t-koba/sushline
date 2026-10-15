@@ -238,15 +238,26 @@ where
                     | CompletionType::MenuCompleteBackward
                     | CompletionType::InsertCompletions
             );
+        // Bash escapes a leading filename `#` at line start or after whitespace.
+        let starts_shell_word = edit.start == 0
+            || edit
+                .line
+                .get(edit.start.saturating_sub(1))
+                .is_some_and(u8::is_ascii_whitespace);
+        let escape_leading_hash =
+            filename_candidates && starts_shell_word && value.first() == Some(&b'#');
         // Preserve Bash's backslash-LF spelling for an unexpanded `~/` path.
         let single_quote_line_feeds = !(raw_word.starts_with(b"~/") && value.starts_with(b"~/"));
         match edit.quote {
             Some('\'') => quote_single_quoted_bytes(value),
             Some('"') if filename_candidates => quote_double_quoted_filename_bytes(value),
             Some('"') => quote_double_quoted_bytes(value),
-            _ if quote_filename => {
-                quote_filename_bytes(value, escape_leading_tilde, single_quote_line_feeds)
-            }
+            _ if quote_filename => quote_filename_bytes(
+                value,
+                escape_leading_tilde,
+                escape_leading_hash,
+                single_quote_line_feeds,
+            ),
             _ => value.to_vec(),
         }
     }

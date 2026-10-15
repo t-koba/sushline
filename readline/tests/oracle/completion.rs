@@ -1156,6 +1156,58 @@ set page-completions off"#;
 
 #[cfg(unix)]
 #[test]
+fn complete_filename_escapes_a_word_leading_hash_like_bash_5_3() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    // Runtime-only Bash 5.3 PTY probes b4efd8c1202d40f4967822ed71c1965c and
+    // cafd32cffb0747fb81bac4695c327947 under LC_ALL=C.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let dir = root.path();
+    let basename = b"#safe-item";
+    fs::write(dir.join(OsString::from_vec(basename.to_vec())), "")
+        .expect("write leading-hash fixture");
+    let inputrc = r#""\C-o": complete-filename
+set expand-tilde off
+set mark-directories off
+set completion-query-items 999
+set page-completions off"#;
+    let cases = [
+        (
+            "word-start",
+            b"#safe-".as_slice(),
+            b"\\#safe-item ".as_slice(),
+        ),
+        (
+            "after-space",
+            b"echo #safe-".as_slice(),
+            b"echo \\#safe-item ".as_slice(),
+        ),
+        (
+            "single-quoted",
+            b"'#safe-".as_slice(),
+            b"'#safe-item' ".as_slice(),
+        ),
+        (
+            "double-quoted",
+            b"\"#safe-".as_slice(),
+            b"\"#safe-item\" ".as_slice(),
+        ),
+    ];
+
+    for (context, prefix, expected) in cases {
+        let mut bash_keys = prefix.to_vec();
+        bash_keys.extend_from_slice(b"\x0f\x07\r");
+        let mut sushline_keys = prefix.to_vec();
+        sushline_keys.extend_from_slice(b"\x0f\r");
+        let (bash, sushline) =
+            run_filename_line_buffer_hex_pair(dir, inputrc, &bash_keys, &sushline_keys, "");
+        assert_filename_line_buffer_bytes(&bash, &sushline, expected, context);
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn complete_filename_preserves_internal_and_trailing_hashes_like_bash_5_3() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;

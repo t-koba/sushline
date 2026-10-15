@@ -1663,6 +1663,150 @@ fn complete_filename_expands_ansi_c_home_tilde_like_bash_5_3() {
 
 #[cfg(unix)]
 #[test]
+fn complete_filename_expands_ansi_c_special_directory_tildes_like_bash_5_3() {
+    // Runtime-only Bash 5.3 PTY probe 7c66e05154d340bdb0fb6c5ba20cd7a5.
+    use std::os::unix::ffi::OsStrExt;
+
+    let root = tempfile::tempdir().expect("temp completion root");
+    let home = root.path().join("home");
+    let cwd = root.path().join("current");
+    let oldpwd = root.path().join("previous");
+    for directory in [&home, &cwd, &oldpwd] {
+        fs::create_dir(directory).expect("create isolated tilde fixture directory");
+    }
+    for (directory, filename) in [(&cwd, "safe-plus-file"), (&oldpwd, "safe-minus-file")] {
+        fs::write(directory.join(filename), "").expect("write tilde completion fixture");
+    }
+    let home_path = home.to_string_lossy().into_owned();
+    let cwd_path = cwd.to_string_lossy().into_owned();
+    let oldpwd_path = oldpwd.to_string_lossy().into_owned();
+    let env = [
+        ("HOME", home_path.as_str()),
+        ("PWD", cwd_path.as_str()),
+        ("OLDPWD", oldpwd_path.as_str()),
+    ];
+
+    for expand_tilde in ["off", "on"] {
+        let inputrc = format!(
+            "\"\\C-o\": complete-filename\nset expand-tilde {expand_tilde}\nset mark-directories off\nset completion-query-items 999\nset page-completions off"
+        );
+        for (form, directory, filename) in [
+            ("+", &cwd, "safe-plus-file"),
+            ("-", &oldpwd, "safe-minus-file"),
+        ] {
+            let bash_keys = format!("echo $'~{form}/safe-\x0f\x07\r");
+            let sushline_keys = format!("echo $'~{form}/safe-\x0f\r");
+            let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+                &cwd,
+                &inputrc,
+                bash_keys.as_bytes(),
+                sushline_keys.as_bytes(),
+                "set +H",
+                &env,
+            );
+            let expected = [
+                b"echo $'".as_slice(),
+                directory.as_os_str().as_bytes(),
+                b"/".as_slice(),
+                filename.as_bytes(),
+                b"' ".as_slice(),
+            ]
+            .concat();
+
+            assert_filename_line_buffer_bytes(
+                &bash,
+                &sushline,
+                &expected,
+                &format!("ANSI-C quoted ~{form}/ with expand-tilde {expand_tilde}"),
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn complete_filename_expands_ansi_c_named_user_path_like_bash_5_3() {
+    // Runtime-only Bash 5.3 PTY probe d1b1ab02ccaa44a3b5c355868e1e5584.
+    use std::os::unix::ffi::OsStrExt;
+
+    let Some((username, home)) = current_account_home() else {
+        return;
+    };
+    let Ok(fixture) = tempfile::tempdir() else {
+        return;
+    };
+    let Some(relative_path) = relative_path_between(&home, fixture.path()) else {
+        return;
+    };
+    let relative_bytes = relative_path.as_os_str().as_bytes();
+    let username_bytes = username.as_bytes();
+    let home_bytes = home.as_os_str().as_bytes();
+    let safe_ansi_c_bytes = |bytes: &[u8]| {
+        !bytes
+            .iter()
+            .any(|byte| matches!(*byte, b'\'' | b'\\') || byte.is_ascii_control())
+    };
+    if !safe_ansi_c_bytes(relative_bytes)
+        || !safe_ansi_c_bytes(username_bytes)
+        || !safe_ansi_c_bytes(home_bytes)
+    {
+        return;
+    }
+
+    fs::write(fixture.path().join("safe-named-file"), "").expect("write named-user fixture");
+    let routed_fixture = home.join(&relative_path);
+    if fs::canonicalize(&routed_fixture).ok().as_deref()
+        != fs::canonicalize(fixture.path()).ok().as_deref()
+        || fs::read_dir(&routed_fixture).is_err()
+    {
+        return;
+    }
+    let cwd = tempfile::tempdir().expect("temp cwd");
+    let isolated_home = tempfile::tempdir().expect("temp isolated HOME");
+    let isolated_home_path = isolated_home.path().to_string_lossy().into_owned();
+    let env = [("HOME", isolated_home_path.as_str())];
+    let mut prefix = b"echo $'~".to_vec();
+    prefix.extend_from_slice(username_bytes);
+    prefix.push(b'/');
+    prefix.extend_from_slice(relative_bytes);
+    prefix.extend_from_slice(b"/safe-");
+
+    for expand_tilde in ["off", "on"] {
+        let inputrc = format!(
+            "\"\\C-o\": complete-filename\nset expand-tilde {expand_tilde}\nset mark-directories off\nset completion-query-items 999\nset page-completions off"
+        );
+        let mut bash_keys = prefix.clone();
+        bash_keys.extend_from_slice(b"\x0f\x07\r");
+        let mut sushline_keys = prefix.clone();
+        sushline_keys.extend_from_slice(b"\x0f\r");
+        let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+            cwd.path(),
+            &inputrc,
+            &bash_keys,
+            &sushline_keys,
+            "set +H",
+            &env,
+        );
+        let expected = [
+            b"echo $'".as_slice(),
+            home_bytes,
+            b"/".as_slice(),
+            relative_bytes,
+            b"/safe-named-file' ".as_slice(),
+        ]
+        .concat();
+
+        assert_filename_line_buffer_bytes(
+            &bash,
+            &sushline,
+            &expected,
+            &format!("ANSI-C named-user path with expand-tilde {expand_tilde}"),
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn complete_filename_keeps_ambiguous_ansi_c_quote_open_like_bash_5_3() {
     // Runtime-only Bash 5.3 PTY probe 5495fc787df04b9599f9836b9177fd86.
     use std::ffi::OsString;

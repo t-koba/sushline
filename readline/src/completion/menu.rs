@@ -118,9 +118,16 @@ where
                 &context.edit.word_bytes,
                 &self.filename_options(),
             );
-            let candidate_suffix = candidate_prefix_len
-                .and_then(|prefix_len| candidate.get(prefix_len..))
-                .unwrap_or(candidate);
+            // Do not skip right-side bytes when only a case-insensitive prefix match exists.
+            let candidate_suffix = match candidate_prefix_len {
+                Some(prefix_len)
+                    if candidate.get(..prefix_len) == Some(context.edit.word_bytes.as_slice()) =>
+                {
+                    candidate.get(prefix_len..).unwrap_or_default()
+                }
+                Some(_) => &[],
+                None => candidate,
+            };
             completion_suffix_overlap_len(candidate_suffix, &suffix)
         } else {
             0

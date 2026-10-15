@@ -706,7 +706,7 @@ fn menu_completion_preserves_existing_ansi_c_quote_from_quote_hook() {
 }
 
 #[test]
-fn menu_completion_skips_ansi_c_tail_after_case_insensitive_prefix_match() {
+fn menu_completion_preserves_ansi_c_tail_for_case_insensitive_prefix_match() {
     struct CaseInsensitiveCompletion;
 
     impl Hooks for CaseInsensitiveCompletion {
@@ -741,7 +741,10 @@ fn menu_completion_skips_ansi_c_tail_after_case_insensitive_prefix_match() {
     )
     .unwrap();
     let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
-    assert_eq!(result, ReadlineResult::Line(b"echo $'safe-Alpha'".to_vec()));
+    assert_eq!(
+        result,
+        ReadlineResult::Line(b"echo $'safe-Alphapha'".to_vec())
+    );
 }
 
 #[test]

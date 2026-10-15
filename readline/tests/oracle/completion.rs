@@ -4404,10 +4404,18 @@ fn menu_completion_cycles_ansi_c_filename_tails_like_bash_5_3() {
 
 #[cfg(unix)]
 #[test]
-fn menu_completion_consumes_case_insensitive_ansi_c_tail_unlike_bash_5_3() {
-    // Runtime-only Bash 5.3 observation for this fixture and option set; Bash
-    // duplicates the existing tail, while Sushline consumes it by case-insensitive
-    // filename-prefix matching. This is not GNU source proof or a general claim.
+fn menu_completion_skips_filename_suffix_only_after_exact_prefix_like_bash_5_3() {
+    // Runtime-only Bash 5.3 observations for these files, prefix spellings,
+    // quote forms, and option combinations; not source proof.
+    let quotes = [
+        ("single", b"'".as_slice(), b'\''),
+        ("double", b"\"".as_slice(), b'\"'),
+        ("ansi-c", b"$'".as_slice(), b'\''),
+    ];
+    let prefixes = [
+        ("exact", b"safe-Al".as_slice(), true),
+        ("case-different", b"safe-al".as_slice(), false),
+    ];
     let root = tempfile::tempdir().expect("temp completion root");
     let cwd = root.path().join("cwd");
     let home = root.path().join("home");
@@ -4418,35 +4426,58 @@ fn menu_completion_consumes_case_insensitive_ansi_c_tail_unlike_bash_5_3() {
     }
     let home_path = home.to_string_lossy().into_owned();
     let env = [("HOME", home_path.as_str())];
-    let inputrc = "\"\\C-o\": menu-complete\nset completion-ignore-case on\nset skip-completed-text on\nset menu-complete-display-prefix off\nset show-all-if-ambiguous off\nset page-completions off\nset completion-query-items 999";
-    let mut bash_keys = b"echo $'safe-alpha'".to_vec();
-    let mut sushline_keys = bash_keys.clone();
-    for _ in 0..4 {
-        bash_keys.push(0x02);
-        sushline_keys.push(0x02);
+
+    for (quote_name, opening, closing) in &quotes {
+        for (prefix_name, prefix, exact_prefix) in &prefixes {
+            for ignore_case in ["off", "on"] {
+                if !exact_prefix && ignore_case == "off" {
+                    continue;
+                }
+                for skip_completed_text in ["off", "on"] {
+                    let inputrc = format!(
+                        "\"\\C-o\": menu-complete\nset completion-ignore-case {ignore_case}\nset skip-completed-text {skip_completed_text}\nset menu-complete-display-prefix off\nset show-all-if-ambiguous off\nset page-completions off\nset completion-query-items 999"
+                    );
+                    let mut line = b"echo ".to_vec();
+                    line.extend_from_slice(opening);
+                    line.extend_from_slice(prefix);
+                    line.extend_from_slice(b"pha");
+                    line.push(*closing);
+                    let mut bash_keys = line.clone();
+                    let mut sushline_keys = line;
+                    for _ in 0..4 {
+                        bash_keys.push(0x02);
+                        sushline_keys.push(0x02);
+                    }
+                    bash_keys.extend_from_slice(b"\x0f\x07\r");
+                    sushline_keys.extend_from_slice(b"\x0f\r");
+
+                    let mut expected = b"echo ".to_vec();
+                    expected.extend_from_slice(opening);
+                    expected.extend_from_slice(b"safe-Alpha");
+                    if skip_completed_text == "off" || !exact_prefix {
+                        expected.extend_from_slice(b"pha");
+                    }
+                    expected.push(*closing);
+                    let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+                        &cwd,
+                        &inputrc,
+                        &bash_keys,
+                        &sushline_keys,
+                        "set +H",
+                        &env,
+                    );
+                    assert_filename_line_buffer_bytes(
+                        &bash,
+                        &sushline,
+                        &expected,
+                        &format!(
+                            "menu suffix quote={quote_name} prefix={prefix_name} ignore-case={ignore_case} skip={skip_completed_text}"
+                        ),
+                    );
+                }
+            }
+        }
     }
-    bash_keys.extend_from_slice(b"\x0f\x07\r");
-    sushline_keys.extend_from_slice(b"\x0f\r");
-    let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
-        &cwd,
-        inputrc,
-        &bash_keys,
-        &sushline_keys,
-        "set +H",
-        &env,
-    );
-    assert_eq!(
-        raw_line_after_marker(&bash, b"BASH_READLINE_HEX:"),
-        Some(b"6563686f202427736166652d416c70686170686127".as_slice()),
-        "Bash 5.3 PTY line buffer for the case-insensitive ANSI-C suffix fixture"
-    );
-    assert_eq!(
-        raw_accepted_hex(&sushline).as_deref(),
-        Some(b"echo $'safe-Alpha'".as_slice()),
-        "Sushline consumes the matching suffix without adding a separator for a plain name"
-    );
-    assert_eq!(raw_bell_count(&bash), 0);
-    assert_eq!(raw_bell_count(&sushline), 0);
 }
 
 #[cfg(unix)]

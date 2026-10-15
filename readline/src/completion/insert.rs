@@ -118,17 +118,26 @@ fn double_quoted_filename_suffix(raw_suffix: &[u8]) -> &[u8] {
 fn shell_filename_suffix_overlap_len(
     completion: &[u8],
     raw_suffix: &[u8],
-    double_quoted: bool,
+    quote: Option<char>,
 ) -> Option<usize> {
     let mut semantic_suffix = Vec::new();
     let mut raw_prefix_lengths = Vec::new();
     let mut index = 0;
     while let Some(byte) = raw_suffix.get(index).copied() {
         match byte {
-            b'\\' => match raw_suffix.get(index + 1).copied() {
+            b'\'' if quote == Some('\'') => {
+                // A quoted apostrophe closes the quote, escapes the byte, and reopens it.
+                if !raw_suffix[index..].starts_with(b"'\\''") {
+                    break; // Keep a standalone shell closer out of the semantic overlap.
+                }
+                semantic_suffix.push(b'\'');
+                index += 4;
+                raw_prefix_lengths.push(index);
+            }
+            b'\\' if quote != Some('\'') => match raw_suffix.get(index + 1).copied() {
                 Some(b'\n') => index += 2,
                 Some(escaped)
-                    if !double_quoted || matches!(escaped, b'"' | b'\\' | b'$' | b'`') =>
+                    if quote.is_none() || matches!(escaped, b'"' | b'\\' | b'$' | b'`') =>
                 {
                     semantic_suffix.push(escaped);
                     index += 2;
@@ -140,9 +149,9 @@ fn shell_filename_suffix_overlap_len(
                     raw_prefix_lengths.push(index);
                 }
             },
-            b'"' if double_quoted => break, // Keep the existing shell closer.
-            b'\'' | b'"' if !double_quoted => return None,
-            byte if !double_quoted && byte.is_ascii_whitespace() => break,
+            b'"' if quote == Some('"') => break, // Keep the existing shell closer.
+            b'\'' | b'"' if quote.is_none() => return None,
+            byte if quote.is_none() && byte.is_ascii_whitespace() => break,
             byte => {
                 semantic_suffix.push(byte);
                 index += 1;
@@ -375,12 +384,15 @@ where
                 self.requote_common_prefix_with_prefix(&response, edit, completion_type, hooks)
             {
                 let shell_escaped_regular_filename = response.options.filenames
-                    && matches!(edit.quote, None | Some('"'))
                     && !edit.ansi_c_quote
                     && !matches!(
                         completion_type,
                         CompletionType::MenuComplete | CompletionType::MenuCompleteBackward
-                    );
+                    )
+                    && (matches!(edit.quote, None | Some('"'))
+                        || (edit.quote == Some('\'') && response.options.quote_filename()));
+                let single_quoted_regular_filename =
+                    shell_escaped_regular_filename && edit.quote == Some('\'');
                 let raw_suffix = state.buffer.as_bytes().get(edit.end..).unwrap_or_default();
                 let suffix = if shell_escaped_regular_filename && edit.quote == Some('"') {
                     double_quoted_filename_suffix(raw_suffix).to_vec()
@@ -411,7 +423,7 @@ where
                                     } else {
                                         raw_suffix
                                     },
-                                    edit.quote == Some('"'),
+                                    edit.quote,
                                 )
                                 .unwrap_or(overlap)
                             } else {
@@ -425,7 +437,15 @@ where
                             skip_completed_suffix_bytes(&replacement_bytes, &suffix);
                     }
                 }
-                if response.options.filenames {
+                if single_quoted_regular_filename && suffix.first() == Some(&b'\'') {
+                    // Reconcile the closer at point even with skipping disabled.
+                    // Semantic overlap may consume the whole apostrophe concatenation,
+                    // but the newly inserted common prefix still leaves its quote open.
+                    replacement_end = replacement_end.max(edit.end + 1);
+                    if replacement_bytes.last() == Some(&b'\'') {
+                        replacement_bytes.pop();
+                    }
+                } else if response.options.filenames {
                     leave_quoted_filename_suffix_open(
                         &response,
                         edit,
@@ -847,7 +867,28 @@ mod tests {
             (b"x", b"\\\nb\"", 0),
         ] {
             assert_eq!(
-                shell_filename_suffix_overlap_len(completion, raw_suffix, true),
+                shell_filename_suffix_overlap_len(completion, raw_suffix, Some('"')),
+                Some(expected),
+                "completion={completion:?}, raw_suffix={raw_suffix:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn single_quoted_suffix_overlap_consumes_concatenation_not_the_closer() {
+        for (completion, raw_suffix, expected) in [
+            (b"'".as_slice(), b"'\\'''".as_slice(), 4),
+            (b"'tail", b"'\\''tail'", 8),
+            (b"'tail", b"'\\''tall'", 6),
+            (b"''", b"'\\'''\\'''", 8),
+            (b"x", b"'\\'''", 0),
+            (b"'", b"'", 0),
+            (b"\\", b"\\'", 1),
+            (b" a", b" a' rest", 2),
+            (b"\"", b"\"'", 1),
+        ] {
+            assert_eq!(
+                shell_filename_suffix_overlap_len(completion, raw_suffix, Some('\'')),
                 Some(expected),
                 "completion={completion:?}, raw_suffix={raw_suffix:?}"
             );
@@ -866,7 +907,7 @@ mod tests {
             (b"'", b"'", None),
         ] {
             assert_eq!(
-                shell_filename_suffix_overlap_len(completion, raw_suffix, false),
+                shell_filename_suffix_overlap_len(completion, raw_suffix, None),
                 expected,
                 "completion={completion:?}, raw_suffix={raw_suffix:?}"
             );

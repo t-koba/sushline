@@ -62,7 +62,9 @@ fn complete_filenames_with_tilde_context(
     // a leading `~/` is not expanded by the context-aware entry point.
     let expands_leading_tilde =
         word.starts_with(b"~/") && !matches!(tilde_context, LeadingTildeContext::Escaped);
-    let lookup_word = if opts.expand_tilde || expands_leading_tilde {
+    // The tested Bash 5.3 bare-`~` filename completion does not expand it.
+    let is_bare_tilde = word == b"~";
+    let lookup_word = if (opts.expand_tilde && !is_bare_tilde) || expands_leading_tilde {
         expand_tilde_bytes(word)
     } else {
         word.to_vec()

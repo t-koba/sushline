@@ -1217,6 +1217,43 @@ fn bash_readline_and_sushline_complete_home_tilde_filenames_with_expansion_setti
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn bash_readline_and_sushline_leave_bare_tilde_filename_completion_unchanged() {
+    // Bash 5.3 PTY runtime evidence for this isolated HOME/cwd fixture only:
+    // complete-filename leaves a bare `~` unchanged and rings once with either
+    // expand-tilde setting. This does not establish named-user behavior.
+    let cwd = tempfile::tempdir().expect("temp cwd");
+    let home = tempfile::tempdir().expect("temp HOME");
+    fs::write(home.path().join("Alpha"), "").expect("write HOME fixture");
+    let home_path = home.path().to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+    let keys = b"~\x0f\r";
+
+    for expand_tilde in ["off", "on"] {
+        let inputrc = format!(
+            "\"\\C-o\": complete-filename\nset expand-tilde {expand_tilde}\nset mark-directories off"
+        );
+        let bash =
+            run_bash_readline_with_inputrc_file_and_env_in_dir(keys, &inputrc, &env, cwd.path());
+        let sushline =
+            run_sushline_harness_with_inputrc_and_env_in_dir(keys, &inputrc, &env, cwd.path());
+
+        for (output, implementation) in [(&bash, "bash"), (&sushline, "sushline")] {
+            assert_eq!(
+                accepted_line(output),
+                Some("~".to_string()),
+                "expand-tilde={expand_tilde}, implementation={implementation}\n{output}"
+            );
+            assert_eq!(
+                bell_count(output),
+                1,
+                "expand-tilde={expand_tilde}, implementation={implementation}\n{output}"
+            );
+        }
+    }
+}
+
 #[test]
 fn filename_tilde_completion_respects_raw_quote_and_escape_context() {
     // Runtime-only Bash 5.3 evidence for this isolated HOME fixture and these

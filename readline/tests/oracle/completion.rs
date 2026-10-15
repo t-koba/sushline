@@ -1565,6 +1565,78 @@ fn bash_readline_and_sushline_complete_home_tilde_filenames_with_expansion_setti
 }
 
 #[cfg(unix)]
+#[test]
+fn bash_readline_and_sushline_complete_special_shell_directory_tilde_paths() {
+    // Runtime-only Bash 5.3 PTY evidence from probe 199d89bd17224e0f832c8fb0b88c120f.
+    // Keep paths and PTY transcripts out of assertion diagnostics.
+    let cwd = tempfile::tempdir().expect("temp cwd");
+    let oldpwd = tempfile::tempdir().expect("temp OLDPWD");
+    for (directory, filename) in [(cwd.path(), "alpha-item"), (oldpwd.path(), "beta-item")] {
+        fs::write(directory.join(filename), "").expect("write tilde completion fixture");
+    }
+    let pwd_value = cwd.path().display().to_string();
+    let oldpwd_value = oldpwd.path().display().to_string();
+    let env = [
+        ("LC_ALL", "C"),
+        ("PWD", pwd_value.as_str()),
+        ("OLDPWD", oldpwd_value.as_str()),
+    ];
+
+    for (tilde_prefix, directory, filename, partial) in [
+        ("~+/", cwd.path(), "alpha-item", "al"),
+        ("~-/", oldpwd.path(), "beta-item", "be"),
+    ] {
+        let typed_word = format!("{tilde_prefix}{partial}");
+        let expanded = format!("{}/{filename}", directory.display());
+        for form in ["unquoted", "single-quoted", "double-quoted", "escaped"] {
+            let typed = match form {
+                "single-quoted" => format!("'{typed_word}"),
+                "double-quoted" => format!("\"{typed_word}"),
+                "escaped" => format!("\\{typed_word}"),
+                _ => typed_word.clone(),
+            };
+            for expand_tilde in ["off", "on"] {
+                let expected = match form {
+                    "single-quoted" => format!("'{expanded}' "),
+                    "double-quoted" => format!("\"{expanded}\" "),
+                    "escaped" => typed.clone(),
+                    _ if expand_tilde == "off" => format!("{tilde_prefix}{filename} "),
+                    _ => format!("{expanded} "),
+                };
+                let expected_bells = usize::from(form == "escaped");
+                let inputrc = format!(
+                    "\"\\C-o\": complete-filename\nset expand-tilde {expand_tilde}\nset mark-directories off\nset completion-query-items 999\nset page-completions off"
+                );
+                let keys = format!("{typed}\x0f\r");
+                let bash = run_bash_readline_with_inputrc_file_and_env_in_dir(
+                    keys.as_bytes(),
+                    &inputrc,
+                    &env,
+                    cwd.path(),
+                );
+                let sushline = run_sushline_harness_with_inputrc_and_env_in_dir(
+                    keys.as_bytes(),
+                    &inputrc,
+                    &env,
+                    cwd.path(),
+                );
+
+                for (output, implementation) in [(&bash, "Bash"), (&sushline, "Sushline")] {
+                    assert!(
+                        accepted_line(output).as_deref() == Some(expected.as_str()),
+                        "accepted-line mismatch for {form}, prefix={tilde_prefix}, expand-tilde={expand_tilde}, implementation={implementation}"
+                    );
+                    assert!(
+                        bell_count(output) == expected_bells,
+                        "bell-count mismatch for {form}, prefix={tilde_prefix}, expand-tilde={expand_tilde}, implementation={implementation}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
 fn root_home_is_available() -> bool {
     let Ok(passwd) = fs::read_to_string("/etc/passwd") else {
         return false;

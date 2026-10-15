@@ -877,6 +877,18 @@ pub(crate) fn expand_tilde_bytes(line: &[u8]) -> Vec<u8> {
 }
 
 fn expand_tilde_word_bytes(word: &[u8]) -> Option<Vec<u8>> {
+    // `~+` and `~-` filename prefixes resolve from the shell's PWD/OLDPWD.
+    for (tilde_prefix, variable) in [(b"~+/".as_slice(), "PWD"), (b"~-/".as_slice(), "OLDPWD")] {
+        if let Some(suffix) = word.strip_prefix(tilde_prefix) {
+            let mut directory = std::env::var_os(variable)
+                .and_then(|directory| os_str_to_completion_bytes(&directory))?;
+            if !directory.ends_with(b"/") {
+                directory.push(b'/');
+            }
+            directory.extend_from_slice(suffix);
+            return Some(directory);
+        }
+    }
     if word == b"~" {
         return std::env::var_os("HOME").and_then(|home| os_str_to_completion_bytes(&home));
     }

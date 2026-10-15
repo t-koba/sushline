@@ -675,6 +675,48 @@ fn menu_completion_preserves_existing_ansi_c_quote_from_quote_hook() {
 }
 
 #[test]
+fn menu_completion_skips_ansi_c_tail_after_case_insensitive_prefix_match() {
+    struct CaseInsensitiveCompletion;
+
+    impl Hooks for CaseInsensitiveCompletion {
+        fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
+            assert_eq!(request.context.word.as_slice(), b"safe-al");
+            Some(CompletionResponse {
+                candidates: [b"safe-Alpha".as_slice(), b"safe-Alpine".as_slice()]
+                    .into_iter()
+                    .map(|replacement| CompletionCandidate {
+                        replacement: replacement.to_vec(),
+                        display: None,
+                    })
+                    .collect(),
+                options: CompletionOptions {
+                    filenames: true,
+                    ..Default::default()
+                },
+            })
+        }
+    }
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"echo $'safe-alpha'".to_vec()),
+        TerminalEvent::Bytes(vec![0x02, 0x02, 0x02, 0x02]),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = CaseInsensitiveCompletion;
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str(
+        "\"\\C-o\": menu-complete\nset completion-ignore-case on\nset skip-completed-text on",
+    )
+    .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(
+        result,
+        ReadlineResult::Line(b"echo $'safe-Alpha' ".to_vec())
+    );
+}
+
+#[test]
 fn single_completion_preserves_existing_ansi_c_quote_from_quote_hook() {
     for skip_completed_text in ["on", "off"] {
         for closes_quote in [false, true] {

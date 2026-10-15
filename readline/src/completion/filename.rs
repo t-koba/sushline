@@ -456,20 +456,42 @@ fn ls_colors_glob_match(pattern: &str, value: &str) -> bool {
     glob_match(pattern, value)
 }
 
+pub(super) fn filename_candidate_prefix_len(
+    candidate: &[u8],
+    prefix: &[u8],
+    opts: &FilenameOptions,
+) -> Option<usize> {
+    let locale_lowercase = if opts.ignore_case && opts.utf8_locale {
+        opts.lc_ctype.as_deref().and_then(LocaleLowercase::new)
+    } else {
+        None
+    };
+    completion_prefix_len_bytes(candidate, prefix, opts, locale_lowercase.as_ref())
+}
+
 fn completion_prefix_matches_bytes(
     candidate: &[u8],
     prefix: &[u8],
     opts: &FilenameOptions,
     locale_lowercase: Option<&LocaleLowercase>,
 ) -> bool {
+    completion_prefix_len_bytes(candidate, prefix, opts, locale_lowercase).is_some()
+}
+
+fn completion_prefix_len_bytes(
+    candidate: &[u8],
+    prefix: &[u8],
+    opts: &FilenameOptions,
+    locale_lowercase: Option<&LocaleLowercase>,
+) -> Option<usize> {
     if candidate.starts_with(prefix) {
-        return true;
+        return Some(prefix.len());
     }
     if !opts.ignore_case || candidate.len() < prefix.len() {
-        return false;
+        return None;
     }
     if let Some(locale_lowercase) = locale_lowercase {
-        return completion_prefix_matches_utf8(candidate, prefix, opts.map_case, |character| {
+        return completion_prefix_len_utf8(candidate, prefix, opts.map_case, |character| {
             locale_lowercase.lowercase(character)
         });
     }
@@ -477,14 +499,25 @@ fn completion_prefix_matches_bytes(
         .iter()
         .zip(prefix.iter())
         .all(|(candidate, prefix)| completion_byte_eq(*candidate, *prefix, opts.map_case))
+        .then_some(prefix.len())
 }
 
+#[cfg(test)]
 fn completion_prefix_matches_utf8(
     candidate: &[u8],
     prefix: &[u8],
     map_case: bool,
-    mut lowercase: impl FnMut(char) -> char,
+    lowercase: impl FnMut(char) -> char,
 ) -> bool {
+    completion_prefix_len_utf8(candidate, prefix, map_case, lowercase).is_some()
+}
+
+fn completion_prefix_len_utf8(
+    candidate: &[u8],
+    prefix: &[u8],
+    map_case: bool,
+    mut lowercase: impl FnMut(char) -> char,
+) -> Option<usize> {
     let mut offset = 0;
     while offset < prefix.len() {
         match (
@@ -495,19 +528,19 @@ fn completion_prefix_matches_utf8(
                 let candidate_char = map_completion_case_char(candidate_char, map_case);
                 let prefix_char = map_completion_case_char(prefix_char, map_case);
                 if lowercase(candidate_char) != lowercase(prefix_char) {
-                    return false;
+                    return None;
                 }
                 offset += candidate_width;
             }
             _ => {
                 if !completion_byte_eq(candidate[offset], prefix[offset], map_case) {
-                    return false;
+                    return None;
                 }
                 offset += 1;
             }
         }
     }
-    offset == prefix.len()
+    (offset == prefix.len()).then_some(offset)
 }
 
 fn decode_utf8_scalar(bytes: &[u8], offset: usize) -> Option<(char, usize)> {

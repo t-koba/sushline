@@ -1,3 +1,4 @@
+use crate::completion::filename::filename_candidate_prefix_len;
 use crate::completion::insert::{
     CompletionReplacement, ansi_c_quote_suffix_bytes, extend_with_trailing_char,
 };
@@ -109,8 +110,13 @@ where
             && context.previous_match_index.is_none()
         {
             let candidate = response.candidates[next_index - 1].replacement_bytes();
-            let candidate_suffix = candidate
-                .strip_prefix(context.edit.word_bytes.as_slice())
+            let candidate_prefix_len = filename_candidate_prefix_len(
+                candidate,
+                &context.edit.word_bytes,
+                &self.filename_options(),
+            );
+            let candidate_suffix = candidate_prefix_len
+                .and_then(|prefix_len| candidate.get(prefix_len..))
                 .unwrap_or(candidate);
             completion_suffix_overlap_len(candidate_suffix, &suffix)
         } else {

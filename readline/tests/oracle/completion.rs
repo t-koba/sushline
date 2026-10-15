@@ -1275,6 +1275,210 @@ fn bash_readline_and_sushline_leave_bare_named_user_filename_completion_unchange
 }
 
 #[cfg(unix)]
+fn current_account_home() -> Option<(String, std::path::PathBuf)> {
+    use std::os::unix::ffi::OsStringExt;
+
+    let uid = unsafe { libc::geteuid() };
+    let passwd = fs::read("/etc/passwd").ok()?;
+    passwd.split(|byte| *byte == b'\n').find_map(|line| {
+        let fields = line.split(|byte| *byte == b':').collect::<Vec<_>>();
+        if fields.len() < 6
+            || std::str::from_utf8(fields[2])
+                .ok()?
+                .parse::<libc::uid_t>()
+                .ok()?
+                != uid
+        {
+            return None;
+        }
+        let name = std::str::from_utf8(fields[0]).ok()?.to_string();
+        let home = std::path::PathBuf::from(std::ffi::OsString::from_vec(fields[5].to_vec()));
+        home.is_dir().then_some((name, home))
+    })
+}
+
+#[cfg(unix)]
+fn relative_path_between(
+    from: &std::path::Path,
+    to: &std::path::Path,
+) -> Option<std::path::PathBuf> {
+    let from = fs::canonicalize(from).ok()?;
+    let to = fs::canonicalize(to).ok()?;
+    let from_components = from.components().collect::<Vec<_>>();
+    let to_components = to.components().collect::<Vec<_>>();
+    let common = from_components
+        .iter()
+        .zip(&to_components)
+        .take_while(|(from, to)| from == to)
+        .count();
+    let mut relative = std::path::PathBuf::new();
+    for _ in common..from_components.len() {
+        relative.push("..");
+    }
+    for component in &to_components[common..] {
+        relative.push(component.as_os_str());
+    }
+    Some(relative)
+}
+
+#[cfg(unix)]
+#[test]
+fn bash_readline_and_sushline_preserve_empty_suffix_named_user_directory() {
+    // Bash 5.3 PTY record 3c1e815457bc47698ef3c163f321d780 observed the
+    // unchanged word and one bell. Compare the live implementations without
+    // putting account, path, or directory-entry data in failure output.
+    let Some((username, _home)) = current_account_home() else {
+        return;
+    };
+    let Ok(cwd) = tempfile::tempdir() else {
+        return;
+    };
+    let word = format!("~{username}/");
+    let mut keys = word.as_bytes().to_vec();
+    keys.extend_from_slice(b"\x0f\r");
+
+    for expand_tilde in ["off", "on"] {
+        let inputrc = format!(
+            "\"\\C-o\": complete-filename\nset expand-tilde {expand_tilde}\nset mark-directories off\nset completion-query-items 999\nset page-completions off"
+        );
+        let bash =
+            run_bash_readline_with_inputrc_file_and_env_in_dir(&keys, &inputrc, &[], cwd.path());
+        let sushline =
+            run_sushline_harness_with_inputrc_and_env_in_dir(&keys, &inputrc, &[], cwd.path());
+
+        let bash_line = accepted_line(&bash);
+        let sushline_line = accepted_line(&sushline);
+        assert!(
+            bash_line.is_some() && bash_line == sushline_line,
+            "Bash and Sushline accepted different empty-suffix named-user paths"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bell_count(&bash),
+            "Bash and Sushline rang a different number of bells for empty-suffix named-user directory completion"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn bash_readline_and_sushline_complete_named_user_slash_paths_like_bash_5_3() {
+    // Bash 5.3 PTY records 7db369e8309c4661960fad56e5f7df07,
+    // 86f3726bac3d4f4987f31a98539dc1bb, and e9ff0308b9324d30a18111a07bee1b3b
+    // cover only these four named-user slash-path forms and both option values.
+    let Some((username, home)) = current_account_home() else {
+        return;
+    };
+    let Ok(fixture) = tempfile::tempdir() else {
+        return;
+    };
+    let Some(relative_path) = relative_path_between(&home, fixture.path()) else {
+        return;
+    };
+    let Ok(relative_path) = relative_path.into_os_string().into_string() else {
+        return;
+    };
+    let nested = fixture.path().join("nested");
+    if fs::create_dir(&nested).is_err() || fs::write(nested.join("alpha"), "").is_err() {
+        return;
+    }
+    let routed_fixture = home.join(&relative_path);
+    let Ok(resolved_fixture) = fs::canonicalize(&routed_fixture) else {
+        return;
+    };
+    let Ok(actual_fixture) = fs::canonicalize(fixture.path()) else {
+        return;
+    };
+    if resolved_fixture != actual_fixture
+        || fs::read_dir(&routed_fixture).is_err()
+        || fs::read_dir(routed_fixture.join("nested"))
+            .and_then(|entries| entries.collect::<Result<Vec<_>, _>>())
+            .is_err()
+    {
+        return;
+    }
+    let Ok(expanded_prefix) = routed_fixture
+        .join("nested/al")
+        .into_os_string()
+        .into_string()
+    else {
+        return;
+    };
+    let tilde_prefix = format!("~{username}/{relative_path}/nested/al");
+    let Ok(cwd) = tempfile::tempdir() else {
+        return;
+    };
+
+    let cases = [
+        (
+            "unquoted",
+            tilde_prefix.clone(),
+            format!("{tilde_prefix}pha "),
+            format!("{expanded_prefix}pha "),
+            0,
+        ),
+        (
+            "single-quoted",
+            format!("'{tilde_prefix}"),
+            format!("'{expanded_prefix}pha' "),
+            format!("'{expanded_prefix}pha' "),
+            0,
+        ),
+        (
+            "double-quoted",
+            format!("\"{tilde_prefix}"),
+            format!("\"{expanded_prefix}pha\" "),
+            format!("\"{expanded_prefix}pha\" "),
+            0,
+        ),
+        (
+            "escaped",
+            format!("\\{tilde_prefix}"),
+            format!("\\{tilde_prefix}"),
+            format!("\\{tilde_prefix}"),
+            1,
+        ),
+    ];
+
+    for expand_tilde in ["off", "on"] {
+        let inputrc = format!(
+            "\"\\C-o\": complete-filename\nset expand-tilde {expand_tilde}\nset mark-directories off\nset completion-query-items 999\nset page-completions off"
+        );
+        for (form, typed, expected_off, expected_on, expected_bells) in &cases {
+            let expected = if *form == "escaped" || (*form == "unquoted" && expand_tilde == "off") {
+                expected_off
+            } else {
+                expected_on
+            };
+            let mut keys = typed.as_bytes().to_vec();
+            keys.extend_from_slice(b"\x0f\r");
+            let bash = run_bash_readline_with_inputrc_file_and_env_in_dir(
+                &keys,
+                &inputrc,
+                &[],
+                cwd.path(),
+            );
+            let sushline =
+                run_sushline_harness_with_inputrc_and_env_in_dir(&keys, &inputrc, &[], cwd.path());
+
+            for (output, implementation) in [(&bash, "bash"), (&sushline, "sushline")] {
+                let accepted = accepted_line(output);
+                assert!(
+                    accepted.as_deref() == Some(expected.as_str()),
+                    "accepted-line mismatch for {form}, expand-tilde={expand_tilde}, implementation={implementation}, matched-tilde={}, matched-expanded={}",
+                    accepted.as_deref() == Some(expected_off.as_str()),
+                    accepted.as_deref() == Some(expected_on.as_str()),
+                );
+                assert!(
+                    bell_count(output) == *expected_bells,
+                    "bell-count mismatch for {form}, expand-tilde={expand_tilde}, implementation={implementation}"
+                );
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
 #[test]
 fn bash_readline_and_sushline_escape_literal_leading_tilde_filename() {
     // Bash 5.3 PTY runtime evidence for this isolated cwd/HOME fixture only:

@@ -58,18 +58,29 @@ fn complete_filenames_with_tilde_context(
     // In the measured Bash 5.3 cases, an unquoted ~/ resolves against HOME
     // for lookup regardless of expand-tilde, while the option controls whether
     // that expanded path is inserted. A quoted ~/ also resolves and inserts
-    // the HOME path with the option off. An escaped tilde that dequotes to
-    // a leading `~/` is not expanded by the context-aware entry point.
+    // the HOME path with the option off. Escaped leading tilde paths are not
+    // expanded by the context-aware entry point.
     let expands_leading_tilde =
         word.starts_with(b"~/") && !matches!(tilde_context, LeadingTildeContext::Escaped);
     // Bash leaves slashless tilde words (bare `~` and the measured named-user
-    // form) alone during filename completion, regardless of expand-tilde.
+    // form) alone during filename completion, regardless of expand-tilde. The
+    // measured named-user slash-path lookup resolves `~user/...`; generic
+    // expansion omits an empty suffix, so preserve the final slash for the
+    // filename lookup of `~user/` without changing generic expansion.
     let is_slashless_tilde = word.starts_with(b"~") && !word.contains(&b'/');
-    let lookup_word = if (opts.expand_tilde && !is_slashless_tilde) || expands_leading_tilde {
+    let is_named_user_path = is_named_user_tilde_path(word);
+    let mut lookup_word = if tilde_context != LeadingTildeContext::Escaped
+        && ((opts.expand_tilde && !is_slashless_tilde)
+            || expands_leading_tilde
+            || is_named_user_path)
+    {
         expand_tilde_bytes(word)
     } else {
         word.to_vec()
     };
+    if is_named_user_path && word.ends_with(b"/") && !lookup_word.ends_with(b"/") {
+        lookup_word.push(b'/');
+    }
     let display_word = if opts.expand_tilde || tilde_context == LeadingTildeContext::Quoted {
         lookup_word.as_slice()
     } else {
@@ -222,10 +233,17 @@ fn leading_tilde_context(context: &CompletionContext) -> LeadingTildeContext {
     let Some(raw_word) = context.line.get(context.word_start..context.word_end) else {
         return LeadingTildeContext::Unquoted;
     };
-    if raw_word.starts_with(b"\\~/") || raw_word.starts_with(b"\"\\~/") {
+    let escaped_word = raw_word.strip_prefix(b"\"").unwrap_or(raw_word);
+    if escaped_word
+        .strip_prefix(b"\\~")
+        .is_some_and(|rest| rest.contains(&b'/'))
+    {
         return LeadingTildeContext::Escaped;
     }
-    if raw_word.starts_with(b"'~/") || raw_word.starts_with(b"\"~/") {
+    let quoted_word = raw_word
+        .strip_prefix(b"'")
+        .or_else(|| raw_word.strip_prefix(b"\""));
+    if quoted_word.is_some_and(|word| word.starts_with(b"~/") || is_named_user_tilde_path(word)) {
         return LeadingTildeContext::Quoted;
     }
     LeadingTildeContext::Unquoted
@@ -846,6 +864,12 @@ fn match_posix_character_class(chars: &[char], idx: usize, value: char) -> Optio
         end += 1;
     }
     None
+}
+
+pub(crate) fn is_named_user_tilde_path(word: &[u8]) -> bool {
+    word.strip_prefix(b"~")
+        .and_then(|rest| rest.iter().position(|byte| *byte == b'/'))
+        .is_some_and(|slash| slash > 0)
 }
 
 pub(crate) fn expand_tilde_bytes(line: &[u8]) -> Vec<u8> {

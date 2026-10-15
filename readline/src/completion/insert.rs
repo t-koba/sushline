@@ -1,5 +1,5 @@
 use crate::completion::display::common_prefix_bytes;
-use crate::completion::filename::filename_directory_completion;
+use crate::completion::filename::{filename_directory_completion, is_named_user_tilde_path};
 use crate::completion::quoting::*;
 use crate::completion::{
     CompletionAction, CompletionCandidate, CompletionOptions, CompletionResponse, CompletionType,
@@ -224,8 +224,12 @@ where
         }) {
             return quoted;
         }
+        let raw_word = edit.line.get(edit.start..edit.end).unwrap_or_default();
+        let is_unescaped_named_user_path =
+            is_named_user_tilde_path(&edit.word_bytes) && !raw_word.starts_with(b"\\~");
         let escape_leading_tilde = filename_candidates
             && !edit.word_bytes.starts_with(b"~/")
+            && !is_unescaped_named_user_path
             && matches!(
                 completion_type,
                 CompletionType::Complete

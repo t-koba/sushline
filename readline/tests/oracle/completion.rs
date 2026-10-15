@@ -1218,6 +1218,63 @@ fn bash_readline_and_sushline_complete_home_tilde_filenames_with_expansion_setti
 }
 
 #[cfg(unix)]
+fn root_home_is_available() -> bool {
+    let Ok(passwd) = fs::read_to_string("/etc/passwd") else {
+        return false;
+    };
+    passwd
+        .lines()
+        .find_map(|line| {
+            let mut fields = line.split(':');
+            if fields.next() != Some("root") {
+                return None;
+            }
+            fields
+                .nth(4)
+                .map(|home| std::path::Path::new(home).is_dir())
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(unix)]
+#[test]
+fn bash_readline_and_sushline_leave_bare_named_user_filename_completion_unchanged() {
+    // Bash 5.3 PTY runtime evidence for this available-account case only:
+    // complete-filename leaves the bare named-user word unchanged and rings
+    // once with either expand-tilde setting. Other named-user forms are not
+    // established here.
+    if !root_home_is_available() {
+        return;
+    }
+
+    let cwd = tempfile::tempdir().expect("temp cwd");
+    let home = cwd.path().to_string_lossy().into_owned();
+    let env = [("HOME", home.as_str())];
+    let keys = b"~root\x0f\r";
+
+    for expand_tilde in ["off", "on"] {
+        let inputrc = format!(
+            "\"\\C-o\": complete-filename\nset expand-tilde {expand_tilde}\nset mark-directories off\nset completion-query-items 999\nset page-completions off"
+        );
+        let bash =
+            run_bash_readline_with_inputrc_file_and_env_in_dir(keys, &inputrc, &env, cwd.path());
+        let sushline =
+            run_sushline_harness_with_inputrc_and_env_in_dir(keys, &inputrc, &env, cwd.path());
+
+        for (output, implementation) in [(&bash, "bash"), (&sushline, "sushline")] {
+            assert!(
+                accepted_line(output).as_deref() == Some("~root"),
+                "expected unchanged named-user word with expand-tilde={expand_tilde}, implementation={implementation}"
+            );
+            assert!(
+                bell_count(output) == 1,
+                "expected one completion bell with expand-tilde={expand_tilde}, implementation={implementation}"
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
 #[test]
 fn bash_readline_and_sushline_leave_bare_tilde_filename_completion_unchanged() {
     // Bash 5.3 PTY runtime evidence for this isolated HOME/cwd fixture only:

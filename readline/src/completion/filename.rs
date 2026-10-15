@@ -62,9 +62,10 @@ fn complete_filenames_with_tilde_context(
     // a leading `~/` is not expanded by the context-aware entry point.
     let expands_leading_tilde =
         word.starts_with(b"~/") && !matches!(tilde_context, LeadingTildeContext::Escaped);
-    // The tested Bash 5.3 bare-`~` filename completion does not expand it.
-    let is_bare_tilde = word == b"~";
-    let lookup_word = if (opts.expand_tilde && !is_bare_tilde) || expands_leading_tilde {
+    // Bash leaves slashless tilde words (bare `~` and the measured named-user
+    // form) alone during filename completion, regardless of expand-tilde.
+    let is_slashless_tilde = word.starts_with(b"~") && !word.contains(&b'/');
+    let lookup_word = if (opts.expand_tilde && !is_slashless_tilde) || expands_leading_tilde {
         expand_tilde_bytes(word)
     } else {
         word.to_vec()

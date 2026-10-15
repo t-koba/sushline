@@ -4024,6 +4024,158 @@ fn bash_readline_and_sushline_cycle_same_menu_completion_items() {
 
 #[cfg(unix)]
 #[test]
+fn menu_completion_consumes_ansi_c_quote_suffixes_like_bash_5_3() {
+    // Runtime-only Bash 5.3 PTY probes 6337f4fb9e244a6e952505d10e822711,
+    // cfd0399fccaf49ba95e23bdd60e847a7, d50fd14b11104698aece7ecc8f08e661,
+    // cd46d8b7af5b42b1ad46f0e2288609d4, and 2caacd23ca3c42c388894d95117a3ab1.
+    struct MenuCompletionCase {
+        line: &'static [u8],
+        command: &'static str,
+        count: usize,
+        left_count: usize,
+        expected: &'static [u8],
+        bells: usize,
+    }
+    let cases = [
+        MenuCompletionCase {
+            line: b"echo $'single space-file'",
+            command: "menu-complete",
+            count: 1,
+            left_count: 1,
+            expected: b"echo $'single space-file' ",
+            bells: 0,
+        },
+        MenuCompletionCase {
+            line: b"echo $'single space-file'",
+            command: "menu-complete-backward",
+            count: 1,
+            left_count: 1,
+            expected: b"echo $'single space-file' ",
+            bells: 0,
+        },
+        MenuCompletionCase {
+            line: b"echo $'multi space-'",
+            command: "menu-complete",
+            count: 1,
+            left_count: 1,
+            expected: b"echo $'multi space-one' ",
+            bells: 0,
+        },
+        MenuCompletionCase {
+            line: b"echo $'multi space-'",
+            command: "menu-complete",
+            count: 2,
+            left_count: 1,
+            expected: b"echo $'multi space-two' ",
+            bells: 0,
+        },
+        MenuCompletionCase {
+            line: b"echo $'multi space-'",
+            command: "menu-complete",
+            count: 3,
+            left_count: 1,
+            expected: b"echo $'multi space-",
+            bells: 1,
+        },
+        MenuCompletionCase {
+            line: b"echo $'multi space-'",
+            command: "menu-complete-backward",
+            count: 1,
+            left_count: 1,
+            expected: b"echo $'multi space-two' ",
+            bells: 0,
+        },
+        MenuCompletionCase {
+            line: b"echo $'dir '",
+            command: "menu-complete",
+            count: 1,
+            left_count: 1,
+            expected: b"echo $'dir one'/",
+            bells: 0,
+        },
+        MenuCompletionCase {
+            line: b"echo $'dir '",
+            command: "menu-complete-backward",
+            count: 1,
+            left_count: 1,
+            expected: b"echo $'dir two'/",
+            bells: 0,
+        },
+        MenuCompletionCase {
+            line: b"echo $'dir '/",
+            command: "menu-complete",
+            count: 1,
+            left_count: 2,
+            expected: b"echo $'dir one'/",
+            bells: 0,
+        },
+        MenuCompletionCase {
+            line: b"echo $'dir '/",
+            command: "menu-complete-backward",
+            count: 1,
+            left_count: 2,
+            expected: b"echo $'dir two'/",
+            bells: 0,
+        },
+    ];
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    let home = root.path().join("home");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(&home).expect("create fixture HOME");
+    fs::write(cwd.join("single space-file"), b"").expect("create fixture file");
+    for name in ["multi space-one", "multi space-two"] {
+        fs::write(cwd.join(name), b"").expect("create fixture file");
+    }
+    for name in ["dir one", "dir two"] {
+        fs::create_dir(cwd.join(name)).expect("create fixture directory");
+    }
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+
+    for (index, case) in cases.iter().enumerate() {
+        let inputrc = format!(
+            "\"\\C-o\": {}\nset show-all-if-ambiguous off\nset menu-complete-display-prefix off\nset mark-directories on\nset page-completions off\nset completion-query-items 999",
+            case.command
+        );
+        let mut bash_keys = case.line.to_vec();
+        let mut sushline_keys = case.line.to_vec();
+        for _ in 0..case.left_count {
+            bash_keys.push(0x02);
+            sushline_keys.push(0x02);
+        }
+        for _ in 0..case.count {
+            bash_keys.push(0x0f);
+            sushline_keys.push(0x0f);
+        }
+        bash_keys.extend_from_slice(b"\x07\r");
+        sushline_keys.push(b'\r');
+        let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+            &cwd,
+            &inputrc,
+            &bash_keys,
+            &sushline_keys,
+            "set +H",
+            &env,
+        );
+        let bash_hex = raw_line_after_marker(&bash, b"BASH_READLINE_HEX:");
+        let sushline_hex = raw_accepted_hex_marker(&sushline);
+        assert!(
+            bash_hex.is_some() && bash_hex == sushline_hex,
+            "line-buffer hex differed for ANSI-C menu case {index}"
+        );
+        assert_eq!(
+            raw_accepted_hex(&sushline).as_deref(),
+            Some(case.expected),
+            "accepted bytes differed for ANSI-C menu case {index}"
+        );
+        assert_eq!(raw_bell_count(&bash), case.bells);
+        assert_eq!(raw_bell_count(&sushline), case.bells);
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn bash_readline_and_sushline_menu_completion_display_prefix_matches_bash_5_3() {
     let dir = tempfile::tempdir().expect("temp completion directory");
     for name in ["alpha-one", "alpine-two"] {

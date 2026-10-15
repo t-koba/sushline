@@ -10,6 +10,12 @@ use crate::state::{CompletionAttemptState, EditorState};
 use crate::terminal::TerminalIo;
 use crate::variables::BoolVariable;
 
+pub(super) struct CompletionReplacement {
+    pub(super) bytes: Vec<u8>,
+    pub(super) is_directory: bool,
+    pub(super) ansi_c_suffix_bytes: usize,
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct RequoteOptions {
     pub(super) quote_filename: bool,
@@ -55,7 +61,11 @@ where
             } else {
                 suffix.first().copied()
             };
-            let (mut replacement_bytes, is_directory) = self.completion_replacement_with_directory(
+            let CompletionReplacement {
+                bytes: mut replacement_bytes,
+                is_directory,
+                ..
+            } = self.completion_replacement_with_directory(
                 &response,
                 edit,
                 candidate,
@@ -368,7 +378,7 @@ where
         completion_type: CompletionType,
         hooks: &mut impl Hooks,
         next_byte: Option<u8>,
-    ) -> (Vec<u8>, bool) {
+    ) -> CompletionReplacement {
         let filename_directory = if response.options.filenames {
             filename_directory_completion(
                 &edit.word_bytes,
@@ -392,6 +402,13 @@ where
         let ansi_c_directory_needs_quote = ansi_c_directory
             && quote_filename_bytes(candidate.replacement_bytes(), false, false, true).as_slice()
                 != candidate.replacement_bytes();
+        let close_ansi_c_quote = !ansi_c_directory || ansi_c_directory_needs_quote;
+        let ansi_c_closes_quote = edit.ansi_c_quote
+            && response.options.filenames
+            && response.options.quote_filename()
+            && close_ansi_c_quote;
+        let ansi_c_suffix_bytes = usize::from(ansi_c_closes_quote)
+            + usize::from(ansi_c_closes_quote && append_slash && ansi_c_directory_needs_quote);
         let mut raw = candidate.replacement_bytes().to_vec();
         if append_slash {
             raw.push(b'/');
@@ -403,14 +420,18 @@ where
             RequoteOptions {
                 quote_filename: response.options.quote_filename(),
                 filename_candidates: response.options.filenames,
-                close_ansi_c_quote: !ansi_c_directory || ansi_c_directory_needs_quote,
+                close_ansi_c_quote,
                 ansi_c_slash_after_quote: append_slash && ansi_c_directory_needs_quote,
             },
             hooks,
         );
         let is_directory =
             filename_directory.is_some() || candidate.replacement_bytes().ends_with(b"/");
-        (replacement, is_directory)
+        CompletionReplacement {
+            bytes: replacement,
+            is_directory,
+            ansi_c_suffix_bytes,
+        }
     }
 }
 

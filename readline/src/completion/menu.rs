@@ -1,4 +1,4 @@
-use crate::completion::insert::extend_with_trailing_char;
+use crate::completion::insert::{CompletionReplacement, extend_with_trailing_char};
 use crate::completion::quoting::CompletionEdit;
 use crate::completion::{CompletionAction, CompletionResponse, CompletionType};
 use crate::editor::{Editor, ReadlineError};
@@ -90,7 +90,7 @@ where
             context.previous_match_index,
         );
         let completion_type = menu_completion_type(backward);
-        let replacement_bytes = self.menu_complete_replacement(
+        let (replacement_bytes, ansi_c_suffix_bytes) = self.menu_complete_replacement(
             &response,
             &context,
             next_index,
@@ -105,9 +105,18 @@ where
             context.previous_match_index,
             next_index,
         )?;
+        let mut replacement_end = context.end;
+        if ansi_c_suffix_bytes > 0 && state.buffer.as_bytes().get(replacement_end) == Some(&b'\'') {
+            replacement_end += 1;
+            if ansi_c_suffix_bytes > 1
+                && state.buffer.as_bytes().get(replacement_end) == Some(&b'/')
+            {
+                replacement_end += 1;
+            }
+        }
         state
             .buffer
-            .replace_range_bytes(context.edit.start, context.end, &replacement_bytes);
+            .replace_range_bytes(context.edit.start, replacement_end, &replacement_bytes);
         state.completion.menu_completion = Some(MenuCompletionState {
             index: next_index,
             end: context.edit.start + replacement_bytes.len(),
@@ -152,14 +161,20 @@ where
         hooks: &mut impl Hooks,
         state: &EditorState,
         completion_type: CompletionType,
-    ) -> Vec<u8> {
+    ) -> (Vec<u8>, usize) {
         if next_index == 0 {
-            return self
-                .requote_common_prefix(response, &context.edit, completion_type, hooks)
-                .unwrap_or_default();
+            return (
+                self.requote_common_prefix(response, &context.edit, completion_type, hooks)
+                    .unwrap_or_default(),
+                0,
+            );
         }
         let candidate = &response.candidates[next_index - 1];
-        let (mut replacement, is_directory) = self.completion_replacement_with_directory(
+        let CompletionReplacement {
+            bytes: mut replacement,
+            is_directory,
+            ansi_c_suffix_bytes,
+        } = self.completion_replacement_with_directory(
             response,
             &context.edit,
             candidate,
@@ -170,7 +185,7 @@ where
         if !is_directory {
             extend_with_trailing_char(&mut replacement, &response.options);
         }
-        replacement
+        (replacement, ansi_c_suffix_bytes)
     }
 
     fn menu_complete_display(

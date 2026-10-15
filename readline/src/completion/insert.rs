@@ -26,7 +26,9 @@ pub(super) fn should_append_completion_char(
         && response.options.quote_filename()
         && response.options.append_character.is_none()
     {
-        quote_filename_bytes(candidate, false, false, true).as_slice() != candidate
+        // Tested Bash 5.3 menu behavior appends a separator for these leading
+        // bytes even though the quoted replacement itself leaves them raw.
+        quote_filename_bytes(candidate, true, true, true).as_slice() != candidate
     } else {
         true
     }

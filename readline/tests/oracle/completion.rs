@@ -4720,6 +4720,79 @@ fn menu_completion_preserves_existing_quoted_suffixes_like_bash_5_3() {
 
 #[cfg(unix)]
 #[test]
+fn menu_completion_appends_separators_after_quoted_leading_hash_and_tilde_filenames() {
+    // Runtime-only Bash 5.3 observations for these leading bytes, quote forms,
+    // cursor positions, and first menu-completion action; not source proof.
+    struct Case {
+        line: &'static [u8],
+        expected: &'static [u8],
+    }
+    let cases = [
+        Case {
+            line: b"echo '#sa'",
+            expected: b"echo '#safe-alpha' ",
+        },
+        Case {
+            line: b"echo \"#sa\"",
+            expected: b"echo \"#safe-alpha\" ",
+        },
+        Case {
+            line: b"echo $'#sa'",
+            expected: b"echo $'#safe-alpha' ",
+        },
+        Case {
+            line: b"echo '~sa'",
+            expected: b"echo '~safe-alpha' ",
+        },
+        Case {
+            line: b"echo \"~sa\"",
+            expected: b"echo \"~safe-alpha\" ",
+        },
+        Case {
+            line: b"echo $'~sa'",
+            expected: b"echo $'~safe-alpha' ",
+        },
+    ];
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    let home = root.path().join("home");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(&home).expect("create fixture HOME");
+    for name in ["#safe-alpha", "#same-alpha", "~safe-alpha", "~same-alpha"] {
+        fs::write(cwd.join(name), b"").expect("create fixture file");
+    }
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+
+    for skip_completed_text in ["on", "off"] {
+        let inputrc = format!(
+            "\"\\C-o\": menu-complete\nset skip-completed-text {skip_completed_text}\nset menu-complete-display-prefix off\nset show-all-if-ambiguous off\nset page-completions off\nset completion-query-items 999"
+        );
+        for (index, case) in cases.iter().enumerate() {
+            let mut bash_keys = case.line.to_vec();
+            let mut sushline_keys = case.line.to_vec();
+            bash_keys.extend_from_slice(b"\x02\x0f\x07\r");
+            sushline_keys.extend_from_slice(b"\x02\x0f\r");
+            let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+                &cwd,
+                &inputrc,
+                &bash_keys,
+                &sushline_keys,
+                "set +H",
+                &env,
+            );
+            assert_filename_line_buffer_bytes(
+                &bash,
+                &sushline,
+                case.expected,
+                &format!("quoted leading #/~ separator skip={skip_completed_text} case={index}"),
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn bash_readline_and_sushline_menu_completion_display_prefix_matches_bash_5_3() {
     let dir = tempfile::tempdir().expect("temp completion directory");
     for name in ["alpha-one", "alpine-two"] {

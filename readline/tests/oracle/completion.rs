@@ -3108,6 +3108,71 @@ fn multi_candidate_consecutive_apostrophes_before_space_and_word_match_bash_5_3(
 
 #[cfg(unix)]
 #[test]
+fn explicit_dot_filename_candidates_match_bash_5_3() {
+    // Bash 5.3 PTY baseline 6f8e49fe55674f738ba7204ff46697d0 and this paired
+    // assertion are limited to this fixture and these prefixes/options; the
+    // baseline is runtime evidence, not GNU source proof.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    let home = root.path().join("home");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(&home).expect("create fixture HOME");
+    fs::write(cwd.join(".alpha"), b"").expect("write fixture file");
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+
+    for (prefix, match_hidden_files, expected) in [
+        (".", "on", b"echo cwd/.".as_slice()),
+        (".", "off", b"echo cwd/.".as_slice()),
+        ("..", "on", b"echo cwd/../".as_slice()),
+        ("..", "off", b"echo cwd/../".as_slice()),
+        ("./.", "on", b"echo cwd/./.".as_slice()),
+        ("./.", "off", b"echo cwd/./.".as_slice()),
+        ("./..", "on", b"echo cwd/./../".as_slice()),
+        ("./..", "off", b"echo cwd/./../".as_slice()),
+        (".a", "on", b"echo cwd/.alpha ".as_slice()),
+        (".a", "off", b"echo cwd/.alpha ".as_slice()),
+        ("", "on", b"echo cwd/.alpha ".as_slice()),
+        ("", "off", b"echo cwd/".as_slice()),
+    ] {
+        let inputrc = format!(
+            "\"\\C-o\": complete-filename\nset match-hidden-files {match_hidden_files}\nset show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off"
+        );
+        let mut bash_keys = format!("echo cwd/{prefix}").into_bytes();
+        let mut sushline_keys = bash_keys.clone();
+        bash_keys.extend_from_slice(b"\x0f\x07\r");
+        sushline_keys.extend_from_slice(b"\x0f\r");
+        let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+            root.path(),
+            &inputrc,
+            &bash_keys,
+            &sushline_keys,
+            "set +H",
+            &env,
+        );
+        let bash_hex =
+            raw_line_after_marker(&bash, b"BASH_READLINE_HEX:").expect("Bash line-buffer marker");
+        let (pairs, remainder) = bash_hex.as_chunks::<2>();
+        assert!(remainder.is_empty(), "odd Bash hex marker: {bash:?}");
+        let bash_bytes = pairs
+            .iter()
+            .map(|pair| {
+                (hex_digit(pair[0]).expect("Bash hex digit") << 4)
+                    | hex_digit(pair[1]).expect("Bash hex digit")
+            })
+            .collect::<Vec<_>>();
+        let sushline_bytes = raw_accepted_hex(&sushline).expect("Sushline accepted-line marker");
+        let context = format!("prefix={prefix:?}, match-hidden-files={match_hidden_files}");
+        assert_eq!(bash_bytes, expected, "Bash bytes for {context}: {bash:?}");
+        assert_eq!(
+            sushline_bytes, expected,
+            "Sushline bytes for {context}: {sushline:?}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn complete_filename_skips_ansi_c_suffix_overlap_like_bash_5_3() {
     // Runtime-only Bash 5.3 PTY probes fd9b4cde2d1a4d6ebfc1d0e8e6f4e9ac,
     // 310c48ab3ecc46babeacb3932af2f387, and 6388a4ec690c43c9b13fa0c83cd637c7.

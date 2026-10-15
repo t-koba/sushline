@@ -118,24 +118,65 @@ fn complete_filenames_with_tilde_context(
             ) {
                 continue;
             }
-            let name = filename_display_name(&name_bytes);
-            let replacement_bytes = join_display_dir(&display_dir, &name_bytes);
-            let path = entry.path();
-            let directory = directory_completion(&path, opts);
-            if directory.is_some() {
-                directory_candidate_count += 1;
+            push_filename_candidate(
+                &mut candidates,
+                &mut directory_candidate_count,
+                &display_dir,
+                &name_bytes,
+                &entry.path(),
+                opts,
+            );
+        }
+
+        // Bash includes the current and parent directories when the typed
+        // prefix explicitly starts with a dot. Do not add them for an empty
+        // prefix, and only synthesize them once the requested directory opened.
+        if !prefix.is_empty() && prefix.first() == Some(&b'.') {
+            for (name, name_bytes) in [(".", b".".as_slice()), ("..", b"..".as_slice())] {
+                if !completion_prefix_matches_bytes(
+                    name_bytes,
+                    prefix,
+                    opts,
+                    locale_lowercase.as_ref(),
+                ) {
+                    continue;
+                }
+                push_filename_candidate(
+                    &mut candidates,
+                    &mut directory_candidate_count,
+                    &display_dir,
+                    name_bytes,
+                    &dir.join(name),
+                    opts,
+                );
             }
-            let display = match directory.as_ref() {
-                Some(directory) => Some(directory_display(&name, directory)),
-                None => (!display_dir.is_empty()).then_some(name),
-            };
-            candidates.push(crate::completion::CompletionCandidate {
-                replacement: replacement_bytes,
-                display,
-            });
         }
     }
     filename_response(candidates, directory_candidate_count)
+}
+
+fn push_filename_candidate(
+    candidates: &mut Vec<CompletionCandidate>,
+    directory_candidate_count: &mut usize,
+    display_dir: &[u8],
+    name_bytes: &[u8],
+    path: &Path,
+    opts: &FilenameOptions,
+) {
+    let name = filename_display_name(name_bytes);
+    let replacement_bytes = join_display_dir(display_dir, name_bytes);
+    let directory = directory_completion(path, opts);
+    if directory.is_some() {
+        *directory_candidate_count += 1;
+    }
+    let display = match directory.as_ref() {
+        Some(directory) => Some(directory_display(&name, directory)),
+        None => (!display_dir.is_empty()).then_some(name),
+    };
+    candidates.push(crate::completion::CompletionCandidate {
+        replacement: replacement_bytes,
+        display,
+    });
 }
 
 pub(crate) fn filenames_response(candidates: Vec<CompletionCandidate>) -> CompletionResponse {

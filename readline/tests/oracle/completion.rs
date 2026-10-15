@@ -2033,6 +2033,71 @@ fn complete_filename_inserts_ansi_c_directory_suffixes_like_bash_5_3() {
 
 #[cfg(unix)]
 #[test]
+fn complete_filename_handles_ansi_c_symlink_directories_and_existing_slash_like_bash_5_3() {
+    // Runtime-only Bash 5.3 PTY probe ae85f3af04694cea9a8bb46015a75f64.
+    for mark_directories in ["off", "on"] {
+        for mark_symlinked_directories in ["off", "on"] {
+            let root = tempfile::tempdir().expect("temp completion root");
+            let cwd = root.path().join("cwd");
+            let home = root.path().join("home");
+            fs::create_dir(&cwd).expect("create fixture cwd");
+            fs::create_dir(&home).expect("create fixture HOME");
+            fs::create_dir(cwd.join("real-dir")).expect("create symlink target directory");
+            std::os::unix::fs::symlink("real-dir", cwd.join("link-dir"))
+                .expect("create symlink fixture");
+            let home_path = home.to_string_lossy().into_owned();
+            let env = [("HOME", home_path.as_str())];
+            let inputrc = format!(
+                "\"\\C-o\": complete-filename\nset mark-directories {mark_directories}\nset mark-symlinked-directories {mark_symlinked_directories}\nset completion-query-items 999\nset page-completions off"
+            );
+            let unique_bash_keys = b"echo $'link\x0f\x07\r";
+            let unique_sushline_keys = b"echo $'link\x0f\r";
+            let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+                &cwd,
+                &inputrc,
+                unique_bash_keys,
+                unique_sushline_keys,
+                "set +H",
+                &env,
+            );
+            let expected = if mark_directories == "on" && mark_symlinked_directories == "on" {
+                b"echo $'link-dir/".as_slice()
+            } else {
+                b"echo $'link-dir".as_slice()
+            };
+            assert_filename_line_buffer_bytes(
+                &bash,
+                &sushline,
+                expected,
+                &format!(
+                    "ANSI-C symlink directory with mark-directories {mark_directories} and mark-symlinked-directories {mark_symlinked_directories}"
+                ),
+            );
+
+            let existing_slash_bash_keys = b"echo $'link-dir/\x02\x0f\x07\r";
+            let existing_slash_sushline_keys = b"echo $'link-dir/\x02\x0f\r";
+            let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+                &cwd,
+                &inputrc,
+                existing_slash_bash_keys,
+                existing_slash_sushline_keys,
+                "set +H",
+                &env,
+            );
+            assert_filename_line_buffer_bytes(
+                &bash,
+                &sushline,
+                b"echo $'link-dir/",
+                &format!(
+                    "ANSI-C existing slash with mark-directories {mark_directories} and mark-symlinked-directories {mark_symlinked_directories}"
+                ),
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn complete_filename_keeps_ambiguous_ansi_c_quote_open_like_bash_5_3() {
     // Runtime-only Bash 5.3 PTY probe 5495fc787df04b9599f9836b9177fd86.
     use std::ffi::OsString;

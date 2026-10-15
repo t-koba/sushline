@@ -1156,6 +1156,104 @@ set page-completions off"#;
 
 #[cfg(unix)]
 #[test]
+fn complete_filename_quotes_glob_characters_like_bash_5_3() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    // Runtime-only Bash 5.3 PTY probes f1b3cb92aaf149018ad0d6d0986ee52a,
+    // 2f13e689917b4fac8e4310b647fdfb94, af1d4a4c0484459e9106ae06e0a1a2ef,
+    // and e6baaf57f6e643a9a5e5aed8ef1e1bf3 under LC_ALL=C.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let fixtures = [
+        (
+            "star-internal",
+            b"safe-star*item".as_slice(),
+            b"safe-star\\*item ".as_slice(),
+        ),
+        (
+            "star-trailing",
+            b"safe-trail*".as_slice(),
+            b"safe-trail\\* ".as_slice(),
+        ),
+        (
+            "question-internal",
+            b"safe-q?item".as_slice(),
+            b"safe-q\\?item ".as_slice(),
+        ),
+        (
+            "question-trailing",
+            b"safe-trail?".as_slice(),
+            b"safe-trail\\? ".as_slice(),
+        ),
+        (
+            "open-bracket-internal",
+            b"safe-left[item".as_slice(),
+            b"safe-left\\[item ".as_slice(),
+        ),
+        (
+            "open-bracket-trailing",
+            b"safe-trail[".as_slice(),
+            b"safe-trail\\[ ".as_slice(),
+        ),
+        (
+            "close-bracket-internal",
+            b"safe-right]item".as_slice(),
+            b"safe-right]item ".as_slice(),
+        ),
+        (
+            "close-bracket-trailing",
+            b"safe-trail]".as_slice(),
+            b"safe-trail] ".as_slice(),
+        ),
+        (
+            "bracket-pair",
+            b"safe-set[abc]".as_slice(),
+            b"safe-set\\[abc\\] ".as_slice(),
+        ),
+        (
+            "close-before-open",
+            b"safe-rev]open[".as_slice(),
+            b"safe-rev\\]open\\[ ".as_slice(),
+        ),
+    ];
+    let inputrc = r#""\C-o": complete-filename
+set expand-tilde off
+set mark-directories off
+set completion-query-items 999
+set page-completions off"#;
+
+    for (fixture, basename, expected_unquoted) in fixtures {
+        let dir = root.path().join(fixture);
+        fs::create_dir(&dir).expect("create glob fixture directory");
+        fs::write(dir.join(OsString::from_vec(basename.to_vec())), "").expect("write glob fixture");
+        for (form, prefix, quote) in [
+            ("unquoted", b"safe-".as_slice(), None),
+            ("single-quoted", b"'safe-".as_slice(), Some(b'\'')),
+            ("double-quoted", b"\"safe-".as_slice(), Some(b'"')),
+        ] {
+            let mut expected = Vec::new();
+            if let Some(quote) = quote {
+                expected.push(quote);
+                expected.extend_from_slice(basename);
+                expected.push(quote);
+                expected.push(b' ');
+            } else {
+                expected.extend_from_slice(expected_unquoted);
+            }
+            let mut bash_keys = prefix.to_vec();
+            bash_keys.extend_from_slice(b"\x0f\x07\r");
+            let mut sushline_keys = prefix.to_vec();
+            sushline_keys.extend_from_slice(b"\x0f\r");
+            let (bash, sushline) =
+                run_filename_line_buffer_hex_pair(&dir, inputrc, &bash_keys, &sushline_keys, "");
+            let context = format!("{fixture}/{form} completion");
+            assert_filename_line_buffer_bytes(&bash, &sushline, &expected, &context);
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn complete_filename_escapes_a_word_leading_hash_like_bash_5_3() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;

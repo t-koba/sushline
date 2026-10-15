@@ -101,6 +101,7 @@ pub(super) fn quote_filename_bytes(
     if escape_leading_hash && bytes.first() == Some(&b'#') {
         out.push(b'\\');
     }
+    let escape_closing_brackets = bytes.contains(&b'[');
     for byte in bytes {
         if matches!(
             byte,
@@ -120,12 +121,12 @@ pub(super) fn quote_filename_bytes(
                 | b'('
                 | b')'
                 | b'['
-                | b']'
                 | b'{'
                 | b'}'
                 | b'*'
                 | b'?'
-        ) {
+        ) || (*byte == b']' && escape_closing_brackets)
+        {
             out.push(b'\\');
         }
         out.push(*byte);
@@ -252,6 +253,22 @@ mod tests {
         assert_eq!(
             quote_double_quoted_filename_bytes(b"$`\"\\"),
             b"\"$`\\\"\\\\\""
+        );
+    }
+
+    #[test]
+    fn filename_quoting_escapes_close_brackets_only_with_open_brackets() {
+        assert_eq!(
+            quote_filename_bytes(b"safe-right]item", false, false, true),
+            b"safe-right]item"
+        );
+        assert_eq!(
+            quote_filename_bytes(b"safe-set[abc]", false, false, true),
+            b"safe-set\\[abc\\]"
+        );
+        assert_eq!(
+            quote_filename_bytes(b"safe-rev]open[", false, false, true),
+            b"safe-rev\\]open\\["
         );
     }
 

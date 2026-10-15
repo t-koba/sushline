@@ -86,6 +86,9 @@ pub(super) fn dequote_completion_word_bytes(raw: &[u8]) -> (Vec<u8>, Option<char
     (out, quote)
 }
 pub(super) fn quote_filename_bytes(bytes: &[u8], escape_leading_tilde: bool) -> Vec<u8> {
+    if bytes.contains(&b'\n') {
+        return quote_single_quoted_bytes(bytes);
+    }
     let mut out = Vec::with_capacity(bytes.len());
     if escape_leading_tilde && bytes.first() == Some(&b'~') {
         out.push(b'\\');
@@ -191,6 +194,14 @@ pub(super) fn quote_double_quoted_bytes(value: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::{dequote_completion_word_bytes, quote_filename_bytes};
+
+    #[test]
+    fn filename_quoting_uses_single_quotes_for_line_feeds() {
+        assert_eq!(
+            quote_filename_bytes(b"safe-lf\nitem", true),
+            b"'safe-lf\nitem'",
+        );
+    }
 
     #[test]
     fn filename_quoting_escapes_only_a_leading_tilde() {

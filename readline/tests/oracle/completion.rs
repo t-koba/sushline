@@ -2319,6 +2319,88 @@ fn complete_filename_keeps_plain_ansi_c_directory_quote_open_after_suffix() {
 
 #[cfg(unix)]
 #[test]
+fn complete_filename_leaves_incomplete_ansi_c_radix_prefixes_unmatched_like_bash_5_3() {
+    // Runtime-only Bash 5.3 PTY probes 80c4454bfcc245f4b15a91092255eac1
+    // and 3ab5e8aa8b8e4766a6a0ec7048a0f287.
+    struct EscapeCursorCase {
+        line: &'static [u8],
+        left_count: usize,
+    }
+    let cases = [
+        EscapeCursorCase {
+            line: b"echo $'safe\\x",
+            left_count: 0,
+        },
+        EscapeCursorCase {
+            line: b"echo $'safe\\x2",
+            left_count: 0,
+        },
+        EscapeCursorCase {
+            line: b"echo $'safe\\0",
+            left_count: 0,
+        },
+        EscapeCursorCase {
+            line: b"echo $'safe\\04",
+            left_count: 0,
+        },
+        EscapeCursorCase {
+            line: b"echo $'safe\\x20tail",
+            left_count: 7,
+        },
+        EscapeCursorCase {
+            line: b"echo $'safe\\x20tail",
+            left_count: 5,
+        },
+        EscapeCursorCase {
+            line: b"echo $'safe\\040tail",
+            left_count: 5,
+        },
+    ];
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    let home = root.path().join("home");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(&home).expect("create fixture HOME");
+    fs::write(cwd.join("safe space-tail"), b"").expect("create fixture file");
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+    let inputrc = "\"\\C-o\": complete-filename\nset mark-directories on\nset page-completions off";
+
+    for (index, case) in cases.iter().enumerate() {
+        let mut bash_keys = case.line.to_vec();
+        let mut sushline_keys = case.line.to_vec();
+        for _ in 0..case.left_count {
+            bash_keys.push(0x02);
+            sushline_keys.push(0x02);
+        }
+        bash_keys.extend_from_slice(b"\x0f\x07\r");
+        sushline_keys.extend_from_slice(b"\x0f\r");
+        let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+            &cwd,
+            inputrc,
+            &bash_keys,
+            &sushline_keys,
+            "set +H",
+            &env,
+        );
+        let bash_hex = raw_line_after_marker(&bash, b"BASH_READLINE_HEX:");
+        let sushline_hex = raw_accepted_hex_marker(&sushline);
+        assert!(
+            bash_hex.is_some() && bash_hex == sushline_hex,
+            "line-buffer hex differed for incomplete ANSI-C radix case {index}"
+        );
+        assert_eq!(
+            raw_accepted_hex(&sushline).as_deref(),
+            Some(case.line),
+            "accepted bytes differed for incomplete ANSI-C radix case {index}"
+        );
+        assert_eq!(raw_bell_count(&bash), 1);
+        assert_eq!(raw_bell_count(&sushline), 1);
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn complete_filename_does_not_match_fully_typed_ansi_c_radix_escape_like_bash_5_3() {
     // Runtime-only Bash 5.3 PTY probe 3f56ed53cdbe4c428acc7d1227ab2a43.
     let root = tempfile::tempdir().expect("temp completion root");

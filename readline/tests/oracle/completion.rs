@@ -846,81 +846,102 @@ set page-completions off"#;
 
 #[cfg(unix)]
 #[test]
-fn complete_filename_quotes_unique_basename_with_line_feed_like_bash_5_3() {
+fn complete_filename_quotes_line_feed_filenames_like_bash_5_3() {
     use portable_pty::{CommandBuilder, PtySize};
 
-    // Runtime-only Bash 5.3 PTY probe fdb5a964e24d4ad6bc6313421cce0fec
-    // under LC_ALL=C. Capture READLINE_LINE via bind -x: `read` truncates at LF.
+    // Runtime-only Bash 5.3 PTY probes fdb5a964e24d4ad6bc6313421cce0fec and
+    // 78931adcb4c944b1932c17fa0b16ee91 under LC_ALL=C. Capture READLINE_LINE
+    // via bind -x: `read`'s line result truncates at embedded LF.
     let dir = tempfile::tempdir().expect("temp completion directory");
     fs::write(dir.path().join("safe-lf\nitem"), "").expect("write LF fixture");
+    let home = dir.path().to_string_lossy().into_owned();
     let inputrc = r#""\C-o": complete-filename
+set expand-tilde off
+set mark-directories off
 set completion-query-items 999
 set page-completions off"#;
     let inputrc_path = dir.path().join("inputrc");
     fs::write(&inputrc_path, inputrc).expect("write inputrc");
+    let bash_script = r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; bind -x '"\C-g": printf "BASH_READLINE_HEX:"; printf "%s" "$READLINE_LINE" | od -An -tx1 | tr -d " \n"; printf "\n"'; IFS= read -r -e -p "SUSHLINE_READY>" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#;
 
-    let mut bash_command = CommandBuilder::new("bash");
-    bash_command.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
-    bash_command.env("LC_ALL", "C");
-    bash_command.args([
-        "--noprofile",
-        "--norc",
-        "-i",
-        "-c",
-        r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; bind -x '"\C-g": printf "BASH_READLINE_HEX:"; printf "%s" "$READLINE_LINE" | od -An -tx1 | tr -d " \n"; printf "\n"'; IFS= read -r -e -p "SUSHLINE_READY>" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#,
-    ]);
-
-    let mut sushline_command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
-    sushline_command.env("SUSHLINE_INPUTRC", inputrc);
-    sushline_command.env("SUSHLINE_PROMPT", READY_PROMPT);
-    sushline_command.env("SUSHLINE_HISTORY", "");
-    sushline_command.env("SUSHLINE_ACCEPTED_HEX", "1");
-    sushline_command.env("LC_ALL", "C");
-
-    let size = PtySize {
-        rows: 24,
-        cols: 80,
-        pixel_width: 0,
-        pixel_height: 0,
+    let run_bash = |keys: &[u8]| {
+        let mut command = CommandBuilder::new("bash");
+        command.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
+        command.env("LC_ALL", "C");
+        command.env("HOME", &home);
+        command.args(["--noprofile", "--norc", "-i", "-c", bash_script]);
+        run_pty_in_dir_with_size_raw_until(
+            command,
+            keys,
+            dir.path(),
+            PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+            "BASH_READLINE_HEX:",
+        )
     };
-    let bash_keys = b"safe-\x0f\x07\r";
-    let sushline_keys = b"safe-\x0f\r";
-    let bash = run_pty_in_dir_with_size_raw_until(
-        bash_command,
-        bash_keys,
-        dir.path(),
-        size,
-        "BASH_READLINE_HEX:",
-    );
-    let sushline = run_pty_in_dir_with_size_raw_until(
-        sushline_command,
-        sushline_keys,
-        dir.path(),
-        size,
-        "SUSHLINE_ACCEPTED_HEX:",
-    );
-    let expected_hex = b"27736166652d6c660a6974656d2720";
+    let run_sushline = |keys: &[u8]| {
+        let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+        command.env("SUSHLINE_INPUTRC", inputrc);
+        command.env("SUSHLINE_PROMPT", READY_PROMPT);
+        command.env("SUSHLINE_HISTORY", "");
+        command.env("SUSHLINE_ACCEPTED_HEX", "1");
+        command.env("LC_ALL", "C");
+        command.env("HOME", &home);
+        run_pty_in_dir_with_size_raw_until(
+            command,
+            keys,
+            dir.path(),
+            PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+            "SUSHLINE_ACCEPTED_HEX:",
+        )
+    };
 
-    assert_eq!(
-        raw_line_after_marker(&bash, b"BASH_READLINE_HEX:"),
-        Some(expected_hex.as_slice()),
-        "Bash READLINE_LINE hex marker differed"
-    );
-    assert_eq!(
-        raw_accepted_hex_marker(&sushline),
-        Some(expected_hex.as_slice()),
-        "Sushline accepted-line hex marker differed"
-    );
-    assert_eq!(
-        raw_bell_count(&bash),
-        0,
-        "unexpected completion bell from Bash"
-    );
-    assert_eq!(
-        raw_bell_count(&sushline),
-        0,
-        "unexpected completion bell from Sushline"
-    );
+    for (case, bash_keys, sushline_keys, expected_hex) in [
+        (
+            "cwd",
+            b"safe-\x0f\x07\r".as_slice(),
+            b"safe-\x0f\r".as_slice(),
+            b"27736166652d6c660a6974656d2720".as_slice(),
+        ),
+        (
+            "unexpanded-home-tilde",
+            b"~/safe-\x0f\x07\r".as_slice(),
+            b"~/safe-\x0f\r".as_slice(),
+            b"7e2f736166652d6c665c0a6974656d20".as_slice(),
+        ),
+    ] {
+        let bash = run_bash(bash_keys);
+        let sushline = run_sushline(sushline_keys);
+        assert_eq!(
+            raw_line_after_marker(&bash, b"BASH_READLINE_HEX:"),
+            Some(expected_hex),
+            "Bash READLINE_LINE hex differed for {case}"
+        );
+        assert_eq!(
+            raw_accepted_hex_marker(&sushline),
+            Some(expected_hex),
+            "Sushline accepted-line hex differed for {case}"
+        );
+        assert_eq!(
+            raw_bell_count(&bash),
+            0,
+            "unexpected completion bell from Bash for {case}"
+        );
+        assert_eq!(
+            raw_bell_count(&sushline),
+            0,
+            "unexpected completion bell from Sushline for {case}"
+        );
+    }
 }
 
 #[cfg(unix)]

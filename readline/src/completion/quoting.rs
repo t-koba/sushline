@@ -85,8 +85,12 @@ pub(super) fn dequote_completion_word_bytes(raw: &[u8]) -> (Vec<u8>, Option<char
     }
     (out, quote)
 }
-pub(super) fn quote_filename_bytes(bytes: &[u8], escape_leading_tilde: bool) -> Vec<u8> {
-    if bytes.contains(&b'\n') {
+pub(super) fn quote_filename_bytes(
+    bytes: &[u8],
+    escape_leading_tilde: bool,
+    single_quote_line_feeds: bool,
+) -> Vec<u8> {
+    if single_quote_line_feeds && bytes.contains(&b'\n') {
         return quote_single_quoted_bytes(bytes);
     }
     let mut out = Vec::with_capacity(bytes.len());
@@ -198,18 +202,28 @@ mod tests {
     #[test]
     fn filename_quoting_uses_single_quotes_for_line_feeds() {
         assert_eq!(
-            quote_filename_bytes(b"safe-lf\nitem", true),
+            quote_filename_bytes(b"safe-lf\nitem", true, true),
             b"'safe-lf\nitem'",
+        );
+        assert_eq!(
+            quote_filename_bytes(b"~/safe-lf\nitem", false, false),
+            b"~/safe-lf\\\nitem",
         );
     }
 
     #[test]
     fn filename_quoting_escapes_only_a_leading_tilde() {
-        assert_eq!(quote_filename_bytes(b"~", true), b"\\~");
-        assert_eq!(quote_filename_bytes(b"~Alpha", true), b"\\~Alpha");
-        assert_eq!(quote_filename_bytes(b"alpha~beta", true), b"alpha~beta");
-        assert_eq!(quote_filename_bytes(b"alpha/~beta", true), b"alpha/~beta");
-        assert_eq!(quote_filename_bytes(b"~user/", false), b"~user/");
+        assert_eq!(quote_filename_bytes(b"~", true, true), b"\\~");
+        assert_eq!(quote_filename_bytes(b"~Alpha", true, true), b"\\~Alpha");
+        assert_eq!(
+            quote_filename_bytes(b"alpha~beta", true, true),
+            b"alpha~beta"
+        );
+        assert_eq!(
+            quote_filename_bytes(b"alpha/~beta", true, true),
+            b"alpha/~beta"
+        );
+        assert_eq!(quote_filename_bytes(b"~user/", false, true), b"~user/");
     }
 
     #[test]

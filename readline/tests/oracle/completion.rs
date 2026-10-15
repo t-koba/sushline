@@ -1576,7 +1576,8 @@ fn complete_filename_handles_ansi_c_quoted_words_like_bash_5_3() {
     use std::os::unix::ffi::OsStringExt;
 
     // Runtime-only Bash 5.3 PTY probes 67152a0e1459401c90a38eaad29a6b99,
-    // eae6778c995d4ff98f3e6125e3e9693f, and e120dd1dc41241d6919c7393c13651ab.
+    // eae6778c995d4ff98f3e6125e3e9693f, e120dd1dc41241d6919c7393c13651ab,
+    // and 59f8b916141343f3b2d52d061b4c4ac5.
     let root = tempfile::tempdir().expect("temp completion root");
     let fixtures = [
         (
@@ -1608,6 +1609,31 @@ fn complete_filename_handles_ansi_c_quoted_words_like_bash_5_3() {
             "dollar",
             b"safe-dollar$name".as_slice(),
             b"$'safe-dollar$name' ".as_slice(),
+        ),
+        (
+            "lf",
+            b"safe-lf\nitem".as_slice(),
+            b"$'safe-lf\nitem' ".as_slice(),
+        ),
+        (
+            "tab",
+            b"safe-tab\titem".as_slice(),
+            b"$'safe-tab\titem' ".as_slice(),
+        ),
+        (
+            "esc",
+            b"safe-esc\x1bitem".as_slice(),
+            b"$'safe-esc\x1bitem' ".as_slice(),
+        ),
+        (
+            "del",
+            b"safe-del\x7fitem".as_slice(),
+            b"$'safe-del\x7fitem' ".as_slice(),
+        ),
+        (
+            "cr",
+            b"safe-cr\ritem".as_slice(),
+            b"$'safe-cr\ritem' ".as_slice(),
         ),
     ];
     let inputrc = r#""\C-o": complete-filename

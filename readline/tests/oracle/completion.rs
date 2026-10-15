@@ -976,6 +976,99 @@ set page-completions off"#;
 
 #[cfg(unix)]
 #[test]
+fn complete_filename_quotes_apostrophes_like_bash_5_3() {
+    use portable_pty::{CommandBuilder, PtySize};
+
+    // Runtime-only Bash 5.3 PTY probes 0f01ce0d8770412c8614f3529b122810 and
+    // 1f699a78d2094d90ab8c57f6eb42e9a7 under LC_ALL=C.
+    let dir = tempfile::tempdir().expect("temp completion directory");
+    fs::write(dir.path().join("safe-o'clock"), "").expect("write apostrophe fixture");
+    let inputrc = r#""\C-o": complete-filename
+set expand-tilde off
+set mark-directories off
+set completion-query-items 999
+set page-completions off"#;
+    let inputrc_path = dir.path().join("inputrc");
+    fs::write(&inputrc_path, inputrc).expect("write inputrc");
+    let bash_script = r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; bind -x '"\C-g": printf "BASH_READLINE_HEX:"; printf "%s" "$READLINE_LINE" | od -An -tx1 | tr -d " \n"; printf "\n"'; IFS= read -r -e -p "SUSHLINE_READY>" line; :"#;
+
+    for (form, prefix, expected) in [
+        (
+            "unquoted",
+            b"safe-".as_slice(),
+            b"safe-o\\'clock ".as_slice(),
+        ),
+        (
+            "single-quoted",
+            b"'safe-".as_slice(),
+            b"'safe-o'\\''clock' ".as_slice(),
+        ),
+        (
+            "double-quoted",
+            b"\"safe-".as_slice(),
+            b"\"safe-o'clock\" ".as_slice(),
+        ),
+    ] {
+        let mut bash_keys = prefix.to_vec();
+        bash_keys.extend_from_slice(b"\x0f\x07\r");
+        let mut sushline_keys = prefix.to_vec();
+        sushline_keys.extend_from_slice(b"\x0f\r");
+
+        let mut bash_command = CommandBuilder::new("bash");
+        bash_command.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
+        bash_command.env("LC_ALL", "C");
+        bash_command.args(["--noprofile", "--norc", "-i", "-c", bash_script]);
+        let bash = run_pty_in_dir_with_size_raw_until(
+            bash_command,
+            &bash_keys,
+            dir.path(),
+            PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+            "BASH_READLINE_HEX:",
+        );
+
+        let mut sushline_command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+        sushline_command.env("SUSHLINE_INPUTRC", inputrc);
+        sushline_command.env("SUSHLINE_PROMPT", READY_PROMPT);
+        sushline_command.env("SUSHLINE_HISTORY", "");
+        sushline_command.env("SUSHLINE_ACCEPTED_HEX", "1");
+        sushline_command.env("LC_ALL", "C");
+        let sushline = run_pty_in_dir_with_size_raw_until(
+            sushline_command,
+            &sushline_keys,
+            dir.path(),
+            PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+            "SUSHLINE_ACCEPTED_HEX:",
+        );
+
+        let bash_hex = raw_line_after_marker(&bash, b"BASH_READLINE_HEX:");
+        let sushline_hex = raw_accepted_hex_marker(&sushline);
+        assert!(
+            bash_hex.is_some() && bash_hex == sushline_hex,
+            "line-buffer hex mismatch for {form} apostrophe completion"
+        );
+        assert!(
+            raw_accepted_hex(&sushline).as_deref() == Some(expected),
+            "accepted-line bytes mismatch for {form} apostrophe completion"
+        );
+        assert!(
+            raw_bell_count(&bash) == 0 && raw_bell_count(&sushline) == 0,
+            "unexpected completion bell for {form} apostrophe completion"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn complete_filename_preserves_control_bytes_in_unquoted_and_quoted_contexts_like_bash_5_3() {
     use portable_pty::{CommandBuilder, PtySize};
     use std::ffi::OsString;

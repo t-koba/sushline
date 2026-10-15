@@ -1571,6 +1571,95 @@ set page-completions off"#;
 
 #[cfg(unix)]
 #[test]
+fn complete_filename_quotes_extglob_patterns_like_bash_5_3() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    // Runtime-only Bash 5.3 PTY probe b05892bb3ddf4ba5ab1d5cd49b8eb47a under LC_ALL=C.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let fixtures = [
+        (
+            "at",
+            b"safe-extglob-@(a|b)".as_slice(),
+            b"safe-extglob-@\\(a\\|b\\) ".as_slice(),
+        ),
+        (
+            "plus",
+            b"safe-extglob-+(a|b)".as_slice(),
+            b"safe-extglob-+\\(a\\|b\\) ".as_slice(),
+        ),
+        (
+            "question",
+            b"safe-extglob-?(a|b)".as_slice(),
+            b"safe-extglob-\\?\\(a\\|b\\) ".as_slice(),
+        ),
+        (
+            "star",
+            b"safe-extglob-*(a|b)".as_slice(),
+            b"safe-extglob-\\*\\(a\\|b\\) ".as_slice(),
+        ),
+        (
+            "bang",
+            b"safe-extglob-!(a|b)".as_slice(),
+            b"safe-extglob-\\!\\(a\\|b\\) ".as_slice(),
+        ),
+    ];
+    let inputrc = r#""\C-o": complete-filename
+set expand-tilde off
+set mark-directories off
+set completion-query-items 999
+set page-completions off"#;
+
+    for (fixture, basename, expected_unquoted) in fixtures {
+        let dir = root.path().join(fixture);
+        fs::create_dir(&dir).expect("create extglob fixture directory");
+        fs::write(dir.join(OsString::from_vec(basename.to_vec())), "")
+            .expect("write extglob fixture");
+        for extglob in ["on", "off"] {
+            let bash_setup = if extglob == "on" {
+                "shopt -s extglob; set +H"
+            } else {
+                "shopt -u extglob; set +H"
+            };
+            for (form, filename_prefix, quote) in [
+                ("unquoted", b"safe-".as_slice(), None),
+                ("single-quoted", b"safe-".as_slice(), Some(b'\'')),
+                ("double-quoted", b"safe-".as_slice(), Some(b'"')),
+            ] {
+                let mut prefix = Vec::new();
+                if let Some(quote) = quote {
+                    prefix.push(quote);
+                }
+                prefix.extend_from_slice(filename_prefix);
+                let mut expected = Vec::new();
+                if let Some(quote) = quote {
+                    expected.push(quote);
+                    expected.extend_from_slice(basename);
+                    expected.push(quote);
+                    expected.push(b' ');
+                } else {
+                    expected.extend_from_slice(expected_unquoted);
+                }
+                let mut bash_keys = prefix.clone();
+                bash_keys.extend_from_slice(b"\x0f\x07\r");
+                let mut sushline_keys = prefix;
+                sushline_keys.extend_from_slice(b"\x0f\r");
+                let (bash, sushline) = run_filename_line_buffer_hex_pair(
+                    &dir,
+                    inputrc,
+                    &bash_keys,
+                    &sushline_keys,
+                    bash_setup,
+                );
+                let context = format!("{fixture}/extglob-{extglob}/{form}");
+                assert_filename_line_buffer_bytes(&bash, &sushline, &expected, &context);
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn complete_filename_handles_equals_and_colon_word_breaks_like_bash_5_3() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;

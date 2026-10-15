@@ -1571,6 +1571,53 @@ set page-completions off"#;
 
 #[cfg(unix)]
 #[test]
+fn complete_filename_handles_ansi_c_bangs_with_bash_history_expansion() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    // Runtime-only Bash 5.3 PTY probe b9f43c4a6db740e6aa98a8d40b72e1be.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let fixtures = [
+        ("internal", b"safe-bang!item".as_slice()),
+        ("trailing", b"safe-trail!".as_slice()),
+    ];
+    let inputrc = r#""\C-o": complete-filename
+set expand-tilde off
+set mark-directories off
+set completion-query-items 999
+set page-completions off"#;
+
+    for (fixture, basename) in fixtures {
+        let dir = root.path().join(fixture);
+        fs::create_dir(&dir).expect("create ANSI-C history fixture directory");
+        fs::write(dir.join(OsString::from_vec(basename.to_vec())), "")
+            .expect("write ANSI-C history fixture");
+        for history in ["on", "off"] {
+            let bash_setup = if history == "on" { "set -H" } else { "set +H" };
+            let mut expected = b"echo $'".to_vec();
+            expected.extend_from_slice(basename);
+            expected.extend_from_slice(b"' ");
+            let bash_keys = b"echo $'safe-\x0f\x07\r";
+            let sushline_keys = b"echo $'safe-\x0f\r";
+            let (bash, sushline) = run_filename_line_buffer_hex_pair(
+                &dir,
+                inputrc,
+                bash_keys,
+                sushline_keys,
+                bash_setup,
+            );
+            assert_filename_line_buffer_bytes(
+                &bash,
+                &sushline,
+                &expected,
+                &format!("ANSI-C {fixture}, history expansion {history}"),
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn complete_filename_handles_ansi_c_quoted_words_like_bash_5_3() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;

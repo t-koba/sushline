@@ -48,7 +48,8 @@ pub(super) fn preserve_quoted_filename_closer(
         return 0;
     };
     let quote_byte = quote as u8;
-    if suffix != [quote_byte] {
+    // For directories, consume only the closer and preserve adjacent word bytes.
+    if suffix.first() != Some(&quote_byte) || (!is_directory && suffix.len() != 1) {
         return 0;
     }
     if replacement.last() != Some(&quote_byte)

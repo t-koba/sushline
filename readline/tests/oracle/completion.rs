@@ -5127,6 +5127,97 @@ fn quoted_directory_slashes_match_bash_5_3_for_completion_commands() {
 
 #[cfg(unix)]
 #[test]
+fn quoted_directory_completion_preserves_adjacent_suffix_bytes_like_bash_5_3() {
+    // Runtime-only Bash 5.3 observations for quoted directories followed by
+    // an adjacent word suffix; not source proof.
+    let quotes = [
+        ("single", b"'".as_slice(), b'\''),
+        ("double", b"\"".as_slice(), b'\"'),
+    ];
+    let directories = [
+        (
+            "plain",
+            b"plain-d".as_slice(),
+            b"plain-dir".as_slice(),
+            false,
+        ),
+        (
+            "space",
+            b"only spa".as_slice(),
+            b"only space-dir".as_slice(),
+            true,
+        ),
+    ];
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    let home = root.path().join("home");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(&home).expect("create fixture HOME");
+    for (_, _, candidate, _) in &directories {
+        fs::create_dir(cwd.join(std::str::from_utf8(candidate).unwrap()))
+            .expect("create fixture directory");
+    }
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+
+    for command in ["complete", "complete-filename", "menu-complete"] {
+        for mark_directories in ["on", "off"] {
+            let inputrc = format!(
+                "\"\\C-o\": {command}\nset mark-directories {mark_directories}\nset skip-completed-text off\nset menu-complete-display-prefix off\nset show-all-if-ambiguous off\nset page-completions off\nset completion-query-items 999"
+            );
+            for (quote_name, opening, closing) in &quotes {
+                for (directory_name, prefix, candidate, needs_shell_escape) in &directories {
+                    let mut line = b"echo ".to_vec();
+                    line.extend_from_slice(opening);
+                    line.extend_from_slice(prefix);
+                    line.push(*closing);
+                    line.extend_from_slice(b"tail");
+                    let mut bash_keys = line.clone();
+                    let mut sushline_keys = line;
+                    for _ in 0..5 {
+                        bash_keys.push(0x02);
+                        sushline_keys.push(0x02);
+                    }
+                    bash_keys.extend_from_slice(b"\x0f\x07\r");
+                    sushline_keys.extend_from_slice(b"\x0f\r");
+
+                    let mut expected = b"echo ".to_vec();
+                    expected.extend_from_slice(opening);
+                    expected.extend_from_slice(candidate);
+                    if mark_directories == "on" && *needs_shell_escape {
+                        expected.push(*closing);
+                        expected.push(b'/');
+                    } else {
+                        if mark_directories == "on" {
+                            expected.push(b'/');
+                        }
+                        expected.push(*closing);
+                    }
+                    expected.extend_from_slice(b"tail");
+                    let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+                        &cwd,
+                        &inputrc,
+                        &bash_keys,
+                        &sushline_keys,
+                        "set +H",
+                        &env,
+                    );
+                    assert_filename_line_buffer_bytes(
+                        &bash,
+                        &sushline,
+                        &expected,
+                        &format!(
+                            "quoted directory adjacent suffix command={command} mark={mark_directories} quote={quote_name} directory={directory_name}"
+                        ),
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn bash_readline_and_sushline_menu_completion_display_prefix_matches_bash_5_3() {
     let dir = tempfile::tempdir().expect("temp completion directory");
     for name in ["alpha-one", "alpine-two"] {

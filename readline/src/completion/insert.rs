@@ -101,6 +101,44 @@ pub(super) struct RequoteOptions {
     pub(super) slash_after_quote: bool,
 }
 
+fn unquoted_filename_suffix_overlap_len(completion: &[u8], raw_suffix: &[u8]) -> Option<usize> {
+    let mut semantic_suffix = Vec::new();
+    let mut raw_prefix_lengths = Vec::new();
+    let mut index = 0;
+    while let Some(byte) = raw_suffix.get(index).copied() {
+        match byte {
+            b'\\' => match raw_suffix.get(index + 1).copied() {
+                Some(b'\n') => index += 2,
+                Some(escaped) => {
+                    semantic_suffix.push(escaped);
+                    index += 2;
+                    raw_prefix_lengths.push(index);
+                }
+                None => {
+                    semantic_suffix.push(b'\\');
+                    index += 1;
+                    raw_prefix_lengths.push(index);
+                }
+            },
+            b'\'' | b'"' => return None,
+            byte if byte.is_ascii_whitespace() => break,
+            byte => {
+                semantic_suffix.push(byte);
+                index += 1;
+                raw_prefix_lengths.push(index);
+            }
+        }
+    }
+
+    let overlap = completion_suffix_overlap_len(completion, &semantic_suffix);
+    Some(
+        overlap
+            .checked_sub(1)
+            .and_then(|index| raw_prefix_lengths.get(index).copied())
+            .unwrap_or(0),
+    )
+}
+
 impl<T> Editor<T>
 where
     T: TerminalIo,
@@ -315,6 +353,13 @@ where
             if let Some((common_prefix, mut replacement_bytes)) =
                 self.requote_common_prefix_with_prefix(&response, edit, completion_type, hooks)
             {
+                let unquoted_regular_filename = response.options.filenames
+                    && edit.quote.is_none()
+                    && !edit.ansi_c_quote
+                    && !matches!(
+                        completion_type,
+                        CompletionType::MenuComplete | CompletionType::MenuCompleteBackward
+                    );
                 let suffix = completion_suffix_bytes(edit, state);
                 let mut replacement_end = edit.end;
                 if skip_completed_text {
@@ -328,10 +373,19 @@ where
                             common_prefix.get(..*prefix_len) == Some(edit.word_bytes.as_slice())
                         })
                         .map(|prefix_len| {
-                            completion_suffix_overlap_len(
-                                common_prefix.get(prefix_len..).unwrap_or_default(),
-                                &suffix,
-                            )
+                            let completion_suffix =
+                                common_prefix.get(prefix_len..).unwrap_or_default();
+                            let overlap = completion_suffix_overlap_len(completion_suffix, &suffix);
+                            if unquoted_regular_filename {
+                                // Match shell-decoded bytes but consume the encoded buffer length.
+                                unquoted_filename_suffix_overlap_len(
+                                    completion_suffix,
+                                    state.buffer.as_bytes().get(edit.end..).unwrap_or_default(),
+                                )
+                                .unwrap_or(overlap)
+                            } else {
+                                overlap
+                            }
                         })
                         .unwrap_or(0);
                         replacement_end += overlap;

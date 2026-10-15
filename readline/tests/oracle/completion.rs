@@ -1156,6 +1156,55 @@ set page-completions off"#;
 
 #[cfg(unix)]
 #[test]
+fn complete_filename_preserves_internal_and_trailing_hashes_like_bash_5_3() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    // Runtime-only Bash 5.3 PTY probes fa06c41b591c4d5a838d0d59c6450f3c and
+    // ad800e48a26e47e59e276fae761e86b3 under LC_ALL=C.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let fixtures = [
+        ("internal", b"safe-hash#item".as_slice()),
+        ("trailing", b"safe-trail#".as_slice()),
+    ];
+    let inputrc = r#""\C-o": complete-filename
+set expand-tilde off
+set mark-directories off
+set completion-query-items 999
+set page-completions off"#;
+
+    for (fixture, basename) in fixtures {
+        let dir = root.path().join(fixture);
+        fs::create_dir(&dir).expect("create hash fixture directory");
+        fs::write(dir.join(OsString::from_vec(basename.to_vec())), "").expect("write hash fixture");
+        for (form, prefix, quote) in [
+            ("unquoted", b"safe-".as_slice(), None),
+            ("single-quoted", b"'safe-".as_slice(), Some(b'\'')),
+            ("double-quoted", b"\"safe-".as_slice(), Some(b'"')),
+        ] {
+            let mut expected = Vec::new();
+            if let Some(quote) = quote {
+                expected.push(quote);
+            }
+            expected.extend_from_slice(basename);
+            if let Some(quote) = quote {
+                expected.push(quote);
+            }
+            expected.push(b' ');
+            let mut bash_keys = prefix.to_vec();
+            bash_keys.extend_from_slice(b"\x0f\x07\r");
+            let mut sushline_keys = prefix.to_vec();
+            sushline_keys.extend_from_slice(b"\x0f\r");
+            let (bash, sushline) =
+                run_filename_line_buffer_hex_pair(&dir, inputrc, &bash_keys, &sushline_keys, "");
+            let context = format!("{fixture}/{form} completion");
+            assert_filename_line_buffer_bytes(&bash, &sushline, &expected, &context);
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn complete_filename_quotes_exclamation_marks_with_bash_history_expansion() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;

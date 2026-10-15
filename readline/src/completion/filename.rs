@@ -876,18 +876,51 @@ pub(crate) fn expand_tilde_bytes(line: &[u8]) -> Vec<u8> {
     expand_tilde_word_bytes(line).unwrap_or_else(|| line.to_vec())
 }
 
-fn expand_tilde_word_bytes(word: &[u8]) -> Option<Vec<u8>> {
-    // `~+` and `~-` filename prefixes resolve from the shell's PWD/OLDPWD.
-    for (tilde_prefix, variable) in [(b"~+/".as_slice(), "PWD"), (b"~-/".as_slice(), "OLDPWD")] {
-        if let Some(suffix) = word.strip_prefix(tilde_prefix) {
-            let mut directory = std::env::var_os(variable)
-                .and_then(|directory| os_str_to_completion_bytes(&directory))?;
-            if !directory.ends_with(b"/") {
-                directory.push(b'/');
-            }
-            directory.extend_from_slice(suffix);
-            return Some(directory);
+fn current_shell_directory_bytes() -> Option<Vec<u8>> {
+    let current_directory = std::env::current_dir().ok()?;
+    let pwd = std::env::var_os("PWD");
+    current_directory_bytes_for_pwd(pwd.as_deref(), &current_directory)
+}
+
+fn current_directory_bytes_for_pwd(
+    pwd: Option<&std::ffi::OsStr>,
+    current_directory: &Path,
+) -> Option<Vec<u8>> {
+    let current_bytes = os_str_to_completion_bytes(current_directory.as_os_str())?;
+    if let Some(pwd) = pwd {
+        let pwd_path = Path::new(pwd);
+        if pwd_path.is_absolute()
+            && let Ok(canonical_pwd) = pwd_path.canonicalize()
+            && current_directory
+                .canonicalize()
+                .is_ok_and(|canonical_current| canonical_current == canonical_pwd)
+            && let Some(pwd_bytes) = os_str_to_completion_bytes(pwd)
+        {
+            return Some(pwd_bytes);
         }
+    }
+    Some(current_bytes)
+}
+
+fn expand_tilde_word_bytes(word: &[u8]) -> Option<Vec<u8>> {
+    // `~+` resolves from a valid shell PWD, preserving its logical spelling.
+    if let Some(suffix) = word.strip_prefix(b"~+/") {
+        let mut directory = current_shell_directory_bytes()?;
+        if !directory.ends_with(b"/") {
+            directory.push(b'/');
+        }
+        directory.extend_from_slice(suffix);
+        return Some(directory);
+    }
+    // `~-` uses OLDPWD without validating it against the current directory.
+    if let Some(suffix) = word.strip_prefix(b"~-/") {
+        let mut directory = std::env::var_os("OLDPWD")
+            .and_then(|directory| os_str_to_completion_bytes(&directory))?;
+        if !directory.ends_with(b"/") {
+            directory.push(b'/');
+        }
+        directory.extend_from_slice(suffix);
+        return Some(directory);
     }
     if word == b"~" {
         return std::env::var_os("HOME").and_then(|home| os_str_to_completion_bytes(&home));
@@ -1089,6 +1122,45 @@ mod tests {
             response.candidates[0]
                 .replacement_bytes()
                 .ends_with(&filename)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn current_directory_validation_rejects_stale_pwd_and_preserves_logical_pwd() {
+        use std::os::unix::fs::symlink;
+
+        let current = tempfile::tempdir().expect("current directory fixture");
+        let stale = tempfile::tempdir().expect("stale PWD fixture");
+        let logical_root = tempfile::tempdir().expect("logical PWD fixture");
+        let logical = logical_root.path().join("logical-cwd");
+        symlink(current.path(), &logical).expect("create logical PWD symlink");
+        let current_bytes = os_str_to_completion_bytes(current.path().as_os_str())
+            .expect("current directory bytes");
+        let logical_bytes =
+            os_str_to_completion_bytes(logical.as_os_str()).expect("logical PWD bytes");
+
+        assert!(
+            current_directory_bytes_for_pwd(Some(stale.path().as_os_str()), current.path())
+                .as_deref()
+                == Some(current_bytes.as_slice()),
+            "stale PWD did not fall back to the current directory"
+        );
+        assert!(
+            current_directory_bytes_for_pwd(None, current.path()).as_deref()
+                == Some(current_bytes.as_slice()),
+            "unset PWD did not fall back to the current directory"
+        );
+        assert!(
+            current_directory_bytes_for_pwd(Some(std::ffi::OsStr::new("relative")), current.path())
+                .as_deref()
+                == Some(current_bytes.as_slice()),
+            "relative PWD did not fall back to the current directory"
+        );
+        assert!(
+            current_directory_bytes_for_pwd(Some(logical.as_os_str()), current.path()).as_deref()
+                == Some(logical_bytes.as_slice()),
+            "valid logical PWD spelling was not preserved"
         );
     }
 

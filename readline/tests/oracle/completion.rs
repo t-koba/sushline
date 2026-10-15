@@ -1716,6 +1716,57 @@ fn bash_readline_and_sushline_complete_special_shell_directory_tilde_paths() {
 }
 
 #[cfg(unix)]
+#[test]
+fn bash_readline_and_sushline_validate_pwd_for_shell_directory_tilde_completion() {
+    // Runtime-only Bash 5.3 probes 19380ec09f8846328a58a5698bcb371a and
+    // 639f95c6daff4d78a2e99976348c5d6e: reject stale PWD, preserve valid symlinks.
+    // Keep paths and PTY transcripts out of assertion diagnostics.
+    let root = tempfile::tempdir().expect("temp PWD root");
+    let cwd = root.path().join("cwd");
+    let stale = root.path().join("stale");
+    let logical = root.path().join("logical");
+    fs::create_dir(&cwd).expect("create cwd fixture");
+    fs::create_dir(&stale).expect("create stale PWD fixture");
+    std::os::unix::fs::symlink(&cwd, &logical).expect("create logical PWD symlink");
+    fs::write(cwd.join("alpha-actual"), "").expect("write cwd completion fixture");
+    fs::write(stale.join("alpha-wrong"), "").expect("write stale completion fixture");
+
+    for (pwd_case, pwd, expanded_directory) in [
+        ("stale", stale.as_path(), cwd.as_path()),
+        ("logical", logical.as_path(), logical.as_path()),
+    ] {
+        let pwd_value = pwd.display().to_string();
+        let env = [("LC_ALL", "C"), ("PWD", pwd_value.as_str())];
+        for expand_tilde in ["off", "on"] {
+            let inputrc = format!(
+                "\"\\C-o\": complete-filename\nset expand-tilde {expand_tilde}\nset mark-directories off\nset completion-query-items 999\nset page-completions off"
+            );
+            let keys = b"~+/alpha-\x0f\r";
+            let bash =
+                run_bash_readline_with_inputrc_file_and_env_in_dir(keys, &inputrc, &env, &cwd);
+            let sushline =
+                run_sushline_harness_with_inputrc_and_env_in_dir(keys, &inputrc, &env, &cwd);
+            let expected = if expand_tilde == "off" {
+                "~+/alpha-actual ".to_string()
+            } else {
+                format!("{}/alpha-actual ", expanded_directory.display())
+            };
+
+            for (output, implementation) in [(&bash, "Bash"), (&sushline, "Sushline")] {
+                assert!(
+                    accepted_line(output).as_deref() == Some(expected.as_str()),
+                    "accepted-line mismatch for PWD case={pwd_case}, expand-tilde={expand_tilde}, implementation={implementation}"
+                );
+                assert!(
+                    bell_count(output) == 0,
+                    "unexpected bell for PWD case={pwd_case}, expand-tilde={expand_tilde}, implementation={implementation}"
+                );
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
 fn root_home_is_available() -> bool {
     let Ok(passwd) = fs::read_to_string("/etc/passwd") else {
         return false;

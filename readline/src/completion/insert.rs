@@ -306,16 +306,47 @@ where
                         && attempt.point == before_point
                         && attempt.line == before_line
                 });
-            if let Some(mut replacement_bytes) =
-                self.requote_common_prefix(&response, edit, completion_type, hooks)
+            if let Some((common_prefix, mut replacement_bytes)) =
+                self.requote_common_prefix_with_prefix(&response, edit, completion_type, hooks)
             {
+                let suffix = completion_suffix_bytes(edit, state);
+                let mut replacement_end = edit.end;
                 if skip_completed_text {
-                    let suffix = completion_suffix_bytes(edit, state);
-                    replacement_bytes = skip_completed_suffix_bytes(&replacement_bytes, &suffix);
+                    if response.options.filenames {
+                        let overlap = filename_candidate_prefix_len(
+                            &common_prefix,
+                            &edit.word_bytes,
+                            &self.filename_options(),
+                        )
+                        .filter(|prefix_len| {
+                            common_prefix.get(..*prefix_len) == Some(edit.word_bytes.as_slice())
+                        })
+                        .map(|prefix_len| {
+                            completion_suffix_overlap_len(
+                                common_prefix.get(prefix_len..).unwrap_or_default(),
+                                &suffix,
+                            )
+                        })
+                        .unwrap_or(0);
+                        replacement_end += overlap;
+                    } else {
+                        replacement_bytes =
+                            skip_completed_suffix_bytes(&replacement_bytes, &suffix);
+                    }
+                }
+                if response.options.filenames {
+                    leave_quoted_filename_suffix_open(
+                        &response,
+                        edit,
+                        &suffix,
+                        replacement_end.saturating_sub(edit.end),
+                        &common_prefix,
+                        &mut replacement_bytes,
+                    );
                 }
                 state
                     .buffer
-                    .replace_range_bytes(edit.start, edit.end, &replacement_bytes);
+                    .replace_range_bytes(edit.start, replacement_end, &replacement_bytes);
             }
             let unmodified_after_prefix = state.buffer.as_bytes() == before_line.as_slice();
             if matches!(
@@ -539,8 +570,19 @@ where
         completion_type: CompletionType,
         hooks: &mut impl Hooks,
     ) -> Option<Vec<u8>> {
+        self.requote_common_prefix_with_prefix(response, edit, completion_type, hooks)
+            .map(|(_, replacement)| replacement)
+    }
+
+    fn requote_common_prefix_with_prefix(
+        &self,
+        response: &CompletionResponse,
+        edit: &CompletionEdit,
+        completion_type: CompletionType,
+        hooks: &mut impl Hooks,
+    ) -> Option<(Vec<u8>, Vec<u8>)> {
         let prefix = common_prefix_bytes(&response.candidates)?;
-        Some(self.requote_completion_bytes(
+        let replacement = self.requote_completion_bytes(
             &prefix,
             edit,
             completion_type,
@@ -553,7 +595,8 @@ where
                 slash_after_quote: false,
             },
             hooks,
-        ))
+        );
+        Some((prefix, replacement))
     }
 
     pub(super) fn completion_replacement_with_directory(

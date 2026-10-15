@@ -2163,7 +2163,8 @@ fn complete_filename_skips_ansi_c_directory_suffix_overlap_without_duplicate_sla
 #[cfg(unix)]
 #[test]
 fn complete_filename_consumes_ansi_c_closing_quote_suffix_like_bash_5_3() {
-    // Runtime-only Bash 5.3 PTY probe 9113d5b9ec9c4c73abccc2faa54f1671.
+    // Runtime-only Bash 5.3 PTY probes 9113d5b9ec9c4c73abccc2faa54f1671,
+    // c141d4bd6e1045038a4fb5a012dac862, and 63551375f86f443d99061582cbe8c825.
     let root = tempfile::tempdir().expect("temp completion root");
     let cwd = root.path().join("cwd");
     let home = root.path().join("home");
@@ -2173,30 +2174,36 @@ fn complete_filename_consumes_ansi_c_closing_quote_suffix_like_bash_5_3() {
     fs::write(cwd.join("only space-dir/leaf-file"), b"").expect("create fixture file");
     let home_path = home.to_string_lossy().into_owned();
     let env = [("HOME", home_path.as_str())];
-    let inputrc = "\"\\C-o\": complete-filename\nset skip-completed-text on\nset mark-directories on\nset page-completions off";
     let line = b"echo $'only space-dir/leaf-file'";
-    let mut bash_keys = line.to_vec();
-    let mut sushline_keys = line.to_vec();
-    for _ in 0..5 {
-        bash_keys.push(0x02);
-        sushline_keys.push(0x02);
+    for (skip_completed_text, left_count) in [("off", 1), ("on", 5), ("on", 1)] {
+        let inputrc = format!(
+            "\"\\C-o\": complete-filename\nset skip-completed-text {skip_completed_text}\nset mark-directories on\nset page-completions off"
+        );
+        let mut bash_keys = line.to_vec();
+        let mut sushline_keys = line.to_vec();
+        for _ in 0..left_count {
+            bash_keys.push(0x02);
+            sushline_keys.push(0x02);
+        }
+        bash_keys.extend_from_slice(b"\x0f\x07\r");
+        sushline_keys.extend_from_slice(b"\x0f\r");
+        let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+            &cwd,
+            &inputrc,
+            &bash_keys,
+            &sushline_keys,
+            "set +H",
+            &env,
+        );
+        assert_filename_line_buffer_bytes(
+            &bash,
+            &sushline,
+            b"echo $'only space-dir/leaf-file' ",
+            &format!(
+                "ANSI-C existing closing quote suffix with skip-completed-text {skip_completed_text} at cursor offset {left_count}"
+            ),
+        );
     }
-    bash_keys.extend_from_slice(b"\x0f\x07\r");
-    sushline_keys.extend_from_slice(b"\x0f\r");
-    let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
-        &cwd,
-        inputrc,
-        &bash_keys,
-        &sushline_keys,
-        "set +H",
-        &env,
-    );
-    assert_filename_line_buffer_bytes(
-        &bash,
-        &sushline,
-        b"echo $'only space-dir/leaf-file' ",
-        "ANSI-C existing closing quote suffix",
-    );
 }
 
 #[cfg(unix)]

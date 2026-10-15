@@ -64,7 +64,6 @@ where
                 next_byte,
             );
             let has_existing_ansi_c_quote = ansi_c_filename_completion
-                && ansi_c_suffix_overlap > 0
                 && suffix.get(ansi_c_suffix_overlap) == Some(&b'\'')
                 && (replacement_bytes.ends_with(b"'") || replacement_bytes.ends_with(b"'/"));
             if has_existing_ansi_c_quote {
@@ -101,6 +100,20 @@ where
                     replacement_end += overlap;
                 } else {
                     replacement_bytes.truncate(replacement_bytes.len().saturating_sub(overlap));
+                }
+            } else if has_existing_ansi_c_quote {
+                // The closing quote is syntax, not completed filename text;
+                // consume it even when skip-completed-text is disabled.
+                replacement_end += 1;
+                if suffix.len() == 1
+                    && !state
+                        .buffer
+                        .as_bytes()
+                        .get(replacement_end)
+                        .is_some_and(u8::is_ascii_whitespace)
+                    && !is_directory
+                {
+                    extend_with_trailing_char(&mut replacement_bytes, &response.options);
                 }
             } else if suffix.is_empty()
                 && !state

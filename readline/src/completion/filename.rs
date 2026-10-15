@@ -241,7 +241,8 @@ fn leading_tilde_context(context: &CompletionContext) -> LeadingTildeContext {
         return LeadingTildeContext::Escaped;
     }
     let quoted_word = raw_word
-        .strip_prefix(b"'")
+        .strip_prefix(b"$'")
+        .or_else(|| raw_word.strip_prefix(b"'"))
         .or_else(|| raw_word.strip_prefix(b"\""));
     if quoted_word.is_some_and(|word| word.starts_with(b"~/") || is_named_user_tilde_path(word)) {
         return LeadingTildeContext::Quoted;

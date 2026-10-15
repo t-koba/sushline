@@ -1618,6 +1618,51 @@ set page-completions off"#;
 
 #[cfg(unix)]
 #[test]
+fn complete_filename_expands_ansi_c_home_tilde_like_bash_5_3() {
+    // Runtime-only Bash 5.3 PTY probe 3eae40cdd3cb4f9db4d1fad2a7e4cc1b.
+    use std::os::unix::ffi::OsStrExt;
+
+    let root = tempfile::tempdir().expect("temp completion root");
+    let home = root.path().join("home");
+    let cwd = root.path().join("cwd");
+    fs::create_dir(&home).expect("create isolated HOME");
+    fs::create_dir(&cwd).expect("create isolated cwd");
+    fs::write(home.join("safe-home-file"), "").expect("write HOME fixture");
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+    let expected = [
+        b"echo $'".as_slice(),
+        home.as_os_str().as_bytes(),
+        b"/safe-home-file' ",
+    ]
+    .concat();
+
+    for expand_tilde in ["off", "on"] {
+        let inputrc = format!(
+            "\"\\C-o\": complete-filename\nset expand-tilde {expand_tilde}\nset mark-directories off\nset completion-query-items 999\nset page-completions off"
+        );
+        let bash_keys = b"echo $'~/safe-\x0f\x07\r";
+        let sushline_keys = b"echo $'~/safe-\x0f\r";
+        let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+            &cwd,
+            &inputrc,
+            bash_keys,
+            sushline_keys,
+            "set +H",
+            &env,
+        );
+
+        assert_filename_line_buffer_bytes(
+            &bash,
+            &sushline,
+            &expected,
+            &format!("ANSI-C quoted HOME tilde with expand-tilde {expand_tilde}"),
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn complete_filename_keeps_ambiguous_ansi_c_quote_open_like_bash_5_3() {
     // Runtime-only Bash 5.3 PTY probe 5495fc787df04b9599f9836b9177fd86.
     use std::ffi::OsString;
@@ -2314,6 +2359,25 @@ fn run_filename_line_buffer_hex_pair(
     sushline_keys: &[u8],
     bash_setup: &str,
 ) -> (Vec<u8>, Vec<u8>) {
+    run_filename_line_buffer_hex_pair_with_env(
+        cwd,
+        inputrc,
+        bash_keys,
+        sushline_keys,
+        bash_setup,
+        &[],
+    )
+}
+
+#[cfg(unix)]
+fn run_filename_line_buffer_hex_pair_with_env(
+    cwd: &std::path::Path,
+    inputrc: &str,
+    bash_keys: &[u8],
+    sushline_keys: &[u8],
+    bash_setup: &str,
+    env: &[(&str, &str)],
+) -> (Vec<u8>, Vec<u8>) {
     use portable_pty::{CommandBuilder, PtySize};
 
     let inputrc_path = cwd.join("inputrc");
@@ -2327,6 +2391,9 @@ fn run_filename_line_buffer_hex_pair(
     let mut bash_command = CommandBuilder::new("bash");
     bash_command.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
     bash_command.env("LC_ALL", "C");
+    for (name, value) in env {
+        bash_command.env(name, value);
+    }
     bash_command.args(["--noprofile", "--norc", "-i", "-c", &bash_script]);
 
     let mut sushline_command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
@@ -2335,6 +2402,9 @@ fn run_filename_line_buffer_hex_pair(
     sushline_command.env("SUSHLINE_HISTORY", "");
     sushline_command.env("SUSHLINE_ACCEPTED_HEX", "1");
     sushline_command.env("LC_ALL", "C");
+    for (name, value) in env {
+        sushline_command.env(name, value);
+    }
 
     let size = PtySize {
         rows: 24,

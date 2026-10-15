@@ -597,14 +597,13 @@ fn compatibility_document_classifies_editor_bind_and_history_coverage() {
         .lines()
         .filter(|line| line.starts_with('|') && line.contains("| Known deviation |"))
         .collect::<Vec<_>>();
-    assert_eq!(
-        known_deviation_rows.len(),
-        1,
-        "only the specifically measured ANSI-C menu-completion deviation is allowed"
+    assert!(
+        known_deviation_rows.is_empty(),
+        "known deviations remain after the quoted menu suffix mismatch was fixed: {known_deviation_rows:?}"
     );
-    assert!(known_deviation_rows[0].starts_with(
-        "| `menu-complete`, `menu-complete-backward`, `old-menu-complete` | Known deviation |"
-    ));
+    assert!(documented_rows.lines().any(|line| line.starts_with(
+        "| `menu-complete`, `menu-complete-backward`, `old-menu-complete` | Compatible |"
+    )));
     for forbidden in ["| Not implemented |", "| Untested |"] {
         let rows = documented_rows
             .lines()

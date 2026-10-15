@@ -4793,6 +4793,142 @@ fn menu_completion_appends_separators_after_quoted_leading_hash_and_tilde_filena
 
 #[cfg(unix)]
 #[test]
+fn menu_completion_handles_partial_and_unmatched_quoted_suffixes_like_bash_5_3() {
+    // Runtime-only Bash 5.3 observations for these suffixes, quote forms,
+    // cursor positions, and first menu-completion action; not source proof.
+    struct Quote {
+        name: &'static str,
+        opening: &'static [u8],
+        closing: u8,
+    }
+    struct Filename {
+        name: &'static str,
+        typed_prefix: &'static [u8],
+        candidate: &'static [u8],
+        closes_before_suffix: bool,
+    }
+    struct Suffix {
+        name: &'static str,
+        full: &'static [u8],
+        remaining_when_skipping: &'static [u8],
+    }
+    let quotes = [
+        Quote {
+            name: "single",
+            opening: b"'",
+            closing: b'\'',
+        },
+        Quote {
+            name: "double",
+            opening: b"\"",
+            closing: b'\"',
+        },
+        Quote {
+            name: "ansi-c",
+            opening: b"$'",
+            closing: b'\'',
+        },
+    ];
+    let filenames = [
+        Filename {
+            name: "plain",
+            typed_prefix: b"tail-Al",
+            candidate: b"tail-Alpha",
+            closes_before_suffix: false,
+        },
+        Filename {
+            name: "space",
+            typed_prefix: b"tail space-Al",
+            candidate: b"tail space-Alpha",
+            closes_before_suffix: true,
+        },
+    ];
+    let suffixes = [
+        Suffix {
+            name: "partial",
+            full: b"phX",
+            remaining_when_skipping: b"X",
+        },
+        Suffix {
+            name: "unmatched",
+            full: b"ZZ",
+            remaining_when_skipping: b"ZZ",
+        },
+    ];
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    let home = root.path().join("home");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(&home).expect("create fixture HOME");
+    for name in [
+        "tail-Alpha",
+        "tail-Alpine",
+        "tail space-Alpha",
+        "tail space-Alpine",
+    ] {
+        fs::write(cwd.join(name), b"").expect("create fixture file");
+    }
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+
+    for skip_completed_text in ["on", "off"] {
+        let inputrc = format!(
+            "\"\\C-o\": menu-complete\nset skip-completed-text {skip_completed_text}\nset menu-complete-display-prefix off\nset show-all-if-ambiguous off\nset page-completions off\nset completion-query-items 999"
+        );
+        for quote in &quotes {
+            for filename in &filenames {
+                for suffix in &suffixes {
+                    let mut line = b"echo ".to_vec();
+                    line.extend_from_slice(quote.opening);
+                    line.extend_from_slice(filename.typed_prefix);
+                    line.extend_from_slice(suffix.full);
+                    line.push(quote.closing);
+                    let mut bash_keys = line.clone();
+                    let mut sushline_keys = line;
+                    for _ in 0..suffix.full.len() + 1 {
+                        bash_keys.push(0x02);
+                        sushline_keys.push(0x02);
+                    }
+                    bash_keys.extend_from_slice(b"\x0f\x07\r");
+                    sushline_keys.extend_from_slice(b"\x0f\r");
+
+                    let mut expected = b"echo ".to_vec();
+                    expected.extend_from_slice(quote.opening);
+                    expected.extend_from_slice(filename.candidate);
+                    if filename.closes_before_suffix {
+                        expected.push(quote.closing);
+                    }
+                    expected.extend_from_slice(if skip_completed_text == "on" {
+                        suffix.remaining_when_skipping
+                    } else {
+                        suffix.full
+                    });
+                    expected.push(quote.closing);
+                    let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+                        &cwd,
+                        &inputrc,
+                        &bash_keys,
+                        &sushline_keys,
+                        "set +H",
+                        &env,
+                    );
+                    assert_filename_line_buffer_bytes(
+                        &bash,
+                        &sushline,
+                        &expected,
+                        &format!(
+                            "quoted suffix skip={skip_completed_text} quote={} filename={} suffix={}",
+                            quote.name, filename.name, suffix.name
+                        ),
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn bash_readline_and_sushline_menu_completion_display_prefix_matches_bash_5_3() {
     let dir = tempfile::tempdir().expect("temp completion directory");
     for name in ["alpha-one", "alpine-two"] {

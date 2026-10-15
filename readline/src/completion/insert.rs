@@ -42,17 +42,34 @@ where
         if response.candidates.len() == 1 {
             let candidate = &response.candidates[0];
             let suffix = completion_suffix_bytes(edit, state);
+            let ansi_c_filename_completion = edit.ansi_c_quote
+                && response.options.filenames
+                && response.options.quote_filename();
+            let ansi_c_suffix_overlap = if skip_completed_text && ansi_c_filename_completion {
+                completed_suffix_overlap_len(candidate.replacement_bytes(), &suffix)
+            } else {
+                0
+            };
+            let next_byte = if ansi_c_suffix_overlap > 0 {
+                suffix.get(ansi_c_suffix_overlap).copied()
+            } else {
+                suffix.first().copied()
+            };
             let (mut replacement_bytes, is_directory) = self.completion_replacement_with_directory(
                 &response,
                 edit,
                 candidate,
                 completion_type,
                 hooks,
-                suffix.first().copied(),
+                next_byte,
             );
             let mut replacement_end = edit.end;
             if skip_completed_text && !suffix.is_empty() {
-                let overlap = completed_suffix_overlap_len(&replacement_bytes, &suffix);
+                let overlap = if ansi_c_filename_completion {
+                    ansi_c_suffix_overlap
+                } else {
+                    completed_suffix_overlap_len(&replacement_bytes, &suffix)
+                };
                 if overlap == suffix.len() {
                     replacement_end += suffix.len();
                     if !state
@@ -64,6 +81,10 @@ where
                     {
                         extend_with_trailing_char(&mut replacement_bytes, &response.options);
                     }
+                } else if ansi_c_filename_completion {
+                    // Keep the quoted completion intact and consume only the
+                    // overlapping part of the existing suffix.
+                    replacement_end += overlap;
                 } else {
                     replacement_bytes.truncate(replacement_bytes.len().saturating_sub(overlap));
                 }

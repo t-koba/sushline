@@ -2033,6 +2033,135 @@ fn complete_filename_inserts_ansi_c_directory_suffixes_like_bash_5_3() {
 
 #[cfg(unix)]
 #[test]
+fn complete_filename_skips_ansi_c_suffix_overlap_like_bash_5_3() {
+    // Runtime-only Bash 5.3 PTY probes fd9b4cde2d1a4d6ebfc1d0e8e6f4e9ac,
+    // 310c48ab3ecc46babeacb3932af2f387, and 6388a4ec690c43c9b13fa0c83cd637c7.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    let home = root.path().join("home");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(&home).expect("create fixture HOME");
+    fs::create_dir(cwd.join("only space-dir")).expect("create fixture directory");
+    fs::write(cwd.join("only space-dir/leaf-file"), b"").expect("create fixture file");
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+    struct SuffixOverlapCase {
+        line: &'static [u8],
+        left_count: usize,
+        expected_skip_off: &'static [u8],
+        expected_skip_on: &'static [u8],
+    }
+    let cases = [
+        SuffixOverlapCase {
+            line: b"echo $'only space-dir/leaf-file",
+            left_count: 4,
+            expected_skip_off: b"echo $'only space-dir/leaf-file'file",
+            expected_skip_on: b"echo $'only space-dir/leaf-file' ",
+        },
+        SuffixOverlapCase {
+            line: b"echo $'only space-dir/leaf-fileX",
+            left_count: 3,
+            expected_skip_off: b"echo $'only space-dir/leaf-file'leX",
+            expected_skip_on: b"echo $'only space-dir/leaf-file'X",
+        },
+        SuffixOverlapCase {
+            line: b"echo $'only space-dir/leaf-fX",
+            left_count: 1,
+            expected_skip_off: b"echo $'only space-dir/leaf-file'X",
+            expected_skip_on: b"echo $'only space-dir/leaf-file'X",
+        },
+    ];
+
+    for skip_completed_text in ["off", "on"] {
+        let inputrc = format!(
+            "\"\\C-o\": complete-filename\nset mark-directories on\nset skip-completed-text {skip_completed_text}\nset completion-query-items 999\nset page-completions off"
+        );
+        for (index, case) in cases.iter().enumerate() {
+            let mut bash_keys = case.line.to_vec();
+            let mut sushline_keys = case.line.to_vec();
+            for _ in 0..case.left_count {
+                bash_keys.push(0x02);
+                sushline_keys.push(0x02);
+            }
+            bash_keys.extend_from_slice(b"\x0f\x07\r");
+            sushline_keys.extend_from_slice(b"\x0f\r");
+            let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+                &cwd,
+                &inputrc,
+                &bash_keys,
+                &sushline_keys,
+                "set +H",
+                &env,
+            );
+            assert_filename_line_buffer_bytes(
+                &bash,
+                &sushline,
+                if skip_completed_text == "on" {
+                    case.expected_skip_on
+                } else {
+                    case.expected_skip_off
+                },
+                &format!(
+                    "ANSI-C filename suffix overlap case {index} with skip-completed-text {skip_completed_text}"
+                ),
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn complete_filename_skips_ansi_c_directory_suffix_overlap_without_duplicate_slashes() {
+    // Runtime-only Bash 5.3 PTY probe af4155e11d9a4e4882c564b8166c4566.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    let home = root.path().join("home");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(&home).expect("create fixture HOME");
+    fs::create_dir(cwd.join("only space-dir")).expect("create fixture directory");
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+
+    for mark_directories in ["off", "on"] {
+        for skip_completed_text in ["off", "on"] {
+            let inputrc = format!(
+                "\"\\C-o\": complete-filename\nset mark-directories {mark_directories}\nset skip-completed-text {skip_completed_text}\nset completion-query-items 999\nset page-completions off"
+            );
+            let mut bash_keys = b"echo $'only space-dir/".to_vec();
+            let mut sushline_keys = bash_keys.clone();
+            for _ in 0..4 {
+                bash_keys.push(0x02);
+                sushline_keys.push(0x02);
+            }
+            bash_keys.extend_from_slice(b"\x0f\x07\r");
+            sushline_keys.extend_from_slice(b"\x0f\r");
+            let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+                &cwd,
+                &inputrc,
+                &bash_keys,
+                &sushline_keys,
+                "set +H",
+                &env,
+            );
+            let expected = match (mark_directories, skip_completed_text) {
+                (_, "on") => b"echo $'only space-dir'/".as_slice(),
+                ("on", "off") => b"echo $'only space-dir'/dir/".as_slice(),
+                _ => b"echo $'only space-dir'dir/".as_slice(),
+            };
+            assert_filename_line_buffer_bytes(
+                &bash,
+                &sushline,
+                expected,
+                &format!(
+                    "ANSI-C directory suffix overlap with mark-directories {mark_directories} and skip-completed-text {skip_completed_text}"
+                ),
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn complete_filename_handles_ansi_c_symlink_directories_and_existing_slash_like_bash_5_3() {
     // Runtime-only Bash 5.3 PTY probe ae85f3af04694cea9a8bb46015a75f64.
     for mark_directories in ["off", "on"] {

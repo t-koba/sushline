@@ -982,7 +982,8 @@ fn complete_filename_preserves_control_bytes_in_unquoted_and_quoted_contexts_lik
     use std::os::unix::ffi::OsStringExt;
 
     // Runtime-only Bash 5.3 PTY probes ac9449bb1c7a447f93437deaab2e77b1,
-    // 496db5f36c334a9497d23d391d1f1852, and eb8c02ebbbf74beb86788e6edb3a6719.
+    // 496db5f36c334a9497d23d391d1f1852, eb8c02ebbbf74beb86788e6edb3a6719,
+    // 3149c58d018b4cd0babdaf7fe6d69c7f, and b73735c10b82474098cbf5745cd0c2e9.
     // Capture Bash's live line buffer and Sushline's accepted bytes as hex.
     let root = tempfile::tempdir().expect("temp completion root");
     let fixtures = [
@@ -1010,6 +1011,26 @@ fn complete_filename_preserves_control_bytes_in_unquoted_and_quoted_contexts_lik
             "cr",
             b"safe-cr\ritem".as_slice(),
             b"safe-cr\ritem ".as_slice(),
+        ),
+        (
+            "bel",
+            b"safe-bel\x07item".as_slice(),
+            b"safe-bel\x07item ".as_slice(),
+        ),
+        (
+            "backspace",
+            b"safe-bs\x08item".as_slice(),
+            b"safe-bs\x08item ".as_slice(),
+        ),
+        (
+            "vertical-tab",
+            b"safe-vt\x0bitem".as_slice(),
+            b"safe-vt\x0bitem ".as_slice(),
+        ),
+        (
+            "form-feed",
+            b"safe-ff\x0citem".as_slice(),
+            b"safe-ff\x0citem ".as_slice(),
         ),
     ];
     let bash_script = r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; bind -x '"\C-g": printf "BASH_READLINE_HEX:"; printf "%s" "$READLINE_LINE" | od -An -tx1 | tr -d " \n"; printf "\n"'; IFS= read -r -e -p "SUSHLINE_READY>" line; :"#;
@@ -1097,10 +1118,12 @@ set page-completions off"#;
                 raw_accepted_hex(&sushline).as_deref() == Some(expected.as_slice()),
                 "accepted bytes mismatch for control={control_kind}, quote={quote_kind}"
             );
-            assert!(
-                raw_bell_count(&bash) == 0 && raw_bell_count(&sushline) == 0,
-                "unexpected completion bell for control={control_kind}, quote={quote_kind}"
-            );
+            if control_kind != "bel" {
+                assert!(
+                    raw_bell_count(&bash) == 0 && raw_bell_count(&sushline) == 0,
+                    "unexpected completion bell for control={control_kind}, quote={quote_kind}"
+                );
+            }
         }
     }
 }

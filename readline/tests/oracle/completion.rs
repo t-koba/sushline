@@ -2312,6 +2312,56 @@ fn complete_filename_keeps_plain_ansi_c_directory_quote_open_after_suffix() {
 
 #[cfg(unix)]
 #[test]
+fn complete_filename_preserves_ansi_c_hex_and_octal_suffix_spellings() {
+    // Runtime-only Bash 5.3 PTY probe 3be78325bd16420bb9643eb8af65358e.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    let home = root.path().join("home");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(&home).expect("create fixture HOME");
+    fs::write(cwd.join("safe space-tail"), b"").expect("create fixture file");
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+
+    for skip_completed_text in ["off", "on"] {
+        let inputrc = format!(
+            "\"\\C-o\": complete-filename\nset skip-completed-text {skip_completed_text}\nset page-completions off"
+        );
+        for escape in [b"x20tail".as_slice(), b"040tail".as_slice()] {
+            let mut line = b"echo $'safe\\".to_vec();
+            line.extend_from_slice(escape);
+            let mut expected = b"echo $'safe space-tail'\\".to_vec();
+            expected.extend_from_slice(escape);
+            let mut bash_keys = line.clone();
+            let mut sushline_keys = line;
+            for _ in 0..(escape.len() + 1) {
+                bash_keys.push(0x02);
+                sushline_keys.push(0x02);
+            }
+            bash_keys.extend_from_slice(b"\x0f\x07\r");
+            sushline_keys.extend_from_slice(b"\x0f\r");
+            let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+                &cwd,
+                &inputrc,
+                &bash_keys,
+                &sushline_keys,
+                "set +H",
+                &env,
+            );
+            assert_filename_line_buffer_bytes(
+                &bash,
+                &sushline,
+                &expected,
+                &format!(
+                    "ANSI-C radix escape suffix with skip-completed-text {skip_completed_text}"
+                ),
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn complete_filename_keeps_ansi_c_escape_spelling_distinct_from_raw_suffix_overlap() {
     // Runtime-only Bash 5.3 PTY probe fc18a96b33bc4c1b9b85ec25e861466d.
     use std::os::unix::ffi::OsStringExt;

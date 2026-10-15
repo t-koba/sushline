@@ -1571,6 +1571,118 @@ set page-completions off"#;
 
 #[cfg(unix)]
 #[test]
+fn complete_filename_handles_equals_and_colon_word_breaks_like_bash_5_3() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    // Runtime-only Bash 5.3 PTY probe 88986588e94942af921e2a9188e49246 under LC_ALL=C.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cases = [
+        (
+            "equal-internal",
+            b"safe-eq=item".as_slice(),
+            "before",
+            b"safe-".as_slice(),
+        ),
+        (
+            "equal-internal",
+            b"safe-eq=item".as_slice(),
+            "at",
+            b"safe-eq=".as_slice(),
+        ),
+        (
+            "equal-internal",
+            b"safe-eq=item".as_slice(),
+            "after",
+            b"safe-eq=i".as_slice(),
+        ),
+        (
+            "equal-trailing",
+            b"safe-trail=".as_slice(),
+            "before",
+            b"safe-trail".as_slice(),
+        ),
+        (
+            "equal-trailing",
+            b"safe-trail=".as_slice(),
+            "at",
+            b"safe-trail=".as_slice(),
+        ),
+        (
+            "colon-internal",
+            b"safe-colon:item".as_slice(),
+            "before",
+            b"safe-".as_slice(),
+        ),
+        (
+            "colon-internal",
+            b"safe-colon:item".as_slice(),
+            "at",
+            b"safe-colon:".as_slice(),
+        ),
+        (
+            "colon-internal",
+            b"safe-colon:item".as_slice(),
+            "after",
+            b"safe-colon:i".as_slice(),
+        ),
+        (
+            "colon-trailing",
+            b"safe-trail:".as_slice(),
+            "before",
+            b"safe-trail".as_slice(),
+        ),
+        (
+            "colon-trailing",
+            b"safe-trail:".as_slice(),
+            "at",
+            b"safe-trail:".as_slice(),
+        ),
+    ];
+    let inputrc = r#""\C-o": complete-filename
+set expand-tilde off
+set mark-directories off
+set completion-query-items 999
+set page-completions off"#;
+
+    for (fixture, basename, position, filename_prefix) in cases {
+        let dir = root.path().join(fixture);
+        fs::create_dir_all(&dir).expect("create equals/colon fixture directory");
+        fs::write(dir.join(OsString::from_vec(basename.to_vec())), "")
+            .expect("write equals/colon fixture");
+        for (form, quote) in [
+            ("unquoted", None),
+            ("single-quoted", Some(b'\'')),
+            ("double-quoted", Some(b'"')),
+        ] {
+            let mut prefix = Vec::new();
+            if let Some(quote) = quote {
+                prefix.push(quote);
+            }
+            prefix.extend_from_slice(filename_prefix);
+            let mut expected = Vec::new();
+            if let Some(quote) = quote {
+                expected.push(quote);
+            }
+            expected.extend_from_slice(basename);
+            if let Some(quote) = quote {
+                expected.push(quote);
+            }
+            expected.push(b' ');
+            let mut bash_keys = prefix.clone();
+            bash_keys.extend_from_slice(b"\x0f\x07\r");
+            let mut sushline_keys = prefix;
+            sushline_keys.extend_from_slice(b"\x0f\r");
+            let (bash, sushline) =
+                run_filename_line_buffer_hex_pair(&dir, inputrc, &bash_keys, &sushline_keys, "");
+            let context = format!("{fixture}/{position}/{form} completion");
+            assert_filename_line_buffer_bytes(&bash, &sushline, &expected, &context);
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn complete_filename_preserves_carets_with_bash_history_expansion() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;

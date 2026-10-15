@@ -2491,6 +2491,69 @@ fn multi_candidate_escaped_backslash_suffix_matches_bash_5_3() {
 
 #[cfg(unix)]
 #[test]
+fn multi_candidate_partial_escaped_glob_suffix_matches_bash_5_3() {
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    let home = root.path().join("home");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(&home).expect("create fixture HOME");
+    fs::write(cwd.join("safe*one"), b"").expect("write fixture file");
+    fs::write(cwd.join("safe*two"), b"").expect("write fixture file");
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+
+    for command in ["complete", "complete-filename"] {
+        for (skip_completed_text, expected) in [
+            ("off", b"echo safe\\*Y\\*X".as_slice()),
+            ("on", b"echo safe\\*YX".as_slice()),
+        ] {
+            let inputrc = format!(
+                "\"\\C-o\": {command}\nset skip-completed-text {skip_completed_text}\nset show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off"
+            );
+            let mut bash_keys = b"echo safe\\*X".to_vec();
+            let mut sushline_keys = bash_keys.clone();
+            for _ in 0..3 {
+                bash_keys.push(0x02);
+                sushline_keys.push(0x02);
+            }
+            bash_keys.extend_from_slice(b"\x0fY\x07\r");
+            sushline_keys.extend_from_slice(b"\x0fY\r");
+            let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+                &cwd,
+                &inputrc,
+                &bash_keys,
+                &sushline_keys,
+                "set +H",
+                &env,
+            );
+
+            let bash_hex = raw_line_after_marker(&bash, b"BASH_READLINE_HEX:")
+                .expect("Bash line-buffer marker");
+            assert_eq!(
+                bash_hex.len() % 2,
+                0,
+                "Bash hex for {command}, skip={skip_completed_text}"
+            );
+            let bash_bytes = bash_hex
+                .chunks(2)
+                .map(|pair| {
+                    (hex_digit(pair[0]).expect("Bash hex digit") << 4)
+                        | hex_digit(pair[1]).expect("Bash hex digit")
+                })
+                .collect::<Vec<_>>();
+            let sushline_bytes = raw_accepted_hex(&sushline).expect("Sushline accepted-line hex");
+            let context = format!("{command}, skip-completed-text={skip_completed_text}");
+            assert_eq!(bash_bytes, expected, "Bash bytes for {context}; {bash:?}");
+            assert_eq!(
+                sushline_bytes, expected,
+                "Sushline bytes for {context}; {sushline:?}"
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn complete_filename_skips_ansi_c_suffix_overlap_like_bash_5_3() {
     // Runtime-only Bash 5.3 PTY probes fd9b4cde2d1a4d6ebfc1d0e8e6f4e9ac,
     // 310c48ab3ecc46babeacb3932af2f387, and 6388a4ec690c43c9b13fa0c83cd637c7.

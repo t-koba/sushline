@@ -848,32 +848,35 @@ set page-completions off"#;
 #[test]
 fn complete_filename_quotes_line_feed_filenames_like_bash_5_3() {
     use portable_pty::{CommandBuilder, PtySize};
+    use std::ffi::OsString;
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
 
-    // Runtime-only Bash 5.3 PTY probes fdb5a964e24d4ad6bc6313421cce0fec and
-    // 78931adcb4c944b1932c17fa0b16ee91 under LC_ALL=C. Capture READLINE_LINE
-    // via bind -x: `read`'s line result truncates at embedded LF.
-    let dir = tempfile::tempdir().expect("temp completion directory");
-    fs::write(dir.path().join("safe-lf\nitem"), "").expect("write LF fixture");
-    let home = dir.path().to_string_lossy().into_owned();
-    let inputrc = r#""\C-o": complete-filename
-set expand-tilde off
-set mark-directories off
-set completion-query-items 999
-set page-completions off"#;
-    let inputrc_path = dir.path().join("inputrc");
-    fs::write(&inputrc_path, inputrc).expect("write inputrc");
-    let bash_script = r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; bind -x '"\C-g": printf "BASH_READLINE_HEX:"; printf "%s" "$READLINE_LINE" | od -An -tx1 | tr -d " \n"; printf "\n"'; IFS= read -r -e -p "SUSHLINE_READY>" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#;
+    // Runtime-only Bash 5.3 PTY probes fdb5a964e24d4ad6bc6313421cce0fec,
+    // 78931adcb4c944b1932c17fa0b16ee91, c392ccb26daf46fcb818547056f093d7,
+    // and f7ff7e453eaa4d968210c733ebac70ea under LC_ALL=C. Capture the live
+    // READLINE_LINE via bind -x because `read` truncates at embedded LF.
+    let cwd = tempfile::tempdir().expect("temp completion directory");
+    let home = tempfile::tempdir().expect("temp HOME directory");
+    let basename = b"safe-lf\nitem";
+    fs::write(cwd.path().join(OsString::from_vec(basename.to_vec())), "")
+        .expect("write cwd LF fixture");
+    fs::write(home.path().join(OsString::from_vec(basename.to_vec())), "")
+        .expect("write HOME LF fixture");
+    let home_path = home.path().to_string_lossy().into_owned();
+    let inputrc_path = cwd.path().join("inputrc");
+    let bash_script = r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; bind -x '"\C-g": printf "BASH_READLINE_HEX:"; printf "%s" "$READLINE_LINE" | od -An -tx1 | tr -d " \n"; printf "\n"'; IFS= read -r -e -p "SUSHLINE_READY>" line; :"#;
 
-    let run_bash = |keys: &[u8]| {
+    let run_bash = |keys: &[u8], inputrc: &str| {
+        fs::write(&inputrc_path, inputrc).expect("write inputrc");
         let mut command = CommandBuilder::new("bash");
         command.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
         command.env("LC_ALL", "C");
-        command.env("HOME", &home);
+        command.env("HOME", &home_path);
         command.args(["--noprofile", "--norc", "-i", "-c", bash_script]);
         run_pty_in_dir_with_size_raw_until(
             command,
             keys,
-            dir.path(),
+            cwd.path(),
             PtySize {
                 rows: 24,
                 cols: 80,
@@ -883,18 +886,18 @@ set page-completions off"#;
             "BASH_READLINE_HEX:",
         )
     };
-    let run_sushline = |keys: &[u8]| {
+    let run_sushline = |keys: &[u8], inputrc: &str| {
         let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
         command.env("SUSHLINE_INPUTRC", inputrc);
         command.env("SUSHLINE_PROMPT", READY_PROMPT);
         command.env("SUSHLINE_HISTORY", "");
         command.env("SUSHLINE_ACCEPTED_HEX", "1");
         command.env("LC_ALL", "C");
-        command.env("HOME", &home);
+        command.env("HOME", &home_path);
         run_pty_in_dir_with_size_raw_until(
             command,
             keys,
-            dir.path(),
+            cwd.path(),
             PtySize {
                 rows: 24,
                 cols: 80,
@@ -904,43 +907,70 @@ set page-completions off"#;
             "SUSHLINE_ACCEPTED_HEX:",
         )
     };
+    let assert_line =
+        |case: &str, bash_keys: &[u8], sushline_keys: &[u8], inputrc: &str, expected: &[u8]| {
+            let bash = run_bash(bash_keys, inputrc);
+            let sushline = run_sushline(sushline_keys, inputrc);
+            let bash_hex = raw_line_after_marker(&bash, b"BASH_READLINE_HEX:");
+            let sushline_hex = raw_accepted_hex_marker(&sushline);
+            let sushline_bytes = raw_accepted_hex(&sushline);
 
-    for (case, bash_keys, sushline_keys, expected_hex) in [
-        (
-            "cwd",
-            b"safe-\x0f\x07\r".as_slice(),
-            b"safe-\x0f\r".as_slice(),
-            b"27736166652d6c660a6974656d2720".as_slice(),
-        ),
-        (
-            "unexpanded-home-tilde",
-            b"~/safe-\x0f\x07\r".as_slice(),
-            b"~/safe-\x0f\r".as_slice(),
-            b"7e2f736166652d6c665c0a6974656d20".as_slice(),
-        ),
-    ] {
-        let bash = run_bash(bash_keys);
-        let sushline = run_sushline(sushline_keys);
-        assert_eq!(
-            raw_line_after_marker(&bash, b"BASH_READLINE_HEX:"),
-            Some(expected_hex),
-            "Bash READLINE_LINE hex differed for {case}"
+            assert!(
+                bash_hex.is_some() && bash_hex == sushline_hex,
+                "Bash and Sushline line-buffer hex differed for {case}"
+            );
+            assert!(
+                sushline_bytes.as_deref() == Some(expected),
+                "accepted filename bytes differed for {case}"
+            );
+            assert!(
+                raw_bell_count(&bash) == 0 && raw_bell_count(&sushline) == 0,
+                "unexpected completion bell for {case}"
+            );
+        };
+
+    let inputrc = r#""\C-o": complete-filename
+set expand-tilde off
+set mark-directories off
+set completion-query-items 999
+set page-completions off"#;
+    assert_line(
+        "cwd filename",
+        b"safe-\x0f\x07\r",
+        b"safe-\x0f\r",
+        inputrc,
+        b"'safe-lf\nitem' ",
+    );
+
+    let home_bytes = home.path().as_os_str().as_bytes();
+    for expand_tilde in ["off", "on"] {
+        let inputrc = format!(
+            "\"\\C-o\": complete-filename\nset expand-tilde {expand_tilde}\nset mark-directories off\nset completion-query-items 999\nset page-completions off"
         );
-        assert_eq!(
-            raw_accepted_hex_marker(&sushline),
-            Some(expected_hex),
-            "Sushline accepted-line hex differed for {case}"
-        );
-        assert_eq!(
-            raw_bell_count(&bash),
-            0,
-            "unexpected completion bell from Bash for {case}"
-        );
-        assert_eq!(
-            raw_bell_count(&sushline),
-            0,
-            "unexpected completion bell from Sushline for {case}"
-        );
+        for (form, prefix) in [
+            ("unquoted", b"~/safe-".as_slice()),
+            ("single-quoted", b"'~/safe-".as_slice()),
+            ("double-quoted", b"\"~/safe-".as_slice()),
+        ] {
+            let mut bash_keys = prefix.to_vec();
+            bash_keys.extend_from_slice(b"\x0f\x07\r");
+            let mut sushline_keys = prefix.to_vec();
+            sushline_keys.extend_from_slice(b"\x0f\r");
+            let expected = if expand_tilde == "off" && form == "unquoted" {
+                b"~/safe-lf\\\nitem ".to_vec()
+            } else {
+                let quote = if form == "double-quoted" { b'"' } else { b'\'' };
+                let mut expected = vec![quote];
+                expected.extend_from_slice(home_bytes);
+                expected.push(b'/');
+                expected.extend_from_slice(basename);
+                expected.push(quote);
+                expected.push(b' ');
+                expected
+            };
+            let case = format!("HOME {form}, expand-tilde={expand_tilde}");
+            assert_line(&case, &bash_keys, &sushline_keys, &inputrc, &expected);
+        }
     }
 }
 

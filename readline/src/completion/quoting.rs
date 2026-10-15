@@ -99,7 +99,10 @@ pub(super) fn dequote_completion_word_bytes(raw: &[u8]) -> (Vec<u8>, Option<char
         }
         out.push(byte);
     }
-    if escaped {
+    // A pending unquoted escape after a single-quoted segment has no filename
+    // byte yet. In particular, point between the backslash and apostrophe must
+    // still match candidates for the decoded prefix, not a literal backslash.
+    if escaped && !track_quote_transitions {
         out.push(b'\\');
     }
     (out, quote)
@@ -366,6 +369,8 @@ mod tests {
         for (raw, expected, quote) in [
             (b"'safe".as_slice(), b"safe".as_slice(), Some('\'')),
             (b"'safe'".as_slice(), b"safe".as_slice(), None),
+            (br"'safe'\".as_slice(), b"safe".as_slice(), None),
+            (br"'safe'\'''\".as_slice(), b"safe'".as_slice(), None),
             (br"'safe'\''".as_slice(), b"safe'".as_slice(), Some('\'')),
             (br"'safe'\'''".as_slice(), b"safe'".as_slice(), None),
             (

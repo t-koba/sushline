@@ -3108,6 +3108,153 @@ fn multi_candidate_consecutive_apostrophes_before_space_and_word_match_bash_5_3(
 
 #[cfg(unix)]
 #[test]
+fn single_quote_apostrophe_escape_cursor_boundaries_match_bash_5_3() {
+    // Fixture-scoped Bash 5.3 runtime comparison, not GNU source proof.
+    // Exercise every byte boundary through the two apostrophe escapes and their
+    // final closer. X exposes point as well as the raw spelling before ` rest`.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    let home = root.path().join("home");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(&home).expect("create fixture HOME");
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+    let inputrc = "\"\\C-o\": complete\nset skip-completed-text off\nset show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off";
+    fs::write(cwd.join("safe''one"), b"").expect("write fixture file");
+    fs::write(cwd.join("safe''two"), b"").expect("write fixture file");
+    let suffix = b"'\\'''\\''' rest";
+    let expected_lines: [&[u8]; 10] = [
+        br"echo 'safe'\'''\''X\'''\''' rest",
+        br"echo safe\'\'X\'''\''' rest",
+        br"echo safe\'\'X'''\''' rest",
+        br"echo safe\'\'X''\''' rest",
+        br"echo 'safe'\''X'\''' rest",
+        br"echo safe\'\'X\''' rest",
+        br"echo safe\'\'X''' rest",
+        br"echo safe\'\'X'' rest",
+        br"echo 'safe'\'''\''X' rest",
+        br"echo safe\'\'X rest",
+    ];
+    let cases = expected_lines
+        .into_iter()
+        .enumerate()
+        .map(|(point, expected)| (suffix.as_slice(), point, expected))
+        // The empty reopened segment at boundary four is unchanged even without
+        // another apostrophe escape or adjacent word to its right.
+        .chain([
+            (br"'\''".as_slice(), 4, br"echo 'safe'\''X".as_slice()),
+            (br"'\'' rest", 4, br"echo 'safe'\''X rest"),
+            (br"'\''z' rest", 4, br"echo 'safe'\''Xz' rest"),
+            (br"'\''' rest", 4, br"echo 'safe'\''X' rest"),
+        ]);
+    for (suffix, cursor_in_suffix, expected) in cases {
+        let mut bash_keys = b"echo 'safe".to_vec();
+        bash_keys.extend_from_slice(suffix);
+        let mut sushline_keys = bash_keys.clone();
+        for _ in 0..suffix.len() - cursor_in_suffix {
+            bash_keys.push(0x02);
+            sushline_keys.push(0x02);
+        }
+        bash_keys.extend_from_slice(b"\x0fX\x07\r");
+        sushline_keys.extend_from_slice(b"\x0fX\r");
+        let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+            &cwd,
+            inputrc,
+            &bash_keys,
+            &sushline_keys,
+            "set +H",
+            &env,
+        );
+        let bash_hex =
+            raw_line_after_marker(&bash, b"BASH_READLINE_HEX:").expect("Bash line-buffer marker");
+        let (pairs, remainder) = bash_hex.as_chunks::<2>();
+        assert!(remainder.is_empty(), "odd Bash hex marker");
+        let bash_bytes = pairs
+            .iter()
+            .map(|pair| {
+                (hex_digit(pair[0]).expect("Bash hex digit") << 4)
+                    | hex_digit(pair[1]).expect("Bash hex digit")
+            })
+            .collect::<Vec<_>>();
+        let sushline_bytes = raw_accepted_hex(&sushline).expect("Sushline accepted-line marker");
+        assert_eq!(
+            bash_bytes, expected,
+            "Bash bytes and point at boundary {cursor_in_suffix} of {suffix:?}"
+        );
+        assert_eq!(
+            sushline_bytes, expected,
+            "Sushline bytes and point at boundary {cursor_in_suffix} of {suffix:?}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn single_quote_apostrophe_escape_boundary_matches_bash_commands_and_skip_setting() {
+    // The unchanged empty quote segment and its bell are fixture-scoped Bash
+    // 5.3 runtime observations, not GNU source proof.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    let home = root.path().join("home");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(&home).expect("create fixture HOME");
+    fs::write(cwd.join("safe''one"), b"").expect("write fixture file");
+    fs::write(cwd.join("safe''two"), b"").expect("write fixture file");
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+    let suffix = b"'\\'''\\''' rest";
+    let expected = br"echo 'safe'\''X'\''' rest";
+
+    for command in ["complete", "complete-filename"] {
+        for skip_completed_text in ["off", "on"] {
+            let inputrc = format!(
+                "\"\\C-o\": {command}\nset skip-completed-text {skip_completed_text}\nset show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off"
+            );
+            let mut bash_keys = b"echo 'safe".to_vec();
+            bash_keys.extend_from_slice(suffix);
+            let mut sushline_keys = bash_keys.clone();
+            for _ in 0..suffix.len() - 4 {
+                bash_keys.push(0x02);
+                sushline_keys.push(0x02);
+            }
+            bash_keys.extend_from_slice(b"\x0fX\x07\r");
+            sushline_keys.extend_from_slice(b"\x0fX\r");
+            let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+                &cwd,
+                &inputrc,
+                &bash_keys,
+                &sushline_keys,
+                "set +H",
+                &env,
+            );
+            let bash_hex = raw_line_after_marker(&bash, b"BASH_READLINE_HEX:")
+                .expect("Bash line-buffer marker");
+            let (pairs, remainder) = bash_hex.as_chunks::<2>();
+            assert!(remainder.is_empty(), "odd Bash hex marker");
+            let bash_bytes = pairs
+                .iter()
+                .map(|pair| {
+                    (hex_digit(pair[0]).expect("Bash hex digit") << 4)
+                        | hex_digit(pair[1]).expect("Bash hex digit")
+                })
+                .collect::<Vec<_>>();
+            let sushline_bytes =
+                raw_accepted_hex(&sushline).expect("Sushline accepted-line marker");
+            let context = format!("command={command}, skip-completed-text={skip_completed_text}");
+            assert_eq!(bash_bytes, expected, "Bash bytes for {context}");
+            assert_eq!(sushline_bytes, expected, "Sushline bytes for {context}");
+            assert_eq!(raw_bell_count(&bash), 1, "Bash bell count for {context}");
+            assert_eq!(
+                raw_bell_count(&sushline),
+                1,
+                "Sushline bell count for {context}"
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn explicit_dot_filename_candidates_match_bash_5_3() {
     // Bash 5.3 PTY baseline 6f8e49fe55674f738ba7204ff46697d0 and this paired
     // assertion are limited to this fixture and these prefixes/options; the

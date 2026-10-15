@@ -189,6 +189,25 @@ where
             self.display_completions_for_word(state, &response, &edit.word_bytes)?;
             return Ok(());
         }
+        let raw_word = edit.line.get(edit.start..edit.end).unwrap_or_default();
+        if response.options.filenames
+            && response.options.quote_filename()
+            && matches!(
+                completion_type,
+                CompletionType::Complete | CompletionType::Filename
+            )
+            && !edit.ansi_c_quote
+            && edit.quote == Some('\'')
+            && raw_word.len() > 1
+            && raw_word.first() == Some(&b'\'')
+            && raw_word.last() == Some(&b'\'')
+        {
+            // Point immediately after a reopened single-quote delimiter has no
+            // text in that segment. Bash runtime probes leave this boundary
+            // unchanged, rather than requoting the preceding concatenation.
+            self.ding()?;
+            return Ok(());
+        }
         let skip_completed_text = self.variable_is_on("skip-completed-text");
         if response.candidates.len() == 1 {
             let candidate = &response.candidates[0];

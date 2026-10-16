@@ -362,6 +362,37 @@ fn ansi_c_filename_completion_obeys_case_and_separator_mapping_like_bash_5_3() {
 
 #[cfg(unix)]
 #[test]
+fn bash_noquote_filename_completion_preserves_ansi_c_quote_context() {
+    // Fixture-scoped Bash 5.3 PTY runtime observations for programmable completion.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    let inputrc =
+        "set show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off";
+    for (reply, expected) in [
+        ("saf file", b"echo $'saf file' X".as_slice()),
+        ("saf'file", b"echo $'saf'file' X".as_slice()),
+    ] {
+        let bash = run_bash_programmable_completion_in_dir(
+            b"echo $'saf\tX\x07",
+            inputrc,
+            "-o filenames -o noquote",
+            Some(reply),
+            &cwd,
+        );
+        assert!(
+            bash.windows(b"BASH_COMPLETION_INVOKED:1".len())
+                .any(|window| window == b"BASH_COMPLETION_INVOKED:1"),
+            "programmable callback did not run: {}",
+            String::from_utf8_lossy(&bash)
+        );
+        assert_eq!(bash_line_buffer_bytes(&bash), expected);
+        assert_eq!(raw_bell_count(&bash), 0);
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn initial_open_double_quote_common_prefix_matches_bash_5_3() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;

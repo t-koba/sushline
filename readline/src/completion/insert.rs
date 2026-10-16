@@ -656,16 +656,23 @@ where
         // Preserve Bash's backslash-LF spelling for an unexpanded `~/` path.
         let single_quote_line_feeds = !(raw_word.starts_with(b"~/") && value.starts_with(b"~/"));
         let replacement = match edit.quote {
-            Some('\'')
-                if edit.ansi_c_quote && options.filename_candidates && options.quote_filename =>
-            {
+            Some('\'') if edit.ansi_c_quote && options.filename_candidates => {
                 let slash_after_quote = options.slash_after_quote && value.ends_with(b"/");
                 let quoted_value = if slash_after_quote {
                     &value[..value.len() - 1]
                 } else {
                     value
                 };
-                let mut quoted = quote_ansi_c_quoted_filename_bytes(quoted_value);
+                let mut quoted = if options.quote_filename {
+                    quote_ansi_c_quoted_filename_bytes(quoted_value)
+                } else {
+                    // `noquote` suppresses escapes, not the active ANSI-C quote
+                    // syntax or its requested closing delimiter.
+                    let mut raw = b"$'".to_vec();
+                    raw.extend_from_slice(quoted_value);
+                    raw.push(b'\'');
+                    raw
+                };
                 if !options.close_ansi_c_quote {
                     quoted.pop();
                 }

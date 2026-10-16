@@ -429,6 +429,60 @@ fn reopened_quote_does_not_rescope_application_completion_candidates() {
 }
 
 #[test]
+fn noquote_filename_completion_preserves_ansi_c_quote_context() {
+    struct NoquoteHook {
+        candidate: Vec<u8>,
+        called: bool,
+    }
+    impl Hooks for NoquoteHook {
+        fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
+            assert_eq!(request.context.line, b"echo $'saf");
+            assert_eq!(request.context.point, request.context.line.len());
+            assert_eq!(request.context.word, b"saf");
+            assert_eq!(request.context.completion_type, CompletionType::Complete);
+            self.called = true;
+            Some(CompletionResponse {
+                candidates: vec![CompletionCandidate {
+                    replacement: self.candidate.clone(),
+                    display: None,
+                }],
+                options: CompletionOptions {
+                    filenames: true,
+                    noquote: true,
+                    ..Default::default()
+                },
+            })
+        }
+    }
+
+    for (candidate, expected) in [
+        (b"saf file".as_slice(), b"echo $'saf file' X".as_slice()),
+        (b"saf'file".as_slice(), b"echo $'saf'file' X".as_slice()),
+    ] {
+        let terminal = MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(b"echo $'saf".to_vec()),
+            TerminalEvent::Bytes(b"\tX\r".to_vec()),
+        ]);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        let mut hooks = NoquoteHook {
+            candidate: candidate.to_vec(),
+            called: false,
+        };
+        let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+        assert_eq!(result, ReadlineResult::Line(expected.to_vec()));
+        assert!(hooks.called);
+        assert_eq!(
+            line.terminal()
+                .out
+                .bytes()
+                .filter(|byte| *byte == b'\x07')
+                .count(),
+            0
+        );
+    }
+}
+
+#[test]
 fn reopened_plusdirs_supplements_nonempty_full_word_candidates() {
     let root = tempfile::tempdir().unwrap();
     let segment_dir = root.path().join("segment");

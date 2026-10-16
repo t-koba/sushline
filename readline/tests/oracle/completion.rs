@@ -1056,6 +1056,90 @@ fn bash_fullquote_ansi_c_menu_completion_differs_from_complete_filename_at_radix
 
 #[cfg(unix)]
 #[test]
+fn bash_fullquote_ansi_c_completion_preserves_radix_suffix_before_closer() {
+    // Fixture-scoped Bash 5.3 PTY observations preserve suffix bytes and the original closer.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::write(cwd.join("safe space-tail"), b"").expect("write fixture file");
+    let cases = [
+        (
+            "hex after x",
+            b"echo $'safe\\x20tail'".as_slice(),
+            7,
+            b"20tail'".as_slice(),
+        ),
+        (
+            "hex after escape",
+            b"echo $'safe\\x20tail'".as_slice(),
+            5,
+            b"tail'".as_slice(),
+        ),
+        (
+            "octal after zero",
+            b"echo $'safe\\040tail'".as_slice(),
+            7,
+            b"40tail'".as_slice(),
+        ),
+        (
+            "octal after escape",
+            b"echo $'safe\\040tail'".as_slice(),
+            5,
+            b"tail'".as_slice(),
+        ),
+    ];
+
+    for skip in ["on", "off"] {
+        for mode in ["complete", "menu-complete"] {
+            for (case, input, left_count, suffix) in cases {
+                let binding = if mode == "menu-complete" {
+                    "\"\\C-o\": menu-complete\n"
+                } else {
+                    ""
+                };
+                let inputrc = format!(
+                    "{binding}set skip-completed-text {skip}\nset show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off"
+                );
+                let mut keys = input.to_vec();
+                for _ in 0..left_count {
+                    keys.extend_from_slice(b"\x1b[D");
+                }
+                keys.extend_from_slice(if mode == "menu-complete" {
+                    b"\x0fX\x07"
+                } else {
+                    b"\tX\x07"
+                });
+                let bash = run_bash_programmable_completion_in_dir(
+                    &keys,
+                    &inputrc,
+                    "-o filenames -o fullquote -o noquote -o nospace",
+                    Some("safe space-tail"),
+                    &cwd,
+                );
+                assert!(
+                    bash.windows(b"BASH_COMPLETION_INVOKED:1".len())
+                        .any(|window| window == b"BASH_COMPLETION_INVOKED:1"),
+                    "programmable callback did not run: mode={mode} skip={skip} case={case}"
+                );
+                let mut expected = b"echo $'safe space-tail'X".to_vec();
+                expected.extend_from_slice(suffix);
+                assert_eq!(
+                    bash_line_buffer_bytes(&bash),
+                    expected,
+                    "mode={mode} skip={skip} case={case}"
+                );
+                assert_eq!(
+                    raw_bell_count(&bash),
+                    0,
+                    "mode={mode} skip={skip} case={case}"
+                );
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn initial_open_double_quote_common_prefix_matches_bash_5_3() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;

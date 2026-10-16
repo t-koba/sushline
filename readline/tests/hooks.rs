@@ -914,6 +914,121 @@ fn fullquote_ansi_c_completion_preserves_radix_escape_suffixes_at_cursor_splits(
 }
 
 #[test]
+fn fullquote_ansi_c_completion_preserves_radix_suffix_before_closer() {
+    struct RadixCloserHook {
+        input: Vec<u8>,
+        point: usize,
+        completion_type: CompletionType,
+        called: bool,
+    }
+    impl Hooks for RadixCloserHook {
+        fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
+            assert_eq!(request.context.line, self.input);
+            assert_eq!(request.context.point, self.point);
+            assert_eq!(request.context.completion_type, self.completion_type);
+            self.called = true;
+            Some(CompletionResponse {
+                candidates: vec![CompletionCandidate {
+                    replacement: b"safe space-tail".to_vec(),
+                    display: None,
+                }],
+                options: CompletionOptions {
+                    filenames: true,
+                    fullquote: true,
+                    noquote: true,
+                    nospace: true,
+                    ..Default::default()
+                },
+            })
+        }
+    }
+
+    let cases = [
+        (
+            "hex after x",
+            b"echo $'safe\\x20tail'".as_slice(),
+            7,
+            b"20tail'".as_slice(),
+        ),
+        (
+            "hex after escape",
+            b"echo $'safe\\x20tail'".as_slice(),
+            5,
+            b"tail'".as_slice(),
+        ),
+        (
+            "octal after zero",
+            b"echo $'safe\\040tail'".as_slice(),
+            7,
+            b"40tail'".as_slice(),
+        ),
+        (
+            "octal after escape",
+            b"echo $'safe\\040tail'".as_slice(),
+            5,
+            b"tail'".as_slice(),
+        ),
+    ];
+    let modes = [
+        (
+            "complete",
+            CompletionType::Complete,
+            b"\tX\r".as_slice(),
+            false,
+        ),
+        (
+            "menu-complete",
+            CompletionType::MenuComplete,
+            b"\x0fX\r".as_slice(),
+            true,
+        ),
+    ];
+
+    for skip in ["on", "off"] {
+        for (mode, completion_type, completion_keys, menu_complete) in modes {
+            for (case, input, left_count, suffix) in cases {
+                let mut events = vec![TerminalEvent::Bytes(input.to_vec())];
+                for _ in 0..left_count {
+                    events.push(TerminalEvent::Bytes(b"\x1b[D".to_vec()));
+                }
+                events.push(TerminalEvent::Bytes(completion_keys.to_vec()));
+                let terminal = MemoryTerminal::with_events(events);
+                let mut line = Editor::new(Config::default(), terminal, History::new());
+                if menu_complete {
+                    line.load_inputrc_str("\"\\C-o\": menu-complete").unwrap();
+                }
+                line.variables_mut()
+                    .insert("skip-completed-text".to_string(), skip.to_string());
+                let mut hooks = RadixCloserHook {
+                    input: input.to_vec(),
+                    point: input.len() - left_count,
+                    completion_type,
+                    called: false,
+                };
+                let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+                let mut expected = b"echo $'safe space-tail'X".to_vec();
+                expected.extend_from_slice(suffix);
+                assert_eq!(
+                    result,
+                    ReadlineResult::Line(expected),
+                    "mode={mode} skip={skip} case={case}"
+                );
+                assert!(hooks.called);
+                assert_eq!(
+                    line.terminal()
+                        .out
+                        .bytes()
+                        .filter(|byte| *byte == b'\x07')
+                        .count(),
+                    0,
+                    "mode={mode} skip={skip} case={case}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn fullquote_ansi_c_completion_replaces_radix_prefix_boundaries() {
     struct RadixPrefixHook {
         input: Vec<u8>,

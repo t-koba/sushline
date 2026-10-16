@@ -890,6 +890,52 @@ fn bash_fullquote_ansi_c_completion_preserves_radix_escape_suffixes() {
 
 #[cfg(unix)]
 #[test]
+fn bash_fullquote_ansi_c_completion_replaces_radix_prefix_boundaries() {
+    // Fixture-scoped Bash 5.3 PTY observations for incomplete and fully typed radix escapes.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::write(cwd.join("safe space-tail"), b"").expect("write fixture file");
+    let cases = [
+        ("hex prefix", b"echo $'safe\\x".as_slice()),
+        ("hex partial", b"echo $'safe\\x2".as_slice()),
+        ("octal prefix", b"echo $'safe\\0".as_slice()),
+        ("octal partial", b"echo $'safe\\04".as_slice()),
+        ("hex escape", b"echo $'safe\\x20tail".as_slice()),
+        ("octal escape", b"echo $'safe\\040tail".as_slice()),
+    ];
+    for skip in ["on", "off"] {
+        for (case, input) in cases {
+            let inputrc = format!(
+                "set skip-completed-text {skip}\nset show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off"
+            );
+            let mut keys = input.to_vec();
+            keys.extend_from_slice(b"\tX\x07");
+            let bash = run_bash_programmable_completion_in_dir(
+                &keys,
+                &inputrc,
+                "-o filenames -o fullquote -o noquote -o nospace",
+                Some("safe space-tail"),
+                &cwd,
+            );
+            assert!(
+                bash.windows(b"BASH_COMPLETION_INVOKED:1".len())
+                    .any(|window| window == b"BASH_COMPLETION_INVOKED:1"),
+                "programmable callback did not run for {case}: {}",
+                String::from_utf8_lossy(&bash)
+            );
+            assert_eq!(
+                bash_line_buffer_bytes(&bash),
+                b"echo $'safe space-tail'X",
+                "skip={skip} case={case}"
+            );
+            assert_eq!(raw_bell_count(&bash), 0, "skip={skip} case={case}");
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn initial_open_double_quote_common_prefix_matches_bash_5_3() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;

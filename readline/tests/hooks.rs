@@ -665,6 +665,68 @@ fn nospace_ansi_c_filename_completion_preserves_existing_closer() {
 }
 
 #[test]
+fn noquote_nospace_ansi_c_directory_completion_preserves_closer() {
+    struct DirectoryHook {
+        candidate: Vec<u8>,
+        line: Vec<u8>,
+        called: bool,
+    }
+    impl Hooks for DirectoryHook {
+        fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
+            assert_eq!(request.context.line, self.line);
+            assert_eq!(request.context.point, self.line.len() - 1);
+            self.called = true;
+            Some(CompletionResponse {
+                candidates: vec![CompletionCandidate {
+                    replacement: self.candidate.clone(),
+                    display: None,
+                }],
+                options: CompletionOptions {
+                    filenames: true,
+                    noquote: true,
+                    nospace: true,
+                    ..Default::default()
+                },
+            })
+        }
+    }
+
+    let root = tempfile::tempdir().unwrap();
+    let directory_path = root.path().join("saf dir");
+    std::fs::create_dir(&directory_path).unwrap();
+    let prefix = root.path().join("saf");
+    let input = format!("echo $'{}'", prefix.display()).into_bytes();
+    let candidate = directory_path.to_string_lossy().into_owned().into_bytes();
+
+    for (mark_directories, suffix) in [("on", "/"), ("off", "")] {
+        let terminal = MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(input.clone()),
+            TerminalEvent::Bytes(b"\x1b[D\tX\r".to_vec()),
+        ]);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.variables_mut()
+            .insert("mark-directories".to_string(), mark_directories.to_string());
+        let mut hooks = DirectoryHook {
+            candidate: candidate.clone(),
+            line: input.clone(),
+            called: false,
+        };
+        let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+        let expected = format!("echo $'{}{suffix}X'", directory_path.display());
+        assert_eq!(result, ReadlineResult::Line(expected.into_bytes()));
+        assert!(hooks.called);
+        assert_eq!(
+            line.terminal()
+                .out
+                .bytes()
+                .filter(|byte| *byte == b'\x07')
+                .count(),
+            0
+        );
+    }
+}
+
+#[test]
 fn noquote_ansi_c_directory_completion_stays_open() {
     struct DirectoryHook {
         candidate: Vec<u8>,

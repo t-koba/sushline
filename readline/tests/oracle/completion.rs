@@ -257,13 +257,21 @@ fn bash_directory_fallback_options_use_reopened_segment_scope() {
                 fs::write(&path, b"").expect("write file fixture");
             }
         }
-        let bash = run_bash_completion_in_dir(b"echo 'sa'f'e\tX\r", inputrc, options, &cwd);
-        assert_eq!(
-            accepted_line(&bash),
-            Some(expected.to_string()),
-            "option={options}\n{bash}"
+        let bash =
+            run_bash_programmable_completion_in_dir(b"echo 'sa'f'e\tX\x07", inputrc, options, &cwd);
+        assert!(
+            bash.windows(b"BASH_COMPLETION_INVOKED:1".len())
+                .any(|window| window == b"BASH_COMPLETION_INVOKED:1"),
+            "programmable callback did not run for {options}: {}",
+            String::from_utf8_lossy(&bash)
         );
-        assert_eq!(bell_count(&bash), 1, "option={options}\n{bash}");
+        assert_eq!(
+            bash_line_buffer_bytes(&bash),
+            expected.as_bytes(),
+            "option={options}\n{}",
+            String::from_utf8_lossy(&bash)
+        );
+        assert_eq!(raw_bell_count(&bash), 1, "option={options}");
     }
 }
 
@@ -279,14 +287,21 @@ fn bash_default_filename_fallback_uses_reopened_segment_scope() {
     }
     let inputrc =
         "set show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off";
-    let bash = run_bash_completion_in_dir(b"echo 'sa'f'e\tX\r", inputrc, "-o default", dir.path());
-
-    assert_eq!(
-        accepted_line(&bash),
-        Some("echo 'sa'f'eagle-X".to_string()),
-        "{bash}"
+    let bash = run_bash_programmable_completion_in_dir(
+        b"echo 'sa'f'e\tX\x07",
+        inputrc,
+        "-o default",
+        dir.path(),
     );
-    assert_eq!(bell_count(&bash), 1, "{bash}");
+
+    assert!(
+        bash.windows(b"BASH_COMPLETION_INVOKED:1".len())
+            .any(|window| window == b"BASH_COMPLETION_INVOKED:1"),
+        "programmable callback did not run: {}",
+        String::from_utf8_lossy(&bash)
+    );
+    assert_eq!(bash_line_buffer_bytes(&bash), b"echo 'sa'f'eagle-X");
+    assert_eq!(raw_bell_count(&bash), 1);
 }
 
 #[test]
@@ -5255,6 +5270,21 @@ fn raw_line_after_marker<'a>(output: &'a [u8], marker: &[u8]) -> Option<&'a [u8]
         .position(|byte| matches!(byte, b'\r' | b'\n'))
         .unwrap_or(rest.len());
     Some(&rest[..end])
+}
+
+#[cfg(unix)]
+fn bash_line_buffer_bytes(output: &[u8]) -> Vec<u8> {
+    let hex =
+        raw_line_after_marker(output, b"BASH_READLINE_HEX:").expect("Bash line-buffer marker");
+    let (pairs, remainder) = hex.as_chunks::<2>();
+    assert!(remainder.is_empty(), "odd Bash line-buffer hex marker");
+    pairs
+        .iter()
+        .map(|pair| {
+            (hex_digit(pair[0]).expect("Bash hex digit") << 4)
+                | hex_digit(pair[1]).expect("Bash hex digit")
+        })
+        .collect()
 }
 
 #[cfg(unix)]

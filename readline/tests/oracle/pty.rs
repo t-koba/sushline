@@ -242,27 +242,43 @@ pub(super) fn run_bash_readline_with_inputrc_file_and_env_in_dir(
     run_pty_in_dir(command, keys, cwd)
 }
 
-pub(super) fn run_bash_completion_in_dir(
+pub(super) fn run_bash_programmable_completion_in_dir(
     keys: &[u8],
     inputrc: &str,
     options: &str,
     cwd: &std::path::Path,
-) -> String {
+) -> Vec<u8> {
+    // Programmable completion must run at Bash's command prompt, not in `read -e`.
     let dir = tempfile::tempdir().expect("tempdir");
-    let path = dir.path().join("inputrc");
-    fs::write(&path, inputrc).expect("write inputrc");
+    let inputrc_path = dir.path().join("inputrc");
+    fs::write(&inputrc_path, inputrc).expect("write inputrc");
+    let rcfile_path = dir.path().join("bashrc");
+    let rcfile = format!(
+        r#"PS1='{READY_PROMPT}'
+stty status undef dsusp undef lnext undef 2>/dev/null || true
+_none() {{ BASH_COMPLETION_INVOKED=1; COMPREPLY=(); }}
+complete -F _none {options} echo
+bind -x '"\C-g": printf "BASH_COMPLETION_INVOKED:%s\n" "$BASH_COMPLETION_INVOKED"; printf "BASH_READLINE_HEX:"; printf "%s" "$READLINE_LINE" | od -An -tx1 | tr -d " \n"; printf "\n"'"#
+    );
+    fs::write(&rcfile_path, rcfile).expect("write Bash rcfile");
+    let inputrc_path = inputrc_path.to_string_lossy().into_owned();
+    let rcfile_path = rcfile_path.to_string_lossy().into_owned();
     let mut command = CommandBuilder::new("bash");
-    command.env("INPUTRC", path.to_string_lossy().as_ref());
-    command.args([
-        "--noprofile",
-        "--norc",
-        "-i",
-        "-c",
-        &format!(
-            r#"_none() {{ COMPREPLY=(); }}; complete -F _none {options} echo; stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
-        ),
-    ]);
-    run_pty_in_dir(command, keys, cwd)
+    command.env("INPUTRC", inputrc_path);
+    command.env("PS1", READY_PROMPT);
+    command.args(["--noprofile", "--rcfile", &rcfile_path, "-i"]);
+    run_pty_in_dir_with_size_raw_until(
+        command,
+        keys,
+        cwd,
+        PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        },
+        "BASH_READLINE_HEX:",
+    )
 }
 
 pub(super) fn run_bash_readline_with_inputrc_file_and_env_removing(

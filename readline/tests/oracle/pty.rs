@@ -246,6 +246,7 @@ pub(super) fn run_bash_programmable_completion_in_dir(
     keys: &[u8],
     inputrc: &str,
     options: &str,
+    reply: Option<&str>,
     cwd: &std::path::Path,
 ) -> Vec<u8> {
     // Programmable completion must run at Bash's command prompt, not in `read -e`.
@@ -256,7 +257,7 @@ pub(super) fn run_bash_programmable_completion_in_dir(
     let rcfile = format!(
         r#"PS1='{READY_PROMPT}'
 stty status undef dsusp undef lnext undef 2>/dev/null || true
-_none() {{ BASH_COMPLETION_INVOKED=1; COMPREPLY=(); }}
+_none() {{ BASH_COMPLETION_INVOKED=1; COMPREPLY=(); if [[ -n $BASH_COMPLETION_REPLY ]]; then COMPREPLY=("$BASH_COMPLETION_REPLY"); fi; }}
 complete -F _none {options} echo
 bind -x '"\C-g": printf "BASH_COMPLETION_INVOKED:%s\n" "$BASH_COMPLETION_INVOKED"; printf "BASH_READLINE_HEX:"; printf "%s" "$READLINE_LINE" | od -An -tx1 | tr -d " \n"; printf "\n"'"#
     );
@@ -266,6 +267,7 @@ bind -x '"\C-g": printf "BASH_COMPLETION_INVOKED:%s\n" "$BASH_COMPLETION_INVOKED
     let mut command = CommandBuilder::new("bash");
     command.env("INPUTRC", inputrc_path);
     command.env("PS1", READY_PROMPT);
+    command.env("BASH_COMPLETION_REPLY", reply.unwrap_or(""));
     command.args(["--noprofile", "--rcfile", &rcfile_path, "-i"]);
     run_pty_in_dir_with_size_raw_until(
         command,

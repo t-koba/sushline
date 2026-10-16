@@ -4,9 +4,9 @@ mod common;
 
 use common::MemoryTerminal;
 use readline::{
-    CompletionCandidate, CompletionOptions, CompletionRequest, CompletionResponse, Config, Edit,
-    Editor, History, HistoryExpansion, HistoryExpansionContext, Hooks, LineExpansionContext,
-    Prompt, QuoteContext, ReadlineResult, TerminalEvent,
+    CompletionCandidate, CompletionOptions, CompletionRequest, CompletionResponse, CompletionType,
+    Config, Edit, Editor, History, HistoryExpansion, HistoryExpansionContext, Hooks,
+    LineExpansionContext, Prompt, QuoteContext, ReadlineResult, TerminalEvent,
 };
 use std::cell::Cell;
 
@@ -425,6 +425,106 @@ fn reopened_quote_does_not_rescope_application_completion_candidates() {
             .read_line(Prompt::new("> "), &mut ApplicationHook { use_default })
             .unwrap();
         assert_eq!(result, ReadlineResult::Line(b"echo 'safe-'X".to_vec()));
+    }
+}
+
+#[test]
+fn reopened_plusdirs_supplements_nonempty_full_word_candidates() {
+    let root = tempfile::tempdir().unwrap();
+    let segment_dir = root.path().join("segment");
+    std::fs::create_dir(&segment_dir).unwrap();
+    std::fs::create_dir(segment_dir.join("eagle-dir-one")).unwrap();
+    std::fs::create_dir(segment_dir.join("eagle-dir-two")).unwrap();
+    let segment = format!("{}/e", segment_dir.display());
+    let input = format!("echo 'sa'f'{segment}").into_bytes();
+    let word = format!("saf{segment}").into_bytes();
+    let application_candidate = format!("saf{}/eagle-app", segment_dir.display()).into_bytes();
+
+    struct MixedPlusdirsHook {
+        line: Vec<u8>,
+        word: Vec<u8>,
+        candidate: Vec<u8>,
+        completion_type: CompletionType,
+        called: bool,
+    }
+
+    impl Hooks for MixedPlusdirsHook {
+        fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
+            assert_eq!(request.context.line, self.line);
+            assert_eq!(request.context.point, self.line.len());
+            assert_eq!(request.context.word_start, 5);
+            assert_eq!(request.context.word_end, self.line.len());
+            assert_eq!(request.context.word, self.word);
+            assert_eq!(request.context.completion_type, self.completion_type);
+            self.called = true;
+            Some(CompletionResponse {
+                candidates: vec![CompletionCandidate {
+                    replacement: self.candidate.clone(),
+                    display: None,
+                }],
+                options: CompletionOptions {
+                    plusdirs: true,
+                    ..Default::default()
+                },
+            })
+        }
+    }
+
+    for (completion_type, keys, expected_line, expected_bells) in [
+        (
+            CompletionType::Complete,
+            b"\tX\r".as_slice(),
+            [input.as_slice(), b"X"].concat(),
+            1,
+        ),
+        (
+            CompletionType::PossibleCompletions,
+            b"\x0f\r".as_slice(),
+            input.clone(),
+            0,
+        ),
+    ] {
+        let terminal = MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(input.clone()),
+            TerminalEvent::Bytes(keys.to_vec()),
+        ]);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        if completion_type == CompletionType::PossibleCompletions {
+            line.load_inputrc_str("\"\\C-o\": possible-completions")
+                .unwrap();
+        }
+        let mut hooks = MixedPlusdirsHook {
+            line: input.clone(),
+            word: word.clone(),
+            candidate: application_candidate.clone(),
+            completion_type,
+            called: false,
+        };
+        let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+        assert_eq!(
+            result,
+            ReadlineResult::Line(expected_line),
+            "{completion_type:?}"
+        );
+        assert!(hooks.called, "{completion_type:?}");
+        assert_eq!(
+            line.terminal()
+                .out
+                .bytes()
+                .filter(|byte| *byte == b'\x07')
+                .count(),
+            expected_bells,
+            "{completion_type:?}"
+        );
+        if completion_type == CompletionType::PossibleCompletions {
+            let output = &line.terminal().out;
+            for candidate in ["eagle-app", "eagle-dir-one/", "eagle-dir-two/"] {
+                assert!(
+                    output.contains(candidate),
+                    "missing {candidate:?} in {output:?}"
+                );
+            }
+        }
     }
 }
 

@@ -257,8 +257,13 @@ fn bash_directory_fallback_options_use_reopened_segment_scope() {
                 fs::write(&path, b"").expect("write file fixture");
             }
         }
-        let bash =
-            run_bash_programmable_completion_in_dir(b"echo 'sa'f'e\tX\x07", inputrc, options, &cwd);
+        let bash = run_bash_programmable_completion_in_dir(
+            b"echo 'sa'f'e\tX\x07",
+            inputrc,
+            options,
+            None,
+            &cwd,
+        );
         assert!(
             bash.windows(b"BASH_COMPLETION_INVOKED:1".len())
                 .any(|window| window == b"BASH_COMPLETION_INVOKED:1"),
@@ -291,6 +296,7 @@ fn bash_default_filename_fallback_uses_reopened_segment_scope() {
         b"echo 'sa'f'e\tX\x07",
         inputrc,
         "-o default",
+        None,
         dir.path(),
     );
 
@@ -302,6 +308,71 @@ fn bash_default_filename_fallback_uses_reopened_segment_scope() {
     );
     assert_eq!(bash_line_buffer_bytes(&bash), b"echo 'sa'f'eagle-X");
     assert_eq!(raw_bell_count(&bash), 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn bash_plusdirs_supplements_nonempty_programmable_candidates() {
+    let root = tempfile::tempdir().expect("temp root");
+    let cwd = root.path().join("cwd");
+    let nested = cwd.join("segment");
+    fs::create_dir_all(&nested).expect("create fixture segment");
+    fs::create_dir(nested.join("eagle-dir-one")).expect("create first directory");
+    fs::create_dir(nested.join("eagle-dir-two")).expect("create second directory");
+    let inputrc = r#""\C-o": possible-completions
+set completion-query-items 999
+set page-completions off"#;
+    let response = Some("saf./segment/eagle-app");
+    let possible = run_bash_programmable_completion_in_dir(
+        b"echo 'sa'f'./segment/e\x0f\x07",
+        inputrc,
+        "-o plusdirs",
+        response,
+        &cwd,
+    );
+    assert!(
+        possible
+            .windows(b"BASH_COMPLETION_INVOKED:1".len())
+            .any(|window| window == b"BASH_COMPLETION_INVOKED:1"),
+        "programmable callback did not run: {}",
+        String::from_utf8_lossy(&possible)
+    );
+    for candidate in [
+        b"eagle-app".as_slice(),
+        b"eagle-dir-one/",
+        b"eagle-dir-two/",
+    ] {
+        assert!(
+            possible
+                .windows(candidate.len())
+                .any(|window| window == candidate),
+            "missing possible completion {:?}: {}",
+            String::from_utf8_lossy(candidate),
+            String::from_utf8_lossy(&possible)
+        );
+    }
+    assert_eq!(bash_line_buffer_bytes(&possible), b"echo 'sa'f'./segment/e");
+    assert_eq!(raw_bell_count(&possible), 0);
+
+    let completed = run_bash_programmable_completion_in_dir(
+        b"echo 'sa'f'./segment/e\tX\x07",
+        inputrc,
+        "-o plusdirs",
+        response,
+        &cwd,
+    );
+    assert!(
+        completed
+            .windows(b"BASH_COMPLETION_INVOKED:1".len())
+            .any(|window| window == b"BASH_COMPLETION_INVOKED:1"),
+        "programmable callback did not run: {}",
+        String::from_utf8_lossy(&completed)
+    );
+    assert_eq!(
+        bash_line_buffer_bytes(&completed),
+        b"echo 'sa'f'./segment/eX"
+    );
+    assert_eq!(raw_bell_count(&completed), 1);
 }
 
 #[test]

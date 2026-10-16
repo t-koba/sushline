@@ -140,7 +140,7 @@ where
     ) -> CompletionResponse {
         // Callbacks always see the full word; restore this scope only if a
         // built-in provider is ultimately selected.
-        let segment = edit.filename_segment.take();
+        let mut segment = edit.filename_segment.take();
         let request = CompletionRequest {
             context: CompletionContext {
                 line: state.buffer.as_bytes().to_vec(),
@@ -158,6 +158,13 @@ where
             filename_context.word = segment.word_bytes.clone();
         }
         let Some(mut response) = hooks.complete(request.clone()) else {
+            if segment.is_none() {
+                segment = edit.reopened_filename_segment();
+                if let Some(segment) = &segment {
+                    filename_context.word_start = segment.raw_start;
+                    filename_context.word = segment.word_bytes.clone();
+                }
+            }
             let (response, builtin_filenames) =
                 self.default_completion(&request, hooks, Some(&filename_context));
             if builtin_filenames {
@@ -168,6 +175,18 @@ where
         };
         let mut empty_application_response = false;
         let mut builtin_filename_fallback = false;
+        let needs_filename_context = response.options.plusdirs
+            || (response.candidates.is_empty()
+                && (response.options.bashdefault
+                    || response.options.default
+                    || response.options.dirnames));
+        if needs_filename_context && segment.is_none() {
+            segment = edit.reopened_filename_segment();
+            if let Some(segment) = &segment {
+                filename_context.word_start = segment.raw_start;
+                filename_context.word = segment.word_bytes.clone();
+            }
+        }
         if response.candidates.is_empty()
             && (response.options.bashdefault
                 || response.options.default
@@ -197,13 +216,12 @@ where
             merge_completion_options(&mut response.options, options);
         }
         if response.options.plusdirs {
-            let context = if empty_application_response {
-                &filename_context
-            } else {
-                &request.context
-            };
+            // `plusdirs` supplements COMPREPLY even when it is nonempty. Keep
+            // callback replacements full-word, while matching these built-in
+            // directory candidates against the active filename segment.
             response.candidates.extend(
-                complete_directories_in_context(context, &self.filename_options()).candidates,
+                complete_directories_in_context(&filename_context, &self.filename_options())
+                    .candidates,
             );
             builtin_filename_fallback |= empty_application_response;
         }

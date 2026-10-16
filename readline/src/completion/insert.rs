@@ -212,9 +212,8 @@ where
         if response.candidates.len() == 1 {
             let candidate = &response.candidates[0];
             let suffix = completion_suffix_bytes(edit, state);
-            let ansi_c_filename_completion = edit.ansi_c_quote
-                && response.options.filenames
-                && response.options.quote_filename();
+            let ansi_c_quoted_completion = edit.ansi_c_quote && response.options.quote_filename();
+            let ansi_c_filename_completion = ansi_c_quoted_completion && response.options.filenames;
             // Only an exact typed filename prefix can justify consuming its right suffix.
             let filename_case_insensitive_prefix_only_match = skip_completed_text
                 && response.options.filenames
@@ -256,7 +255,7 @@ where
             );
             let has_quote_suffix = suffix.get(ansi_c_suffix_overlap) == Some(&b'\'')
                 && suffix.len() == ansi_c_suffix_overlap + 1;
-            let has_existing_ansi_c_quote = ansi_c_filename_completion
+            let has_existing_ansi_c_quote = ansi_c_quoted_completion
                 && ansi_c_suffix_bytes > 0
                 && suffix.get(ansi_c_suffix_overlap) == Some(&b'\'');
             let mut preserves_existing_ansi_c_quote = has_existing_ansi_c_quote;
@@ -265,7 +264,7 @@ where
                 if ansi_c_suffix_bytes > 1 && suffix.get(ansi_c_suffix_overlap) == Some(&b'/') {
                     ansi_c_suffix_overlap += 1;
                 }
-            } else if ansi_c_filename_completion
+            } else if ansi_c_quoted_completion
                 && ansi_c_suffix_bytes == 0
                 && (has_quote_suffix || ansi_c_quote_suffix_bytes(&original) > 0)
             {
@@ -834,13 +833,11 @@ where
         );
         let is_directory =
             filename_directory.is_some() || candidate.replacement_bytes().ends_with(b"/");
-        let ansi_c_suffix_bytes =
-            if edit.ansi_c_quote && response.options.filenames && response.options.quote_filename()
-            {
-                ansi_c_quote_suffix_bytes(&replacement)
-            } else {
-                0
-            };
+        let ansi_c_suffix_bytes = if edit.ansi_c_quote && response.options.quote_filename() {
+            ansi_c_quote_suffix_bytes(&replacement)
+        } else {
+            0
+        };
         CompletionReplacement {
             bytes: replacement,
             is_directory,

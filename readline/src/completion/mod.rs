@@ -159,6 +159,7 @@ pub struct CompletionResponse {
 
 impl CompletionOptions {
     pub(crate) fn quote_filename(&self) -> bool {
-        (self.filenames || self.fullquote) && !self.noquote
+        // Bash's `fullquote` completion option overrides `noquote`.
+        self.fullquote || (self.filenames && !self.noquote)
     }
 }

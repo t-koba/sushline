@@ -254,10 +254,11 @@ pub(super) fn run_bash_programmable_completion_in_dir(
     let inputrc_path = dir.path().join("inputrc");
     fs::write(&inputrc_path, inputrc).expect("write inputrc");
     let rcfile_path = dir.path().join("bashrc");
+    // Unit separator in BASH_COMPLETION_REPLY splits fixture candidates for multi-match probes.
     let rcfile = format!(
         r#"PS1='{READY_PROMPT}'
 stty status undef dsusp undef lnext undef 2>/dev/null || true
-_none() {{ BASH_COMPLETION_INVOKED=1; COMPREPLY=(); if [[ -n $BASH_COMPLETION_REPLY ]]; then COMPREPLY=("$BASH_COMPLETION_REPLY"); fi; }}
+_none() {{ BASH_COMPLETION_INVOKED=1; COMPREPLY=(); if [[ -n $BASH_COMPLETION_REPLY ]]; then IFS=$'\x1f' read -r -a COMPREPLY <<< "$BASH_COMPLETION_REPLY"; fi; }}
 complete -F _none {options} echo
 bind -x '"\C-g": printf "BASH_COMPLETION_INVOKED:%s\n" "$BASH_COMPLETION_INVOKED"; printf "BASH_READLINE_HEX:"; printf "%s" "$READLINE_LINE" | od -An -tx1 | tr -d " \n"; printf "\n"'"#
     );

@@ -533,6 +533,129 @@ fn fullquote_ansi_c_completion_overrides_noquote() {
 }
 
 #[test]
+fn menu_nospace_ansi_c_completion_inserts_without_separator() {
+    struct MenuHook {
+        noquote: bool,
+        called: bool,
+    }
+    impl Hooks for MenuHook {
+        fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
+            assert_eq!(request.context.line, b"echo $'saf");
+            assert_eq!(request.context.point, request.context.line.len());
+            assert_eq!(request.context.word, b"saf");
+            assert_eq!(
+                request.context.completion_type,
+                CompletionType::MenuComplete
+            );
+            self.called = true;
+            Some(CompletionResponse {
+                candidates: vec![
+                    CompletionCandidate {
+                        replacement: b"saf file-one".to_vec(),
+                        display: None,
+                    },
+                    CompletionCandidate {
+                        replacement: b"saf file-two".to_vec(),
+                        display: None,
+                    },
+                ],
+                options: CompletionOptions {
+                    filenames: true,
+                    noquote: self.noquote,
+                    nospace: true,
+                    ..Default::default()
+                },
+            })
+        }
+    }
+
+    for noquote in [false, true] {
+        let terminal = MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(b"echo $'saf".to_vec()),
+            TerminalEvent::Bytes(b"\x0fX\r".to_vec()),
+        ]);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str("\"\\C-o\": menu-complete").unwrap();
+        let mut hooks = MenuHook {
+            noquote,
+            called: false,
+        };
+        let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+        assert_eq!(
+            result,
+            ReadlineResult::Line(b"echo $'saf file-one'X".to_vec())
+        );
+        assert!(hooks.called);
+        assert_eq!(
+            line.terminal()
+                .out
+                .bytes()
+                .filter(|byte| *byte == b'\x07')
+                .count(),
+            0
+        );
+    }
+}
+
+#[test]
+fn ambiguous_nospace_ansi_c_completion_keeps_common_prefix_open() {
+    struct AmbiguousHook {
+        noquote: bool,
+        called: bool,
+    }
+    impl Hooks for AmbiguousHook {
+        fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
+            assert_eq!(request.context.line, b"echo $'saf");
+            assert_eq!(request.context.point, request.context.line.len());
+            assert_eq!(request.context.word, b"saf");
+            assert_eq!(request.context.completion_type, CompletionType::Complete);
+            self.called = true;
+            Some(CompletionResponse {
+                candidates: vec![
+                    CompletionCandidate {
+                        replacement: b"saf file-one".to_vec(),
+                        display: None,
+                    },
+                    CompletionCandidate {
+                        replacement: b"saf file-two".to_vec(),
+                        display: None,
+                    },
+                ],
+                options: CompletionOptions {
+                    filenames: true,
+                    noquote: self.noquote,
+                    nospace: true,
+                    ..Default::default()
+                },
+            })
+        }
+    }
+
+    for noquote in [false, true] {
+        let terminal = MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(b"echo $'saf".to_vec()),
+            TerminalEvent::Bytes(b"\tX\r".to_vec()),
+        ]);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        let mut hooks = AmbiguousHook {
+            noquote,
+            called: false,
+        };
+        let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+        assert_eq!(result, ReadlineResult::Line(b"echo $'saf file-X".to_vec()));
+        assert!(hooks.called);
+        assert_eq!(
+            line.terminal()
+                .out
+                .bytes()
+                .filter(|byte| *byte == b'\x07')
+                .count(),
+            1
+        );
+    }
+}
+
+#[test]
 fn nospace_ansi_c_filename_completion_suppresses_trailing_space() {
     struct FilenameHook {
         candidate: Vec<u8>,

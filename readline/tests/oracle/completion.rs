@@ -643,6 +643,69 @@ fn bash_noquote_nospace_ansi_c_directory_completion_preserves_closer() {
 
 #[cfg(unix)]
 #[test]
+fn bash_ambiguous_nospace_ansi_c_completion_keeps_common_prefix_open() {
+    // Fixture-scoped Bash 5.3 PTY observations for programmable multi-candidate completion.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::write(cwd.join("saf file-one"), b"").expect("write first fixture file");
+    fs::write(cwd.join("saf file-two"), b"").expect("write second fixture file");
+    let replies = "saf file-one\u{1f}saf file-two";
+    for options in [
+        "-o filenames -o nospace",
+        "-o filenames -o noquote -o nospace",
+    ] {
+        let bash = run_bash_programmable_completion_in_dir(
+            b"echo $'saf\tX\x07",
+            "set show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off",
+            options,
+            Some(replies),
+            &cwd,
+        );
+        assert!(
+            bash.windows(b"BASH_COMPLETION_INVOKED:1".len())
+                .any(|window| window == b"BASH_COMPLETION_INVOKED:1"),
+            "programmable callback did not run: {}",
+            String::from_utf8_lossy(&bash)
+        );
+        assert_eq!(bash_line_buffer_bytes(&bash), b"echo $'saf file-X");
+        assert_eq!(raw_bell_count(&bash), 1);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn bash_menu_nospace_ansi_c_completion_inserts_without_separator() {
+    // Fixture-scoped Bash 5.3 PTY observations for programmable menu completion.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    let replies = "saf file-one\u{1f}saf file-two";
+    let inputrc = "\"\\C-o\": menu-complete\nset show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off";
+    for options in [
+        "-o filenames -o nospace",
+        "-o filenames -o noquote -o nospace",
+    ] {
+        let bash = run_bash_programmable_completion_in_dir(
+            b"echo $'saf\x0fX\x07",
+            inputrc,
+            options,
+            Some(replies),
+            &cwd,
+        );
+        assert!(
+            bash.windows(b"BASH_COMPLETION_INVOKED:1".len())
+                .any(|window| window == b"BASH_COMPLETION_INVOKED:1"),
+            "programmable callback did not run: {}",
+            String::from_utf8_lossy(&bash)
+        );
+        assert_eq!(bash_line_buffer_bytes(&bash), b"echo $'saf file-one'X");
+        assert_eq!(raw_bell_count(&bash), 0);
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn initial_open_double_quote_common_prefix_matches_bash_5_3() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;

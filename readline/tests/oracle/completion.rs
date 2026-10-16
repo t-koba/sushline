@@ -773,6 +773,39 @@ fn bash_nospace_ansi_c_completion_respects_skip_completed_text_suffix() {
 
 #[cfg(unix)]
 #[test]
+fn bash_fullquote_ansi_c_completion_respects_skip_completed_text() {
+    // Fixture-scoped Bash 5.3 PTY observations for fullquote precedence with an overlapping suffix.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::write(cwd.join("saf file"), b"").expect("write fixture file");
+    for (skip, expected) in [
+        ("on", b"echo $'saf file'X".as_slice()),
+        ("off", b"echo $'saf file'Xfile'".as_slice()),
+    ] {
+        let inputrc = format!(
+            "set skip-completed-text {skip}\nset show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off"
+        );
+        let bash = run_bash_programmable_completion_in_dir(
+            b"echo $'saf file'\x1b[D\x1b[D\x1b[D\x1b[D\x1b[D\tX\x07",
+            &inputrc,
+            "-o filenames -o fullquote -o noquote -o nospace",
+            Some("saf file"),
+            &cwd,
+        );
+        assert!(
+            bash.windows(b"BASH_COMPLETION_INVOKED:1".len())
+                .any(|window| window == b"BASH_COMPLETION_INVOKED:1"),
+            "programmable callback did not run: {}",
+            String::from_utf8_lossy(&bash)
+        );
+        assert_eq!(bash_line_buffer_bytes(&bash), expected, "skip={skip}");
+        assert_eq!(raw_bell_count(&bash), 0);
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn initial_open_double_quote_common_prefix_matches_bash_5_3() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;

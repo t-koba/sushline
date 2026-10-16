@@ -656,6 +656,63 @@ fn ambiguous_nospace_ansi_c_completion_keeps_common_prefix_open() {
 }
 
 #[test]
+fn fullquote_ansi_c_completion_respects_skip_completed_text_suffix() {
+    struct FullquoteSuffixHook {
+        called: bool,
+    }
+    impl Hooks for FullquoteSuffixHook {
+        fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
+            assert_eq!(request.context.line, b"echo $'saf file'");
+            assert_eq!(request.context.point, request.context.line.len() - 5);
+            assert_eq!(request.context.completion_type, CompletionType::Complete);
+            self.called = true;
+            Some(CompletionResponse {
+                candidates: vec![CompletionCandidate {
+                    replacement: b"saf file".to_vec(),
+                    display: None,
+                }],
+                options: CompletionOptions {
+                    filenames: true,
+                    fullquote: true,
+                    noquote: true,
+                    nospace: true,
+                    ..Default::default()
+                },
+            })
+        }
+    }
+
+    for (skip, expected) in [
+        ("on", b"echo $'saf file'X".as_slice()),
+        ("off", b"echo $'saf file'Xfile'".as_slice()),
+    ] {
+        let terminal = MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(b"echo $'saf file'".to_vec()),
+            TerminalEvent::Bytes(b"\x1b[D\x1b[D\x1b[D\x1b[D\x1b[D\tX\r".to_vec()),
+        ]);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.variables_mut()
+            .insert("skip-completed-text".to_string(), skip.to_string());
+        let mut hooks = FullquoteSuffixHook { called: false };
+        let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+        assert_eq!(
+            result,
+            ReadlineResult::Line(expected.to_vec()),
+            "skip={skip}"
+        );
+        assert!(hooks.called);
+        assert_eq!(
+            line.terminal()
+                .out
+                .bytes()
+                .filter(|byte| *byte == b'\x07')
+                .count(),
+            0
+        );
+    }
+}
+
+#[test]
 fn nospace_ansi_c_completion_respects_skip_completed_text_suffix() {
     struct SkipHook {
         noquote: bool,

@@ -393,6 +393,30 @@ fn bash_noquote_filename_completion_preserves_ansi_c_quote_context() {
 
 #[cfg(unix)]
 #[test]
+fn bash_plain_programmable_candidate_preserves_ansi_c_quote() {
+    // Fixture-scoped Bash 5.3 PTY runtime observation for a callback without filename options.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    let bash = run_bash_programmable_completion_in_dir(
+        b"echo $'saf\tX\x07",
+        "set show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off",
+        "",
+        Some("saf file"),
+        &cwd,
+    );
+    assert!(
+        bash.windows(b"BASH_COMPLETION_INVOKED:1".len())
+            .any(|window| window == b"BASH_COMPLETION_INVOKED:1"),
+        "programmable callback did not run: {}",
+        String::from_utf8_lossy(&bash)
+    );
+    assert_eq!(bash_line_buffer_bytes(&bash), b"echo $'saf file' X");
+    assert_eq!(raw_bell_count(&bash), 0);
+}
+
+#[cfg(unix)]
+#[test]
 fn initial_open_double_quote_common_prefix_matches_bash_5_3() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;

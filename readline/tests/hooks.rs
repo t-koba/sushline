@@ -772,6 +772,77 @@ fn fullquote_escaped_ansi_c_suffix_preserves_raw_overlap_behavior() {
 }
 
 #[test]
+fn fullquote_ansi_c_completion_preserves_radix_escape_suffixes() {
+    struct RadixSuffixHook {
+        input: Vec<u8>,
+        point: usize,
+        called: bool,
+    }
+    impl Hooks for RadixSuffixHook {
+        fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
+            assert_eq!(request.context.line, self.input);
+            assert_eq!(request.context.point, self.point);
+            assert_eq!(request.context.completion_type, CompletionType::Complete);
+            self.called = true;
+            Some(CompletionResponse {
+                candidates: vec![CompletionCandidate {
+                    replacement: b"safe space-tail".to_vec(),
+                    display: None,
+                }],
+                options: CompletionOptions {
+                    filenames: true,
+                    fullquote: true,
+                    noquote: true,
+                    nospace: true,
+                    ..Default::default()
+                },
+            })
+        }
+    }
+
+    for (skip, escape) in [
+        ("on", b"\\x20tail".as_slice()),
+        ("on", b"\\040tail".as_slice()),
+        ("off", b"\\x20tail".as_slice()),
+        ("off", b"\\040tail".as_slice()),
+    ] {
+        let mut input = b"echo $'safe".to_vec();
+        input.extend_from_slice(escape);
+        let mut events = vec![TerminalEvent::Bytes(input.clone())];
+        for _ in 0..escape.len() {
+            events.push(TerminalEvent::Bytes(b"\x1b[D".to_vec()));
+        }
+        events.push(TerminalEvent::Bytes(b"\tX\r".to_vec()));
+        let terminal = MemoryTerminal::with_events(events);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.variables_mut()
+            .insert("skip-completed-text".to_string(), skip.to_string());
+        let mut hooks = RadixSuffixHook {
+            point: input.len() - escape.len(),
+            input,
+            called: false,
+        };
+        let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+        let mut expected = b"echo $'safe space-tail'X".to_vec();
+        expected.extend_from_slice(escape);
+        assert_eq!(
+            result,
+            ReadlineResult::Line(expected),
+            "skip={skip} escape={escape:?}"
+        );
+        assert!(hooks.called);
+        assert_eq!(
+            line.terminal()
+                .out
+                .bytes()
+                .filter(|byte| *byte == b'\x07')
+                .count(),
+            0
+        );
+    }
+}
+
+#[test]
 fn nospace_ansi_c_completion_respects_skip_completed_text_suffix() {
     struct SkipHook {
         noquote: bool,

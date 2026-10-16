@@ -936,6 +936,65 @@ fn bash_fullquote_ansi_c_completion_replaces_radix_prefix_boundaries() {
 
 #[cfg(unix)]
 #[test]
+fn bash_fullquote_ansi_c_menu_completion_differs_from_complete_filename_at_radix_boundaries() {
+    // Fixture-scoped Bash 5.3 observations compare programmable menu completion with the built-in filename command.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::write(cwd.join("safe space-tail"), b"").expect("write fixture file");
+    let cases = [
+        ("hex prefix", b"echo $'safe\\x".as_slice()),
+        ("hex partial", b"echo $'safe\\x2".as_slice()),
+        ("octal prefix", b"echo $'safe\\0".as_slice()),
+        ("octal partial", b"echo $'safe\\04".as_slice()),
+        ("hex escape", b"echo $'safe\\x20tail".as_slice()),
+        ("octal escape", b"echo $'safe\\040tail".as_slice()),
+    ];
+    for skip in ["on", "off"] {
+        for command in ["menu-complete", "complete-filename"] {
+            for (case, input) in cases {
+                let inputrc = format!(
+                    "\"\\C-o\": {command}\nset skip-completed-text {skip}\nset show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off"
+                );
+                let mut keys = input.to_vec();
+                keys.extend_from_slice(b"\x0fX\x07");
+                let bash = run_bash_programmable_completion_in_dir(
+                    &keys,
+                    &inputrc,
+                    "-o filenames -o fullquote -o noquote -o nospace",
+                    Some("safe space-tail"),
+                    &cwd,
+                );
+                let menu = command == "menu-complete";
+                let mut expected = if menu {
+                    b"echo $'safe space-tail'".to_vec()
+                } else {
+                    input.to_vec()
+                };
+                expected.push(b'X');
+                assert_eq!(
+                    bash.windows(b"BASH_COMPLETION_INVOKED:1".len())
+                        .any(|window| window == b"BASH_COMPLETION_INVOKED:1"),
+                    menu,
+                    "callback invocation for {command}, skip={skip}, case={case}"
+                );
+                assert_eq!(
+                    bash_line_buffer_bytes(&bash),
+                    expected,
+                    "{command}, skip={skip}, case={case}"
+                );
+                assert_eq!(
+                    raw_bell_count(&bash),
+                    usize::from(!menu),
+                    "{command}, skip={skip}, case={case}"
+                );
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn initial_open_double_quote_common_prefix_matches_bash_5_3() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;

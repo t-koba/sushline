@@ -165,6 +165,15 @@ They do not establish behavior for other quoting forms or commands. Application
 completion callbacks retain their full-word context and replacement semantics;
 the internal segment scope applies only when the built-in provider is selected.
 
+A separate Bash 5.3 PTY regression (`bash_directory_fallback_options_use_reopened_segment_scope`;
+runtime records `cf5e1a57b3194e34836ad368b323a984`,
+`1ae80d85e95749f787c9cb8934e4f866`, and `e725eccb05d347ef89b295ac0d0401fd`,
+not GNU source proof) checks the programmable
+`default`, `dirnames`, and `plusdirs` fallbacks for `echo 'sa'f'e`. The isolated
+fixtures show the built-in fallback matching the active `e` segment, while
+application callbacks continue to receive the full word. These observations
+are limited to the listed options and fixtures.
+
 A separate exact-byte PTY regression (`reopened_single_quote_unique_and_path_cases_match_bash_5_3`;
 Bash 5.3 runtime records `cef7fd68b0eb454bb9fbb6ad43820d1f` and
 `fce3b630c0a040ae8bece5d1b53b2a05`, not GNU source proof) checks a unique

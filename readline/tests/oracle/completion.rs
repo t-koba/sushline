@@ -46,6 +46,76 @@ fn bash_readline_and_sushline_skip_completed_filename_text_like_bash_5_3() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn bash_directory_fallback_options_use_reopened_segment_scope() {
+    // Bash 5.3 PTY runtime observations for these isolated fixtures only.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cases: [(&str, &str, &[&str], &str); 3] = [
+        (
+            "default-plusdirs",
+            "-o default -o plusdirs",
+            &["safe-one", "safe-two", "eagle-one", "eagle-two", "safe-dir"],
+            "echo 'sa'f'eagle-X",
+        ),
+        (
+            "dirnames",
+            "-o dirnames",
+            &["safe-one", "safe-two", "eagle-dir-one", "eagle-dir-two"],
+            "echo 'sa'f'eagle-dir-X",
+        ),
+        (
+            "plusdirs-only",
+            "-o plusdirs",
+            &["eagle-dir-one", "eagle-dir-two", "safe-dir-one"],
+            "echo 'sa'f'eagle-dir-X",
+        ),
+    ];
+    let inputrc =
+        "set show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off";
+    for (kind, options, names, expected) in cases {
+        let cwd = root.path().join(kind);
+        fs::create_dir(&cwd).expect("create cwd");
+        for name in names.iter().copied() {
+            let path = cwd.join(name);
+            if name.contains("-dir-") || name.ends_with("-dir") {
+                fs::create_dir(&path).expect("create directory fixture");
+            } else {
+                fs::write(&path, b"").expect("write file fixture");
+            }
+        }
+        let bash = run_bash_completion_in_dir(b"echo 'sa'f'e\tX\r", inputrc, options, &cwd);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "option={options}\n{bash}"
+        );
+        assert_eq!(bell_count(&bash), 1, "option={options}\n{bash}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn bash_default_filename_fallback_uses_reopened_segment_scope() {
+    // Bash 5.3 PTY runtime evidence for the exact programmable-completion
+    // fallback: callbacks return no candidates and `-o default` completes the
+    // reopened `e` segment. Keep fixtures isolated to this temporary cwd.
+    let dir = tempfile::tempdir().expect("temp completion directory");
+    for name in ["safe-one", "safe-two", "eagle-one", "eagle-two"] {
+        fs::write(dir.path().join(name), "").expect("write completion fixture");
+    }
+    let inputrc =
+        "set show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off";
+    let bash = run_bash_completion_in_dir(b"echo 'sa'f'e\tX\r", inputrc, "-o default", dir.path());
+
+    assert_eq!(
+        accepted_line(&bash),
+        Some("echo 'sa'f'eagle-X".to_string()),
+        "{bash}"
+    );
+    assert_eq!(bell_count(&bash), 1, "{bash}");
+}
+
 #[test]
 fn bash_readline_and_sushline_dynamic_history_completion_uses_common_prefix() {
     let inputrc = r#""\C-o": dynamic-complete-history"#;

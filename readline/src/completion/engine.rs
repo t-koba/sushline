@@ -138,8 +138,8 @@ where
         edit: &mut CompletionEdit,
         hooks: &mut impl Hooks,
     ) -> CompletionResponse {
-        // Keep the proposed built-in scope only if neither application callback
-        // supplies a response. Their requests always describe the original word.
+        // Callbacks always see the full word; restore this scope only if a
+        // built-in provider is ultimately selected.
         let segment = edit.filename_segment.take();
         let request = CompletionRequest {
             context: CompletionContext {
@@ -152,12 +152,12 @@ where
                 completion_type,
             },
         };
+        let mut filename_context = request.context.clone();
+        if let Some(segment) = &segment {
+            filename_context.word_start = segment.raw_start;
+            filename_context.word = segment.word_bytes.clone();
+        }
         let Some(mut response) = hooks.complete(request.clone()) else {
-            let mut filename_context = request.context.clone();
-            if let Some(segment) = &segment {
-                filename_context.word_start = segment.raw_start;
-                filename_context.word = segment.word_bytes.clone();
-            }
             let (response, builtin_filenames) =
                 self.default_completion(&request, hooks, Some(&filename_context));
             if builtin_filenames {
@@ -166,6 +166,8 @@ where
             }
             return response;
         };
+        let mut empty_application_response = false;
+        let mut builtin_filename_fallback = false;
         if response.candidates.is_empty()
             && (response.options.bashdefault
                 || response.options.default
@@ -178,22 +180,36 @@ where
             {
                 response = application_response;
             }
-            if response.candidates.is_empty() {
+            empty_application_response = response.candidates.is_empty();
+            if empty_application_response {
                 if options.default {
                     response =
-                        complete_filenames_in_context(&request.context, &self.filename_options());
+                        complete_filenames_in_context(&filename_context, &self.filename_options());
                 } else if options.dirnames {
-                    response =
-                        complete_directories_in_context(&request.context, &self.filename_options());
+                    response = complete_directories_in_context(
+                        &filename_context,
+                        &self.filename_options(),
+                    );
                 }
+                builtin_filename_fallback |=
+                    options.default || options.dirnames || options.plusdirs;
             }
             merge_completion_options(&mut response.options, options);
         }
         if response.options.plusdirs {
+            let context = if empty_application_response {
+                &filename_context
+            } else {
+                &request.context
+            };
             response.candidates.extend(
-                complete_directories_in_context(&request.context, &self.filename_options())
-                    .candidates,
+                complete_directories_in_context(context, &self.filename_options()).candidates,
             );
+            builtin_filename_fallback |= empty_application_response;
+        }
+        if builtin_filename_fallback {
+            edit.filename_segment = segment;
+            edit.builtin_filename_completion = true;
         }
         apply_extended_completion_options(&mut response);
         sort_completion_response(&mut response);

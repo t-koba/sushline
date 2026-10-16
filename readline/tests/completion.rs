@@ -7,6 +7,175 @@ use readline::{
     ReadlineResult, TerminalEvent,
 };
 
+#[test]
+fn application_default_filename_fallback_uses_reopened_segment_scope() {
+    let dir = tempfile::tempdir().expect("completion fixture directory");
+    for name in ["safe-one", "safe-two", "eagle-one", "eagle-two"] {
+        std::fs::write(dir.path().join(name), "").expect("write completion fixture");
+    }
+
+    struct DefaultFallback {
+        contexts: Vec<readline::CompletionContext>,
+    }
+
+    impl Hooks for DefaultFallback {
+        fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
+            self.contexts.push(request.context);
+            Some(CompletionResponse {
+                candidates: Vec::new(),
+                options: CompletionOptions {
+                    default: true,
+                    ..Default::default()
+                },
+            })
+        }
+
+        fn default_complete(&mut self, _: &CompletionRequest) -> Option<CompletionResponse> {
+            panic!("default_complete is not requested without bashdefault")
+        }
+    }
+
+    for command in ["complete", "complete-filename"] {
+        let input = format!("echo 'safe'f'{}/e", dir.path().display());
+        let expected = format!("echo 'safe'f'{}/eagle-X", dir.path().display());
+        let mut events = input.as_bytes().to_vec();
+        events.extend_from_slice(b"\x0fX\r");
+        let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(events)]);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str(&format!("\"\\C-o\": {command}"))
+            .unwrap();
+        let mut hooks = DefaultFallback {
+            contexts: Vec::new(),
+        };
+
+        let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+
+        assert_eq!(
+            result,
+            ReadlineResult::Line(expected.into_bytes()),
+            "{command}"
+        );
+        assert_eq!(
+            line.terminal()
+                .out
+                .bytes()
+                .filter(|byte| *byte == b'\x07')
+                .count(),
+            1,
+            "{command} should report the ambiguous filename fallback"
+        );
+        assert_eq!(
+            hooks.contexts,
+            vec![readline::CompletionContext {
+                line: input.as_bytes().to_vec(),
+                point: input.len(),
+                word_start: 5,
+                word_end: input.len(),
+                word: format!("safef{}/e", dir.path().display()).into_bytes(),
+                key: vec![0x0f],
+                completion_type: if command == "complete" {
+                    CompletionType::Complete
+                } else {
+                    CompletionType::Filename
+                },
+            }],
+            "{command} must receive the full-word completion context"
+        );
+    }
+
+    let input = format!("echo '{}/safe", dir.path().display());
+    let expected = format!("echo '{}/safe-X", dir.path().display());
+    let mut events = input.as_bytes().to_vec();
+    events.extend_from_slice(b"\x0fX\r");
+    let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(events)]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": complete").unwrap();
+    let mut hooks = DefaultFallback {
+        contexts: Vec::new(),
+    };
+
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+
+    assert_eq!(result, ReadlineResult::Line(expected.into_bytes()));
+    assert_eq!(
+        line.terminal()
+            .out
+            .bytes()
+            .filter(|byte| *byte == b'\x07')
+            .count(),
+        1
+    );
+    assert_eq!(
+        hooks.contexts[0].word,
+        format!("{}/safe", dir.path().display()).into_bytes()
+    );
+}
+
+#[test]
+fn application_default_complete_receives_full_reopened_word_context() {
+    struct DefaultCompleteResponse {
+        complete_context: Option<readline::CompletionContext>,
+        default_context: Option<readline::CompletionContext>,
+    }
+
+    impl Hooks for DefaultCompleteResponse {
+        fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
+            self.complete_context = Some(request.context);
+            Some(CompletionResponse {
+                candidates: Vec::new(),
+                options: CompletionOptions {
+                    default: true,
+                    bashdefault: true,
+                    ..Default::default()
+                },
+            })
+        }
+
+        fn default_complete(&mut self, request: &CompletionRequest) -> Option<CompletionResponse> {
+            self.default_context = Some(request.context.clone());
+            Some(CompletionResponse {
+                candidates: vec![CompletionCandidate {
+                    replacement: b"application-result".to_vec(),
+                    display: None,
+                }],
+                options: CompletionOptions::default(),
+            })
+        }
+    }
+
+    let input = b"echo 'sa'f'e";
+    let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(
+        [input.as_slice(), b"\x0f\r"].concat(),
+    )]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": complete").unwrap();
+    let mut hooks = DefaultCompleteResponse {
+        complete_context: None,
+        default_context: None,
+    };
+
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+
+    assert_eq!(
+        result,
+        ReadlineResult::Line(b"echo 'application-result' ".to_vec())
+    );
+    for context in [hooks.complete_context, hooks.default_context] {
+        assert_eq!(
+            context,
+            Some(readline::CompletionContext {
+                line: input.to_vec(),
+                point: input.len(),
+                word_start: 5,
+                word_end: input.len(),
+                word: b"safe".to_vec(),
+                key: vec![0x0f],
+                completion_type: CompletionType::Complete,
+            })
+        );
+    }
+}
+
 #[derive(Default)]
 struct StaticCompletion {
     expected_type: Option<CompletionType>,

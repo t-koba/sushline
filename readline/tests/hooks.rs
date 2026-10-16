@@ -427,3 +427,104 @@ fn reopened_quote_does_not_rescope_application_completion_candidates() {
         assert_eq!(result, ReadlineResult::Line(b"echo 'safe-'X".to_vec()));
     }
 }
+
+#[test]
+fn reopened_segment_scopes_builtin_directory_fallbacks() {
+    let root = tempfile::tempdir().unwrap();
+    let cases: [(&str, CompletionOptions, &[&str], &str); 3] = [
+        (
+            "dirnames",
+            CompletionOptions {
+                dirnames: true,
+                ..Default::default()
+            },
+            &["safe-one", "safe-two", "eagle-dir-one", "eagle-dir-two"],
+            "agle-dir-X",
+        ),
+        (
+            "plusdirs",
+            CompletionOptions {
+                plusdirs: true,
+                ..Default::default()
+            },
+            &["eagle-dir-one", "eagle-dir-two", "safe-dir-one"],
+            "agle-dir-X",
+        ),
+        (
+            "default-plusdirs",
+            CompletionOptions {
+                default: true,
+                plusdirs: true,
+                ..Default::default()
+            },
+            &["safe-one", "safe-two", "eagle-one", "eagle-two", "safe-dir"],
+            "agle-X",
+        ),
+    ];
+
+    struct EmptyApplicationHook {
+        options: CompletionOptions,
+        line: Vec<u8>,
+        word: Vec<u8>,
+        called: bool,
+    }
+
+    impl Hooks for EmptyApplicationHook {
+        fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
+            assert_eq!(request.context.line, self.line);
+            assert_eq!(request.context.point, self.line.len());
+            assert_eq!(request.context.word_start, 5);
+            assert_eq!(request.context.word_end, self.line.len());
+            assert_eq!(request.context.word, self.word);
+            self.called = true;
+            Some(CompletionResponse {
+                candidates: Vec::new(),
+                options: self.options.clone(),
+            })
+        }
+    }
+
+    for (kind, options, names, expected_suffix) in cases {
+        let cwd = root.path().join(kind);
+        std::fs::create_dir(&cwd).unwrap();
+        for name in names {
+            let path = cwd.join(name);
+            if name.contains("-dir-") || name.ends_with("-dir") {
+                std::fs::create_dir(path).unwrap();
+            } else {
+                std::fs::write(path, b"").unwrap();
+            }
+        }
+
+        let segment = format!("{}/e", cwd.display());
+        let input = format!("echo 'sa'f'{segment}").into_bytes();
+        let expected = format!("echo 'sa'f'{segment}{expected_suffix}");
+        let terminal = MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(input.clone()),
+            TerminalEvent::Bytes(b"\tX\r".to_vec()),
+        ]);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        let mut hooks = EmptyApplicationHook {
+            options,
+            line: input.clone(),
+            word: format!("saf{segment}").into_bytes(),
+            called: false,
+        };
+        let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+        assert_eq!(
+            result,
+            ReadlineResult::Line(expected.into_bytes()),
+            "{kind}"
+        );
+        assert_eq!(
+            line.terminal()
+                .out
+                .bytes()
+                .filter(|byte| *byte == b'\x07')
+                .count(),
+            1,
+            "{kind} should report ambiguous built-in fallback"
+        );
+        assert!(hooks.called, "{kind}");
+    }
+}

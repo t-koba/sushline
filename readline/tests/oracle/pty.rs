@@ -242,6 +242,29 @@ pub(super) fn run_bash_readline_with_inputrc_file_and_env_in_dir(
     run_pty_in_dir(command, keys, cwd)
 }
 
+pub(super) fn run_bash_completion_in_dir(
+    keys: &[u8],
+    inputrc: &str,
+    options: &str,
+    cwd: &std::path::Path,
+) -> String {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    fs::write(&path, inputrc).expect("write inputrc");
+    let mut command = CommandBuilder::new("bash");
+    command.env("INPUTRC", path.to_string_lossy().as_ref());
+    command.args([
+        "--noprofile",
+        "--norc",
+        "-i",
+        "-c",
+        &format!(
+            r#"_none() {{ COMPREPLY=(); }}; complete -F _none {options} echo; stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+        ),
+    ]);
+    run_pty_in_dir(command, keys, cwd)
+}
+
 pub(super) fn run_bash_readline_with_inputrc_file_and_env_removing(
     keys: &[u8],
     inputrc: &str,

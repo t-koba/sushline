@@ -429,6 +429,58 @@ fn reopened_quote_does_not_rescope_application_completion_candidates() {
 }
 
 #[test]
+fn unquoted_completion_preserves_existing_ansi_c_closer() {
+    struct ContextHook {
+        options: CompletionOptions,
+        called: bool,
+    }
+    impl Hooks for ContextHook {
+        fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
+            assert_eq!(request.context.line, b"echo $'saf'");
+            assert_eq!(request.context.point, request.context.line.len() - 1);
+            assert_eq!(request.context.word, b"saf");
+            self.called = true;
+            Some(CompletionResponse {
+                candidates: vec![CompletionCandidate {
+                    replacement: b"saf file".to_vec(),
+                    display: None,
+                }],
+                options: self.options.clone(),
+            })
+        }
+    }
+
+    for options in [
+        CompletionOptions::default(),
+        CompletionOptions {
+            filenames: true,
+            noquote: true,
+            ..Default::default()
+        },
+    ] {
+        let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(
+            b"echo $'saf'\x1b[D\tX\r".to_vec(),
+        )]);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        let mut hooks = ContextHook {
+            options,
+            called: false,
+        };
+        let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+        assert_eq!(result, ReadlineResult::Line(b"echo $'saf fileX'".to_vec()));
+        assert!(hooks.called);
+        assert_eq!(
+            line.terminal()
+                .out
+                .bytes()
+                .filter(|byte| *byte == b'\x07')
+                .count(),
+            0
+        );
+    }
+}
+
+#[test]
 fn plain_application_completion_preserves_ansi_c_quote_context() {
     struct PlainHook {
         called: bool,

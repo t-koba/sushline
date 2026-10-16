@@ -810,7 +810,12 @@ where
             && quote_filename_bytes(candidate.replacement_bytes(), true, true, true).as_slice()
                 != candidate.replacement_bytes();
         let close_quote = !quoted_directory || directory_needs_quote;
-        let close_ansi_c_quote = !ansi_c_directory || directory_needs_quote;
+        // Unquoted insertion must leave an existing ANSI-C closer in place,
+        // rather than inserting a second one before the cursor.
+        let preserve_existing_ansi_c_closer =
+            edit.ansi_c_quote && !response.options.quote_filename() && next_byte == Some(b'\'');
+        let close_ansi_c_quote =
+            (!ansi_c_directory || directory_needs_quote) && !preserve_existing_ansi_c_closer;
         let mut raw = candidate.replacement_bytes().to_vec();
         if append_slash {
             raw.push(b'/');

@@ -1960,6 +1960,7 @@ fn unquoted_completion_preserves_existing_ansi_c_closer() {
 #[test]
 fn noquote_ansi_c_completion_preserves_existing_closer_and_suffix() {
     struct NoquoteCloserHook {
+        completion_type: CompletionType,
         called: bool,
     }
     impl Hooks for NoquoteCloserHook {
@@ -1967,7 +1968,7 @@ fn noquote_ansi_c_completion_preserves_existing_closer_and_suffix() {
             assert_eq!(request.context.line, b"echo $'saf' X");
             assert_eq!(request.context.point, request.context.line.len() - 3);
             assert_eq!(request.context.word, b"saf");
-            assert_eq!(request.context.completion_type, CompletionType::Complete);
+            assert_eq!(request.context.completion_type, self.completion_type);
             self.called = true;
             Some(CompletionResponse {
                 candidates: vec![CompletionCandidate {
@@ -1984,28 +1985,56 @@ fn noquote_ansi_c_completion_preserves_existing_closer_and_suffix() {
     }
 
     let input = b"echo $'saf' X";
-    let mut events = vec![TerminalEvent::Bytes(input.to_vec())];
-    for _ in 0..3 {
-        events.push(TerminalEvent::Bytes(b"\x1b[D".to_vec()));
-    }
-    events.push(TerminalEvent::Bytes(b"\t\r".to_vec()));
-    let terminal = MemoryTerminal::with_events(events);
-    let mut line = Editor::new(Config::default(), terminal, History::new());
-    line.variables_mut()
-        .insert("skip-completed-text".to_string(), "off".to_string());
-    let mut hooks = NoquoteCloserHook { called: false };
-    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    for skip in ["on", "off"] {
+        for (mode, completion_type, completion_keys, menu_complete) in [
+            (
+                "complete",
+                CompletionType::Complete,
+                b"\t\r".as_slice(),
+                false,
+            ),
+            (
+                "menu-complete",
+                CompletionType::MenuComplete,
+                b"\x0f\r".as_slice(),
+                true,
+            ),
+        ] {
+            let mut events = vec![TerminalEvent::Bytes(input.to_vec())];
+            for _ in 0..3 {
+                events.push(TerminalEvent::Bytes(b"\x1b[D".to_vec()));
+            }
+            events.push(TerminalEvent::Bytes(completion_keys.to_vec()));
+            let terminal = MemoryTerminal::with_events(events);
+            let mut line = Editor::new(Config::default(), terminal, History::new());
+            if menu_complete {
+                line.load_inputrc_str("\"\\C-o\": menu-complete").unwrap();
+            }
+            line.variables_mut()
+                .insert("skip-completed-text".to_string(), skip.to_string());
+            let mut hooks = NoquoteCloserHook {
+                completion_type,
+                called: false,
+            };
+            let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
 
-    assert_eq!(result, ReadlineResult::Line(b"echo $'saf file' X".to_vec()));
-    assert!(hooks.called);
-    assert_eq!(
-        line.terminal()
-            .out
-            .bytes()
-            .filter(|byte| *byte == b'\x07')
-            .count(),
-        0
-    );
+            assert_eq!(
+                result,
+                ReadlineResult::Line(b"echo $'saf file' X".to_vec()),
+                "mode={mode} skip={skip}"
+            );
+            assert!(hooks.called, "mode={mode} skip={skip}");
+            assert_eq!(
+                line.terminal()
+                    .out
+                    .bytes()
+                    .filter(|byte| *byte == b'\x07')
+                    .count(),
+                0,
+                "mode={mode} skip={skip}"
+            );
+        }
+    }
 }
 
 #[test]

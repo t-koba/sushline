@@ -403,8 +403,14 @@ where
                 if self.flag(BoolVariable::RevertAllAtNewline) {
                     self.history.revert_current_edit();
                 }
+                // Explicit History insertions allow empty entries; automatic
+                // editor history keeps its separate empty-line suppression.
                 if self.config.auto_add_history {
-                    self.history.push_bytes(bytes.clone());
+                    if bytes.is_empty() {
+                        self.history.reset_cursor();
+                    } else {
+                        self.history.push_bytes(bytes.clone());
+                    }
                     self.history.enforce_max_len(self.history_size_limit());
                 }
                 Ok(ReadlineResult::Line(bytes))

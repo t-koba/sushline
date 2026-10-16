@@ -89,13 +89,13 @@ impl History {
         Self::default()
     }
 
-    /// Push.
+    /// Add a history entry, including an empty line.
     pub fn push(&mut self, line: impl Into<String>) {
         let line = line.into();
         self.push_entry(line.into_bytes(), None, false);
     }
 
-    /// Push bytes.
+    /// Add a byte-oriented history entry, including an empty line.
     pub fn push_bytes(&mut self, line: Vec<u8>) {
         self.push_entry(line, None, false);
     }
@@ -297,10 +297,6 @@ impl History {
         timestamp: Option<String>,
         suppress_adjacent_duplicate: bool,
     ) {
-        if line.is_empty() {
-            self.reset_cursor();
-            return;
-        }
         if !suppress_adjacent_duplicate
             || self.entries.last().map(|entry| entry.line_bytes.as_slice()) != Some(line.as_slice())
         {

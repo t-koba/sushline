@@ -1487,6 +1487,54 @@ fn history_expansion_exposes_helper_functions() {
 }
 
 #[test]
+fn explicit_empty_entries_affect_event_expansion_and_stifling() {
+    let mut history = History::new();
+    history.push("first");
+    history.push("");
+    assert_eq!(history.len(), 2);
+    assert_eq!(history.entries()[0].line_bytes, b"first");
+    assert!(history.entries()[1].line_bytes.is_empty());
+    assert_eq!(
+        expand_history(
+            b"!!",
+            &history,
+            HistoryChars::parse("!^#"),
+            &HistoryExpansionPolicy::default(),
+            |_| false,
+        )
+        .unwrap(),
+        Vec::<u8>::new()
+    );
+    assert!(history.add_time("#123"));
+    assert_eq!(history.entries()[1].timestamp.as_deref(), Some("#123"));
+
+    history.push_bytes(Vec::new());
+    assert_eq!(history.len(), 3);
+    assert!(history.entries()[2].line_bytes.is_empty());
+    assert!(history.add_time("#456"));
+    assert_eq!(history.entries()[2].timestamp.as_deref(), Some("#456"));
+
+    let mut bounded = History::new();
+    bounded.stifle(2);
+    bounded.push("first");
+    bounded.push("");
+    bounded.push("last");
+    assert_eq!(
+        bounded
+            .entries()
+            .iter()
+            .map(|entry| entry.line_bytes.clone())
+            .collect::<Vec<_>>(),
+        vec![Vec::new(), b"last".to_vec()]
+    );
+
+    let mut zero = History::new();
+    zero.stifle(0);
+    zero.push("");
+    assert!(zero.is_empty());
+}
+
+#[test]
 fn supports_history_library_state_and_stifle_operations() {
     let mut h = History::new();
     h.push("one");

@@ -1,6 +1,29 @@
 use super::*;
 
 #[test]
+fn auto_add_history_skips_empty_accepted_lines() {
+    let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(b"\r".to_vec())]);
+    let config = Config {
+        auto_add_history: true,
+        ..Config::default()
+    };
+    let mut history = History::new();
+    history.push("one");
+    history.push("two");
+    assert!(history.set_pos(0));
+    let mut editor = Editor::new(config, terminal, history);
+
+    assert_eq!(
+        editor
+            .read_line(Prompt::new("> "), &mut TestHistoryHook)
+            .unwrap(),
+        ReadlineResult::Line(Vec::new())
+    );
+    assert_eq!(editor.history.len(), 2);
+    assert_eq!(editor.history.where_history(), 2);
+}
+
+#[test]
 fn history_expansion_supports_quick_substitution_and_event_search() {
     let mut history = History::new();
     history.push("echo src/lib.rs src/main.rs");

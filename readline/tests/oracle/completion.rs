@@ -1230,6 +1230,93 @@ fn bash_fullquote_ansi_c_directory_completion_marks_radix_split_suffixes() {
 
 #[cfg(unix)]
 #[test]
+fn bash_fullquote_ansi_c_symlink_directory_marking_at_radix_splits() {
+    use std::os::unix::fs::symlink;
+
+    // Fixture-scoped Bash 5.3 PTY observations distinguish symlink marking from directory marking.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(cwd.join("target-dir")).expect("create fixture target directory");
+    let directory = cwd.join("safe space-tail");
+    symlink(cwd.join("target-dir"), &directory).expect("create fixture directory symlink");
+    let prefix = cwd.join("safe").to_string_lossy().into_owned();
+    let candidate = directory.to_string_lossy().into_owned();
+    let cases = [
+        (
+            "hex escape",
+            format!("echo $'{prefix}\\x20tail'").into_bytes(),
+            5,
+            b"tail'".as_slice(),
+        ),
+        (
+            "octal escape",
+            format!("echo $'{prefix}\\040tail'").into_bytes(),
+            5,
+            b"tail'".as_slice(),
+        ),
+    ];
+
+    for mark in ["on", "off"] {
+        for symlinked in ["on", "off"] {
+            for skip in ["on", "off"] {
+                for mode in ["complete", "menu-complete"] {
+                    for (case, input, left_count, suffix) in &cases {
+                        let binding = if mode == "menu-complete" {
+                            "\"\\C-o\": menu-complete\n"
+                        } else {
+                            ""
+                        };
+                        let inputrc = format!(
+                            "{binding}set mark-directories {mark}\nset mark-symlinked-directories {symlinked}\nset skip-completed-text {skip}\nset show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off"
+                        );
+                        let mut keys = input.to_vec();
+                        for _ in 0..*left_count {
+                            keys.extend_from_slice(b"\x1b[D");
+                        }
+                        keys.extend_from_slice(if mode == "menu-complete" {
+                            b"\x0fX\x07"
+                        } else {
+                            b"\tX\x07"
+                        });
+                        let bash = run_bash_programmable_completion_in_dir(
+                            &keys,
+                            &inputrc,
+                            "-o filenames -o fullquote -o noquote -o nospace",
+                            Some(&candidate),
+                            &cwd,
+                        );
+                        assert!(
+                            bash.windows(b"BASH_COMPLETION_INVOKED:1".len())
+                                .any(|window| window == b"BASH_COMPLETION_INVOKED:1"),
+                            "programmable callback did not run: mode={mode} mark={mark} symlinked={symlinked} skip={skip} case={case}"
+                        );
+                        let slash = if mark == "on" && symlinked == "on" {
+                            "/"
+                        } else {
+                            ""
+                        };
+                        let mut expected = format!("echo $'{candidate}'{slash}X").into_bytes();
+                        expected.extend_from_slice(suffix);
+                        assert_eq!(
+                            bash_line_buffer_bytes(&bash),
+                            expected,
+                            "mode={mode} mark={mark} symlinked={symlinked} skip={skip} case={case}"
+                        );
+                        assert_eq!(
+                            raw_bell_count(&bash),
+                            0,
+                            "mode={mode} mark={mark} symlinked={symlinked} skip={skip} case={case}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn initial_open_double_quote_common_prefix_matches_bash_5_3() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;

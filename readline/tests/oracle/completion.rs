@@ -806,6 +806,42 @@ fn bash_fullquote_ansi_c_completion_respects_skip_completed_text() {
 
 #[cfg(unix)]
 #[test]
+fn bash_fullquote_ansi_c_completion_preserves_escaped_apostrophe_suffix() {
+    // Fixture-scoped Bash 5.3 PTY observations: an escaped quote suffix does not overlap raw candidate bytes.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::write(cwd.join("saf'file"), b"").expect("write fixture file");
+    let expected = b"echo $'saf'\\''file'X\\'file'";
+    for skip in ["on", "off"] {
+        let inputrc = format!(
+            "set skip-completed-text {skip}\nset show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off"
+        );
+        let mut keys = b"echo $'saf\\'file'".to_vec();
+        for _ in 0..7 {
+            keys.extend_from_slice(b"\x1b[D");
+        }
+        keys.extend_from_slice(b"\tX\x07");
+        let bash = run_bash_programmable_completion_in_dir(
+            &keys,
+            &inputrc,
+            "-o filenames -o fullquote -o noquote -o nospace",
+            Some("saf'file"),
+            &cwd,
+        );
+        assert!(
+            bash.windows(b"BASH_COMPLETION_INVOKED:1".len())
+                .any(|window| window == b"BASH_COMPLETION_INVOKED:1"),
+            "programmable callback did not run: {}",
+            String::from_utf8_lossy(&bash)
+        );
+        assert_eq!(bash_line_buffer_bytes(&bash), expected, "skip={skip}");
+        assert_eq!(raw_bell_count(&bash), 0);
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn initial_open_double_quote_common_prefix_matches_bash_5_3() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;

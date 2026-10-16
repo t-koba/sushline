@@ -71,13 +71,15 @@ pub(super) fn leave_quoted_filename_suffix_open(
     candidate: &[u8],
     replacement: &mut Vec<u8>,
 ) {
-    // Menu completion retains its special-filename separator policy; regular
-    // filename completion keeps an unconsumed suffix inside its original quote.
-    if suffix_overlap >= suffix.len()
-        || (matches!(
-            completion_type,
-            CompletionType::MenuComplete | CompletionType::MenuCompleteBackward
-        ) && should_append_completion_char(response, edit, candidate))
+    let menu_completion = matches!(
+        completion_type,
+        CompletionType::MenuComplete | CompletionType::MenuCompleteBackward
+    );
+    // Programmable ANSI-C filename candidates close before unconsumed suffix
+    // text; built-in completion keeps that suffix inside its original quote.
+    if (edit.ansi_c_quote && !edit.builtin_filename_completion && !menu_completion)
+        || suffix_overlap >= suffix.len()
+        || (menu_completion && should_append_completion_char(response, edit, candidate))
         || !response.options.filenames
         || !response.options.quote_filename()
     {
@@ -213,7 +215,7 @@ where
             let candidate = &response.candidates[0];
             let suffix = completion_suffix_bytes(edit, state);
             let ansi_c_quoted_completion = edit.ansi_c_quote && response.options.quote_filename();
-            let ansi_c_filename_completion = ansi_c_quoted_completion && response.options.filenames;
+            let ansi_c_filename_completion = edit.ansi_c_quote && response.options.filenames;
             // Only an exact typed filename prefix can justify consuming its right suffix.
             let filename_case_insensitive_prefix_only_match = skip_completed_text
                 && response.options.filenames
@@ -808,12 +810,12 @@ where
             && quote_filename_bytes(candidate.replacement_bytes(), true, true, true).as_slice()
                 != candidate.replacement_bytes();
         let close_quote = !quoted_directory || directory_needs_quote;
-        // Unquoted insertion must leave an existing ANSI-C closer in place,
-        // rather than inserting a second one before the cursor.
-        let preserve_existing_ansi_c_closer =
-            edit.ansi_c_quote && !response.options.quote_filename() && next_byte == Some(b'\'');
-        let close_ansi_c_quote = (!ansi_c_directory_completion || directory_needs_quote)
-            && !preserve_existing_ansi_c_closer;
+        // Unquoted insertion keeps any right-hand text inside the existing
+        // ANSI-C quote rather than closing it before the cursor.
+        let preserve_ansi_c_suffix =
+            edit.ansi_c_quote && !response.options.quote_filename() && next_byte.is_some();
+        let close_ansi_c_quote =
+            (!ansi_c_directory_completion || directory_needs_quote) && !preserve_ansi_c_suffix;
         let mut raw = candidate.replacement_bytes().to_vec();
         if append_slash {
             raw.push(b'/');

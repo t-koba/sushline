@@ -656,6 +656,81 @@ fn ambiguous_nospace_ansi_c_completion_keeps_common_prefix_open() {
 }
 
 #[test]
+fn nospace_ansi_c_completion_respects_skip_completed_text_suffix() {
+    struct SkipHook {
+        noquote: bool,
+        nospace: bool,
+        line: Vec<u8>,
+        called: bool,
+    }
+    impl Hooks for SkipHook {
+        fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
+            assert_eq!(request.context.line, self.line);
+            assert_eq!(request.context.point, self.line.len() - 5);
+            self.called = true;
+            Some(CompletionResponse {
+                candidates: vec![CompletionCandidate {
+                    replacement: b"saf file".to_vec(),
+                    display: None,
+                }],
+                options: CompletionOptions {
+                    filenames: true,
+                    noquote: self.noquote,
+                    nospace: self.nospace,
+                    ..Default::default()
+                },
+            })
+        }
+    }
+
+    let input = b"echo $'saf file'".to_vec();
+    for nospace in [false, true] {
+        for (skip, noquote, expected) in [
+            ("on", true, b"echo $'saf fileX'".as_slice()),
+            ("off", true, b"echo $'saf fileXfile'".as_slice()),
+            ("on", false, b"echo $'saf file'X".as_slice()),
+            ("off", false, b"echo $'saf file'Xfile'".as_slice()),
+        ] {
+            let mut events = vec![TerminalEvent::Bytes(input.clone())];
+            for _ in 0..5 {
+                events.push(TerminalEvent::Bytes(b"\x1b[D".to_vec()));
+            }
+            events.push(TerminalEvent::Bytes(b"\tX\r".to_vec()));
+            let terminal = MemoryTerminal::with_events(events);
+            let mut line = Editor::new(Config::default(), terminal, History::new());
+            line.variables_mut()
+                .insert("skip-completed-text".to_string(), skip.to_string());
+            let mut hooks = SkipHook {
+                noquote,
+                nospace,
+                line: input.clone(),
+                called: false,
+            };
+            let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+            let expected = if !nospace && skip == "on" && !noquote {
+                b"echo $'saf file' X".as_slice()
+            } else {
+                expected
+            };
+            assert_eq!(
+                result,
+                ReadlineResult::Line(expected.to_vec()),
+                "skip={skip} noquote={noquote} nospace={nospace}"
+            );
+            assert!(hooks.called);
+            assert_eq!(
+                line.terminal()
+                    .out
+                    .bytes()
+                    .filter(|byte| *byte == b'\x07')
+                    .count(),
+                0
+            );
+        }
+    }
+}
+
+#[test]
 fn nospace_ansi_c_filename_completion_suppresses_trailing_space() {
     struct FilenameHook {
         candidate: Vec<u8>,

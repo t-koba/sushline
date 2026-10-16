@@ -771,6 +771,7 @@ fn fullquote_closed_ansi_c_safe_candidate_replaces_the_quoted_word() {
 fn closed_ansi_c_safe_candidate_without_filename_option_is_unquoted() {
     struct SafeCandidateHook {
         expected_type: CompletionType,
+        fullquote: bool,
     }
     impl Hooks for SafeCandidateHook {
         fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
@@ -782,31 +783,44 @@ fn closed_ansi_c_safe_candidate_without_filename_option_is_unquoted() {
                     replacement: b"a".to_vec(),
                     display: None,
                 }],
-                options: CompletionOptions::default(),
+                options: CompletionOptions {
+                    fullquote: self.fullquote,
+                    ..CompletionOptions::default()
+                },
             })
         }
     }
-    for (menu_complete, expected_type) in [
-        (false, CompletionType::Complete),
-        (true, CompletionType::MenuComplete),
-    ] {
-        let terminal =
-            MemoryTerminal::with_events(vec![TerminalEvent::Bytes(b"echo $'\\x61'\t\r".to_vec())]);
-        let mut line = Editor::new(Config::default(), terminal, History::new());
-        if menu_complete {
-            line.load_inputrc_str("\"\\C-i\": menu-complete").unwrap();
+    for fullquote in [false, true] {
+        for (menu_complete, expected_type) in [
+            (false, CompletionType::Complete),
+            (true, CompletionType::MenuComplete),
+        ] {
+            let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(
+                b"echo $'\\x61'\t\r".to_vec(),
+            )]);
+            let mut line = Editor::new(Config::default(), terminal, History::new());
+            if menu_complete {
+                line.load_inputrc_str("\"\\C-i\": menu-complete").unwrap();
+            }
+            let mut hooks = SafeCandidateHook {
+                expected_type,
+                fullquote,
+            };
+            let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+            assert_eq!(
+                result,
+                ReadlineResult::Line(b"echo a ".to_vec()),
+                "fullquote={fullquote} menu_complete={menu_complete}"
+            );
+            assert_eq!(
+                line.terminal()
+                    .out
+                    .bytes()
+                    .filter(|byte| *byte == b'\x07')
+                    .count(),
+                0
+            );
         }
-        let mut hooks = SafeCandidateHook { expected_type };
-        let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
-        assert_eq!(result, ReadlineResult::Line(b"echo a ".to_vec()));
-        assert_eq!(
-            line.terminal()
-                .out
-                .bytes()
-                .filter(|byte| *byte == b'\x07')
-                .count(),
-            0
-        );
     }
 }
 

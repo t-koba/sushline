@@ -1617,26 +1617,47 @@ fn bash_closed_ansi_c_safe_candidate_without_filename_option_is_unquoted() {
     fs::create_dir(&cwd).unwrap();
     fs::write(cwd.join("a"), b"").unwrap();
     let inputrc = "set show-all-if-ambiguous off\nset page-completions off";
-    let keys = b"echo $'\\x61'\t\x07";
-    let bash = run_bash_programmable_completion_in_dir(keys, inputrc, "", Some("a"), &cwd);
-    assert!(
-        bash.windows(b"BASH_COMPLETION_INVOKED:1".len())
-            .any(|window| window == b"BASH_COMPLETION_INVOKED:1"),
-        "Bash completion callback was not invoked"
-    );
-    assert_eq!(bash_line_buffer_bytes(&bash), b"echo a ");
-    assert_eq!(raw_bell_count(&bash), 0);
-
     let menu_inputrc = format!("\"\\C-o\": menu-complete\n{inputrc}");
-    let menu = run_bash_programmable_completion_in_dir(
-        b"echo $'\\x61'\x0f\x07",
-        &menu_inputrc,
-        "",
-        Some("a"),
-        &cwd,
-    );
-    assert_eq!(bash_line_buffer_bytes(&menu), b"echo a ");
-    assert_eq!(raw_bell_count(&menu), 0);
+
+    for options in ["", "-o fullquote"] {
+        let bash = run_bash_programmable_completion_in_dir(
+            b"echo $'\\x61'\t\x07",
+            inputrc,
+            options,
+            Some("a"),
+            &cwd,
+        );
+        assert!(
+            bash.windows(b"BASH_COMPLETION_INVOKED:1".len())
+                .any(|window| window == b"BASH_COMPLETION_INVOKED:1"),
+            "Bash completion callback was not invoked"
+        );
+        assert_eq!(
+            bash_line_buffer_bytes(&bash),
+            b"echo a ",
+            "options={options}"
+        );
+        assert_eq!(raw_bell_count(&bash), 0, "options={options}");
+
+        let menu = run_bash_programmable_completion_in_dir(
+            b"echo $'\\x61'\x0f\x07",
+            &menu_inputrc,
+            options,
+            Some("a"),
+            &cwd,
+        );
+        assert!(
+            menu.windows(b"BASH_COMPLETION_INVOKED:1".len())
+                .any(|window| window == b"BASH_COMPLETION_INVOKED:1"),
+            "Bash menu completion callback was not invoked"
+        );
+        assert_eq!(
+            bash_line_buffer_bytes(&menu),
+            b"echo a ",
+            "menu options={options}"
+        );
+        assert_eq!(raw_bell_count(&menu), 0, "menu options={options}");
+    }
 }
 
 #[cfg(unix)]

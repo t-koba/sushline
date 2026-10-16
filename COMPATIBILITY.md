@@ -191,6 +191,13 @@ and ring once for `complete` and `complete-filename`, with
 `skip-completed-text` off and on. This fixture checks an initial open quote,
 not a reopened segment.
 
+A companion PTY regression (`empty_initial_single_quote_prefix_matches_bash_5_3`;
+Bash 5.3 runtime records `df8ad9ddc6894d97ac8a111b49ac1b83` and
+`3a836a9ea5a144c38d8827a2600a063d`, not GNU source proof) checks an empty
+initial quote prefix with isolated ambiguous, unique, and no-common-prefix
+filename sets. Both editors agree on the accepted line and bell count for
+`complete` and `complete-filename`, with `skip-completed-text` off and on.
+
 ### Miscellaneous Commands
 
 | Command(s) | Status | Notes |

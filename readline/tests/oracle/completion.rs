@@ -3,6 +3,67 @@ use std::fs;
 
 #[cfg(unix)]
 #[test]
+fn empty_initial_single_quote_prefix_matches_bash_5_3() {
+    // Keep the inputrc file outside cwd so it cannot affect the empty-prefix matches.
+    // X marks the insertion point; these are fixture-scoped Bash PTY observations.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let home = root.path().join("home");
+    fs::create_dir(&home).expect("create fixture HOME");
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+    let fixtures: [(&str, &[&str], &[u8], usize); 4] = [
+        ("safe-prefix", &["safe-one", "safe-two"], b"echo 'safe-X", 1),
+        (
+            "eagle-prefix",
+            &["eagle-one", "eagle-two"],
+            b"echo 'eagle-X",
+            1,
+        ),
+        ("unique-match", &["safe-one"], b"echo 'safe-one' X", 0),
+        ("no-common-prefix", &["safe-one", "tall-two"], b"echo 'X", 1),
+    ];
+    for (fixture, names, expected, expected_bells) in fixtures {
+        let cwd = root.path().join(fixture);
+        fs::create_dir(&cwd).expect("create fixture cwd");
+        for name in names.iter().copied() {
+            fs::write(cwd.join(name), b"").expect("write fixture file");
+        }
+        for command in ["complete", "complete-filename"] {
+            for skip_completed_text in ["off", "on"] {
+                let inputrc = format!(
+                    "\"\\C-o\": {command}\nset skip-completed-text {skip_completed_text}\nset show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off"
+                );
+                let keys = b"echo '\x0fX\r";
+                let bash =
+                    run_bash_readline_with_inputrc_file_and_env_in_dir(keys, &inputrc, &env, &cwd);
+                let sushline =
+                    run_sushline_harness_with_inputrc_and_env_in_dir(keys, &inputrc, &env, &cwd);
+                let context =
+                    format!("{fixture}, {command}, skip-completed-text={skip_completed_text}");
+                let expected = Some(String::from_utf8(expected.to_vec()).unwrap());
+                assert_eq!(accepted_line(&bash), expected, "Bash line for {context}");
+                assert_eq!(
+                    accepted_line(&sushline),
+                    expected,
+                    "Sushline line for {context}"
+                );
+                assert_eq!(
+                    bell_count(&bash),
+                    expected_bells,
+                    "Bash bells for {context}"
+                );
+                assert_eq!(
+                    bell_count(&sushline),
+                    expected_bells,
+                    "Sushline bells for {context}"
+                );
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn bash_readline_and_sushline_skip_completed_filename_text_like_bash_5_3() {
     let dir = tempfile::tempdir().expect("temp completion directory");
     fs::write(dir.path().join("alpha-one"), "").expect("write completion fixture");

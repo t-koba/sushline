@@ -800,12 +800,11 @@ where
             && response.options.filenames
             && response.options.quote_filename()
             && filename_directory.is_some();
-        let ansi_c_directory = edit.ansi_c_quote
-            && response.options.filenames
-            && response.options.quote_filename()
-            && filename_directory.is_some();
-        // Bash 5.3 PTY observations leave safe quoted directories open and
-        // put a marked slash after the quote when the name needs shell escaping.
+        let ansi_c_directory_completion =
+            edit.ansi_c_quote && response.options.filenames && filename_directory.is_some();
+        let ansi_c_directory = ansi_c_directory_completion && response.options.quote_filename();
+        // ANSI-C directory completions stay open unless filename quoting requires
+        // closing the quote so an appended slash can follow escaped text.
         let directory_needs_quote = (quoted_directory || ansi_c_directory)
             && quote_filename_bytes(candidate.replacement_bytes(), true, true, true).as_slice()
                 != candidate.replacement_bytes();
@@ -814,8 +813,8 @@ where
         // rather than inserting a second one before the cursor.
         let preserve_existing_ansi_c_closer =
             edit.ansi_c_quote && !response.options.quote_filename() && next_byte == Some(b'\'');
-        let close_ansi_c_quote =
-            (!ansi_c_directory || directory_needs_quote) && !preserve_existing_ansi_c_closer;
+        let close_ansi_c_quote = (!ansi_c_directory_completion || directory_needs_quote)
+            && !preserve_existing_ansi_c_closer;
         let mut raw = candidate.replacement_bytes().to_vec();
         if append_slash {
             raw.push(b'/');

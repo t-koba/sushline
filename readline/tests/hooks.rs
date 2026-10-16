@@ -429,6 +429,68 @@ fn reopened_quote_does_not_rescope_application_completion_candidates() {
 }
 
 #[test]
+fn noquote_ansi_c_directory_completion_stays_open() {
+    struct DirectoryHook {
+        candidate: Vec<u8>,
+        line: Vec<u8>,
+        called: bool,
+    }
+    impl Hooks for DirectoryHook {
+        fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
+            assert_eq!(request.context.line, self.line);
+            assert_eq!(request.context.point, self.line.len());
+            self.called = true;
+            Some(CompletionResponse {
+                candidates: vec![CompletionCandidate {
+                    replacement: self.candidate.clone(),
+                    display: None,
+                }],
+                options: CompletionOptions {
+                    filenames: true,
+                    noquote: true,
+                    ..Default::default()
+                },
+            })
+        }
+    }
+
+    let root = tempfile::tempdir().unwrap();
+    let candidate_path = root.path().join("saf dir");
+    std::fs::create_dir(&candidate_path).unwrap();
+    let prefix = root.path().join("saf");
+    let input = format!("echo $'{}", prefix.display()).into_bytes();
+    let candidate = candidate_path.to_string_lossy().into_owned().into_bytes();
+
+    for mark_directories in ["on", "off"] {
+        let terminal = MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(input.clone()),
+            TerminalEvent::Bytes(b"\tX\r".to_vec()),
+        ]);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.variables_mut()
+            .insert("mark-directories".to_string(), mark_directories.to_string());
+        let mut hooks = DirectoryHook {
+            candidate: candidate.clone(),
+            line: input.clone(),
+            called: false,
+        };
+        let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+        let slash = if mark_directories == "on" { "/" } else { "" };
+        let expected = format!("echo $'{}{slash}X", candidate_path.display());
+        assert_eq!(result, ReadlineResult::Line(expected.into_bytes()));
+        assert!(hooks.called);
+        assert_eq!(
+            line.terminal()
+                .out
+                .bytes()
+                .filter(|byte| *byte == b'\x07')
+                .count(),
+            0
+        );
+    }
+}
+
+#[test]
 fn unquoted_completion_preserves_existing_ansi_c_closer() {
     struct ContextHook {
         options: CompletionOptions,

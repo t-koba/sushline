@@ -445,6 +445,41 @@ fn bash_ansi_c_completion_preserves_existing_quote_for_unquoted_candidates() {
 
 #[cfg(unix)]
 #[test]
+fn bash_noquote_ansi_c_directory_completion_obeys_mark_directories() {
+    // Fixture-scoped Bash 5.3 PTY runtime observations for a noquote directory candidate.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(cwd.join("saf dir")).expect("create fixture directory");
+    for mark_directories in ["on", "off"] {
+        let inputrc = format!(
+            "set mark-directories {mark_directories}\nset show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off"
+        );
+        let bash = run_bash_programmable_completion_in_dir(
+            b"echo $'saf\tX\x07",
+            &inputrc,
+            "-o filenames -o noquote",
+            Some("saf dir"),
+            &cwd,
+        );
+        assert!(
+            bash.windows(b"BASH_COMPLETION_INVOKED:1".len())
+                .any(|window| window == b"BASH_COMPLETION_INVOKED:1"),
+            "programmable callback did not run: {}",
+            String::from_utf8_lossy(&bash)
+        );
+        let expected = if mark_directories == "on" {
+            b"echo $'saf dir/X".as_slice()
+        } else {
+            b"echo $'saf dirX".as_slice()
+        };
+        assert_eq!(bash_line_buffer_bytes(&bash), expected);
+        assert_eq!(raw_bell_count(&bash), 0);
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn initial_open_double_quote_common_prefix_matches_bash_5_3() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;

@@ -3484,6 +3484,78 @@ fn complete_filename_expands_ansi_c_home_tilde_like_bash_5_3() {
 
 #[cfg(unix)]
 #[test]
+fn complete_filename_dequotes_and_expands_nested_directory_paths_like_bash_5_3() {
+    // Readline 8.3 CHANGES records the directory dequoting/tilde-expansion fix.
+    use std::os::unix::ffi::OsStrExt;
+
+    let root = tempfile::tempdir().expect("temp completion root");
+    let home = root.path().join("home");
+    let cwd = root.path().join("cwd");
+    let directory = home.join("safe dir");
+    fs::create_dir_all(&directory).expect("create nested HOME directory");
+    fs::create_dir(&cwd).expect("create isolated cwd");
+    fs::write(directory.join("safe-file"), b"").expect("write nested filename fixture");
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+    let forms = [
+        ("ANSI-C quoted", b"echo $'~/safe dir/safe-".as_slice()),
+        ("double quoted", b"echo \"~/safe dir/safe-".as_slice()),
+        ("unquoted escaped", b"echo ~/safe\\ dir/safe-".as_slice()),
+    ];
+
+    for expand_tilde in ["off", "on"] {
+        let inputrc = format!(
+            "\"\\C-o\": complete-filename\nset expand-tilde {expand_tilde}\nset mark-directories off\nset completion-query-items 999\nset page-completions off"
+        );
+        for (form, input) in forms {
+            let mut bash_keys = input.to_vec();
+            bash_keys.extend_from_slice(b"\x0f\x07\r");
+            let mut sushline_keys = input.to_vec();
+            sushline_keys.extend_from_slice(b"\x0f\r");
+            let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+                &cwd,
+                &inputrc,
+                &bash_keys,
+                &sushline_keys,
+                "set +H",
+                &env,
+            );
+
+            let tilde_expanded = form != "unquoted escaped" || expand_tilde == "on";
+            let mut expected = b"echo ".to_vec();
+            match form {
+                "ANSI-C quoted" => expected.extend_from_slice(b"$'"),
+                "double quoted" => expected.push(b'\"'),
+                _ => {}
+            }
+            if tilde_expanded {
+                expected.extend_from_slice(home.as_os_str().as_bytes());
+            } else {
+                expected.push(b'~');
+            }
+            if form == "unquoted escaped" {
+                expected.extend_from_slice(b"/safe\\ dir/safe-file ");
+            } else {
+                expected.extend_from_slice(b"/safe dir/safe-file");
+                expected.push(if form == "ANSI-C quoted" {
+                    b'\''
+                } else {
+                    b'\"'
+                });
+                expected.push(b' ');
+            }
+            assert_filename_line_buffer_bytes(
+                &bash,
+                &sushline,
+                &expected,
+                &format!("{form} nested path with expand-tilde {expand_tilde}"),
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn complete_filename_expands_ansi_c_special_directory_tildes_like_bash_5_3() {
     // Runtime-only Bash 5.3 PTY probe 7c66e05154d340bdb0fb6c5ba20cd7a5.
     use std::os::unix::ffi::OsStrExt;

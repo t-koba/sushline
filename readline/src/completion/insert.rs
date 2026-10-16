@@ -750,9 +750,11 @@ where
             RequoteOptions {
                 quote_filename: response.options.quote_filename(),
                 filename_candidates: response.options.filenames,
-                // Bash leaves an ANSI-C quote open after ambiguous common-prefix insertion.
-                // In the measured reopened-segment case Bash leaves it open.
-                close_quote: edit.filename_segment.is_none(),
+                // Built-in completion leaves an initial open single quote open after
+                // ambiguous common-prefix insertion; reopened segments remain open too.
+                close_quote: edit.filename_segment.is_none()
+                    && !(edit.builtin_filename_completion && edit.has_initial_open_single_quote()),
+                // Bash also leaves ANSI-C quotes open after ambiguous common-prefix insertion.
                 close_ansi_c_quote: false,
                 slash_after_quote: false,
             },

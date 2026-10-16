@@ -162,6 +162,7 @@ where
                 self.default_completion(&request, hooks, Some(&filename_context));
             if builtin_filenames {
                 edit.filename_segment = segment;
+                edit.builtin_filename_completion = true;
             }
             return response;
         };

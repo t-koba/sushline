@@ -2926,6 +2926,60 @@ fn multi_candidate_consecutive_single_quoted_apostrophes_match_bash_5_3() {
 
 #[cfg(unix)]
 #[test]
+fn initial_open_single_quote_common_prefix_matches_bash_5_3() {
+    // Fixture-scoped Bash 5.3 PTY runtime comparison, not GNU source proof.
+    // Inserting X marks the point after ambiguous common-prefix completion.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    let home = root.path().join("home");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(&home).expect("create fixture HOME");
+    fs::write(cwd.join("safe-one"), b"").expect("write fixture file");
+    fs::write(cwd.join("safe-two"), b"").expect("write fixture file");
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+
+    for command in ["complete", "complete-filename"] {
+        for skip_completed_text in ["off", "on"] {
+            let inputrc = format!(
+                "\"\\C-o\": {command}\nset skip-completed-text {skip_completed_text}\nset show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off"
+            );
+            let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+                &cwd,
+                &inputrc,
+                b"echo 'safe\x0fX\x07\r",
+                b"echo 'safe\x0fX\r",
+                "set +H",
+                &env,
+            );
+            let bash_hex =
+                raw_line_after_marker(&bash, b"BASH_READLINE_HEX:").expect("Bash line marker");
+            let (pairs, remainder) = bash_hex.as_chunks::<2>();
+            assert!(remainder.is_empty(), "odd Bash hex marker");
+            let bash_bytes = pairs
+                .iter()
+                .map(|pair| {
+                    (hex_digit(pair[0]).expect("Bash hex digit") << 4)
+                        | hex_digit(pair[1]).expect("Bash hex digit")
+                })
+                .collect::<Vec<_>>();
+            let sushline_bytes =
+                raw_accepted_hex(&sushline).expect("Sushline accepted-line marker");
+            let context = format!("{command}, skip-completed-text={skip_completed_text}");
+            let expected = b"echo 'safe-X";
+            assert_eq!(bash_bytes, expected, "Bash bytes and point for {context}");
+            assert_eq!(
+                sushline_bytes, expected,
+                "Sushline bytes and point for {context}"
+            );
+            assert_eq!(raw_bell_count(&bash), 1, "Bash bell for {context}");
+            assert_eq!(raw_bell_count(&sushline), 1, "Sushline bell for {context}");
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn multi_candidate_single_quoted_closer_matches_bash_5_3() {
     // Fixture-scoped Bash 5.3 runtime comparison, not source proof.
     let root = tempfile::tempdir().expect("temp completion root");

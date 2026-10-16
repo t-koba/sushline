@@ -174,6 +174,14 @@ active quote and adds a separating space; with a `sub/` prefix, root-level
 it unchanged. These extra fixtures use `complete` with `skip-completed-text`
 off and do not establish behavior for other completion commands.
 
+An exact-byte regression (`initial_open_single_quote_common_prefix_matches_bash_5_3`;
+Bash 5.3 PTY record `5d3b87d0d7394908b95562ffc8e0a3e9`, runtime evidence and
+not GNU source proof) types `echo 'safe` with only `safe-one` and `safe-two`
+present, completes once, and inserts `X`. Both editors accept `echo 'safe-X`
+and ring once for `complete` and `complete-filename`, with
+`skip-completed-text` off and on. This fixture checks an initial open quote,
+not a reopened segment.
+
 ### Miscellaneous Commands
 
 | Command(s) | Status | Notes |

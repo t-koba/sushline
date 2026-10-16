@@ -12,6 +12,7 @@ pub(crate) struct CompletionEdit {
     // Built-in lookup may use a reopened segment, while callbacks and the
     // replacement range continue to describe the entire original word.
     pub(super) filename_segment: Option<FilenameSegment>,
+    pub(super) builtin_filename_completion: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -26,6 +27,23 @@ impl CompletionEdit {
         self.filename_segment
             .as_ref()
             .map_or(&self.word_bytes, |segment| &segment.word_bytes)
+    }
+
+    pub(super) fn has_initial_open_single_quote(&self) -> bool {
+        if self.ansi_c_quote || self.quote != Some('\'') {
+            return false;
+        }
+        let Some(raw) = self.line.get(self.start..self.end) else {
+            return false;
+        };
+        // A later apostrophe may close/reopen the quote to the right of point;
+        // keep those existing suffix cases on their original requoting path.
+        raw.first() == Some(&b'\'')
+            && !raw[1..].contains(&b'\'')
+            && !self
+                .line
+                .get(self.end..)
+                .is_some_and(|suffix| suffix.contains(&b'\''))
     }
 
     pub(super) fn reopened_filename_segment(&self) -> Option<FilenameSegment> {
@@ -77,6 +95,7 @@ pub(super) fn completion_edit(
         line: bytes.to_vec(),
         point: state.buffer.byte_point(),
         filename_segment: None,
+        builtin_filename_completion: false,
     }
 }
 

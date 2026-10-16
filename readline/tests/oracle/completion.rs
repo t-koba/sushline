@@ -1611,6 +1611,36 @@ fn bash_fullquote_closed_ansi_c_filename_completion_unquotes_safe_candidates() {
 
 #[cfg(unix)]
 #[test]
+fn bash_closed_ansi_c_safe_candidate_without_filename_option_is_unquoted() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("cwd");
+    fs::create_dir(&cwd).unwrap();
+    fs::write(cwd.join("a"), b"").unwrap();
+    let inputrc = "set show-all-if-ambiguous off\nset page-completions off";
+    let keys = b"echo $'\\x61'\t\x07";
+    let bash = run_bash_programmable_completion_in_dir(keys, inputrc, "", Some("a"), &cwd);
+    assert!(
+        bash.windows(b"BASH_COMPLETION_INVOKED:1".len())
+            .any(|window| window == b"BASH_COMPLETION_INVOKED:1"),
+        "Bash completion callback was not invoked"
+    );
+    assert_eq!(bash_line_buffer_bytes(&bash), b"echo a ");
+    assert_eq!(raw_bell_count(&bash), 0);
+
+    let menu_inputrc = format!("\"\\C-o\": menu-complete\n{inputrc}");
+    let menu = run_bash_programmable_completion_in_dir(
+        b"echo $'\\x61'\x0f\x07",
+        &menu_inputrc,
+        "",
+        Some("a"),
+        &cwd,
+    );
+    assert_eq!(bash_line_buffer_bytes(&menu), b"echo a ");
+    assert_eq!(raw_bell_count(&menu), 0);
+}
+
+#[cfg(unix)]
+#[test]
 fn initial_open_double_quote_common_prefix_matches_bash_5_3() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;

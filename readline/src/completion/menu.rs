@@ -1,6 +1,6 @@
 use crate::completion::filename::filename_candidate_prefix_len;
 use crate::completion::insert::{
-    CompletionReplacement, ansi_c_quote_suffix_bytes, closed_ansi_c_safe_filename_candidate,
+    CompletionReplacement, ansi_c_quote_suffix_bytes, closed_ansi_c_safe_candidate,
     extend_with_trailing_char, leave_quoted_filename_suffix_open, preserve_quoted_filename_closer,
     should_append_completion_char,
 };
@@ -148,8 +148,7 @@ where
             );
         if next_index > 0 {
             let candidate = &response.candidates[next_index - 1];
-            if let Some(unquoted) = closed_ansi_c_safe_filename_candidate(
-                &response,
+            if let Some(unquoted) = closed_ansi_c_safe_candidate(
                 &context.edit,
                 candidate,
                 completion_type,

@@ -19,8 +19,7 @@ pub(super) struct CompletionReplacement {
     pub(super) quote_hook_used: bool,
 }
 
-pub(super) fn closed_ansi_c_safe_filename_candidate(
-    response: &CompletionResponse,
+pub(super) fn closed_ansi_c_safe_candidate(
     edit: &CompletionEdit,
     candidate: &CompletionCandidate,
     completion_type: CompletionType,
@@ -38,7 +37,6 @@ pub(super) fn closed_ansi_c_safe_filename_candidate(
             == candidate.replacement_bytes();
     // An explicit application quote hook owns its spelling, even for a safe word.
     (edit.ansi_c_quote
-        && response.options.filenames
         && matches!(
             completion_type,
             CompletionType::Complete
@@ -301,8 +299,7 @@ where
                 hooks,
                 next_byte,
             );
-            if let Some(unquoted) = closed_ansi_c_safe_filename_candidate(
-                &response,
+            if let Some(unquoted) = closed_ansi_c_safe_candidate(
                 edit,
                 candidate,
                 completion_type,
@@ -310,8 +307,8 @@ where
                 quote_hook_used,
                 &suffix,
             ) {
-                // A closed ANSI-C filename word needs no delimiters around a
-                // shell-safe match. Keep open quotes, suffixes, and directory
+                // A closed ANSI-C word needs no delimiters around a shell-safe
+                // match. Keep open quotes, suffixes, and directory
                 // cases on their existing paths so closers and separators survive.
                 replacement_bytes = unquoted;
             }

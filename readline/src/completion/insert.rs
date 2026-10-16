@@ -229,9 +229,17 @@ where
                 && !candidate
                     .replacement_bytes()
                     .starts_with(edit.matching_word());
+            // Radix escapes remain raw in the typed ANSI-C word. If that raw
+            // prefix does not match the candidate, an equal right suffix is
+            // not evidence that Bash should consume the user's existing text.
+            let ansi_c_filename_prefix_mismatch = ansi_c_filename_completion
+                && !candidate
+                    .replacement_bytes()
+                    .starts_with(edit.matching_word());
             let mut ansi_c_suffix_overlap = if skip_completed_text
                 && ansi_c_filename_completion
                 && !filename_case_insensitive_prefix_only_match
+                && !ansi_c_filename_prefix_mismatch
             {
                 completed_suffix_overlap_len(candidate.replacement_bytes(), &suffix)
             } else {

@@ -772,17 +772,18 @@ fn fullquote_escaped_ansi_c_suffix_preserves_raw_overlap_behavior() {
 }
 
 #[test]
-fn fullquote_ansi_c_completion_preserves_radix_escape_suffixes() {
+fn fullquote_ansi_c_completion_preserves_radix_escape_suffixes_at_cursor_splits() {
     struct RadixSuffixHook {
         input: Vec<u8>,
         point: usize,
+        completion_type: CompletionType,
         called: bool,
     }
     impl Hooks for RadixSuffixHook {
         fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
             assert_eq!(request.context.line, self.input);
             assert_eq!(request.context.point, self.point);
-            assert_eq!(request.context.completion_type, CompletionType::Complete);
+            assert_eq!(request.context.completion_type, self.completion_type);
             self.called = true;
             Some(CompletionResponse {
                 candidates: vec![CompletionCandidate {
@@ -800,45 +801,115 @@ fn fullquote_ansi_c_completion_preserves_radix_escape_suffixes() {
         }
     }
 
-    for (skip, escape) in [
-        ("on", b"\\x20tail".as_slice()),
-        ("on", b"\\040tail".as_slice()),
-        ("off", b"\\x20tail".as_slice()),
-        ("off", b"\\040tail".as_slice()),
-    ] {
-        let mut input = b"echo $'safe".to_vec();
-        input.extend_from_slice(escape);
-        let mut events = vec![TerminalEvent::Bytes(input.clone())];
-        for _ in 0..escape.len() {
-            events.push(TerminalEvent::Bytes(b"\x1b[D".to_vec()));
+    let cases = [
+        (
+            "hex before escape",
+            b"\\x20tail".as_slice(),
+            8,
+            b"\\x20tail".as_slice(),
+        ),
+        (
+            "hex after x",
+            b"\\x20tail".as_slice(),
+            6,
+            b"20tail".as_slice(),
+        ),
+        (
+            "hex after first digit",
+            b"\\x20tail".as_slice(),
+            5,
+            b"0tail".as_slice(),
+        ),
+        (
+            "hex after escape",
+            b"\\x20tail".as_slice(),
+            4,
+            b"tail".as_slice(),
+        ),
+        (
+            "octal before escape",
+            b"\\040tail".as_slice(),
+            8,
+            b"\\040tail".as_slice(),
+        ),
+        (
+            "octal after zero",
+            b"\\040tail".as_slice(),
+            6,
+            b"40tail".as_slice(),
+        ),
+        (
+            "octal after second digit",
+            b"\\040tail".as_slice(),
+            5,
+            b"0tail".as_slice(),
+        ),
+        (
+            "octal after escape",
+            b"\\040tail".as_slice(),
+            4,
+            b"tail".as_slice(),
+        ),
+    ];
+    let modes = [
+        (
+            "complete",
+            CompletionType::Complete,
+            b"\tX\r".as_slice(),
+            false,
+        ),
+        (
+            "menu-complete",
+            CompletionType::MenuComplete,
+            b"\x0fX\r".as_slice(),
+            true,
+        ),
+    ];
+
+    for skip in ["on", "off"] {
+        for (mode, completion_type, completion_keys, menu_complete) in modes {
+            for (case, escape, left_count, suffix) in cases {
+                let mut input = b"echo $'safe".to_vec();
+                input.extend_from_slice(escape);
+                let mut events = vec![TerminalEvent::Bytes(input.clone())];
+                for _ in 0..left_count {
+                    events.push(TerminalEvent::Bytes(b"\x1b[D".to_vec()));
+                }
+                events.push(TerminalEvent::Bytes(completion_keys.to_vec()));
+                let terminal = MemoryTerminal::with_events(events);
+                let mut line = Editor::new(Config::default(), terminal, History::new());
+                if menu_complete {
+                    line.load_inputrc_str("\"\\C-o\": menu-complete").unwrap();
+                }
+                line.variables_mut()
+                    .insert("skip-completed-text".to_string(), skip.to_string());
+                let point = input.len() - left_count;
+                let mut hooks = RadixSuffixHook {
+                    input,
+                    point,
+                    completion_type,
+                    called: false,
+                };
+                let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+                let mut expected = b"echo $'safe space-tail'X".to_vec();
+                expected.extend_from_slice(suffix);
+                assert_eq!(
+                    result,
+                    ReadlineResult::Line(expected),
+                    "mode={mode} skip={skip} case={case}"
+                );
+                assert!(hooks.called);
+                assert_eq!(
+                    line.terminal()
+                        .out
+                        .bytes()
+                        .filter(|byte| *byte == b'\x07')
+                        .count(),
+                    0,
+                    "mode={mode} skip={skip} case={case}"
+                );
+            }
         }
-        events.push(TerminalEvent::Bytes(b"\tX\r".to_vec()));
-        let terminal = MemoryTerminal::with_events(events);
-        let mut line = Editor::new(Config::default(), terminal, History::new());
-        line.variables_mut()
-            .insert("skip-completed-text".to_string(), skip.to_string());
-        let mut hooks = RadixSuffixHook {
-            point: input.len() - escape.len(),
-            input,
-            called: false,
-        };
-        let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
-        let mut expected = b"echo $'safe space-tail'X".to_vec();
-        expected.extend_from_slice(escape);
-        assert_eq!(
-            result,
-            ReadlineResult::Line(expected),
-            "skip={skip} escape={escape:?}"
-        );
-        assert!(hooks.called);
-        assert_eq!(
-            line.terminal()
-                .out
-                .bytes()
-                .filter(|byte| *byte == b'\x07')
-                .count(),
-            0
-        );
     }
 }
 

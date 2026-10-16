@@ -64,6 +64,118 @@ fn empty_initial_single_quote_prefix_matches_bash_5_3() {
 
 #[cfg(unix)]
 #[test]
+fn initial_open_double_quote_common_prefix_matches_bash_5_3() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    // The inputrc file stays outside cwd so it cannot become an empty-prefix candidate.
+    // Bash PTY observations cover open double quotes, including an escaped literal quote.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let home = root.path().join("home");
+    fs::create_dir(&home).expect("create fixture HOME");
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+    struct Fixture<'a> {
+        name: &'a str,
+        filenames: &'a [&'a [u8]],
+        keys: &'a [u8],
+        expected_line: &'a [u8],
+        expected_bells: usize,
+    }
+    let fixtures = [
+        Fixture {
+            name: "empty-prefix",
+            filenames: &[b"safe-one", b"safe-two"],
+            keys: b"echo \"\x0fX\r",
+            expected_line: b"echo \"safe-X",
+            expected_bells: 1,
+        },
+        Fixture {
+            name: "typed-prefix",
+            filenames: &[b"safe-one", b"safe-two"],
+            keys: b"echo \"sa\x0fX\r",
+            expected_line: b"echo \"safe-X",
+            expected_bells: 1,
+        },
+        Fixture {
+            name: "unique-match",
+            filenames: &[b"safe-one"],
+            keys: b"echo \"\x0fX\r",
+            expected_line: b"echo \"safe-one\" X",
+            expected_bells: 0,
+        },
+        Fixture {
+            name: "no-common-prefix",
+            filenames: &[b"safe-one", b"tall-two"],
+            keys: b"echo \"\x0fX\r",
+            expected_line: b"echo \"X",
+            expected_bells: 1,
+        },
+        Fixture {
+            name: "escaped-quote",
+            filenames: &[b"safe\"one", b"safe\"only"],
+            keys: b"echo \"safe\\\"\x0fX\r",
+            expected_line: b"echo \"safe\\\"onX",
+            expected_bells: 1,
+        },
+    ];
+    for fixture in fixtures {
+        let cwd = root.path().join(fixture.name);
+        fs::create_dir(&cwd).expect("create fixture cwd");
+        for name in fixture.filenames {
+            fs::write(cwd.join(OsString::from_vec(name.to_vec())), b"")
+                .expect("write fixture filename");
+        }
+        for command in ["complete", "complete-filename"] {
+            for skip_completed_text in ["off", "on"] {
+                let inputrc = format!(
+                    "\"\\C-o\": {command}\nset skip-completed-text {skip_completed_text}\nset show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off"
+                );
+                let bash = run_bash_readline_with_inputrc_file_and_env_in_dir(
+                    fixture.keys,
+                    &inputrc,
+                    &env,
+                    &cwd,
+                );
+                let sushline = run_sushline_harness_with_inputrc_and_env_in_dir(
+                    fixture.keys,
+                    &inputrc,
+                    &env,
+                    &cwd,
+                );
+                let context = format!(
+                    "{}, {command}, skip-completed-text={skip_completed_text}",
+                    fixture.name
+                );
+                let expected_line =
+                    Some(String::from_utf8(fixture.expected_line.to_vec()).unwrap());
+                assert_eq!(
+                    accepted_line(&bash),
+                    expected_line,
+                    "Bash line for {context}"
+                );
+                assert_eq!(
+                    accepted_line(&sushline),
+                    expected_line,
+                    "Sushline line for {context}"
+                );
+                assert_eq!(
+                    bell_count(&bash),
+                    fixture.expected_bells,
+                    "Bash bells for {context}"
+                );
+                assert_eq!(
+                    bell_count(&sushline),
+                    fixture.expected_bells,
+                    "Sushline bells for {context}"
+                );
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn bash_readline_and_sushline_skip_completed_filename_text_like_bash_5_3() {
     let dir = tempfile::tempdir().expect("temp completion directory");
     fs::write(dir.path().join("alpha-one"), "").expect("write completion fixture");

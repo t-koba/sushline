@@ -29,21 +29,29 @@ impl CompletionEdit {
             .map_or(&self.word_bytes, |segment| &segment.word_bytes)
     }
 
-    pub(super) fn has_initial_open_single_quote(&self) -> bool {
-        if self.ansi_c_quote || self.quote != Some('\'') {
+    pub(super) fn has_initial_open_quote(&self) -> bool {
+        if self.ansi_c_quote {
             return false;
         }
+        let Some(quote) = self.quote.filter(|quote| matches!(quote, '\'' | '"')) else {
+            return false;
+        };
         let Some(raw) = self.line.get(self.start..self.end) else {
             return false;
         };
-        // A later apostrophe may close/reopen the quote to the right of point;
-        // keep those existing suffix cases on their original requoting path.
-        raw.first() == Some(&b'\'')
-            && !raw[1..].contains(&b'\'')
-            && !self
-                .line
-                .get(self.end..)
-                .is_some_and(|suffix| suffix.contains(&b'\''))
+        let quote_byte = quote as u8;
+        if raw.first() != Some(&quote_byte) {
+            return false;
+        }
+        let Some(after_opening_quote) = self.line.get(self.start + 1..) else {
+            return false;
+        };
+        let has_closing_quote = if quote == '"' {
+            contains_unescaped_double_quote(after_opening_quote)
+        } else {
+            after_opening_quote.contains(&quote_byte)
+        };
+        !has_closing_quote
     }
 
     pub(super) fn reopened_filename_segment(&self) -> Option<FilenameSegment> {
@@ -62,6 +70,22 @@ impl CompletionEdit {
             word_prefix: dequote_completion_word_bytes(&raw[..opening]).0,
         })
     }
+}
+
+fn contains_unescaped_double_quote(bytes: &[u8]) -> bool {
+    // An even run of backslashes leaves a following double quote unescaped.
+    let mut preceding_backslashes = 0;
+    for byte in bytes {
+        if *byte == b'\\' {
+            preceding_backslashes += 1;
+        } else {
+            if *byte == b'"' && preceding_backslashes % 2 == 0 {
+                return true;
+            }
+            preceding_backslashes = 0;
+        }
+    }
+    false
 }
 
 pub(super) fn completion_edit(

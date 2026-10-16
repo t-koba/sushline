@@ -198,6 +198,14 @@ initial quote prefix with isolated ambiguous, unique, and no-common-prefix
 filename sets. Both editors agree on the accepted line and bell count for
 `complete` and `complete-filename`, with `skip-completed-text` off and on.
 
+The initial-open-double-quote regression (`initial_open_double_quote_common_prefix_matches_bash_5_3`;
+Bash PTY records `383b04cd93ae4c06ab50381cff4eaa89`,
+`94efd96c73b643b3ac3476aa78d0d458`, `8d8984a54eef454187963cbad5b70fa3`,
+and `bc2f9dfaeab447368e4f7a0ec517066a`, not source proof) covers empty and
+typed prefixes, an escaped literal double quote, and unique/no-common-prefix
+controls. For these fixtures, both editors agree on accepted lines and bells
+across `complete`/`complete-filename` and both `skip-completed-text` settings.
+
 ### Miscellaneous Commands
 
 | Command(s) | Status | Notes |

@@ -1371,6 +1371,137 @@ fn fullquote_ansi_c_symlink_directory_avoids_duplicate_typed_slash_at_radix_spli
 }
 
 #[test]
+fn fullquote_ansi_c_directory_marking_preserves_incomplete_radix_suffixes() {
+    struct RadixDirectoryHook {
+        input: Vec<u8>,
+        point: usize,
+        completion_type: CompletionType,
+        candidate: Vec<u8>,
+        called: bool,
+    }
+    impl Hooks for RadixDirectoryHook {
+        fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
+            assert_eq!(request.context.line, self.input);
+            assert_eq!(request.context.point, self.point);
+            assert_eq!(request.context.completion_type, self.completion_type);
+            self.called = true;
+            Some(CompletionResponse {
+                candidates: vec![CompletionCandidate {
+                    replacement: self.candidate.clone(),
+                    display: None,
+                }],
+                options: CompletionOptions {
+                    filenames: true,
+                    fullquote: true,
+                    noquote: true,
+                    nospace: true,
+                    ..Default::default()
+                },
+            })
+        }
+    }
+
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("safe space-tail");
+    std::fs::create_dir(&directory).unwrap();
+    let candidate = directory.to_string_lossy().into_owned().into_bytes();
+    let cases = [
+        (
+            "hex after x",
+            b"echo $'safe\\x20tail/'".as_slice(),
+            8,
+            b"20tail/'".as_slice(),
+        ),
+        (
+            "hex after first digit",
+            b"echo $'safe\\x20tail/'".as_slice(),
+            7,
+            b"0tail/'".as_slice(),
+        ),
+        (
+            "octal after zero",
+            b"echo $'safe\\040tail/'".as_slice(),
+            8,
+            b"40tail/'".as_slice(),
+        ),
+        (
+            "octal after second digit",
+            b"echo $'safe\\040tail/'".as_slice(),
+            7,
+            b"0tail/'".as_slice(),
+        ),
+    ];
+    let modes = [
+        (
+            "complete",
+            CompletionType::Complete,
+            b"\tX\r".as_slice(),
+            false,
+        ),
+        (
+            "menu-complete",
+            CompletionType::MenuComplete,
+            b"\x0fX\r".as_slice(),
+            true,
+        ),
+    ];
+
+    for mark in ["on", "off"] {
+        for skip in ["on", "off"] {
+            for (mode, completion_type, completion_keys, menu_complete) in modes {
+                for (case, input, left_count, suffix) in &cases {
+                    let mut events = vec![TerminalEvent::Bytes(input.to_vec())];
+                    for _ in 0..*left_count {
+                        events.push(TerminalEvent::Bytes(b"\x1b[D".to_vec()));
+                    }
+                    events.push(TerminalEvent::Bytes(completion_keys.to_vec()));
+                    let terminal = MemoryTerminal::with_events(events);
+                    let mut line = Editor::new(Config::default(), terminal, History::new());
+                    if menu_complete {
+                        line.load_inputrc_str("\"\\C-o\": menu-complete").unwrap();
+                    }
+                    line.variables_mut()
+                        .insert("mark-directories".to_string(), mark.to_string());
+                    line.variables_mut()
+                        .insert("skip-completed-text".to_string(), skip.to_string());
+                    let mut hooks = RadixDirectoryHook {
+                        input: input.to_vec(),
+                        point: input.len() - *left_count,
+                        completion_type,
+                        candidate: candidate.clone(),
+                        called: false,
+                    };
+                    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+                    let mut expected = b"echo $'".to_vec();
+                    expected.extend_from_slice(&candidate);
+                    expected.push(b'\'');
+                    if mark == "on" {
+                        expected.push(b'/');
+                    }
+                    expected.push(b'X');
+                    expected.extend_from_slice(suffix);
+                    assert_eq!(
+                        result,
+                        ReadlineResult::Line(expected),
+                        "mode={mode} mark={mark} skip={skip} case={case}"
+                    );
+                    assert!(hooks.called);
+                    assert_eq!(
+                        line.terminal()
+                            .out
+                            .bytes()
+                            .filter(|byte| *byte == b'\x07')
+                            .count(),
+                        0,
+                        "mode={mode} mark={mark} skip={skip} case={case}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn fullquote_ansi_c_menu_completion_replaces_radix_prefix_boundaries() {
     struct RadixMenuHook {
         input: Vec<u8>,

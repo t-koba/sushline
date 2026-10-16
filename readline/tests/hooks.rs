@@ -713,6 +713,61 @@ fn fullquote_ansi_c_completion_respects_skip_completed_text_suffix() {
 }
 
 #[test]
+fn fullquote_closed_ansi_c_safe_candidate_replaces_the_quoted_word() {
+    struct SafeCandidateHook {
+        called: bool,
+        expected_type: CompletionType,
+    }
+    impl Hooks for SafeCandidateHook {
+        fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
+            self.called = true;
+            assert_eq!(request.context.line, b"echo $'\\x61'");
+            assert_eq!(request.context.point, request.context.line.len());
+            assert_eq!(request.context.completion_type, self.expected_type);
+            Some(CompletionResponse {
+                candidates: vec![CompletionCandidate {
+                    replacement: b"a".to_vec(),
+                    display: None,
+                }],
+                options: CompletionOptions {
+                    filenames: true,
+                    fullquote: true,
+                    noquote: true,
+                    nospace: true,
+                    ..Default::default()
+                },
+            })
+        }
+    }
+    for (menu_complete, expected_type) in [
+        (false, CompletionType::Complete),
+        (true, CompletionType::MenuComplete),
+    ] {
+        let terminal =
+            MemoryTerminal::with_events(vec![TerminalEvent::Bytes(b"echo $'\\x61'\t\r".to_vec())]);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        if menu_complete {
+            line.load_inputrc_str("\"\\C-i\": menu-complete").unwrap();
+        }
+        let mut hooks = SafeCandidateHook {
+            called: false,
+            expected_type,
+        };
+        let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+        assert_eq!(result, ReadlineResult::Line(b"echo a".to_vec()));
+        assert!(hooks.called);
+        assert_eq!(
+            line.terminal()
+                .out
+                .bytes()
+                .filter(|byte| *byte == b'\x07')
+                .count(),
+            0
+        );
+    }
+}
+
+#[test]
 fn fullquote_escaped_ansi_c_suffix_preserves_raw_overlap_behavior() {
     struct EscapedSuffixHook {
         called: bool,

@@ -1556,6 +1556,61 @@ fn bash_fullquote_ansi_c_directory_marking_preserves_incomplete_radix_suffixes()
 
 #[cfg(unix)]
 #[test]
+fn bash_fullquote_closed_ansi_c_filename_completion_unquotes_safe_candidates() {
+    // Fixture-scoped Bash PTY observations, not GNU source proof.
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("cwd");
+    fs::create_dir(&cwd).unwrap();
+    for name in ["a", "alpha"] {
+        fs::write(cwd.join(name), b"").unwrap();
+    }
+    let cases = [
+        (
+            "escaped text longer than match",
+            b"echo $'\\x61'".as_slice(),
+            "a",
+        ),
+        ("exact text", b"echo $'a'".as_slice(), "a"),
+        ("safe prefix extension", b"echo $'a'".as_slice(), "alpha"),
+    ];
+    for (label, input, candidate) in cases {
+        for action in ["complete", "menu-complete"] {
+            let binding = if action == "menu-complete" {
+                "\"\\C-i\": menu-complete\n"
+            } else {
+                ""
+            };
+            let inputrc = format!(
+                "{binding}set skip-completed-text off\nset show-all-if-ambiguous off\nset page-completions off"
+            );
+            let mut keys = input.to_vec();
+            keys.extend_from_slice(b"\t\x07");
+            let bash = run_bash_programmable_completion_in_dir(
+                &keys,
+                &inputrc,
+                "-o filenames -o fullquote -o noquote -o nospace",
+                Some(candidate),
+                &cwd,
+            );
+            let expected = format!("echo {candidate}").into_bytes();
+            let context = format!("{label}, action={action}, candidate={candidate}");
+            assert!(
+                bash.windows(b"BASH_COMPLETION_INVOKED:1".len())
+                    .any(|window| window == b"BASH_COMPLETION_INVOKED:1"),
+                "Bash callback was not invoked for {context}"
+            );
+            assert_eq!(
+                bash_line_buffer_bytes(&bash),
+                expected,
+                "line for {context}"
+            );
+            assert_eq!(raw_bell_count(&bash), 0, "bells for {context}");
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn initial_open_double_quote_common_prefix_matches_bash_5_3() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;

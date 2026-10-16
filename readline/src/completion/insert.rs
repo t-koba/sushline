@@ -16,6 +16,43 @@ pub(super) struct CompletionReplacement {
     pub(super) bytes: Vec<u8>,
     pub(super) is_directory: bool,
     pub(super) ansi_c_suffix_bytes: usize,
+    pub(super) quote_hook_used: bool,
+}
+
+pub(super) fn closed_ansi_c_safe_filename_candidate(
+    response: &CompletionResponse,
+    edit: &CompletionEdit,
+    candidate: &CompletionCandidate,
+    completion_type: CompletionType,
+    is_directory: bool,
+    quote_hook_used: bool,
+    suffix: &[u8],
+) -> Option<Vec<u8>> {
+    let raw_word = edit.line.get(edit.start..edit.end).unwrap_or_default();
+    let closed_ansi_c_word = raw_word.len() > 2
+        && raw_word.starts_with(b"$'")
+        && raw_word.last() == Some(&b'\'')
+        && edit.point == edit.end;
+    let safe_unquoted_candidate =
+        quote_filename_bytes(candidate.replacement_bytes(), true, true, true).as_slice()
+            == candidate.replacement_bytes();
+    // An explicit application quote hook owns its spelling, even for a safe word.
+    (edit.ansi_c_quote
+        && response.options.filenames
+        && matches!(
+            completion_type,
+            CompletionType::Complete
+                | CompletionType::Filename
+                | CompletionType::MenuComplete
+                | CompletionType::MenuCompleteBackward
+        )
+        && closed_ansi_c_word
+        && safe_unquoted_candidate
+        && !quote_hook_used
+        && !candidate.replacement_bytes().is_empty()
+        && suffix.is_empty()
+        && !is_directory)
+        .then(|| candidate.replacement_bytes().to_vec())
 }
 
 pub(super) fn should_append_completion_char(
@@ -255,6 +292,7 @@ where
                 bytes: mut replacement_bytes,
                 is_directory,
                 ansi_c_suffix_bytes,
+                quote_hook_used,
             } = self.completion_replacement_with_directory(
                 &response,
                 edit,
@@ -263,6 +301,20 @@ where
                 hooks,
                 next_byte,
             );
+            if let Some(unquoted) = closed_ansi_c_safe_filename_candidate(
+                &response,
+                edit,
+                candidate,
+                completion_type,
+                is_directory,
+                quote_hook_used,
+                &suffix,
+            ) {
+                // A closed ANSI-C filename word needs no delimiters around a
+                // shell-safe match. Keep open quotes, suffixes, and directory
+                // cases on their existing paths so closers and separators survive.
+                replacement_bytes = unquoted;
+            }
             let has_quote_suffix = suffix.get(ansi_c_suffix_overlap) == Some(&b'\'')
                 && suffix.len() == ansi_c_suffix_overlap + 1;
             let has_existing_ansi_c_quote = ansi_c_quoted_completion
@@ -616,6 +668,18 @@ where
         options: RequoteOptions,
         hooks: &mut impl Hooks,
     ) -> Vec<u8> {
+        self.requote_completion_bytes_with_hook(value, edit, completion_type, options, hooks)
+            .0
+    }
+
+    fn requote_completion_bytes_with_hook(
+        &self,
+        value: &[u8],
+        edit: &CompletionEdit,
+        completion_type: CompletionType,
+        options: RequoteOptions,
+        hooks: &mut impl Hooks,
+    ) -> (Vec<u8>, bool) {
         // Quote hooks still replace the full callback word. Present a full
         // semantic value, not the built-in provider's segment-relative candidate.
         let full_value = edit.filename_segment.as_ref().map(|segment| {
@@ -634,7 +698,7 @@ where
             completion_type,
             quote_filename: options.quote_filename,
         }) {
-            return quoted;
+            return (quoted, true);
         }
         let raw_start = edit
             .filename_segment
@@ -733,13 +797,14 @@ where
             ),
             _ => value.to_vec(),
         };
-        if edit.filename_segment.is_some() {
+        let replacement = if edit.filename_segment.is_some() {
             let mut full = edit.line[edit.start..raw_start].to_vec();
             full.extend_from_slice(&replacement);
             full
         } else {
             replacement
-        }
+        };
+        (replacement, false)
     }
 
     pub(super) fn requote_common_prefix(
@@ -828,7 +893,7 @@ where
         if append_slash {
             raw.push(b'/');
         }
-        let replacement = self.requote_completion_bytes(
+        let (replacement, quote_hook_used) = self.requote_completion_bytes_with_hook(
             &raw,
             edit,
             completion_type,
@@ -852,6 +917,7 @@ where
             bytes: replacement,
             is_directory,
             ansi_c_suffix_bytes,
+            quote_hook_used,
         }
     }
 }

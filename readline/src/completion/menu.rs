@@ -1,7 +1,7 @@
 use crate::completion::filename::filename_candidate_prefix_len;
 use crate::completion::insert::{
-    CompletionReplacement, ansi_c_quote_suffix_bytes, extend_with_trailing_char,
-    leave_quoted_filename_suffix_open, preserve_quoted_filename_closer,
+    CompletionReplacement, ansi_c_quote_suffix_bytes, closed_ansi_c_safe_filename_candidate,
+    extend_with_trailing_char, leave_quoted_filename_suffix_open, preserve_quoted_filename_closer,
     should_append_completion_char,
 };
 use crate::completion::quoting::{
@@ -137,7 +137,7 @@ where
         } else {
             suffix.first().copied()
         };
-        let (mut replacement_bytes, is_directory, ansi_c_suffix_bytes) = self
+        let (mut replacement_bytes, is_directory, ansi_c_suffix_bytes, quote_hook_used) = self
             .menu_complete_replacement(
                 &response,
                 &context,
@@ -146,6 +146,20 @@ where
                 completion_type,
                 next_byte,
             );
+        if next_index > 0 {
+            let candidate = &response.candidates[next_index - 1];
+            if let Some(unquoted) = closed_ansi_c_safe_filename_candidate(
+                &response,
+                &context.edit,
+                candidate,
+                completion_type,
+                is_directory,
+                quote_hook_used,
+                &suffix,
+            ) {
+                replacement_bytes = unquoted;
+            }
+        }
         let mut ansi_c_suffix_overlap = completion_suffix_overlap;
         let quoted_suffix_overlap = if next_index > 0 {
             completion_suffix_overlap
@@ -281,13 +295,14 @@ where
         hooks: &mut impl Hooks,
         completion_type: CompletionType,
         next_byte: Option<u8>,
-    ) -> (Vec<u8>, bool, usize) {
+    ) -> (Vec<u8>, bool, usize, bool) {
         if next_index == 0 {
             return (
                 self.requote_common_prefix(response, &context.edit, completion_type, hooks)
                     .unwrap_or_default(),
                 false,
                 0,
+                false,
             );
         }
         let candidate = &response.candidates[next_index - 1];
@@ -295,6 +310,7 @@ where
             bytes: replacement,
             is_directory,
             ansi_c_suffix_bytes,
+            quote_hook_used,
         } = self.completion_replacement_with_directory(
             response,
             &context.edit,
@@ -303,7 +319,12 @@ where
             hooks,
             next_byte,
         );
-        (replacement, is_directory, ansi_c_suffix_bytes)
+        (
+            replacement,
+            is_directory,
+            ansi_c_suffix_bytes,
+            quote_hook_used,
+        )
     }
 
     fn menu_complete_display(

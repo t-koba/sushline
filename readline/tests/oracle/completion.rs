@@ -512,6 +512,33 @@ fn bash_fullquote_ansi_c_completion_escapes_and_overrides_noquote() {
 
 #[cfg(unix)]
 #[test]
+fn bash_noquote_ansi_c_completion_preserves_existing_closer_and_suffix() {
+    // Fixture-scoped Bash 5.3 PTY observation for noquote before a typed closer.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::write(cwd.join("saf file"), b"").expect("create fixture file");
+    let inputrc =
+        "set skip-completed-text off\nset show-all-if-ambiguous off\nset page-completions off";
+    let bash = run_bash_programmable_completion_in_dir(
+        b"echo $'saf' X\x1b[D\x1b[D\x1b[D\t\x07",
+        inputrc,
+        "-o filenames -o noquote",
+        Some("saf file"),
+        &cwd,
+    );
+
+    assert!(
+        bash.windows(b"BASH_COMPLETION_INVOKED:1".len())
+            .any(|window| window == b"BASH_COMPLETION_INVOKED:1"),
+        "programmable callback did not run"
+    );
+    assert_eq!(bash_line_buffer_bytes(&bash), b"echo $'saf file' X");
+    assert_eq!(raw_bell_count(&bash), 0);
+}
+
+#[cfg(unix)]
+#[test]
 fn bash_fullquote_ansi_c_completion_reuses_existing_closer() {
     // Fixture-scoped Bash 5.3 PTY observations for fullquote with a closer after the cursor.
     let root = tempfile::tempdir().expect("temp completion root");

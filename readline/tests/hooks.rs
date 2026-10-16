@@ -1231,7 +1231,7 @@ fn fullquote_ansi_c_directory_completion_marks_radix_split_suffixes() {
 
 #[cfg(unix)]
 #[test]
-fn fullquote_ansi_c_symlink_directory_marking_at_radix_splits() {
+fn fullquote_ansi_c_symlink_directory_avoids_duplicate_typed_slash_at_radix_splits() {
     use std::os::unix::fs::symlink;
 
     struct SymlinkDirectoryHook {
@@ -1267,20 +1267,31 @@ fn fullquote_ansi_c_symlink_directory_marking_at_radix_splits() {
     std::fs::create_dir(root.path().join("target-dir")).unwrap();
     let directory = root.path().join("safe space-tail");
     symlink(root.path().join("target-dir"), &directory).unwrap();
-    let prefix = root.path().join("safe").to_string_lossy().into_owned();
     let candidate = directory.to_string_lossy().into_owned().into_bytes();
     let cases = [
         (
-            "hex escape",
-            format!("echo $'{prefix}\\x20tail'").into_bytes(),
-            5,
-            b"tail'".as_slice(),
+            "hex after escape",
+            b"echo $'safe\\x20tail/'".to_vec(),
+            6,
+            b"tail/'".as_slice(),
         ),
         (
-            "octal escape",
-            format!("echo $'{prefix}\\040tail'").into_bytes(),
-            5,
-            b"tail'".as_slice(),
+            "hex before slash",
+            b"echo $'safe\\x20tail/'".to_vec(),
+            2,
+            b"/'".as_slice(),
+        ),
+        (
+            "octal after escape",
+            b"echo $'safe\\040tail/'".to_vec(),
+            6,
+            b"tail/'".as_slice(),
+        ),
+        (
+            "octal before slash",
+            b"echo $'safe\\040tail/'".to_vec(),
+            2,
+            b"/'".as_slice(),
         ),
     ];
     let modes = [
@@ -1332,7 +1343,7 @@ fn fullquote_ansi_c_symlink_directory_marking_at_radix_splits() {
                         let mut expected = b"echo $'".to_vec();
                         expected.extend_from_slice(&candidate);
                         expected.push(b'\'');
-                        if mark == "on" && symlinked == "on" {
+                        if mark == "on" && symlinked == "on" && suffix.first() != Some(&b'/') {
                             expected.push(b'/');
                         }
                         expected.push(b'X');

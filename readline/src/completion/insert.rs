@@ -459,9 +459,38 @@ where
                         && attempt.point == before_point
                         && attempt.line == before_line
                 });
+            let standard_completion = matches!(
+                completion_type,
+                CompletionType::Complete
+                    | CompletionType::Command
+                    | CompletionType::Filename
+                    | CompletionType::Hostname
+                    | CompletionType::Username
+                    | CompletionType::Variable
+            );
+            let show_all_if_ambiguous =
+                standard_completion && self.flag(BoolVariable::ShowAllIfAmbiguous);
+            let show_all_if_unmodified =
+                standard_completion && self.flag(BoolVariable::ShowAllIfUnmodified);
+            let listing_mode = show_all_if_ambiguous || show_all_if_unmodified;
+            let mut nontrivial_lcd = true;
             if let Some((common_prefix, mut replacement_bytes)) =
                 self.requote_common_prefix_with_prefix(&response, edit, completion_type, hooks)
             {
+                let quoting_desired = response.options.fullquote
+                    || (response.options.filenames && response.options.quote_filename());
+                // Readline compares the dequoted word only when quoting is
+                // desired. Bash's filename dequote does not expand ANSI-C
+                // escapes, so keep that spelling raw for this comparison.
+                let raw_text = edit.line.get(edit.start..edit.end).unwrap_or_default();
+                let has_quoted_text = raw_text != edit.word_bytes && !edit.ansi_c_quote;
+                let match_text = if quoting_desired && has_quoted_text {
+                    edit.word_bytes.as_slice()
+                } else {
+                    raw_text
+                };
+                nontrivial_lcd = match_text != common_prefix;
+                let insert_common_prefix = !listing_mode || common_prefix.len() >= match_text.len();
                 let shell_escaped_regular_filename = response.options.filenames
                     && !edit.ansi_c_quote
                     && !matches!(
@@ -544,26 +573,22 @@ where
                         &mut replacement_bytes,
                     );
                 }
-                state
-                    .buffer
-                    .replace_range_bytes(edit.start, replacement_end, &replacement_bytes);
+                if insert_common_prefix {
+                    state.buffer.replace_range_bytes(
+                        edit.start,
+                        replacement_end,
+                        &replacement_bytes,
+                    );
+                }
             }
             let unmodified_after_prefix = state.buffer.as_bytes() == before_line.as_slice();
-            if matches!(
-                completion_type,
-                CompletionType::Complete
-                    | CompletionType::Command
-                    | CompletionType::Filename
-                    | CompletionType::Hostname
-                    | CompletionType::Username
-                    | CompletionType::Variable
-            ) {
+            let should_display = show_all_if_ambiguous
+                || (show_all_if_unmodified && !nontrivial_lcd)
+                || (repeated_unmodified_completion && unmodified_after_prefix);
+            if standard_completion && !listing_mode && !repeated_unmodified_completion {
                 self.ding()?;
             }
-            if self.flag(BoolVariable::ShowAllIfAmbiguous)
-                || (self.flag(BoolVariable::ShowAllIfUnmodified) && unmodified_after_prefix)
-                || (repeated_unmodified_completion && unmodified_after_prefix)
-            {
+            if should_display {
                 self.display_completions_for_word(state, &response, edit.matching_word())?;
             }
             state.completion.last_attempt = Some(CompletionAttemptState {

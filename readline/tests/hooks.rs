@@ -2444,3 +2444,85 @@ fn reopened_segment_scopes_builtin_directory_fallbacks() {
         assert!(hooks.called, "{kind}");
     }
 }
+
+#[test]
+fn fullquote_only_changes_quoted_match_listing_for_ordinary_quotes() {
+    struct QuotedMatchHook {
+        fullquote: bool,
+        expected_line: Vec<u8>,
+        called: bool,
+    }
+
+    impl Hooks for QuotedMatchHook {
+        fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
+            assert_eq!(request.context.line, self.expected_line);
+            self.called = true;
+            Some(CompletionResponse {
+                candidates: vec![
+                    CompletionCandidate {
+                        replacement: b"ab".to_vec(),
+                        display: None,
+                    },
+                    CompletionCandidate {
+                        replacement: b"ac".to_vec(),
+                        display: None,
+                    },
+                ],
+                options: CompletionOptions {
+                    fullquote: self.fullquote,
+                    ..CompletionOptions::default()
+                },
+            })
+        }
+    }
+
+    let fixtures: &[(&[u8], bool, &[u8], bool)] = &[
+        (b"echo 'a'", false, b"echo 'a'", false),
+        (b"echo 'a'", true, b"echo a", true),
+        (b"echo $'\\x61'", false, b"echo $'\\x61'", false),
+        (b"echo $'\\x61'", true, b"echo $'\\x61'", false),
+    ];
+    for (input, fullquote, expected_line, displays_matches) in fixtures {
+        let mut events = input.to_vec();
+        events.extend_from_slice(b"\t\r");
+        let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(events)]);
+        let mut editor = Editor::new(Config::default(), terminal, History::new());
+        editor
+            .load_inputrc_str(
+                "set show-all-if-unmodified on\nset show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off",
+            )
+            .unwrap();
+        let mut hooks = QuotedMatchHook {
+            fullquote: *fullquote,
+            expected_line: input.to_vec(),
+            called: false,
+        };
+        let result = editor.read_line(Prompt::new("> "), &mut hooks).unwrap();
+        assert_eq!(
+            result,
+            ReadlineResult::Line(expected_line.to_vec()),
+            "fullquote={fullquote}, input={:?}",
+            String::from_utf8_lossy(input)
+        );
+        assert!(hooks.called);
+        for candidate in ["ab", "ac"] {
+            assert_eq!(
+                editor.terminal().out.contains(candidate),
+                *displays_matches,
+                "display for fullquote={fullquote}, input={:?}, candidate={candidate}",
+                String::from_utf8_lossy(input)
+            );
+        }
+        assert_eq!(
+            editor
+                .terminal()
+                .out
+                .bytes()
+                .filter(|byte| *byte == b'\x07')
+                .count(),
+            0,
+            "fullquote={fullquote}, input={:?}",
+            String::from_utf8_lossy(input)
+        );
+    }
+}

@@ -1662,6 +1662,59 @@ fn bash_closed_ansi_c_safe_candidate_without_filename_option_is_unquoted() {
 
 #[cfg(unix)]
 #[test]
+fn bash_fullquote_only_changes_quoted_match_listing_for_ordinary_quotes() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("cwd");
+    fs::create_dir(&cwd).unwrap();
+    let inputrc =
+        "set show-all-if-unmodified on\nset show-all-if-ambiguous off\nset page-completions off";
+    let fixtures: &[(&[u8], &str, &[u8], bool)] = &[
+        (b"echo 'a'\t\x07", "", b"echo 'a'", false),
+        (b"echo 'a'\t\x07", "-o fullquote", b"echo a", true),
+        (b"echo $'\\x61'\t\x07", "", b"echo $'\\x61'", false),
+        (
+            b"echo $'\\x61'\t\x07",
+            "-o fullquote",
+            b"echo $'\\x61'",
+            false,
+        ),
+    ];
+
+    for (input, options, expected_line, displays_matches) in fixtures {
+        let bash = run_bash_programmable_completion_in_dir(
+            input,
+            inputrc,
+            options,
+            Some("ab\x1fac"),
+            &cwd,
+        );
+        assert!(
+            bash.windows(b"BASH_COMPLETION_INVOKED:1".len())
+                .any(|window| window == b"BASH_COMPLETION_INVOKED:1"),
+            "Bash completion callback was not invoked for options={options}"
+        );
+        assert_eq!(
+            bash_line_buffer_bytes(&bash),
+            *expected_line,
+            "options={options}, input={:?}",
+            String::from_utf8_lossy(input)
+        );
+        assert_eq!(raw_bell_count(&bash), 0, "options={options}");
+        for candidate in [b"ab".as_slice(), b"ac".as_slice()] {
+            assert_eq!(
+                bash.windows(candidate.len())
+                    .any(|window| window == candidate),
+                *displays_matches,
+                "display for options={options}, input={:?}, candidate={:?}",
+                String::from_utf8_lossy(input),
+                String::from_utf8_lossy(candidate)
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn initial_open_double_quote_common_prefix_matches_bash_5_3() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;
@@ -2681,6 +2734,8 @@ fn bash_readline_and_sushline_show_all_for_tested_ambiguous_and_unmodified_filen
         let typed = format!("{}/{prefix}", dir.path().display());
         let keys = format!("{typed}\x0f\r");
         let expected = format!("{}/{expected_line}", dir.path().display());
+        let expected_bells =
+            usize::from(show_all_if_ambiguous == "off" && show_all_if_unmodified == "off");
         let bash = run_bash_readline_with_inputrc_file(keys.as_bytes(), &inputrc);
         let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), &inputrc);
 
@@ -2689,6 +2744,11 @@ fn bash_readline_and_sushline_show_all_for_tested_ambiguous_and_unmodified_filen
                 accepted_line(output),
                 Some(expected.clone()),
                 "prefix={prefix:?}, show-all-if-ambiguous={show_all_if_ambiguous}, show-all-if-unmodified={show_all_if_unmodified}, implementation={implementation}\n{output}"
+            );
+            assert_eq!(
+                raw_bell_count(output.as_bytes()),
+                expected_bells,
+                "bells for prefix={prefix:?}, show-all-if-ambiguous={show_all_if_ambiguous}, show-all-if-unmodified={show_all_if_unmodified}, implementation={implementation}\n{output}"
             );
             for candidate in ["alpha-one", "alpha-two"] {
                 assert_eq!(

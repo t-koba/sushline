@@ -251,6 +251,117 @@ fn ansi_c_filename_completion_obeys_hidden_file_rules_like_bash_5_3() {
 
 #[cfg(unix)]
 #[test]
+fn ansi_c_filename_completion_obeys_case_and_separator_mapping_like_bash_5_3() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    // Bash PTY runtime observations under C.UTF-8; X marks the cursor position
+    // after completion, not GNU source behavior.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let home = root.path().join("home");
+    fs::create_dir(&home).expect("create fixture HOME");
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("LC_ALL", "C.UTF-8"), ("HOME", home_path.as_str())];
+    struct Fixture<'a> {
+        name: &'a str,
+        candidate: &'a str,
+        prefix: &'a str,
+        ignore_case: bool,
+        map_case: bool,
+        expected: &'a [u8],
+        expected_bells: usize,
+    }
+    let fixtures = [
+        Fixture {
+            name: "case-insensitive",
+            candidate: "AlphaFile",
+            prefix: "alp",
+            ignore_case: true,
+            map_case: false,
+            expected: b"echo $'AlphaFile' X",
+            expected_bells: 0,
+        },
+        Fixture {
+            name: "mapped-separator",
+            candidate: "Alpha-DIR",
+            prefix: "alpha_d",
+            ignore_case: true,
+            map_case: true,
+            expected: b"echo $'Alpha-DIR' X",
+            expected_bells: 0,
+        },
+        Fixture {
+            name: "mapping-disabled",
+            candidate: "Alpha-DIR",
+            prefix: "alpha_d",
+            ignore_case: true,
+            map_case: false,
+            expected: b"echo $'alpha_dX",
+            expected_bells: 1,
+        },
+        Fixture {
+            name: "case-insensitive-disabled",
+            candidate: "Alpha-DIR",
+            prefix: "alpha_d",
+            ignore_case: false,
+            map_case: true,
+            expected: b"echo $'alpha_dX",
+            expected_bells: 1,
+        },
+    ];
+    for fixture in fixtures {
+        let cwd = root.path().join(fixture.name);
+        fs::create_dir(&cwd).expect("create fixture cwd");
+        fs::write(cwd.join(fixture.candidate), b"").expect("write fixture file");
+        let inputrc = format!(
+            "\"\\C-o\": complete-filename\nset completion-ignore-case {}\nset completion-map-case {}\nset mark-directories off\nset show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off",
+            if fixture.ignore_case { "on" } else { "off" },
+            if fixture.map_case { "on" } else { "off" }
+        );
+        let mut keys = format!("echo $'{}", fixture.prefix).into_bytes();
+        keys.extend_from_slice(b"\x0fX\r");
+        let bash = run_bash_readline_with_inputrc_file_and_env_in_dir(&keys, &inputrc, &env, &cwd);
+        let sushline =
+            run_sushline_harness_with_inputrc_and_env_in_dir(&keys, &inputrc, &env, &cwd);
+        let context = format!(
+            "{} (ignore_case={}, map_case={})",
+            fixture.name, fixture.ignore_case, fixture.map_case
+        );
+        let bash_line = accepted_line(&bash);
+        let sushline_line = accepted_line(&sushline);
+        assert_eq!(
+            bash_line.as_deref().map(str::as_bytes),
+            Some(fixture.expected),
+            "Bash bytes for {context}"
+        );
+        assert_eq!(
+            sushline_line.as_deref().map(str::as_bytes),
+            Some(fixture.expected),
+            "Sushline bytes for {context}"
+        );
+        let bash_cursor = bash_line
+            .as_deref()
+            .and_then(|line| line.as_bytes().iter().position(|byte| *byte == b'X'));
+        let sushline_cursor = sushline_line
+            .as_deref()
+            .and_then(|line| line.as_bytes().iter().position(|byte| *byte == b'X'));
+        assert_eq!(sushline_cursor, bash_cursor, "cursor for {context}");
+        assert_eq!(
+            bell_count(&bash),
+            fixture.expected_bells,
+            "Bash bells for {context}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            fixture.expected_bells,
+            "Sushline bells for {context}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn initial_open_double_quote_common_prefix_matches_bash_5_3() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;

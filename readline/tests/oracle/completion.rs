@@ -3108,6 +3108,153 @@ fn multi_candidate_consecutive_apostrophes_before_space_and_word_match_bash_5_3(
 
 #[cfg(unix)]
 #[test]
+fn reopened_single_quote_text_matches_bash_5_3() {
+    // Fixture-scoped Bash 5.3 runtime observations, not GNU source proof.
+    // X exposes both the exact spelling and point after ambiguous completion.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let cwd = root.path().join("cwd");
+    let home = root.path().join("home");
+    fs::create_dir(&cwd).expect("create fixture cwd");
+    fs::create_dir(&home).expect("create fixture HOME");
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+    for (fixture, names, expected) in [
+        (
+            "whole-word",
+            ["safe-one", "safe-two"],
+            b"echo 'sa'f'eX".as_slice(),
+        ),
+        (
+            "current-segment",
+            ["eagle-one", "eagle-two"],
+            b"echo 'sa'f'eagle-X".as_slice(),
+        ),
+    ] {
+        for name in names {
+            fs::write(cwd.join(name), b"").expect("write fixture file");
+        }
+        for command in ["complete", "complete-filename"] {
+            for skip_completed_text in ["off", "on"] {
+                let inputrc = format!(
+                    "\"\\C-o\": {command}\nset skip-completed-text {skip_completed_text}\nset show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off"
+                );
+                let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+                    &cwd,
+                    &inputrc,
+                    b"echo 'sa'f'e\x0fX\x07\r",
+                    b"echo 'sa'f'e\x0fX\r",
+                    "set +H",
+                    &env,
+                );
+                let bash_hex = raw_line_after_marker(&bash, b"BASH_READLINE_HEX:")
+                    .expect("Bash line-buffer marker");
+                let (pairs, remainder) = bash_hex.as_chunks::<2>();
+                assert!(remainder.is_empty(), "odd Bash hex marker");
+                let bash_bytes = pairs
+                    .iter()
+                    .map(|pair| {
+                        (hex_digit(pair[0]).expect("Bash hex digit") << 4)
+                            | hex_digit(pair[1]).expect("Bash hex digit")
+                    })
+                    .collect::<Vec<_>>();
+                let sushline_bytes =
+                    raw_accepted_hex(&sushline).expect("Sushline accepted-line marker");
+                let context =
+                    format!("{fixture}, {command}, skip-completed-text={skip_completed_text}");
+                assert_eq!(bash_bytes, expected, "Bash bytes and point for {context}");
+                assert_eq!(
+                    sushline_bytes, expected,
+                    "Sushline bytes and point for {context}"
+                );
+                assert_eq!(raw_bell_count(&bash), 1, "Bash bell for {context}");
+                assert_eq!(raw_bell_count(&sushline), 1, "Sushline bell for {context}");
+            }
+        }
+        for name in names {
+            fs::remove_file(cwd.join(name)).expect("remove fixture file");
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn reopened_single_quote_unique_and_path_cases_match_bash_5_3() {
+    // These additional active-segment cases were verified with Bash 5.3 PTYs.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let home = root.path().join("home");
+    fs::create_dir(&home).expect("create fixture HOME");
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+    let inputrc = "\"\\C-o\": complete\nset skip-completed-text off\nset show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off";
+    for (fixture, input, names, expected, bells) in [
+        (
+            "unique-current-segment",
+            b"echo 'sa'f'e".as_slice(),
+            &["eagle-one"][..],
+            b"echo 'sa'f'eagle-one' X".as_slice(),
+            0,
+        ),
+        (
+            "path-prefix-with-root-candidates",
+            b"echo 'sub/sa'f'e".as_slice(),
+            &["eagle-one", "eagle-two"][..],
+            b"echo 'sub/sa'f'eagle-X".as_slice(),
+            1,
+        ),
+        (
+            "path-prefix-with-subdirectory-candidates",
+            b"echo 'sub/sa'f'e".as_slice(),
+            &["sub/safe-one", "sub/safe-two"][..],
+            b"echo 'sub/sa'f'eX".as_slice(),
+            1,
+        ),
+    ] {
+        let cwd = root.path().join(fixture);
+        fs::create_dir(&cwd).expect("create fixture cwd");
+        for name in names.iter().copied() {
+            let path = cwd.join(name);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).expect("create candidate parent");
+            }
+            fs::write(path, b"").expect("write fixture file");
+        }
+        let mut bash_keys = input.to_vec();
+        let mut sushline_keys = bash_keys.clone();
+        bash_keys.extend_from_slice(b"\x0fX\x07\r");
+        sushline_keys.extend_from_slice(b"\x0fX\r");
+        let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
+            &cwd,
+            inputrc,
+            &bash_keys,
+            &sushline_keys,
+            "set +H",
+            &env,
+        );
+        let bash_hex =
+            raw_line_after_marker(&bash, b"BASH_READLINE_HEX:").expect("Bash line marker");
+        let (pairs, remainder) = bash_hex.as_chunks::<2>();
+        assert!(remainder.is_empty(), "odd Bash line marker");
+        let bash_bytes = pairs
+            .iter()
+            .map(|pair| {
+                (hex_digit(pair[0]).expect("Bash hex digit") << 4)
+                    | hex_digit(pair[1]).expect("Bash hex digit")
+            })
+            .collect::<Vec<_>>();
+        let sushline_bytes = raw_accepted_hex(&sushline).expect("Sushline accepted-line marker");
+        assert_eq!(bash_bytes, expected, "Bash bytes for {fixture}");
+        assert_eq!(sushline_bytes, expected, "Sushline bytes for {fixture}");
+        assert_eq!(raw_bell_count(&bash), bells, "Bash bells for {fixture}");
+        assert_eq!(
+            raw_bell_count(&sushline),
+            bells,
+            "Sushline bells for {fixture}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn single_quote_apostrophe_escape_cursor_boundaries_match_bash_5_3() {
     // Fixture-scoped Bash 5.3 runtime comparison, not GNU source proof.
     // Exercise every byte boundary through the two apostrophe escapes and their

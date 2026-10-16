@@ -198,7 +198,7 @@ fn default_completion_leaves_application_context_to_hook() {
     }
     let mut hooks = CompletionApplicationHook;
     let mut line = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
-    let command_response = line.default_completion(
+    let (command_response, _) = line.default_completion(
         &CompletionRequest {
             context: CompletionContext {
                 line: b"sushline-c".to_vec(),
@@ -211,6 +211,7 @@ fn default_completion_leaves_application_context_to_hook() {
             },
         },
         &mut hooks,
+        None,
     );
     assert_eq!(
         command_response.candidates[0].replacement.as_slice(),
@@ -219,7 +220,7 @@ fn default_completion_leaves_application_context_to_hook() {
 
     let mut line = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
     let filename_word = format!("{}/alp", dir.path().display());
-    let filename_response = line.default_completion(
+    let (filename_response, _) = line.default_completion(
         &CompletionRequest {
             context: CompletionContext {
                 line: filename_word.as_bytes().to_vec(),
@@ -232,6 +233,7 @@ fn default_completion_leaves_application_context_to_hook() {
             },
         },
         &mut (),
+        None,
     );
     assert!(
         filename_response
@@ -239,7 +241,7 @@ fn default_completion_leaves_application_context_to_hook() {
             .iter()
             .any(|candidate| candidate.replacement.ends_with(b"alpha-file"))
     );
-    let bare_response = line.default_completion(
+    let (bare_response, _) = line.default_completion(
         &CompletionRequest {
             context: CompletionContext {
                 line: b"sudo sushline-c".to_vec(),
@@ -252,6 +254,7 @@ fn default_completion_leaves_application_context_to_hook() {
             },
         },
         &mut (),
+        None,
     );
     assert!(
         !bare_response

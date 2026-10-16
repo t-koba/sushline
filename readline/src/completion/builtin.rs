@@ -4,7 +4,8 @@ use crate::completion::filename::{
     os_str_to_completion_bytes, path_from_bytes, split_word_path_bytes,
 };
 use crate::completion::{
-    CompletionCandidate, CompletionOptions, CompletionRequest, CompletionResponse,
+    CompletionCandidate, CompletionContext, CompletionOptions, CompletionRequest,
+    CompletionResponse,
 };
 use crate::hooks::Hooks;
 use crate::variables::Variables;
@@ -59,13 +60,17 @@ pub(super) fn default_application_completion(
     request: &CompletionRequest,
     hooks: &mut impl Hooks,
     variables: &Variables,
-) -> CompletionResponse {
+    filename_context: &CompletionContext,
+) -> (CompletionResponse, bool) {
     if let Some(response) = hooks.default_complete(request) {
-        return response;
+        return (response, false);
     }
-    complete_filenames_in_context(
-        &request.context,
-        &FilenameOptions::from_variables(variables),
+    (
+        complete_filenames_in_context(
+            filename_context,
+            &FilenameOptions::from_variables(variables),
+        ),
+        true,
     )
 }
 

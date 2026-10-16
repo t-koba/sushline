@@ -9,6 +9,41 @@ pub(crate) struct CompletionEdit {
     pub(crate) ansi_c_quote: bool,
     pub(crate) line: Vec<u8>,
     pub(crate) point: usize,
+    // Built-in lookup may use a reopened segment, while callbacks and the
+    // replacement range continue to describe the entire original word.
+    pub(super) filename_segment: Option<FilenameSegment>,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct FilenameSegment {
+    pub(super) raw_start: usize,
+    pub(super) word_bytes: Vec<u8>,
+    pub(super) word_prefix: Vec<u8>,
+}
+
+impl CompletionEdit {
+    pub(super) fn matching_word(&self) -> &[u8] {
+        self.filename_segment
+            .as_ref()
+            .map_or(&self.word_bytes, |segment| &segment.word_bytes)
+    }
+
+    pub(super) fn reopened_filename_segment(&self) -> Option<FilenameSegment> {
+        if self.ansi_c_quote {
+            return None;
+        }
+        let raw = self.line.get(self.start..self.end)?;
+        let (_, quote, opening) = dequote_completion_word_with_opening(raw);
+        let opening = opening.filter(|opening| *opening > 0)?;
+        if quote != Some('\'') || opening + 1 == raw.len() {
+            return None;
+        }
+        Some(FilenameSegment {
+            raw_start: self.start + opening,
+            word_bytes: dequote_completion_word_bytes(&raw[opening..]).0,
+            word_prefix: dequote_completion_word_bytes(&raw[..opening]).0,
+        })
+    }
 }
 
 pub(super) fn completion_edit(
@@ -41,10 +76,16 @@ pub(super) fn completion_edit(
         ansi_c_quote,
         line: bytes.to_vec(),
         point: state.buffer.byte_point(),
+        filename_segment: None,
     }
 }
 
 pub(super) fn dequote_completion_word_bytes(raw: &[u8]) -> (Vec<u8>, Option<char>) {
+    let (word, quote, _) = dequote_completion_word_with_opening(raw);
+    (word, quote)
+}
+
+fn dequote_completion_word_with_opening(raw: &[u8]) -> (Vec<u8>, Option<char>, Option<usize>) {
     let ansi_c_quote = raw.starts_with(b"$'");
     let mut idx = if ansi_c_quote { 2 } else { 0 };
     // A plain single-quoted word can continue through unquoted escaped bytes
@@ -66,6 +107,7 @@ pub(super) fn dequote_completion_word_bytes(raw: &[u8]) -> (Vec<u8>, Option<char
             _ => None,
         }
     };
+    let mut opening = quote.map(|_| 0);
     let mut out = Vec::with_capacity(raw.len().saturating_sub(idx));
     let mut escaped = false;
     while let Some(byte) = raw.get(idx).copied() {
@@ -90,11 +132,13 @@ pub(super) fn dequote_completion_word_bytes(raw: &[u8]) -> (Vec<u8>, Option<char
         if quote == Some(byte as char) {
             if track_quote_transitions {
                 quote = None;
+                opening = None;
             }
             continue;
         }
         if track_quote_transitions && quote.is_none() && matches!(byte, b'\'' | b'"') {
             quote = Some(byte as char);
+            opening = Some(idx - 1);
             continue;
         }
         out.push(byte);
@@ -105,7 +149,7 @@ pub(super) fn dequote_completion_word_bytes(raw: &[u8]) -> (Vec<u8>, Option<char
     if escaped && !track_quote_transitions {
         out.push(b'\\');
     }
-    (out, quote)
+    (out, quote, opening)
 }
 pub(super) fn quote_filename_bytes(
     bytes: &[u8],

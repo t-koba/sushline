@@ -15,8 +15,9 @@ where
         key: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<(), ReadlineError> {
-        let edit = self.completion_edit(state, hooks);
-        let response = self.completion_response(state, key, CompletionType::Complete, &edit, hooks);
+        let mut edit = self.completion_edit(state, hooks);
+        let response =
+            self.completion_response(state, key, CompletionType::Complete, &mut edit, hooks);
         let mut matches = Vec::new();
         if response.candidates.len() > 1
             && let Some(prefix) = common_prefix_bytes(&response.candidates)

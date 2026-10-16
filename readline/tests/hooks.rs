@@ -282,3 +282,148 @@ fn glob_expand_uses_byte_patterns() {
     let result = line.read_line(Prompt::new("> "), &mut GlobHook).unwrap();
     assert_eq!(result, ReadlineResult::Line(b"pre\xff-match".to_vec()));
 }
+
+#[test]
+fn reopened_filename_segment_preserves_full_callback_context_and_quote_override() {
+    struct SegmentHook {
+        line: Vec<u8>,
+        word: Vec<u8>,
+        value: Vec<u8>,
+        override_quote: bool,
+        saw_complete: bool,
+        saw_default: bool,
+        saw_quote: bool,
+    }
+
+    impl SegmentHook {
+        fn check_request(&self, request: &CompletionRequest) {
+            assert_eq!(request.context.line, self.line);
+            assert_eq!(request.context.point, self.line.len());
+            assert_eq!(request.context.word_start, 5);
+            assert_eq!(request.context.word_end, self.line.len());
+            assert_eq!(request.context.word, self.word);
+        }
+    }
+
+    impl Hooks for SegmentHook {
+        fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
+            self.check_request(&request);
+            self.saw_complete = true;
+            None
+        }
+
+        fn default_complete(&mut self, request: &CompletionRequest) -> Option<CompletionResponse> {
+            self.check_request(request);
+            self.saw_default = true;
+            None
+        }
+
+        fn quote_completion(&mut self, context: QuoteContext<'_>) -> Option<Vec<u8>> {
+            assert_eq!(context.line, self.line);
+            assert_eq!(context.point, self.line.len());
+            assert_eq!(context.word_start, 5);
+            assert_eq!(context.word_end, self.line.len());
+            assert_eq!(context.word, self.word);
+            assert_eq!(context.quote, Some('\''));
+            assert_eq!(context.value, self.value);
+            self.saw_quote = true;
+            self.override_quote.then(|| b"hook quoted".to_vec())
+        }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    for name in ["eagle-one", "eagle-two"] {
+        std::fs::write(dir.path().join(name), b"").unwrap();
+    }
+    let segment = format!("{}/e", dir.path().display());
+    let input = format!("echo 'sa'f'{segment}").into_bytes();
+    for command in ["complete", "complete-filename"] {
+        for override_quote in [false, true] {
+            let terminal = MemoryTerminal::with_events(vec![
+                TerminalEvent::Bytes(input.clone()),
+                TerminalEvent::Bytes(b"\x0fX\r".to_vec()),
+            ]);
+            let mut line = Editor::new(Config::default(), terminal, History::new());
+            line.load_inputrc_str(&format!("\"\\C-o\": {command}"))
+                .unwrap();
+            let mut hooks = SegmentHook {
+                line: input.clone(),
+                word: format!("saf{segment}").into_bytes(),
+                value: format!("saf{segment}agle-").into_bytes(),
+                override_quote,
+                saw_complete: false,
+                saw_default: false,
+                saw_quote: false,
+            };
+            let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+            let expected = if override_quote {
+                b"echo hook quotedX".to_vec()
+            } else {
+                format!("echo 'sa'f'{segment}agle-X").into_bytes()
+            };
+            assert_eq!(result, ReadlineResult::Line(expected));
+            assert!(hooks.saw_complete && hooks.saw_quote);
+            assert_eq!(hooks.saw_default, command == "complete");
+        }
+    }
+}
+
+#[test]
+fn reopened_quote_does_not_rescope_application_completion_candidates() {
+    struct ApplicationHook {
+        use_default: bool,
+    }
+
+    impl ApplicationHook {
+        fn response(&self, request: &CompletionRequest) -> CompletionResponse {
+            assert_eq!(request.context.line, b"echo 'sa'f'e");
+            assert_eq!(request.context.point, 12);
+            assert_eq!(request.context.word_start, 5);
+            assert_eq!(request.context.word_end, 12);
+            assert_eq!(request.context.word, b"safe");
+            CompletionResponse {
+                candidates: vec![
+                    CompletionCandidate {
+                        replacement: b"safe-one".to_vec(),
+                        display: None,
+                    },
+                    CompletionCandidate {
+                        replacement: b"safe-two".to_vec(),
+                        display: None,
+                    },
+                ],
+                options: CompletionOptions {
+                    filenames: true,
+                    ..Default::default()
+                },
+            }
+        }
+    }
+
+    impl Hooks for ApplicationHook {
+        fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
+            (!self.use_default).then(|| self.response(&request))
+        }
+
+        fn default_complete(&mut self, request: &CompletionRequest) -> Option<CompletionResponse> {
+            assert!(self.use_default);
+            Some(self.response(request))
+        }
+
+        fn quote_completion(&mut self, context: QuoteContext<'_>) -> Option<Vec<u8>> {
+            assert_eq!(context.word, b"safe");
+            assert_eq!(context.value, b"safe-");
+            None
+        }
+    }
+
+    for use_default in [false, true] {
+        let terminal =
+            MemoryTerminal::with_events(vec![TerminalEvent::Bytes(b"echo 'sa'f'e\tX\r".to_vec())]);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        let result = line
+            .read_line(Prompt::new("> "), &mut ApplicationHook { use_default })
+            .unwrap();
+        assert_eq!(result, ReadlineResult::Line(b"echo 'safe-'X".to_vec()));
+    }
+}

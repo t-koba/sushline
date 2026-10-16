@@ -151,6 +151,29 @@ with `skip-completed-text` off and on, completing and inserting `X` yields
 `echo safe\'\'X\''' rest` in both Bash and Sushline. This is runtime evidence for
 this fixture and cursor position, not source proof or a general shell-quoting claim.
 
+A separate exact-byte PTY regression (`reopened_single_quote_text_matches_bash_5_3`;
+Bash 5.3 runtime evidence `aadb3cd8037f4d73b8aeb1f0e935c4aa` and
+`643d89748ce64d53b30e68780b04d04a`, not GNU source proof) types
+`echo 'sa'f'e` with point at end, completes once, and inserts `X`. With only
+`safe-one` and `safe-two` present, both editors accept unchanged `echo 'sa'f'eX`;
+with only `eagle-one` and `eagle-two`, both accept `echo 'sa'f'eagle-X`.
+Each emits one bell under both `complete` and `complete-filename`, with
+`skip-completed-text` off and on. These built-in filename-completion fixtures
+support matching the active reopened segment `e`, preserving the preceding raw
+quote segments, and leaving the active quote open after ambiguous insertion.
+They do not establish behavior for other quoting forms or commands. Application
+completion callbacks retain their full-word context and replacement semantics;
+the internal segment scope applies only when the built-in provider is selected.
+
+A separate exact-byte PTY regression (`reopened_single_quote_unique_and_path_cases_match_bash_5_3`;
+Bash 5.3 runtime records `cef7fd68b0eb454bb9fbb6ad43820d1f` and
+`fce3b630c0a040ae8bece5d1b53b2a05`, not GNU source proof) checks a unique
+`eagle-one` candidate and a `sub/` prefix. The unique candidate closes the
+active quote and adds a separating space; with a `sub/` prefix, root-level
+`eagle-*` files complete the active segment, while only `sub/safe-*` files leave
+it unchanged. These extra fixtures use `complete` with `skip-completed-text`
+off and do not establish behavior for other completion commands.
+
 ### Miscellaneous Commands
 
 | Command(s) | Status | Notes |

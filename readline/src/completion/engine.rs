@@ -52,8 +52,14 @@ where
             return Ok(());
         }
 
-        let edit = self.completion_edit(state, hooks);
-        let response = self.completion_response(state, key, completion_type, &edit, hooks);
+        let mut edit = self.completion_edit(state, hooks);
+        if matches!(
+            completion_type,
+            CompletionType::Complete | CompletionType::Filename
+        ) {
+            edit.filename_segment = edit.reopened_filename_segment();
+        }
+        let response = self.completion_response(state, key, completion_type, &mut edit, hooks);
         match completion_type {
             CompletionType::PossibleCompletions
             | CompletionType::PossibleCommandCompletions
@@ -129,9 +135,12 @@ where
         state: &EditorState,
         key: &[u8],
         completion_type: CompletionType,
-        edit: &CompletionEdit,
+        edit: &mut CompletionEdit,
         hooks: &mut impl Hooks,
     ) -> CompletionResponse {
+        // Keep the proposed built-in scope only if neither application callback
+        // supplies a response. Their requests always describe the original word.
+        let segment = edit.filename_segment.take();
         let request = CompletionRequest {
             context: CompletionContext {
                 line: state.buffer.as_bytes().to_vec(),
@@ -144,7 +153,17 @@ where
             },
         };
         let Some(mut response) = hooks.complete(request.clone()) else {
-            return self.default_completion(&request, hooks);
+            let mut filename_context = request.context.clone();
+            if let Some(segment) = &segment {
+                filename_context.word_start = segment.raw_start;
+                filename_context.word = segment.word_bytes.clone();
+            }
+            let (response, builtin_filenames) =
+                self.default_completion(&request, hooks, Some(&filename_context));
+            if builtin_filenames {
+                edit.filename_segment = segment;
+            }
+            return response;
         };
         if response.candidates.is_empty()
             && (response.options.bashdefault
@@ -209,12 +228,17 @@ where
             .map(|bytes| crate::buffer::bytes_decoded_lossless(&bytes))
     }
 
+    // The boolean identifies the built-in filename provider, not merely a
+    // response whose candidates an application marked as filenames.
     pub(crate) fn default_completion(
         &mut self,
         request: &CompletionRequest,
         hooks: &mut impl Hooks,
-    ) -> CompletionResponse {
+        filename_context: Option<&CompletionContext>,
+    ) -> (CompletionResponse, bool) {
         let kind = request.context.completion_type;
+        let filename_context = filename_context.unwrap_or(&request.context);
+        let mut builtin_filenames = false;
         let mut response = match kind {
             CompletionType::Command | CompletionType::PossibleCommandCompletions => {
                 complete_commands_with_hooks_bytes(&request.context.word, hooks)
@@ -226,14 +250,22 @@ where
                 complete_variables(&request.context.word, hooks)
             }
             CompletionType::Filename | CompletionType::PossibleFilenameCompletions => {
-                complete_filenames_in_context(&request.context, &self.filename_options())
+                builtin_filenames = true;
+                complete_filenames_in_context(filename_context, &self.filename_options())
             }
             CompletionType::Complete
             | CompletionType::MenuComplete
             | CompletionType::MenuCompleteBackward
             | CompletionType::InsertCompletions
             | CompletionType::PossibleCompletions => {
-                default_application_completion(request, hooks, &self.variables)
+                let (response, filenames) = default_application_completion(
+                    request,
+                    hooks,
+                    &self.variables,
+                    filename_context,
+                );
+                builtin_filenames = filenames;
+                response
             }
             CompletionType::GlobCompleteWord
             | CompletionType::GlobExpandWord
@@ -247,6 +279,6 @@ where
             CompletionType::ViComplete => unreachable!("vi-complete is normalized before dispatch"),
         };
         sort_completion_response(&mut response);
-        response
+        (response, builtin_filenames)
     }
 }

@@ -186,7 +186,7 @@ where
             return Ok(());
         }
         if response.options.action == Some(CompletionAction::DisplayOnly) {
-            self.display_completions_for_word(state, &response, &edit.word_bytes)?;
+            self.display_completions_for_word(state, &response, edit.matching_word())?;
             return Ok(());
         }
         let raw_word = edit.line.get(edit.start..edit.end).unwrap_or_default();
@@ -221,11 +221,13 @@ where
                 && response.options.quote_filename()
                 && filename_candidate_prefix_len(
                     candidate.replacement_bytes(),
-                    &edit.word_bytes,
+                    edit.matching_word(),
                     &self.filename_options(),
                 )
                 .is_some()
-                && !candidate.replacement_bytes().starts_with(&edit.word_bytes);
+                && !candidate
+                    .replacement_bytes()
+                    .starts_with(edit.matching_word());
             let mut ansi_c_suffix_overlap = if skip_completed_text
                 && ansi_c_filename_completion
                 && !filename_case_insensitive_prefix_only_match
@@ -423,11 +425,11 @@ where
                     if response.options.filenames {
                         let overlap = filename_candidate_prefix_len(
                             &common_prefix,
-                            &edit.word_bytes,
+                            edit.matching_word(),
                             &self.filename_options(),
                         )
                         .filter(|prefix_len| {
-                            common_prefix.get(..*prefix_len) == Some(edit.word_bytes.as_slice())
+                            common_prefix.get(..*prefix_len) == Some(edit.matching_word())
                         })
                         .map(|prefix_len| {
                             let completion_suffix =
@@ -504,7 +506,7 @@ where
                 || (self.flag(BoolVariable::ShowAllIfUnmodified) && unmodified_after_prefix)
                 || (repeated_unmodified_completion && unmodified_after_prefix)
             {
-                self.display_completions_for_word(state, &response, &edit.word_bytes)?;
+                self.display_completions_for_word(state, &response, edit.matching_word())?;
             }
             state.completion.last_attempt = Some(CompletionAttemptState {
                 completion_type,
@@ -523,8 +525,9 @@ where
         key: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<(), ReadlineError> {
-        let edit = self.completion_edit(state, hooks);
-        let response = self.completion_response(state, key, CompletionType::Complete, &edit, hooks);
+        let mut edit = self.completion_edit(state, hooks);
+        let response =
+            self.completion_response(state, key, CompletionType::Complete, &mut edit, hooks);
         if response.candidates.is_empty() {
             self.ding()?;
             return Ok(());
@@ -604,8 +607,15 @@ where
         options: RequoteOptions,
         hooks: &mut impl Hooks,
     ) -> Vec<u8> {
+        // Quote hooks still replace the full callback word. Present a full
+        // semantic value, not the built-in provider's segment-relative candidate.
+        let full_value = edit.filename_segment.as_ref().map(|segment| {
+            let mut full = segment.word_prefix.clone();
+            full.extend_from_slice(value);
+            full
+        });
         if let Some(quoted) = hooks.quote_completion(QuoteContext {
-            value,
+            value: full_value.as_deref().unwrap_or(value),
             line: &edit.line,
             point: edit.point,
             word_start: edit.start,
@@ -617,11 +627,15 @@ where
         }) {
             return quoted;
         }
-        let raw_word = edit.line.get(edit.start..edit.end).unwrap_or_default();
+        let raw_start = edit
+            .filename_segment
+            .as_ref()
+            .map_or(edit.start, |segment| segment.raw_start);
+        let raw_word = edit.line.get(raw_start..edit.end).unwrap_or_default();
         let is_unescaped_named_user_path =
-            is_named_user_tilde_path(&edit.word_bytes) && !raw_word.starts_with(b"\\~");
+            is_named_user_tilde_path(edit.matching_word()) && !raw_word.starts_with(b"\\~");
         let escape_leading_tilde = options.filename_candidates
-            && !edit.word_bytes.starts_with(b"~/")
+            && !edit.matching_word().starts_with(b"~/")
             && !is_unescaped_named_user_path
             && matches!(
                 completion_type,
@@ -641,7 +655,7 @@ where
             options.filename_candidates && starts_shell_word && value.first() == Some(&b'#');
         // Preserve Bash's backslash-LF spelling for an unexpanded `~/` path.
         let single_quote_line_feeds = !(raw_word.starts_with(b"~/") && value.starts_with(b"~/"));
-        match edit.quote {
+        let replacement = match edit.quote {
             Some('\'')
                 if edit.ansi_c_quote && options.filename_candidates && options.quote_filename =>
             {
@@ -700,6 +714,13 @@ where
                 single_quote_line_feeds,
             ),
             _ => value.to_vec(),
+        };
+        if edit.filename_segment.is_some() {
+            let mut full = edit.line[edit.start..raw_start].to_vec();
+            full.extend_from_slice(&replacement);
+            full
+        } else {
+            replacement
         }
     }
 
@@ -730,7 +751,8 @@ where
                 quote_filename: response.options.quote_filename(),
                 filename_candidates: response.options.filenames,
                 // Bash leaves an ANSI-C quote open after ambiguous common-prefix insertion.
-                close_quote: true,
+                // In the measured reopened-segment case Bash leaves it open.
+                close_quote: edit.filename_segment.is_none(),
                 close_ansi_c_quote: false,
                 slash_after_quote: false,
             },
@@ -750,7 +772,7 @@ where
     ) -> CompletionReplacement {
         let filename_directory = if response.options.filenames {
             filename_directory_completion(
-                &edit.word_bytes,
+                edit.matching_word(),
                 candidate.replacement_bytes(),
                 &self.filename_options(),
             )

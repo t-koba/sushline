@@ -2149,3 +2149,27 @@ fn bash_readline_and_sushline_yank_nth_arg_out_of_range_rings_like_bash() {
         assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_yank_nth_arg_negative_rings_like_bash() {
+    // An explicitly negative word number rings instead of yanking in the
+    // tested Bash 5.3 PTY fixtures; only the default (no argument) means the
+    // last word. Runtime observation, not GNU source proof.
+    let inputrc = "\"\\C-o\": yank-nth-arg";
+    let history = ["cmd one two"];
+    for (desc, keys) in [
+        ("neg1", b"\x1b-\x1b1\x0f\r".as_slice()),
+        ("neg2", b"\x1b-\x1b2\x0f\r".as_slice()),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+        assert_eq!(accepted_line(&bash), Some(String::new()), "{desc}: {bash}");
+        assert_eq!(bell_count(&bash), 1, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), 1, "{desc}: {sushline}");
+    }
+}

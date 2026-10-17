@@ -169,7 +169,13 @@ where
             "yank-nth-arg" => {
                 state.record_undo();
                 let n = state.numeric_arg.take().unwrap_or(1);
-                self.yank_history_arg(state, Some(n), hooks, false)?;
+                // GNU rings for an explicitly negative word number (tested
+                // M-- M-1 and M-- M-2); only non-negative numbers yank.
+                if n < 0 {
+                    self.ding()?;
+                } else {
+                    self.yank_history_arg(state, Some(n), hooks, false)?;
+                }
                 state.after_non_kill_command();
             }
             "vi-yank-arg" => {

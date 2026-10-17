@@ -31,30 +31,59 @@ where
             }
             EditCommand::HistorySearchBackward => {
                 let prefix = state.buffer.range_bytes(0, state.buffer.point());
-                let current = state.buffer.as_bytes().to_vec();
                 let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
                 let locale_lowercase = self.search_locale_lowercase(ignore_case);
-                let count = state
-                    .numeric_arg
-                    .take()
-                    .map(|arg| arg.unsigned_abs() as usize)
-                    .unwrap_or(1);
-                let mut matched = false;
-                for _ in 0..count {
-                    if let Some(line) = history_prefix_backward_with_locale(
-                        &mut self.history,
-                        &prefix,
-                        current.clone(),
-                        ignore_case,
-                        locale_lowercase.as_ref(),
-                    ) {
-                        self.replace_from_history(state, &line);
-                        matched = true;
-                    } else {
-                        if !matched {
-                            self.ding()?;
+                let arg = state.numeric_arg.take().unwrap_or(1);
+                let count = arg.unsigned_abs() as usize;
+                if arg < 0 {
+                    let mut matched = false;
+                    for _ in 0..count {
+                        let before_buffer = state.buffer.clone();
+                        let before_pos = self.history.where_history();
+                        if let Some(line) = history_prefix_forward_with_locale(
+                            &mut self.history,
+                            &prefix,
+                            ignore_case,
+                            locale_lowercase.as_ref(),
+                        ) {
+                            // An excessive repeat past the newest entry restores the
+                            // saved edit; after prior successes in this command,
+                            // stay at the newest match instead (Bash 5.3 PTY).
+                            if matched
+                                && self.history.where_history() >= self.history.entries().len()
+                            {
+                                self.history.set_pos(before_pos);
+                                state.buffer = before_buffer;
+                                break;
+                            }
+                            self.replace_from_history(state, &line);
+                            matched = true;
+                        } else {
+                            if !matched {
+                                self.ding()?;
+                            }
+                            break;
                         }
-                        break;
+                    }
+                } else {
+                    let current = state.buffer.as_bytes().to_vec();
+                    let mut matched = false;
+                    for _ in 0..count {
+                        if let Some(line) = history_prefix_backward_with_locale(
+                            &mut self.history,
+                            &prefix,
+                            current.clone(),
+                            ignore_case,
+                            locale_lowercase.as_ref(),
+                        ) {
+                            self.replace_from_history(state, &line);
+                            matched = true;
+                        } else {
+                            if !matched {
+                                self.ding()?;
+                            }
+                            break;
+                        }
                     }
                 }
                 state.after_non_kill_command();
@@ -64,36 +93,57 @@ where
                 let prefix = state.buffer.range_bytes(0, state.buffer.point());
                 let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
                 let locale_lowercase = self.search_locale_lowercase(ignore_case);
-                let count = state
-                    .numeric_arg
-                    .take()
-                    .map(|arg| arg.unsigned_abs() as usize)
-                    .unwrap_or(1);
-                let mut matched = false;
-                for _ in 0..count {
-                    let before_buffer = state.buffer.clone();
-                    let before_pos = self.history.where_history();
-                    if let Some(line) = history_prefix_forward_with_locale(
-                        &mut self.history,
-                        &prefix,
-                        ignore_case,
-                        locale_lowercase.as_ref(),
-                    ) {
-                        // An excessive repeat past the newest entry restores the
-                        // saved edit; after prior successes in this command,
-                        // stay at the newest match instead (Bash 5.3 PTY).
-                        if matched && self.history.where_history() >= self.history.entries().len() {
-                            self.history.set_pos(before_pos);
-                            state.buffer = before_buffer;
+                let arg = state.numeric_arg.take().unwrap_or(1);
+                let count = arg.unsigned_abs() as usize;
+                if arg < 0 {
+                    let current = state.buffer.as_bytes().to_vec();
+                    let mut matched = false;
+                    for _ in 0..count {
+                        if let Some(line) = history_prefix_backward_with_locale(
+                            &mut self.history,
+                            &prefix,
+                            current.clone(),
+                            ignore_case,
+                            locale_lowercase.as_ref(),
+                        ) {
+                            self.replace_from_history(state, &line);
+                            matched = true;
+                        } else {
+                            if !matched {
+                                self.ding()?;
+                            }
                             break;
                         }
-                        self.replace_from_history(state, &line);
-                        matched = true;
-                    } else {
-                        if !matched {
-                            self.ding()?;
+                    }
+                } else {
+                    let mut matched = false;
+                    for _ in 0..count {
+                        let before_buffer = state.buffer.clone();
+                        let before_pos = self.history.where_history();
+                        if let Some(line) = history_prefix_forward_with_locale(
+                            &mut self.history,
+                            &prefix,
+                            ignore_case,
+                            locale_lowercase.as_ref(),
+                        ) {
+                            // An excessive repeat past the newest entry restores the
+                            // saved edit; after prior successes in this command,
+                            // stay at the newest match instead (Bash 5.3 PTY).
+                            if matched
+                                && self.history.where_history() >= self.history.entries().len()
+                            {
+                                self.history.set_pos(before_pos);
+                                state.buffer = before_buffer;
+                                break;
+                            }
+                            self.replace_from_history(state, &line);
+                            matched = true;
+                        } else {
+                            if !matched {
+                                self.ding()?;
+                            }
+                            break;
                         }
-                        break;
                     }
                 }
                 state.after_non_kill_command();
@@ -216,20 +266,28 @@ where
                 let current = state.buffer.as_bytes().to_vec();
                 let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
                 let locale_lowercase = self.search_locale_lowercase(ignore_case);
-                let count = state
-                    .numeric_arg
-                    .take()
-                    .map(|arg| arg.unsigned_abs() as usize)
-                    .unwrap_or(1);
+                let arg = state.numeric_arg.take().unwrap_or(1);
+                let count = arg.unsigned_abs() as usize;
                 let mut matched = false;
                 for _ in 0..count {
-                    if let Some(line) = history_substring_forward_with_locale(
-                        &mut self.history,
-                        &needle,
-                        current.clone(),
-                        ignore_case,
-                        locale_lowercase.as_ref(),
-                    ) {
+                    let found = if arg < 0 {
+                        history_substring_backward_with_locale(
+                            &mut self.history,
+                            &needle,
+                            current.clone(),
+                            ignore_case,
+                            locale_lowercase.as_ref(),
+                        )
+                    } else {
+                        history_substring_forward_with_locale(
+                            &mut self.history,
+                            &needle,
+                            current.clone(),
+                            ignore_case,
+                            locale_lowercase.as_ref(),
+                        )
+                    };
+                    if let Some(line) = found {
                         self.replace_from_history(state, &line);
                         matched = true;
                     } else {
@@ -246,20 +304,28 @@ where
                 let current = state.buffer.as_bytes().to_vec();
                 let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
                 let locale_lowercase = self.search_locale_lowercase(ignore_case);
-                let count = state
-                    .numeric_arg
-                    .take()
-                    .map(|arg| arg.unsigned_abs() as usize)
-                    .unwrap_or(1);
+                let arg = state.numeric_arg.take().unwrap_or(1);
+                let count = arg.unsigned_abs() as usize;
                 let mut matched = false;
                 for _ in 0..count {
-                    if let Some(line) = history_substring_backward_with_locale(
-                        &mut self.history,
-                        &needle,
-                        current.clone(),
-                        ignore_case,
-                        locale_lowercase.as_ref(),
-                    ) {
+                    let found = if arg < 0 {
+                        history_substring_forward_with_locale(
+                            &mut self.history,
+                            &needle,
+                            current.clone(),
+                            ignore_case,
+                            locale_lowercase.as_ref(),
+                        )
+                    } else {
+                        history_substring_backward_with_locale(
+                            &mut self.history,
+                            &needle,
+                            current.clone(),
+                            ignore_case,
+                            locale_lowercase.as_ref(),
+                        )
+                    };
+                    if let Some(line) = found {
                         self.replace_from_history(state, &line);
                         matched = true;
                     } else {

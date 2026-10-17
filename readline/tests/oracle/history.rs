@@ -1909,3 +1909,74 @@ fn history_navigation_search_excessive_count_stays_silent_like_bash() {
         assert_eq!(bell_count(&sushline), 0, "{desc}: {sushline}");
     }
 }
+
+#[test]
+fn history_navigation_search_negative_count_reverses_direction_like_bash() {
+    // A negative count runs the opposite direction's search in the tested
+    // Bash 5.3 PTY fixtures. Runtime observation, not GNU source proof.
+    for (desc, inputrc, keys, history, expected, bells) in [
+        (
+            "back_prefix_neg1_from_oldest_finds_newer",
+            "\"\\C-o\": history-search-backward",
+            b"\x10\x10\x10\x01\x0balpha\x1b-1\x0f\r".as_slice(),
+            &["alpha one", "alpha two", "alpha three"][..],
+            "alpha two",
+            0,
+        ),
+        (
+            "back_prefix_neg2_from_end_bells",
+            "\"\\C-o\": history-search-backward",
+            b"alpha\x1b-2\x0f\r".as_slice(),
+            &["alpha one", "alpha two", "alpha three"][..],
+            "alpha",
+            1,
+        ),
+        (
+            "back_substring_neg1_from_oldest_finds_newer",
+            "\"\\C-o\": history-substring-search-backward",
+            b"\x10\x10\x10\x01\x0balpha\x1b-1\x0f\r".as_slice(),
+            &["alpha one", "alpha two", "alpha three"][..],
+            "alpha two",
+            0,
+        ),
+        (
+            "back_substring_neg2_from_end_bells",
+            "\"\\C-o\": history-substring-search-backward",
+            b"alpha\x1b-2\x0f\r".as_slice(),
+            &["alpha one", "alpha two", "alpha three"][..],
+            "alpha",
+            1,
+        ),
+        (
+            "fwd_prefix_neg1_from_end_finds_newer",
+            "\"\\C-^\": history-search-forward",
+            b"alpha\x1b-1\x1e\r".as_slice(),
+            &["alpha one", "alpha two", "alpha three"][..],
+            "alpha three",
+            0,
+        ),
+        (
+            "fwd_substring_neg1_from_end_finds_newer",
+            "\"\\C-o\": history-substring-search-forward",
+            b"alpha\x1b-1\x0f\r".as_slice(),
+            &["alpha one", "alpha two", "alpha three"][..],
+            "alpha three",
+            0,
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, history);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
+    }
+}

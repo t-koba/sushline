@@ -123,7 +123,7 @@ sections; Sushline-only extensions are marked `Implementation-specific`.
 
 | Command(s) | Status | Notes |
 | --- | --- | --- |
-| `digit-argument`, `universal-argument` | Compatible | Editor/oracle cases. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
+| `digit-argument`, `universal-argument` | Compatible | Editor/oracle cases, including multi-digit chaining (tested `M-1 M-0` self-insert repeat). Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `start-kbd-macro`, `end-kbd-macro`, `call-last-kbd-macro` | Compatible | Replay and Editor-owned macro persistence across prompts. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `print-last-kbd-macro` | Compatible | Recorded macro output. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 

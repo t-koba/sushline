@@ -656,6 +656,30 @@ fn bash_readline_and_sushline_accept_same_numeric_self_insert() {
 }
 
 #[test]
+fn bash_readline_and_sushline_accept_same_multidigit_numeric_self_insert() {
+    // A multi-digit argument (M-1 M-0) repeats like the single-digit form in
+    // the tested Bash 5.3 PTY fixtures: the second meta-digit chains onto
+    // the pending argument instead of breaking dispatch. Runtime observation,
+    // not GNU source proof.
+    let keys = b"\x1b1\x1b0x\r";
+    let bash = run_bash_readline(keys);
+    let sushline = run_sushline_harness(keys);
+
+    assert_eq!(
+        accepted_line(&bash),
+        Some("xxxxxxxxxx".to_string()),
+        "{bash}"
+    );
+    assert_eq!(bell_count(&bash), 0, "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(bell_count(&sushline), 0, "{sushline}");
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_zero_numeric_self_insert() {
     let keys = b"\x1b0x\r";
     let bash = run_bash_readline(keys);

@@ -242,13 +242,17 @@ where
         bytes: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<Option<EditorOutcome>, ReadlineError> {
-        if state.numeric_arg.is_none() {
+        if state.numeric_arg.is_none() || !state.input.pending_key.is_empty() {
             return Ok(None);
         }
         // Fragmentation-invariant: a batched chunk may carry a digit run
         // plus the terminating sequence (e.g. `1\x1bl` after `M--`).
         // Consume the leading run digit-by-digit like the one-byte path,
         // then dispatch any remainder so batched and split reads agree.
+        // A buffered keymap prefix (e.g. a lone ESC awaiting its Meta
+        // partner after one-byte reads) owns the incoming bytes: stripping
+        // digits here would orphan the prefix and corrupt dispatch, so the
+        // continuation only runs with no prefix pending.
         let run = bytes
             .iter()
             .take_while(|byte| matches!(byte, b'0'..=b'9' | b'-'))

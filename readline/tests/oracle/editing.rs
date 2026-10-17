@@ -2120,3 +2120,36 @@ fn bash_readline_and_sushline_mark_bells_match_like_bash() {
     );
     assert_eq!(bell_count(&sushline), 1, "{sushline}");
 }
+
+#[test]
+fn bash_readline_and_sushline_backward_kill_word_matches_like_bash() {
+    // backward-kill-word stays silent with nothing behind point and kills
+    // the previous word otherwise in the tested Bash 5.3 PTY fixtures.
+    // Runtime observation, not GNU source proof.
+    for (desc, keys, expected, bells) in [
+        ("empty", b"\x1b\x7f\r".as_slice(), "", 0),
+        ("point0", b"ab cd\x01\x1b\x7f\r".as_slice(), "ab cd", 0),
+        (
+            "kills_word",
+            b"ab cd\x01\x06\x06\x06\x1b\x7f\r".as_slice(),
+            "cd",
+            0,
+        ),
+        ("kill_word_eol", b"abc\x1bd\r".as_slice(), "abc", 0),
+    ] {
+        let bash = run_bash_readline(keys);
+        let sushline = run_sushline_harness(keys);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
+    }
+}

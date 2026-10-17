@@ -117,7 +117,7 @@ sections; Sushline-only extensions are marked `Implementation-specific`.
 | `delete-horizontal-space` | Compatible | Tested editor cases. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `kill-region`, `copy-region-as-kill`, `copy-backward-word`, `copy-forward-word` | Compatible | Accepted-line behavior. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `yank` | Compatible | Includes Editor-owned kill-ring persistence across prompts. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
-| `yank-pop` | Compatible | Kill cycling. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
+| `yank-pop` | Compatible | Kill cycling; yanking with an empty ring rings once. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 
 ### Numeric Arguments And Macros
 

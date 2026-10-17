@@ -1946,3 +1946,24 @@ fn bash_readline_and_sushline_noop_kill_revert_ring_like_bash() {
         assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_empty_yank_rings_like_bash() {
+    // yank and yank-pop with nothing to yank ring once in the tested Bash
+    // 5.3 PTY fixtures. Runtime observation, not GNU source proof.
+    for (desc, keys) in [
+        ("yank_empty", b"\x19\r".as_slice()),
+        ("yankpop_empty", b"\x1by\r".as_slice()),
+    ] {
+        let bash = run_bash_readline(keys);
+        let sushline = run_sushline_harness(keys);
+        assert_eq!(accepted_line(&bash), Some(String::new()), "{desc}: {bash}");
+        assert_eq!(bell_count(&bash), 1, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), 1, "{desc}: {sushline}");
+    }
+}

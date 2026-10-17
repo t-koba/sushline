@@ -45,8 +45,20 @@ fn completion_sort_key(candidate: &CompletionCandidate) -> &[u8] {
 
 pub(crate) fn sort_completion_response(response: &mut CompletionResponse) {
     if !response.options.nosort {
+        // Filename display strings may include marker suffixes; sort the matched paths.
+        let filename_completion = response.options.filenames;
         response.candidates.sort_by(|a, b| {
-            compare_with_current_locale(completion_sort_key(a), completion_sort_key(b))
+            let a = if filename_completion {
+                a.replacement_bytes()
+            } else {
+                completion_sort_key(a)
+            };
+            let b = if filename_completion {
+                b.replacement_bytes()
+            } else {
+                completion_sort_key(b)
+            };
+            compare_with_current_locale(a, b)
         });
     }
     let mut seen = HashSet::new();

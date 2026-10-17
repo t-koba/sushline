@@ -2810,6 +2810,36 @@ fn bash_readline_and_sushline_list_completion_candidates_in_same_sorted_order() 
 
 #[cfg(unix)]
 #[test]
+fn filename_listing_sorts_raw_names_before_directory_markers() {
+    // The display spellings `a!dir/` and `a!dir!file` sort opposite to their raw paths.
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::create_dir(dir.path().join("a!dir")).expect("create directory candidate");
+    fs::write(dir.path().join("a!dir!file"), b"").expect("write file candidate");
+    let inputrc = "\"\\C-o\": possible-filename-completions\nset mark-directories on\nset completion-query-items 999\nset page-completions off";
+    let typed = format!("{}/\x0f\r", dir.path().display());
+    let env = [("LC_ALL", "C")];
+    let bash = run_bash_readline_with_inputrc_file_and_env_in_dir(
+        typed.as_bytes(),
+        inputrc,
+        &env,
+        dir.path(),
+    );
+    let sushline = run_sushline_harness_with_inputrc_and_env_in_dir(
+        typed.as_bytes(),
+        inputrc,
+        &env,
+        dir.path(),
+    );
+    let candidates = ["a!dir!file", "a!dir/"];
+    let bash_order = candidate_order(&bash, &candidates);
+    let sushline_order = candidate_order(&sushline, &candidates);
+
+    assert_eq!(bash_order, vec!["a!dir/", "a!dir!file"]);
+    assert_eq!(sushline_order, bash_order);
+}
+
+#[cfg(unix)]
+#[test]
 fn bash_readline_and_sushline_list_control_bytes_as_caret_tokens() {
     // Bash 5.3 PTY runtime record 78277e58dc6d49e1a12488aedb710cc2 measures
     // these isolated filename-list displays; this is not source proof.

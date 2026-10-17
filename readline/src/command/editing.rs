@@ -25,12 +25,18 @@ where
                                 killed.extend(part);
                             }
                         }
+                        if killed.is_empty() {
+                            self.ding()?;
+                        }
                         state.push_kill(killed, KillDirection::Forward, self.kill_append_allowed());
                     } else {
                         for _ in 0..count {
                             if let Some(part) = state.buffer.backward_delete_char_bytes() {
                                 killed.splice(0..0, part);
                             }
+                        }
+                        if killed.is_empty() {
+                            self.ding()?;
                         }
                         state.push_kill(
                             killed,
@@ -41,8 +47,10 @@ where
                 } else if state.overwrite_mode {
                     state.buffer.backward_replace_char_with_space();
                     state.after_non_kill_command();
+                } else if !state.buffer.backward_delete_char() {
+                    self.ding()?;
+                    state.after_non_kill_command();
                 } else {
-                    state.buffer.backward_delete_char();
                     state.after_non_kill_command();
                 }
                 Ok(EditorOutcome::Continue)
@@ -163,7 +171,9 @@ where
             EditCommand::TransposeChars => {
                 if state.numeric_arg.take().unwrap_or(1) >= 0 {
                     state.record_undo();
-                    state.buffer.transpose_chars();
+                    if !state.buffer.transpose_chars() {
+                        self.ding()?;
+                    }
                 }
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)

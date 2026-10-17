@@ -1753,3 +1753,36 @@ fn bash_readline_and_sushline_unix_discard_empty_line_rings() {
         assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_noop_deletions_ring_like_bash() {
+    // Backward delete, transpose, and word rubout with nothing to act on
+    // ring once in the tested Bash 5.3 PTY fixtures; successful edits stay
+    // silent. Runtime observation, not GNU source proof.
+    for (desc, keys, expected, bells) in [
+        ("bdel_empty", b"\x7f\r".as_slice(), "", 1),
+        ("bdel_point0", b"ab\x01\x7f\r".as_slice(), "ab", 1),
+        ("bdel_deletes", b"ab\x7f\r".as_slice(), "a", 0),
+        ("transpose_empty", b"\x14\r".as_slice(), "", 1),
+        ("transpose_point0", b"ab\x01\x14\r".as_slice(), "ab", 1),
+        ("transpose_swaps", b"ab\x14\r".as_slice(), "ba", 0),
+        ("wrubout_empty", b"\x17\r".as_slice(), "", 1),
+        ("wrubout_point0", b"ab\x01\x17\r".as_slice(), "ab", 1),
+        ("wrubout_rubs", b"ab\x17\r".as_slice(), "", 0),
+    ] {
+        let bash = run_bash_readline(keys);
+        let sushline = run_sushline_harness(keys);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
+    }
+}

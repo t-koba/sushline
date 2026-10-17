@@ -26,6 +26,9 @@ where
             EditCommand::UnixWordRubout => {
                 state.record_undo();
                 let killed = state.buffer.unix_word_rubout();
+                if killed.is_empty() {
+                    self.ding()?;
+                }
                 state.push_kill(killed, KillDirection::Backward, self.kill_append_allowed());
                 Ok(EditorOutcome::Continue)
             }

@@ -100,9 +100,9 @@ sections; Sushline-only extensions are marked `Implementation-specific`.
 
 | Command(s) | Status | Notes |
 | --- | --- | --- |
-| `end-of-file`, `delete-char`, `backward-delete-char`, `forward-backward-delete-char` | Compatible | Empty-input EOF and delete behavior. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
+| `end-of-file`, `delete-char`, `backward-delete-char`, `forward-backward-delete-char` | Compatible | Empty-input EOF and delete behavior; backward delete with nothing to delete rings once. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `quoted-insert`, `tab-insert`, `self-insert`, `bracketed-paste-begin` | Compatible | Literal insertion/paste; embedded TAB expands to next multiple-of-eight stop; a negative self-insert count inserts nothing. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs), [`oracle/display.rs`](readline/tests/oracle/display.rs). |
-| `transpose-chars`, `transpose-words` | Compatible | Tested editor cases. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
+| `transpose-chars`, `transpose-words` | Compatible | Tested editor cases; transpose with nothing to swap rings once. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `shell-transpose-words` | Hook-backed | Tested shell constructs; exact spans may come from hooks. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `upcase-word`, `downcase-word`, `capitalize-word` | Hook-backed | Numeric and tested word boundaries; custom classes use `Hooks::editing_word_breaks`. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `overwrite-mode` | Compatible | Editor tests. Tests: [`editing.rs`](readline/tests/editing.rs). |
@@ -112,7 +112,7 @@ sections; Sushline-only extensions are marked `Implementation-specific`.
 | Command(s) | Status | Notes |
 | --- | --- | --- |
 | `kill-line`, `backward-kill-line`, `unix-line-discard`, `kill-whole-line` | Compatible | Direction and numeric cases; `unix-line-discard` with nothing to kill rings once. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
-| `kill-word`, `backward-kill-word`, `unix-word-rubout`, `unix-filename-rubout` | Hook-backed | Tested numeric/rubout cases; custom classes use `Hooks::editing_word_breaks`. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
+| `kill-word`, `backward-kill-word`, `unix-word-rubout`, `unix-filename-rubout` | Hook-backed | Tested numeric/rubout cases; a rubout with nothing to kill rings once; custom classes use `Hooks::editing_word_breaks`. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `shell-kill-word`, `shell-backward-kill-word` | Hook-backed | Tested shell constructs; exact spans may come from hooks. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `delete-horizontal-space` | Compatible | Tested editor cases. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `kill-region`, `copy-region-as-kill`, `copy-backward-word`, `copy-forward-word` | Compatible | Accepted-line behavior. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |

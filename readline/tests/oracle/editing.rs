@@ -1995,3 +1995,28 @@ fn bash_readline_and_sushline_character_search_bells_like_bash() {
         assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_abort_rings_like_bash() {
+    // abort rings and preserves the line in the tested Bash 5.3 PTY
+    // fixtures. Runtime observation, not GNU source proof.
+    for (desc, keys, expected) in [
+        ("empty", b"\x07\r".as_slice(), ""),
+        ("with_text", b"abc\x07\r".as_slice(), "abc"),
+    ] {
+        let bash = run_bash_readline(keys);
+        let sushline = run_sushline_harness(keys);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 1, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), 1, "{desc}: {sushline}");
+    }
+}

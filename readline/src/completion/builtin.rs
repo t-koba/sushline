@@ -303,7 +303,7 @@ pub(crate) fn glob_complete_bytes(
     variables: &Variables,
 ) -> CompletionResponse {
     use crate::completion::filename::{
-        glob_match_bytes, os_str_to_completion_bytes, path_from_bytes,
+        glob_match_filename_bytes, os_str_to_completion_bytes, path_from_bytes,
     };
     if let Some(matches) = hooks.glob_expand(word) {
         return filename_matches_response(matches);
@@ -315,6 +315,7 @@ pub(crate) fn glob_complete_bytes(
     let Some(dir) = path_from_bytes(&dir_bytes) else {
         return filenames_response(Vec::new());
     };
+    let utf8_locale = variables.utf8_locale();
     let mut candidates = Vec::new();
     if let Ok(entries) = fs::read_dir(&dir) {
         for entry in entries.flatten() {
@@ -325,7 +326,7 @@ pub(crate) fn glob_complete_bytes(
             if pattern.first() != Some(&b'.') && name_bytes.first() == Some(&b'.') {
                 continue;
             }
-            if !glob_match_bytes(pattern, &name_bytes) {
+            if !glob_match_filename_bytes(pattern, &name_bytes, utf8_locale) {
                 continue;
             }
             let replacement = join_display_dir(&display_dir, &name_bytes);

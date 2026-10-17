@@ -2516,6 +2516,35 @@ fn bash_readline_and_sushline_complete_same_hidden_filename_cases() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn glob_complete_word_matches_one_utf8_character_under_utf8_locale() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::write(dir.path().join("éclair"), b"").expect("write UTF-8 filename");
+    let inputrc =
+        "\"\\C-o\": glob-complete-word\nset completion-query-items 999\nset page-completions off";
+    let typed = format!("{}/?clair\x0f\r", dir.path().display());
+    let env = [("LC_ALL", "C.UTF-8")];
+    let bash = run_bash_readline_with_inputrc_file_and_env_in_dir(
+        typed.as_bytes(),
+        inputrc,
+        &env,
+        dir.path(),
+    );
+    let sushline = run_sushline_harness_with_inputrc_and_env_in_dir(
+        typed.as_bytes(),
+        inputrc,
+        &env,
+        dir.path(),
+    );
+    let expected = Some(format!("{}/éclair ", dir.path().display()));
+
+    assert_eq!(accepted_line(&bash), expected);
+    assert_eq!(accepted_line(&sushline), expected);
+    assert_eq!(bell_count(&bash), 0);
+    assert_eq!(bell_count(&sushline), 0);
+}
+
 #[test]
 fn bash_readline_and_sushline_mark_directories_for_glob_completion_only() {
     let dir = tempfile::tempdir().expect("tempdir");

@@ -796,6 +796,16 @@ pub(crate) fn glob_match_bytes(pattern: &[u8], value: &[u8]) -> bool {
     }
 }
 
+pub(crate) fn glob_match_filename_bytes(pattern: &[u8], value: &[u8], utf8_locale: bool) -> bool {
+    // Use character matching for valid UTF-8 patterns and names in UTF-8 locales.
+    if utf8_locale
+        && let (Ok(pattern), Ok(value)) = (std::str::from_utf8(pattern), std::str::from_utf8(value))
+    {
+        return glob_match(pattern, value);
+    }
+    glob_match_bytes(pattern, value)
+}
+
 #[cfg_attr(not(unix), allow(dead_code))]
 fn match_bracket_class_bytes(pattern_after_open: &[u8], value: u8) -> Option<(bool, &[u8])> {
     let mut idx = 0;
@@ -1165,6 +1175,25 @@ mod tests {
             &[0xfe, b' ', b'a', b'l', b'p'],
             false,
             lowercase,
+        ));
+    }
+
+    #[test]
+    fn glob_matching_uses_utf8_characters_only_in_utf8_locales() {
+        assert!(super::glob_match_filename_bytes(
+            b"?clair",
+            "éclair".as_bytes(),
+            true,
+        ));
+        assert!(!super::glob_match_filename_bytes(
+            b"?clair",
+            "éclair".as_bytes(),
+            false,
+        ));
+        assert!(super::glob_match_filename_bytes(
+            b"pre\xff*",
+            b"pre\xff-match",
+            true,
         ));
     }
 

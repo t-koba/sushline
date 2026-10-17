@@ -1967,3 +1967,31 @@ fn bash_readline_and_sushline_empty_yank_rings_like_bash() {
         assert_eq!(bell_count(&sushline), 1, "{desc}: {sushline}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_character_search_bells_like_bash() {
+    // character-search with no match rings once in the tested Bash 5.3 PTY
+    // fixtures; a successful search stays silent. Runtime observation, not
+    // GNU source proof.
+    for (desc, keys, bells) in [
+        ("fwd_no_match", b"abc\x1dx\r".as_slice(), 1),
+        ("fwd_match", b"abc\x01\x1dc\r".as_slice(), 0),
+        ("bwd_no_match", b"abc\x01\x1b\x1dz\r".as_slice(), 1),
+        ("bwd_match", b"abc\x1b\x1da\r".as_slice(), 0),
+    ] {
+        let bash = run_bash_readline(keys);
+        let sushline = run_sushline_harness(keys);
+        assert_eq!(
+            accepted_line(&bash),
+            Some("abc".to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
+    }
+}

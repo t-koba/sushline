@@ -156,7 +156,7 @@ sections; Sushline-only extensions are marked `Implementation-specific`.
 | `shell-expand-line`, `spell-correct-word`, `edit-and-execute-command` | Hook-backed | Application services use hooks. Tests: [`bind_golden.rs`](readline/tests/bind_golden.rs). |
 | Application command bindings (`bind -x`) | Hook-backed | BindApi stores, queries, unbinds and prints; dispatch uses `Hooks::on_command`. Tests: [`bind_golden.rs`](readline/tests/bind_golden.rs). |
 | `tilde-expand` | Compatible | Current-word expansion, whitespace, assignment-like words and `~+`/`~-`. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
-| `character-search`, `character-search-backward` | Compatible | Tested editor cases. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
+| `character-search`, `character-search-backward` | Compatible | Tested editor cases; a search with no match rings once. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `insert-comment` | Compatible | Inserts/toggles `comment-begin` and accepts. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 
 ### Vi Command Names

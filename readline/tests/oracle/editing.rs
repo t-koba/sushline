@@ -680,6 +680,24 @@ fn bash_readline_and_sushline_accept_same_multidigit_numeric_self_insert() {
 }
 
 #[test]
+fn bash_readline_and_sushline_ignore_negative_numeric_self_insert() {
+    // A negative repeat count inserts nothing in the tested Bash 5.3 PTY
+    // fixtures. Runtime observation, not GNU source proof.
+    let keys = b"\x1b-\x1b1\x1b0x\r";
+    let bash = run_bash_readline(keys);
+    let sushline = run_sushline_harness(keys);
+
+    assert_eq!(accepted_line(&bash), Some(String::new()), "{bash}");
+    assert_eq!(bell_count(&bash), 0, "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(bell_count(&sushline), 0, "{sushline}");
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_zero_numeric_self_insert() {
     let keys = b"\x1b0x\r";
     let bash = run_bash_readline(keys);

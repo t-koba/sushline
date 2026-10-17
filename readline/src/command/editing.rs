@@ -113,7 +113,10 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::SelfInsert => {
-                let count = repeat_count(state.numeric_arg.take());
+                let raw = state.numeric_arg.take().unwrap_or(1);
+                // GNU inserts nothing for a negative repeat count (tested
+                // M-- M-1 M-0); only non-negative counts repeat the insert.
+                let count: u32 = if raw < 0 { 0 } else { raw as u32 };
                 state.record_insert_undo(count == 1 && key.len() == 1);
                 if key.iter().any(|byte| byte.is_ascii_control()) {
                     for _ in 0..count {

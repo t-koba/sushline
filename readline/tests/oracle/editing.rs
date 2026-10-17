@@ -1766,6 +1766,8 @@ fn bash_readline_and_sushline_noop_deletions_ring_like_bash() {
         ("transpose_empty", b"\x14\r".as_slice(), "", 1),
         ("transpose_point0", b"ab\x01\x14\r".as_slice(), "ab", 1),
         ("transpose_swaps", b"ab\x14\r".as_slice(), "ba", 0),
+        ("transpose_zero_empty", b"\x1b0\x14\r".as_slice(), "", 0),
+        ("transpose_zero_ab", b"ab\x1b0\x14\r".as_slice(), "ab", 0),
         ("wrubout_empty", b"\x17\r".as_slice(), "", 1),
         ("wrubout_point0", b"ab\x01\x17\r".as_slice(), "ab", 1),
         ("wrubout_rubs", b"ab\x17\r".as_slice(), "", 0),
@@ -1796,6 +1798,41 @@ fn bash_readline_and_sushline_forward_delete_noop_rings_like_bash() {
         ("eol", b"abc\x04\r".as_slice(), "abc", 1),
         ("zero_empty", b"\x1b0\x04\r".as_slice(), "", 1),
         ("deletes", b"abc\x01\x04\r".as_slice(), "bc", 0),
+    ] {
+        let bash = run_bash_readline(keys);
+        let sushline = run_sushline_harness(keys);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_noop_transpose_words_rings_like_bash() {
+    // transpose-words with nothing to swap rings once in the tested Bash 5.3
+    // PTY fixtures; an explicit zero count and a successful swap stay
+    // silent. Runtime observation, not GNU source proof.
+    for (desc, keys, expected, bells) in [
+        ("empty", b"\x1bt\r".as_slice(), "", 1),
+        ("single_word", b"ab\x1bt\r".as_slice(), "ab", 1),
+        ("point_at_start", b"ab cd\x01\x1bt\r".as_slice(), "ab cd", 1),
+        ("swaps", b"ab cd\x1bt\r".as_slice(), "cd ab", 0),
+        ("zero_empty", b"\x1b0\x1bt\r".as_slice(), "", 0),
+        (
+            "zero_words",
+            b"ab cd\x01\x1b0\x1bt\r".as_slice(),
+            "ab cd",
+            0,
+        ),
     ] {
         let bash = run_bash_readline(keys);
         let sushline = run_sushline_harness(keys);

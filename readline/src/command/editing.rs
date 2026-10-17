@@ -173,7 +173,10 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::TransposeChars => {
-                if state.numeric_arg.take().unwrap_or(1) >= 0 {
+                let count = state.numeric_arg.take().unwrap_or(1);
+                // An explicit zero count is a silent no-op; a negative count
+                // keeps the historical silent no-op.
+                if count > 0 {
                     state.record_undo();
                     if !state.buffer.transpose_chars() {
                         self.ding()?;
@@ -185,9 +188,16 @@ where
             EditCommand::TransposeWords => {
                 state.record_undo();
                 let word_breaks = self.editing_word_breaks(hooks);
-                repeat(state, |state| {
-                    state.buffer.transpose_words(word_breaks.as_deref());
-                });
+                let count = state.numeric_arg.take().unwrap_or(1);
+                // An explicit zero count is a silent no-op like the other
+                // transpose command; otherwise ring only when no swap happened.
+                let mut swapped = false;
+                for _ in 0..count.unsigned_abs() {
+                    swapped |= state.buffer.transpose_words(word_breaks.as_deref());
+                }
+                if count != 0 && !swapped {
+                    self.ding()?;
+                }
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
             }

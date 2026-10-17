@@ -102,7 +102,7 @@ sections; Sushline-only extensions are marked `Implementation-specific`.
 | --- | --- | --- |
 | `end-of-file`, `delete-char`, `backward-delete-char`, `forward-backward-delete-char` | Compatible | Empty-input EOF and delete behavior; backward or forward delete with nothing to delete rings once. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `quoted-insert`, `tab-insert`, `self-insert`, `bracketed-paste-begin` | Compatible | Literal insertion/paste; embedded TAB expands to next multiple-of-eight stop; a negative self-insert count inserts nothing. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs), [`oracle/display.rs`](readline/tests/oracle/display.rs). |
-| `transpose-chars`, `transpose-words` | Compatible | Tested editor cases; transpose with nothing to swap rings once. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
+| `transpose-chars`, `transpose-words` | Compatible | Tested editor cases; transpose with nothing to swap rings once, while an explicit zero count stays silent. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `shell-transpose-words` | Hook-backed | Tested shell constructs; exact spans may come from hooks. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `upcase-word`, `downcase-word`, `capitalize-word` | Hook-backed | Numeric and tested word boundaries; custom classes use `Hooks::editing_word_breaks`. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `overwrite-mode` | Compatible | Editor tests. Tests: [`editing.rs`](readline/tests/editing.rs). |

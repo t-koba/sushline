@@ -2121,3 +2121,31 @@ fn bash_readline_and_sushline_yank_last_arg_empty_rings_like_bash() {
         assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_yank_nth_arg_out_of_range_rings_like_bash() {
+    // yank-nth-arg with no such word rings once in the tested Bash 5.3 PTY
+    // fixtures instead of clamping to the last word; an in-range number
+    // stays silent. Runtime observation, not GNU source proof.
+    let inputrc = "\"\\C-o\": yank-nth-arg";
+    let history = ["cmd one two"];
+    for (desc, keys, expected, bells) in [
+        ("out_of_range", b"\x1b5\x0f\r".as_slice(), "", 1),
+        ("in_range", b"\x1b2\x0f\r".as_slice(), "two", 0),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
+    }
+}

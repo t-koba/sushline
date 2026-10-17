@@ -293,10 +293,17 @@ where
             self.ding()?;
             return Ok(());
         }
+        // GNU rings for a non-negative word number with no such word
+        // (tested M-5 against a 3-word entry) instead of clamping to the
+        // last word; a negative number still means the last word.
+        if n >= 0 && (n as usize) >= words.len() {
+            self.ding()?;
+            return Ok(());
+        }
         let idx = if n < 0 {
             words.len().saturating_sub(1)
         } else {
-            (n as usize).min(words.len().saturating_sub(1))
+            n as usize
         };
         let start = state.buffer.point();
         state.buffer.insert_bytes(&words[idx]);

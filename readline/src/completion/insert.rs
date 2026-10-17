@@ -473,7 +473,8 @@ where
             let show_all_if_unmodified =
                 standard_completion && self.flag(BoolVariable::ShowAllIfUnmodified);
             let listing_mode = show_all_if_ambiguous || show_all_if_unmodified;
-            let mut nontrivial_lcd = true;
+            // With no shared nonempty prefix, the LCD remains the typed text.
+            let mut nontrivial_lcd = false;
             if let Some((common_prefix, mut replacement_bytes)) =
                 self.requote_common_prefix_with_prefix(&response, edit, completion_type, hooks)
             {

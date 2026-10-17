@@ -1715,6 +1715,33 @@ fn bash_fullquote_only_changes_quoted_match_listing_for_ordinary_quotes() {
 
 #[cfg(unix)]
 #[test]
+fn bash_show_all_if_unmodified_lists_candidates_without_common_prefix() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("cwd");
+    fs::create_dir(&cwd).unwrap();
+    let inputrc =
+        "set show-all-if-unmodified on\nset show-all-if-ambiguous off\nset page-completions off";
+    let bash = run_bash_programmable_completion_in_dir(
+        b"echo \t\x07",
+        inputrc,
+        "",
+        Some("ab\x1fcd"),
+        &cwd,
+    );
+
+    assert!(
+        bash.windows(b"BASH_COMPLETION_INVOKED:1".len())
+            .any(|window| window == b"BASH_COMPLETION_INVOKED:1"),
+        "Bash completion callback was not invoked"
+    );
+    assert_eq!(bash_line_buffer_bytes(&bash), b"echo ");
+    assert!(bash.windows(2).any(|window| window == b"ab"));
+    assert!(bash.windows(2).any(|window| window == b"cd"));
+    assert_eq!(raw_bell_count(&bash), 0);
+}
+
+#[cfg(unix)]
+#[test]
 fn initial_open_double_quote_common_prefix_matches_bash_5_3() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;

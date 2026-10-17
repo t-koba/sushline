@@ -2526,3 +2526,56 @@ fn fullquote_only_changes_quoted_match_listing_for_ordinary_quotes() {
         );
     }
 }
+
+#[test]
+fn show_all_if_unmodified_lists_candidates_without_common_prefix() {
+    struct NoCommonPrefixHook {
+        called: bool,
+    }
+
+    impl Hooks for NoCommonPrefixHook {
+        fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
+            assert_eq!(request.context.word, b"");
+            self.called = true;
+            Some(CompletionResponse {
+                candidates: vec![
+                    CompletionCandidate {
+                        replacement: b"ab".to_vec(),
+                        display: None,
+                    },
+                    CompletionCandidate {
+                        replacement: b"cd".to_vec(),
+                        display: None,
+                    },
+                ],
+                ..CompletionResponse::default()
+            })
+        }
+    }
+
+    let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(b"echo \t\r".to_vec())]);
+    let mut editor = Editor::new(Config::default(), terminal, History::new());
+    editor
+        .load_inputrc_str(
+            "set show-all-if-unmodified on\nset show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off",
+        )
+        .unwrap();
+    let mut hooks = NoCommonPrefixHook { called: false };
+
+    assert_eq!(
+        editor.read_line(Prompt::new("> "), &mut hooks).unwrap(),
+        ReadlineResult::Line(b"echo ".to_vec())
+    );
+    assert!(hooks.called);
+    assert!(editor.terminal().out.contains("ab"));
+    assert!(editor.terminal().out.contains("cd"));
+    assert_eq!(
+        editor
+            .terminal()
+            .out
+            .bytes()
+            .filter(|byte| *byte == b'\x07')
+            .count(),
+        0
+    );
+}

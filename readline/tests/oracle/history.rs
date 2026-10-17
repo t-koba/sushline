@@ -1518,3 +1518,82 @@ fn bash_readline_and_sushline_forward_isearch_starts_from_cursor() {
         "bash={bash}\nsushline={sushline}"
     );
 }
+
+#[test]
+fn failed_history_navigation_search_rings_bell_like_bash() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    // Failed prefix/substring navigation rings once in the tested Bash 5.3
+    // PTY fixtures; this is runtime observation, not GNU source proof.
+    let locale_env = [("LC_ALL", "C.UTF-8")];
+    for command in [
+        "history-search-backward",
+        "history-substring-search-backward",
+    ] {
+        let inputrc = format!("\"\\C-o\": {command}");
+        let history = ["ALPHA old"];
+        let mut keys = b"alpha".to_vec();
+        keys.extend_from_slice(b"\x0f\r");
+        let bash = run_bash_readline_with_inputrc_file_and_history_and_env(
+            &keys,
+            &inputrc,
+            &history,
+            &locale_env,
+        );
+        let sushline = run_sushline_harness_with_inputrc_and_history_and_env(
+            &keys,
+            &inputrc,
+            &history,
+            &locale_env,
+        );
+        assert_eq!(
+            accepted_line(&bash),
+            Some("alpha".to_string()),
+            "{command}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 1, "{command}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{command}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), 1, "{command}: {sushline}");
+    }
+
+    for (binding, command, key) in [
+        ("\"\\C-^\"", "history-search-forward", 0x1eu8),
+        ("\"\\C-o\"", "history-substring-search-forward", 0x0fu8),
+    ] {
+        let inputrc = format!("{binding}: {command}");
+        let history = ["alpha old", "ALPHA new"];
+        let mut keys = b"\x10\x10\x01\x0balpha".to_vec();
+        keys.push(key);
+        keys.push(b'\r');
+        let bash = run_bash_readline_with_inputrc_file_and_history_and_env(
+            &keys,
+            &inputrc,
+            &history,
+            &locale_env,
+        );
+        let sushline = run_sushline_harness_with_inputrc_and_history_and_env(
+            &keys,
+            &inputrc,
+            &history,
+            &locale_env,
+        );
+        assert_eq!(
+            accepted_line(&bash),
+            Some("alpha".to_string()),
+            "{command}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 1, "{command}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{command}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), 1, "{command}: {sushline}");
+    }
+}

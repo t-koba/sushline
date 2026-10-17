@@ -41,6 +41,8 @@ where
                     locale_lowercase.as_ref(),
                 ) {
                     self.replace_from_history(state, &line);
+                } else {
+                    self.ding()?;
                 }
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
@@ -56,6 +58,8 @@ where
                     locale_lowercase.as_ref(),
                 ) {
                     self.replace_from_history(state, &line);
+                } else {
+                    self.ding()?;
                 }
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
@@ -184,6 +188,8 @@ where
                     locale_lowercase.as_ref(),
                 ) {
                     self.replace_from_history(state, &line);
+                } else {
+                    self.ding()?;
                 }
                 state.after_non_kill_command();
             }
@@ -199,6 +205,8 @@ where
                     locale_lowercase.as_ref(),
                 ) {
                     self.replace_from_history(state, &line);
+                } else {
+                    self.ding()?;
                 }
                 state.after_non_kill_command();
             }

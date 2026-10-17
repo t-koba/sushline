@@ -47,10 +47,12 @@ pub(crate) enum BoolVariable {
     MetaFlag,
     /// SearchIgnoreCase.
     SearchIgnoreCase,
+    /// SushlineViRegisters.
+    SushlineViRegisters,
 }
 
 impl BoolVariable {
-    pub(crate) const COUNT: usize = 21;
+    pub(crate) const COUNT: usize = 22;
 
     #[cfg(test)]
     pub(crate) fn name(self) -> &'static str {
@@ -76,6 +78,7 @@ impl BoolVariable {
             Self::InputMeta => "input-meta",
             Self::MetaFlag => "meta-flag",
             Self::SearchIgnoreCase => "search-ignore-case",
+            Self::SushlineViRegisters => "sushline-vi-registers",
         }
     }
 
@@ -102,6 +105,7 @@ impl BoolVariable {
             "input-meta" => Self::InputMeta,
             "meta-flag" => Self::MetaFlag,
             "search-ignore-case" => Self::SearchIgnoreCase,
+            "sushline-vi-registers" => Self::SushlineViRegisters,
             _ => return None,
         })
     }
@@ -488,6 +492,7 @@ mod tests {
         BoolVariable::InputMeta,
         BoolVariable::MetaFlag,
         BoolVariable::SearchIgnoreCase,
+        BoolVariable::SushlineViRegisters,
     ];
 
     #[test]

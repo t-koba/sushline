@@ -2,7 +2,7 @@ use crate::config::Config;
 use crate::inputrc::{InputrcError, InputrcParser, apply_variable, parse_binding_line_in_map};
 use crate::keymap::{
     BIND_FUNCTION_NAMES, EditCommand, KeyBinding, KeyMap, KeyMapName, KeySequence,
-    is_bindable_function_name,
+    SUSHLINE_VI_REGISTER_COMMAND, bind_function_names, is_bindable_function_name_with_registers,
 };
 use crate::variables::Variables;
 use std::fs;
@@ -265,7 +265,7 @@ impl<'a> BindApi<'a> {
 
     /// Unbind command.
     pub fn unbind_command(&mut self, command: &str) -> Result<usize, BindError> {
-        if !is_bindable_function_name(command) {
+        if !is_bindable_function_name_with_registers(command, self.vi_registers_enabled()) {
             return Err(BindError {
                 message: format!("`{command}': unknown function name"),
             });
@@ -273,8 +273,12 @@ impl<'a> BindApi<'a> {
         Ok(self.keymap.unbind_command_in_map(self.target_map, command))
     }
 
+    fn vi_registers_enabled(&self) -> bool {
+        self.variables.is_on("sushline-vi-registers")
+    }
+
     fn list_function_names(&self) -> String {
-        BIND_FUNCTION_NAMES.join("\n") + "\n"
+        bind_function_names(self.vi_registers_enabled()).join("\n") + "\n"
     }
 
     fn print_reusable_bindings(&self, filter: Option<EditCommand>) -> String {
@@ -287,7 +291,11 @@ impl<'a> BindApi<'a> {
                 KeyBinding::Command(command) if filter.is_none_or(|f| f == *command) => {
                     lines.push(format!("{}: {}", seq.display_inputrc(), command.as_str()));
                 }
-                KeyBinding::NamedCommand(command) if filter.is_none() => {
+                KeyBinding::NamedCommand(command)
+                    if filter.is_none()
+                        && (command != SUSHLINE_VI_REGISTER_COMMAND
+                            || self.vi_registers_enabled()) =>
+                {
                     lines.push(format!("{}: {command}", seq.display_inputrc()));
                 }
                 KeyBinding::ApplicationCommand(command) if filter.is_none() => {
@@ -306,7 +314,7 @@ impl<'a> BindApi<'a> {
 
     fn print_reusable_keymap(&self) -> String {
         let mut lines = Vec::new();
-        for command in BIND_FUNCTION_NAMES {
+        for command in bind_function_names(self.vi_registers_enabled()) {
             let mut bindings = self
                 .keymap
                 .bindings_for_command_name_in_map(self.target_map, command)
@@ -325,7 +333,8 @@ impl<'a> BindApi<'a> {
         for (_, seq, binding) in self.keymap.iter_map(self.target_map) {
             match binding {
                 KeyBinding::NamedCommand(command)
-                    if !BIND_FUNCTION_NAMES.contains(&command.as_str()) =>
+                    if !BIND_FUNCTION_NAMES.contains(&command.as_str())
+                        && command != SUSHLINE_VI_REGISTER_COMMAND =>
                 {
                     lines.push(format!("{}: {command}", seq.display_inputrc()));
                 }
@@ -344,14 +353,14 @@ impl<'a> BindApi<'a> {
 
     fn print_functions(&self) -> String {
         let mut lines = Vec::new();
-        for command in BIND_FUNCTION_NAMES {
+        for command in bind_function_names(self.vi_registers_enabled()) {
             lines.push(self.function_binding_line(command, FunctionLineKind::Print));
         }
         lines.join("\n") + "\n"
     }
 
     fn print_query_function(&self, name: &str) -> String {
-        if !is_bindable_function_name(name) {
+        if !is_bindable_function_name_with_registers(name, self.vi_registers_enabled()) {
             return format!("{name} is not a function\n");
         }
         self.function_binding_line(name, FunctionLineKind::Query) + "\n"

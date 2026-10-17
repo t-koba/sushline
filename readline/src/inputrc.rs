@@ -1,6 +1,7 @@
 use crate::config::Config;
 use crate::keymap::{
-    EditCommand, KeyBinding, KeyMap, KeyMapName, KeySequence, is_bindable_function_name,
+    EditCommand, KeyBinding, KeyMap, KeyMapName, KeySequence,
+    is_bindable_function_name_with_registers,
 };
 use crate::variables::Variables;
 use std::fs;
@@ -291,11 +292,9 @@ pub fn parse_binding_line_in_map(
         KeyBinding::Macro(decode_inputrc_bytes(value, meta_prefix)?)
     } else if let Some(command) = value.split_whitespace().next().and_then(EditCommand::parse) {
         KeyBinding::Command(command)
-    } else if let Some(command) = value
-        .split_whitespace()
-        .next()
-        .filter(|command| is_bindable_function_name(command))
-    {
+    } else if let Some(command) = value.split_whitespace().next().filter(|command| {
+        is_bindable_function_name_with_registers(command, variables.is_on("sushline-vi-registers"))
+    }) {
         KeyBinding::NamedCommand(command.to_string())
     } else {
         return Err(format!("unknown readline command: {value}"));
@@ -618,6 +617,7 @@ const READLINE_BOOLEAN_VARIABLES: &[&str] = &[
     "show-all-if-unmodified",
     "show-mode-in-prompt",
     "skip-completed-text",
+    "sushline-vi-registers",
     "visible-stats",
 ];
 

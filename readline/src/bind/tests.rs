@@ -2,6 +2,64 @@ use super::*;
 use crate::keymap::KeyMap;
 
 #[test]
+fn bind_api_gates_vi_register_command_and_tables_on_inputrc_variable() {
+    let mut keymap = KeyMap::emacs_default();
+    let config = Config::default();
+    let mut vars = Variables::default_for_config(&config);
+    assert!(!vars.is_on("sushline-vi-registers"));
+    let mut api = BindApi::with_config(&mut keymap, &mut vars, &config);
+
+    assert!(
+        !api.print(BindQuery::ListFunctionNames)
+            .lines()
+            .any(|name| name == "vi-set-register")
+    );
+    assert_eq!(
+        api.print(BindQuery::QueryFunction("vi-set-register".to_string())),
+        "vi-set-register is not a function\n"
+    );
+    assert!(api.apply_line("\"Q\": vi-set-register").is_err());
+    assert!(api.unbind_command("vi-set-register").is_err());
+
+    api.apply_line("set sushline-vi-registers on").unwrap();
+    assert!(
+        api.print(BindQuery::PrintVariablesReusable)
+            .lines()
+            .any(|line| line == "set sushline-vi-registers on")
+    );
+    api.apply_line("set keymap vi-command").unwrap();
+    api.apply_line("\"Q\": vi-set-register").unwrap();
+    assert!(
+        api.print(BindQuery::ListFunctionNames)
+            .lines()
+            .any(|name| name == "vi-set-register")
+    );
+    assert!(
+        api.print(BindQuery::PrintFunctions)
+            .contains("vi-set-register can be found on \"Q\".")
+    );
+    assert_eq!(
+        api.print(BindQuery::QueryFunction("vi-set-register".to_string())),
+        "vi-set-register can be invoked via \"Q\".\n"
+    );
+    assert!(
+        api.print(BindQuery::PrintReusable)
+            .contains("\"Q\": vi-set-register")
+    );
+
+    api.apply_line("set sushline-vi-registers off").unwrap();
+    assert!(
+        !api.print(BindQuery::ListFunctionNames)
+            .lines()
+            .any(|name| name == "vi-set-register")
+    );
+    assert!(
+        !api.print(BindQuery::PrintReusable)
+            .contains("vi-set-register")
+    );
+}
+
+#[test]
 fn bind_api_prints_stable_reusable_bindings() {
     let mut keymap = KeyMap::emacs_default();
     let mut vars = Variables::new();

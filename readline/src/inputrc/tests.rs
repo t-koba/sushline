@@ -2,6 +2,38 @@ use super::*;
 use crate::config::Config;
 
 #[test]
+fn sushline_vi_register_command_is_opt_in_for_inputrc_bindings() {
+    let config = Config::default();
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    assert!(!variables.is_on("sushline-vi-registers"));
+
+    InputrcParser::new()
+        .parse_str(
+            "set keymap vi-command\n\"Q\": vi-set-register",
+            &config,
+            &mut keymap,
+            &mut variables,
+        )
+        .unwrap();
+    assert!(keymap.lookup(KeyMapName::ViCommand, b"Q").is_none());
+
+    InputrcParser::new()
+        .parse_str(
+            "set sushline-vi-registers on\nset keymap vi-command\n\"Q\": vi-set-register",
+            &config,
+            &mut keymap,
+            &mut variables,
+        )
+        .unwrap();
+    assert!(variables.is_on("sushline-vi-registers"));
+    assert_eq!(
+        keymap.lookup(KeyMapName::ViCommand, b"Q"),
+        Some(&KeyBinding::NamedCommand("vi-set-register".to_string()))
+    );
+}
+
+#[test]
 fn parses_variables_bindings_and_conditionals() {
     let mut keymap = KeyMap::emacs_default();
     let mut variables = Variables::new();

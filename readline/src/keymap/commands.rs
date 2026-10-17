@@ -212,3 +212,25 @@ pub(crate) fn bind_function_kind(value: &str) -> Option<BindFunctionKind> {
 pub(crate) fn is_bindable_function_name(value: &str) -> bool {
     bind_function_kind(value).is_some()
 }
+
+/// Sushline-specific command enabled by the `sushline-vi-registers` variable.
+pub(crate) const SUSHLINE_VI_REGISTER_COMMAND: &str = "vi-set-register";
+
+pub(crate) fn bind_function_names(vi_registers_enabled: bool) -> Vec<&'static str> {
+    let mut names = BIND_FUNCTION_NAMES.to_vec();
+    if vi_registers_enabled {
+        names.push(SUSHLINE_VI_REGISTER_COMMAND);
+        names.sort_unstable();
+    }
+    names
+}
+
+pub(crate) fn is_bindable_function_name_with_registers(
+    value: &str,
+    vi_registers_enabled: bool,
+) -> bool {
+    if value == SUSHLINE_VI_REGISTER_COMMAND {
+        return vi_registers_enabled;
+    }
+    is_bindable_function_name(value)
+}

@@ -45,9 +45,25 @@ fn detects_key_sequence_prefixes() {
 }
 
 #[test]
+fn vi_register_bind_name_is_added_only_to_the_enabled_sorted_table() {
+    assert!(!commands::bind_function_names(false).contains(&"vi-set-register"));
+    let enabled = commands::bind_function_names(true);
+    assert!(enabled.contains(&"vi-set-register"));
+    assert!(enabled.windows(2).all(|pair| pair[0] < pair[1]));
+    assert!(!commands::is_bindable_function_name_with_registers(
+        "vi-set-register",
+        false
+    ));
+    assert!(commands::is_bindable_function_name_with_registers(
+        "vi-set-register",
+        true
+    ));
+}
+
+#[test]
 fn inputrc_accepts_bindable_eof_name_without_exporting_readline_bind_name() {
     assert_eq!(EditCommand::parse("end-of-file"), Some(EditCommand::Eof));
-    assert!(is_bindable_function_name("end-of-file"));
+    assert!(commands::is_bindable_function_name("end-of-file"));
     assert!(!BIND_FUNCTION_NAMES.contains(&"end-of-file"));
 }
 
@@ -61,7 +77,7 @@ fn typed_edit_commands_round_trip_through_public_names() {
             "{name} must parse back to its typed command"
         );
         assert!(
-            is_bindable_function_name(name),
+            commands::is_bindable_function_name(name),
             "{name} must be accepted by bind/inputrc"
         );
     }

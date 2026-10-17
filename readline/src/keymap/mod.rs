@@ -5,7 +5,10 @@ mod vi;
 use std::collections::BTreeMap;
 use std::fmt;
 
-pub(crate) use commands::{BIND_FUNCTION_NAMES, is_bindable_function_name};
+pub(crate) use commands::{
+    BIND_FUNCTION_NAMES, SUSHLINE_VI_REGISTER_COMMAND, bind_function_names,
+    is_bindable_function_name_with_registers,
+};
 use parse::{parse_named_keyseq, parse_quoted_keyseq};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

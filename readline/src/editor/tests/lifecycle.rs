@@ -27,6 +27,11 @@ fn editor_new_retains_initial_inputrc_error_and_try_new_reports_it() {
 
 #[test]
 fn every_readline_command_is_in_typed_or_named_dispatch_table() {
+    assert!(
+        NAMED_READLINE_COMMAND_DISPATCH
+            .binary_search(&"vi-set-register")
+            .is_ok()
+    );
     for command in crate::keymap::BIND_FUNCTION_NAMES {
         assert!(
             EditCommand::parse(command).is_some()
@@ -442,6 +447,115 @@ fn batched_vi_mark_remainder_matches_fragmented_reads() {
 }
 
 #[test]
+fn vi_register_named_command_has_no_effect_when_extension_is_disabled() {
+    let terminal = super::MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"0dw".to_vec()),
+        TerminalEvent::Bytes(b"iDEF".to_vec()),
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"0dw".to_vec()),
+        TerminalEvent::Bytes(b"Qa\x1bP\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set editing-mode vi").unwrap();
+    // Raw keymap insertion bypasses the bind API intentionally: execution
+    // still must not activate a disabled implementation-specific command.
+    line.keymap.bind(
+        crate::keymap::KeyMapName::ViCommand,
+        crate::keymap::KeySequence::new(b"Q".to_vec()),
+        crate::keymap::KeyBinding::NamedCommand("vi-set-register".to_string()),
+    );
+    assert_eq!(
+        line.read_line(Prompt::new("> "), &mut ()).unwrap(),
+        ReadlineResult::Line(b"DEF".to_vec())
+    );
+}
+
+#[test]
+fn vi_register_extension_binds_from_inputrc_and_controls_kill_put() {
+    let terminal = super::MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"0Qadw".to_vec()),
+        TerminalEvent::Bytes(b"iDEF".to_vec()),
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"0dw".to_vec()),
+        TerminalEvent::Bytes(b"QaP\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str(
+        "set editing-mode vi\nset sushline-vi-registers on\nset keymap vi-command\n\"Q\": vi-set-register",
+    )
+    .unwrap();
+    assert_eq!(
+        line.read_line(Prompt::new("> "), &mut ()).unwrap(),
+        ReadlineResult::Line(b"abc".to_vec())
+    );
+}
+
+#[test]
+fn vi_register_extension_runs_through_execute_named_command() {
+    let terminal = super::MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"0Qvi-set-register\ra".to_vec()),
+        TerminalEvent::Bytes(b"iZ\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str(
+        "set editing-mode vi\nset sushline-vi-registers on\nset keymap vi-command\n\"Q\": execute-named-command",
+    )
+    .unwrap();
+    assert_eq!(
+        line.read_line(Prompt::new("> "), &mut ()).unwrap(),
+        ReadlineResult::Line(b"Zabc".to_vec())
+    );
+}
+
+#[test]
+fn batched_vi_register_remainder_matches_fragmented_reads() {
+    // The explicitly enabled Sushline extension consumes one register name;
+    // trailing bytes are separate input. Batched [a,i,Z] must select
+    // register a then enter insert like split reads.
+    fn run(events: Vec<TerminalEvent>) -> ReadlineResult {
+        let terminal = super::MemoryTerminal::with_events(events);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str("set editing-mode vi\nset sushline-vi-registers on")
+            .unwrap();
+        line.keymap.bind(
+            crate::keymap::KeyMapName::ViCommand,
+            crate::keymap::KeySequence::new(b"Q".to_vec()),
+            crate::keymap::KeyBinding::NamedCommand("vi-set-register".to_string()),
+        );
+        line.read_line(Prompt::new("> "), &mut ()).unwrap()
+    }
+    let fragmented = run(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"0".to_vec()),
+        TerminalEvent::Bytes(b"Q".to_vec()),
+        TerminalEvent::Bytes(b"a".to_vec()),
+        TerminalEvent::Bytes(b"i".to_vec()),
+        TerminalEvent::Bytes(b"Z".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let batched = run(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"0".to_vec()),
+        TerminalEvent::Bytes(b"Q".to_vec()),
+        TerminalEvent::Bytes(b"aiZ".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    assert_eq!(fragmented, ReadlineResult::Line(b"Zabc".to_vec()));
+    assert_eq!(
+        batched, fragmented,
+        "batched and fragmented vi register remainder must agree"
+    );
+}
+
+#[test]
 fn batched_named_command_enter_matches_fragmented_reads() {
     // Named-command text mixed with Enter in one chunk must execute like
     // split reads instead of swallowing the terminator as query text.
@@ -507,6 +621,48 @@ fn batched_vi_pending_invalid_chunk_matches_fragmented_reads() {
     assert_eq!(
         batched, fragmented,
         "batched and fragmented vi pending invalid chunks must agree"
+    );
+}
+
+#[test]
+fn batched_vi_register_invalid_chunk_matches_fragmented_reads() {
+    // Pending vi register consumes one unit; an invalid byte dings and
+    // trailing bytes are separate input. Batched [0xFF,i,Z] must agree with
+    // split [0xFF],[i],[Z] reads (both accept "Zabc").
+    fn run(events: Vec<TerminalEvent>) -> ReadlineResult {
+        let terminal = super::MemoryTerminal::with_events(events);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str("set editing-mode vi\nset sushline-vi-registers on")
+            .unwrap();
+        line.keymap.bind(
+            crate::keymap::KeyMapName::ViCommand,
+            crate::keymap::KeySequence::new(b"Q".to_vec()),
+            crate::keymap::KeyBinding::NamedCommand("vi-set-register".to_string()),
+        );
+        line.read_line(Prompt::new("> "), &mut ()).unwrap()
+    }
+    let fragmented = run(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"0".to_vec()),
+        TerminalEvent::Bytes(b"Q".to_vec()),
+        TerminalEvent::Bytes(vec![0xFF]),
+        TerminalEvent::Bytes(b"i".to_vec()),
+        TerminalEvent::Bytes(b"Z".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let batched = run(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"0".to_vec()),
+        TerminalEvent::Bytes(b"Q".to_vec()),
+        TerminalEvent::Bytes(vec![0xFF, b'i', b'Z']),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    assert_eq!(fragmented, ReadlineResult::Line(b"Zabc".to_vec()));
+    assert_eq!(
+        batched, fragmented,
+        "batched and fragmented vi register invalid chunks must agree"
     );
 }
 

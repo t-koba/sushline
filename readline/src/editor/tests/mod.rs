@@ -136,6 +136,7 @@ const NAMED_READLINE_COMMAND_DISPATCH: &[&str] = &[
     "vi-search",
     "vi-search-again",
     "vi-set-mark",
+    "vi-set-register",
     "vi-subst",
     "vi-tilde-expand",
     "vi-undo",

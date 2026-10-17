@@ -168,8 +168,9 @@ sections; Sushline-only extensions are marked `Implementation-specific`.
 | `vi-bWord`, `vi-backward-bigword`, `vi-back-to-indent`, `vi-first-print`, `vi-backward-word`, `vi-bword`, `vi-prev-word`, `vi-column`, `vi-eWord`, `vi-end-bigword`, `vi-end-word`, `vi-eword`, `vi-fWord`, `vi-forward-bigword`, `vi-forward-word`, `vi-fword`, `vi-next-word`, `vi-match` | Compatible | Tested punctuation/bigword, counts, operators, column and bracket cases. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `vi-change-case`, `vi-change-char`, `vi-replace`, `vi-change-to`, `vi-delete`, `vi-delete-to`, `vi-subst`, `vi-yank-to` | Compatible | Operator, change, replacement and redo. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs), [`vi_mode.rs`](readline/tests/vi_mode.rs). |
 | `vi-overstrike`, `vi-overstrike-delete`, `vi-rubout`, `vi-put`, `vi-redo`, `vi-undo`, `vi-yank-pop` | Compatible | Tested editor cases; last change persists across reads. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs), [`vi_mode.rs`](readline/tests/vi_mode.rs). |
-| `vi-fetch-history`, `vi-eof-maybe`, `vi-goto-mark`, `vi-set-mark`, `vi-tilde-expand`, `vi-unix-word-rubout`, `vi-yank-arg` | Compatible | Tested fetch, EOF, tilde, mark, register defaults, rubout and numeric yank-arg behavior. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
+| `vi-fetch-history`, `vi-eof-maybe`, `vi-goto-mark`, `vi-set-mark`, `vi-tilde-expand`, `vi-unix-word-rubout`, `vi-yank-arg` | Compatible | Tested fetch, EOF, tilde, mark, default register-command behavior, rubout and numeric yank-arg behavior. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `vi-edit-and-execute-command` | Hook-backed | External edit behavior uses `Hooks::edit_and_execute`. Tests: [`bind_golden.rs`](readline/tests/bind_golden.rs). |
+| `vi-set-register` | Implementation-specific | Named vi registers are a Sushline extension, disabled by default; enable by setting `sushline-vi-registers` to `on` in inputrc. |
 
 ## Readline Init File and Variables
 

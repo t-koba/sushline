@@ -79,6 +79,7 @@ fn named_command_group(command: &str) -> NamedCommandGroup {
         "vi-search" => NamedCommandGroup::Vi,
         "vi-search-again" => NamedCommandGroup::Vi,
         "vi-set-mark" => NamedCommandGroup::Vi,
+        "vi-set-register" => NamedCommandGroup::Vi,
         "vi-subst" => NamedCommandGroup::Vi,
         "vi-undo" => NamedCommandGroup::Vi,
         "vi-yank-pop" => NamedCommandGroup::Vi,
@@ -98,6 +99,9 @@ where
         key: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
+        if command == "vi-set-register" && !self.variables.is_on("sushline-vi-registers") {
+            return self.apply_named_misc_command(state, command, key, hooks);
+        }
         if let Some(command) = EditCommand::parse(command) {
             return self.apply_command(state, command, key, hooks);
         }

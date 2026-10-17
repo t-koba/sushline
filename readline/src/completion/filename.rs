@@ -1242,8 +1242,12 @@ mod tests {
     #[test]
     fn control_bytes_render_as_caret_notation() {
         assert_eq!(filename_display_name(b"probe\x1b[2Jend"), "probe^[[2Jend");
+        assert_eq!(filename_display_name(b"a\x07b"), "a^Gb");
+        assert_eq!(filename_display_name(b"a\x08b"), "a^Hb");
         assert_eq!(filename_display_name(b"a\tb"), "a^Ib");
         assert_eq!(filename_display_name(b"a\nb"), "a^Jb");
+        assert_eq!(filename_display_name(b"a\x0bb"), "a^Kb");
+        assert_eq!(filename_display_name(b"a\x0cb"), "a^Lb");
         assert_eq!(filename_display_name(b"a\rb"), "a^Mb");
         assert_eq!(filename_display_name(b"a\x7fb"), "a^?b");
         assert_eq!(filename_display_name(b"plain"), "plain");

@@ -2846,8 +2846,12 @@ fn bash_readline_and_sushline_list_control_bytes_as_caret_tokens() {
     let dir = tempfile::tempdir().expect("temp completion directory");
     let fixtures = [
         ("escape", "safe-esc\x1b[2J", "safe-esc^[[2J"),
+        ("bell", "safe-bell\x07", "safe-bell^G"),
+        ("backspace", "safe-bs\x08", "safe-bs^H"),
         ("tab", "safe-tab\t", "safe-tab^I"),
         ("newline", "safe-lf\n", "safe-lf^J"),
+        ("vertical tab", "safe-vt\x0b", "safe-vt^K"),
+        ("form feed", "safe-ff\x0c", "safe-ff^L"),
         ("carriage return", "safe-cr\r", "safe-cr^M"),
         ("delete", "safe-del\x7f", "safe-del^?"),
     ];

@@ -2848,6 +2848,7 @@ fn bash_readline_and_sushline_list_control_bytes_as_caret_tokens() {
         ("escape", "safe-esc\x1b[2J", "safe-esc^[[2J"),
         ("tab", "safe-tab\t", "safe-tab^I"),
         ("newline", "safe-lf\n", "safe-lf^J"),
+        ("carriage return", "safe-cr\r", "safe-cr^M"),
         ("delete", "safe-del\x7f", "safe-del^?"),
     ];
     for (_, filename, _) in fixtures {

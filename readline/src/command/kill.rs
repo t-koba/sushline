@@ -14,13 +14,15 @@ where
         match command {
             EditCommand::BackwardKillLine => {
                 state.record_undo();
-                if state.numeric_arg.take().unwrap_or(1) < 0 {
-                    let killed = state.buffer.kill_to_end();
-                    state.push_kill(killed, KillDirection::Forward, self.kill_append_allowed());
+                let (killed, direction) = if state.numeric_arg.take().unwrap_or(1) < 0 {
+                    (state.buffer.kill_to_end(), KillDirection::Forward)
                 } else {
-                    let killed = state.buffer.kill_to_start();
-                    state.push_kill(killed, KillDirection::Backward, self.kill_append_allowed());
+                    (state.buffer.kill_to_start(), KillDirection::Backward)
                 };
+                if killed.is_empty() {
+                    self.ding()?;
+                }
+                state.push_kill(killed, direction, self.kill_append_allowed());
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::UnixWordRubout => {

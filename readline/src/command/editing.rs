@@ -120,7 +120,11 @@ where
             }
             EditCommand::RevertLine => {
                 state.record_undo();
-                state.buffer = LineBuffer::from_bytes(state.original_line.clone());
+                if state.buffer.as_bytes() == state.original_line.as_slice() {
+                    self.ding()?;
+                } else {
+                    state.buffer = LineBuffer::from_bytes(state.original_line.clone());
+                }
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
             }

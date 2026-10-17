@@ -111,7 +111,7 @@ sections; Sushline-only extensions are marked `Implementation-specific`.
 
 | Command(s) | Status | Notes |
 | --- | --- | --- |
-| `kill-line`, `backward-kill-line`, `unix-line-discard`, `kill-whole-line` | Compatible | Direction and numeric cases; `unix-line-discard` with nothing to kill rings once. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
+| `kill-line`, `backward-kill-line`, `unix-line-discard`, `kill-whole-line` | Compatible | Direction and numeric cases; `unix-line-discard` or `backward-kill-line` with nothing to kill rings once. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `kill-word`, `backward-kill-word`, `unix-word-rubout`, `unix-filename-rubout` | Hook-backed | Tested numeric/rubout cases; a rubout with nothing to kill rings once; custom classes use `Hooks::editing_word_breaks`. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `shell-kill-word`, `shell-backward-kill-word` | Hook-backed | Tested shell constructs; exact spans may come from hooks. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `delete-horizontal-space` | Compatible | Tested editor cases. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
@@ -149,7 +149,7 @@ sections; Sushline-only extensions are marked `Implementation-specific`.
 
 | Command(s) | Status | Notes |
 | --- | --- | --- |
-| `re-read-init-file`, `abort`, `do-lowercase-version`, `undo`, `revert-line`, `set-mark`, `exchange-point-and-mark`, `skip-csi-sequence`, `dump-functions`, `dump-variables`, `dump-macros`, `execute-named-command`, `emacs-editing-mode`, `vi-editing-mode` | Compatible | Observable editing, reload and dump behavior; `do-lowercase-version` rings when the key has no case variant, and empty `undo` rings once. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs), [`bind_golden.rs`](readline/tests/bind_golden.rs). |
+| `re-read-init-file`, `abort`, `do-lowercase-version`, `undo`, `revert-line`, `set-mark`, `exchange-point-and-mark`, `skip-csi-sequence`, `dump-functions`, `dump-variables`, `dump-macros`, `execute-named-command`, `emacs-editing-mode`, `vi-editing-mode` | Compatible | Observable editing, reload and dump behavior; `do-lowercase-version` rings when the key has no case variant, empty `undo` rings once, and `revert-line` with no changes rings once. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs), [`bind_golden.rs`](readline/tests/bind_golden.rs). |
 | `prefix-meta` | Implementation-specific | Sushline inputrc extension, not a GNU binding or Bash oracle target; physical ESC input is separate. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `arrow-key-prefix` | Compatible | Accepted CSI-skip command. Tests: [`variables.rs`](readline/tests/variables.rs). |
 | `display-shell-version`, `tty-status` | Hook-backed | Status supplied by hooks. Tests: [`bind_golden.rs`](readline/tests/bind_golden.rs). |

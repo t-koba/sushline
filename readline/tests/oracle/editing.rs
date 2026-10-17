@@ -1899,3 +1899,50 @@ fn bash_readline_and_sushline_empty_undo_rings_like_bash() {
         assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_noop_kill_revert_ring_like_bash() {
+    // backward-kill-line and revert-line with nothing to act on ring once
+    // in the tested Bash 5.3 PTY fixtures; successful reverts stay silent.
+    // Runtime observation, not GNU source proof.
+    for (desc, inputrc, keys, expected, bells) in [
+        (
+            "bkill_empty",
+            "".to_string(),
+            b"\x18\x7f\r".as_slice(),
+            "".to_string(),
+            1,
+        ),
+        (
+            "revert_empty",
+            "".to_string(),
+            b"\x1br\r".as_slice(),
+            "".to_string(),
+            1,
+        ),
+        (
+            "revert_restores",
+            "".to_string(),
+            b"abc\x1br\r".as_slice(),
+            "".to_string(),
+            0,
+        ),
+    ] {
+        let inputrc: &str = &inputrc;
+        let history: &[&str] = &[];
+        let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, history);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.clone()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
+    }
+}

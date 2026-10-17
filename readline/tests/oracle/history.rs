@@ -2041,3 +2041,55 @@ fn history_navigation_search_zero_count_is_silent_noop_like_bash() {
         assert_eq!(bell_count(&sushline), 0, "{desc}: {sushline}");
     }
 }
+
+#[test]
+fn fetch_history_out_of_range_fetches_first_entry_like_bash() {
+    // An out-of-range fetch-history number (including 0) fetches the first
+    // entry silently in the tested Bash 5.3 PTY fixtures; an empty history
+    // stays put. Runtime observation, not GNU source proof.
+    for (desc, inputrc, keys, history, expected) in [
+        (
+            "arg0",
+            "\"\\C-o\": fetch-history",
+            b"\x1b0\x0f\r".as_slice(),
+            &["one", "two", "three"][..],
+            "one",
+        ),
+        (
+            "arg4",
+            "\"\\C-o\": fetch-history",
+            b"\x1b4\x0f\r".as_slice(),
+            &["one", "two", "three"][..],
+            "one",
+        ),
+        (
+            "arg6",
+            "\"\\C-o\": fetch-history",
+            b"\x1b6\x0f\r".as_slice(),
+            &["one", "two", "three"][..],
+            "one",
+        ),
+        (
+            "empty",
+            "\"\\C-o\": fetch-history",
+            b"\x1b1\x0f\r".as_slice(),
+            &[][..],
+            "",
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, history);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), 0, "{desc}: {sushline}");
+    }
+}

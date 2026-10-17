@@ -229,13 +229,22 @@ where
                 }
             }
             "fetch-history" | "vi-fetch-history" => {
-                if let Some(line) =
-                    self.history
-                        .get_1_based_entry(
-                            state.numeric_arg.take().unwrap_or(1).unsigned_abs() as usize
-                        )
-                        .map(|entry| entry.line_bytes.clone())
-                {
+                let index = state.numeric_arg.take().unwrap_or(1).unsigned_abs() as usize;
+                // GNU fetches the first entry for an out-of-range number
+                // (tested 0/4/5/6 against 3 entries, silently); an empty
+                // history stays put.
+                let line = self
+                    .history
+                    .get_1_based_entry(index)
+                    .or_else(|| {
+                        if self.history.entries().is_empty() {
+                            None
+                        } else {
+                            self.history.get_1_based_entry(1)
+                        }
+                    })
+                    .map(|entry| entry.line_bytes.clone());
+                if let Some(line) = line {
                     self.replace_from_history(state, &line);
                 }
                 state.after_non_kill_command();

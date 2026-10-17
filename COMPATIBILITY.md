@@ -93,7 +93,7 @@ sections; Sushline-only extensions are marked `Implementation-specific`.
 | `history-expand-line`, `magic-space` | Compatible | Built-in expansion uses GNU-default policy; custom characters/policy are direct-API only. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
 | `history-and-alias-expand-line`, `alias-expand-line` | Hook-backed | Alias expansion uses `Hooks::expand_aliases`. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
 | `yank-nth-arg`, `yank-last-arg`, `insert-last-argument` | Hook-backed | Tested shell words; exact application lexer words may come from `Hooks::shell_words`. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
-| `fetch-history` | Compatible | Numbered fetch. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
+| `fetch-history` | Compatible | Numbered fetch; an out-of-range number (including 0) silently fetches the first entry, and an empty history stays put. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
 | `operate-and-get-next` | Compatible | Multi-read prefill including numeric arguments. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
 
 ### Text Editing

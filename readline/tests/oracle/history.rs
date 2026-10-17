@@ -225,6 +225,50 @@ fn search_ignore_case_applies_to_history_navigation_commands() {
 }
 
 #[test]
+fn history_navigation_search_is_case_sensitive_by_default() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    // Default `search-ignore-case off` stays case-sensitive, even in a UTF-8
+    // locale. Fixture-scoped Bash 5.3 PTY observation, not GNU source proof.
+    let locale_env = [("LC_ALL", "C.UTF-8")];
+    for (history, query) in [(["ALPHA old"], "alpha"), (["ÄLPHA old"], "älpha")] {
+        let history: &[&str] = &history;
+        for command in [
+            "history-search-backward",
+            "history-substring-search-backward",
+        ] {
+            let inputrc = format!("\"\\C-o\": {command}");
+            let mut keys = query.as_bytes().to_vec();
+            keys.extend_from_slice(b"\x0f\r");
+            let bash = run_bash_readline_with_inputrc_file_and_history_and_env(
+                &keys,
+                &inputrc,
+                history,
+                &locale_env,
+            );
+            let sushline = run_sushline_harness_with_inputrc_and_history_and_env(
+                &keys,
+                &inputrc,
+                history,
+                &locale_env,
+            );
+            assert_eq!(
+                accepted_line(&bash),
+                Some(query.to_string()),
+                "{command} {query}: {bash}"
+            );
+            assert_eq!(
+                accepted_line(&sushline),
+                accepted_line(&bash),
+                "{command} {query}: bash={bash}\nsushline={sushline}"
+            );
+        }
+    }
+}
+
+#[test]
 fn history_navigation_search_ignore_case_matches_locale_case_in_utf8_locale() {
     if !c_utf8_locale_available() {
         return;

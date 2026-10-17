@@ -185,17 +185,19 @@ impl History {
         Some(removed)
     }
 
-    /// Replace.
+    /// Replace an entry's line, preserving its timestamp and undo list and marking it modified.
     pub fn replace(&mut self, index: usize, line: impl Into<String>) -> Option<HistoryEntry> {
         let entry = self.entries.get_mut(index)?;
         let line = line.into();
+        let timestamp = entry.timestamp.clone();
+        let undo_list = entry.undo_list.clone();
         let previous = std::mem::replace(
             entry,
             HistoryEntry {
                 line_bytes: line.into_bytes(),
-                timestamp: None,
+                timestamp,
                 modified: true,
-                undo_list: entry.undo_list.clone(),
+                undo_list,
             },
         );
         self.reset_cursor();

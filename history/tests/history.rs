@@ -6,7 +6,7 @@ use history::expansion::{
     expand_history_with_status_with_state, get_history_event, history_arg_extract,
     history_tokenize,
 };
-use history::{History, HistoryDirection};
+use history::{History, HistoryDirection, HistoryUndoEntry};
 
 #[test]
 fn navigates_history_and_restores_current_edit() {
@@ -1566,6 +1566,51 @@ fn supports_history_library_state_and_stifle_operations() {
     assert_eq!(h.get(0).map(|entry| entry.line()), Some("THREE".into()));
     h.clear();
     assert!(h.is_empty());
+}
+
+#[test]
+fn replace_preserves_timestamps_undo_history_and_timestamped_serialization() {
+    let mut history = History::new();
+    history.push("old timed");
+    assert!(history.add_time("#1700000000"));
+    history.push("old untimed");
+    let undo = vec![HistoryUndoEntry {
+        start: 1,
+        deleted: b"old".to_vec(),
+        inserted: b"new".to_vec(),
+    }];
+    assert!(history.set_undo_list(0, undo.clone()));
+
+    let previous = history.replace(0, "new timed").unwrap();
+    assert_eq!(previous.line_bytes, b"old timed");
+    assert_eq!(previous.timestamp.as_deref(), Some("#1700000000"));
+    assert!(!previous.modified);
+    assert_eq!(previous.undo_list, undo);
+    assert_eq!(history.entries()[0].line_bytes, b"new timed");
+    assert_eq!(
+        history.entries()[0].timestamp.as_deref(),
+        Some("#1700000000")
+    );
+    assert!(history.entries()[0].modified);
+    assert_eq!(history.undo_list(0), Some(undo.as_slice()));
+
+    let previous = history.replace(1, "new untimed").unwrap();
+    assert_eq!(previous.line_bytes, b"old untimed");
+    assert_eq!(previous.timestamp, None);
+    assert_eq!(history.entries()[1].timestamp, None);
+    assert!(history.entries()[1].modified);
+
+    assert!(history.replace(2, "invalid").is_none());
+    assert_eq!(history.entries().len(), 2);
+    assert_eq!(history.entries()[1].line_bytes, b"new untimed");
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    history.write_file_with_timestamps(&path, true).unwrap();
+    assert_eq!(
+        fs::read_to_string(path).unwrap(),
+        "#1700000000\nnew timed\nnew untimed\n"
+    );
 }
 
 #[test]

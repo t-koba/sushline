@@ -2093,3 +2093,31 @@ fn fetch_history_out_of_range_fetches_first_entry_like_bash() {
         assert_eq!(bell_count(&sushline), 0, "{desc}: {sushline}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_yank_last_arg_empty_rings_like_bash() {
+    // yank-last-arg with nothing to yank rings once in the tested Bash 5.3
+    // PTY fixtures: empty history or a wordless newest entry. A successful
+    // yank stays silent. Runtime observation, not GNU source proof.
+    for (desc, history, expected, bells) in [
+        ("empty", &[][..], "", 1),
+        ("wordless", &["   "][..], "", 1),
+        ("yanks", &["cmd one two"][..], "two", 0),
+    ] {
+        let keys = b"\x1b.\r";
+        let bash = run_bash_readline_with_bindings_and_history(keys, "", history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, "", history);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
+    }
+}

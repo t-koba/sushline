@@ -263,6 +263,7 @@ where
     ) -> Result<(), ReadlineError> {
         let entries = self.history.entries();
         if entries.is_empty() {
+            self.ding()?;
             return Ok(());
         };
         let repeated = cycle_history
@@ -289,6 +290,7 @@ where
         };
         let words = self.shell_words(&entry.line_bytes, hooks);
         if words.is_empty() {
+            self.ding()?;
             return Ok(());
         }
         let idx = if n < 0 {

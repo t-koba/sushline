@@ -406,7 +406,9 @@ where
                 state.after_non_kill_command();
             }
             "vi-undo" => {
-                state.undo();
+                if !state.undo() {
+                    self.ding()?;
+                }
             }
             "vi-yank-pop" => {
                 state.record_undo();

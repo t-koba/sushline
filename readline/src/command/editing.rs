@@ -227,7 +227,9 @@ where
                 }
             }
             EditCommand::Undo => {
-                state.undo();
+                if !state.undo() {
+                    self.ding()?;
+                }
                 Ok(EditorOutcome::Continue)
             }
             _ => unreachable!("command group mismatch"),

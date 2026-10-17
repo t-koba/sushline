@@ -50,12 +50,16 @@ impl EditorState {
         }
     }
 
-    pub(crate) fn undo(&mut self) {
+    pub(crate) fn undo(&mut self) -> bool {
         self.commit_pending_undo();
-        if let Some(entry) = self.undo.undo_stack.pop() {
+        let undone = if let Some(entry) = self.undo.undo_stack.pop() {
             entry.undo(&mut self.buffer);
-        }
+            true
+        } else {
+            false
+        };
         self.after_non_kill_command();
+        undone
     }
 
     pub(crate) fn undo_snapshot_lines(&self) -> Vec<HistoryUndoEntry> {

@@ -39,6 +39,7 @@ where
                     .take()
                     .map(|arg| arg.unsigned_abs() as usize)
                     .unwrap_or(1);
+                let mut matched = false;
                 for _ in 0..count {
                     if let Some(line) = history_prefix_backward_with_locale(
                         &mut self.history,
@@ -48,8 +49,11 @@ where
                         locale_lowercase.as_ref(),
                     ) {
                         self.replace_from_history(state, &line);
+                        matched = true;
                     } else {
-                        self.ding()?;
+                        if !matched {
+                            self.ding()?;
+                        }
                         break;
                     }
                 }
@@ -65,6 +69,7 @@ where
                     .take()
                     .map(|arg| arg.unsigned_abs() as usize)
                     .unwrap_or(1);
+                let mut matched = false;
                 for _ in 0..count {
                     if let Some(line) = history_prefix_forward_with_locale(
                         &mut self.history,
@@ -73,8 +78,11 @@ where
                         locale_lowercase.as_ref(),
                     ) {
                         self.replace_from_history(state, &line);
+                        matched = true;
                     } else {
-                        self.ding()?;
+                        if !matched {
+                            self.ding()?;
+                        }
                         break;
                     }
                 }
@@ -203,6 +211,7 @@ where
                     .take()
                     .map(|arg| arg.unsigned_abs() as usize)
                     .unwrap_or(1);
+                let mut matched = false;
                 for _ in 0..count {
                     if let Some(line) = history_substring_forward_with_locale(
                         &mut self.history,
@@ -212,8 +221,11 @@ where
                         locale_lowercase.as_ref(),
                     ) {
                         self.replace_from_history(state, &line);
+                        matched = true;
                     } else {
-                        self.ding()?;
+                        if !matched {
+                            self.ding()?;
+                        }
                         break;
                     }
                 }
@@ -229,6 +241,7 @@ where
                     .take()
                     .map(|arg| arg.unsigned_abs() as usize)
                     .unwrap_or(1);
+                let mut matched = false;
                 for _ in 0..count {
                     if let Some(line) = history_substring_backward_with_locale(
                         &mut self.history,
@@ -238,8 +251,11 @@ where
                         locale_lowercase.as_ref(),
                     ) {
                         self.replace_from_history(state, &line);
+                        matched = true;
                     } else {
-                        self.ding()?;
+                        if !matched {
+                            self.ding()?;
+                        }
                         break;
                     }
                 }

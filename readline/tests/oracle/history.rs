@@ -1864,3 +1864,41 @@ fn history_navigation_search_honors_numeric_argument_like_bash() {
         assert_eq!(bell_count(&sushline), 0, "{desc}: {sushline}");
     }
 }
+
+#[test]
+fn history_navigation_search_excessive_count_stays_silent_like_bash() {
+    // An excessive count stops at the oldest/newest match without ringing in
+    // the tested Bash 5.3 PTY fixtures; only a total miss rings.
+    // Runtime observation, not GNU source proof.
+    for (desc, inputrc, keys, history, expected) in [
+        (
+            "back_excess",
+            "\"\\C-o\": history-search-backward",
+            b"alpha\x1b5\x0f\r".as_slice(),
+            &["alpha one", "alpha two", "alpha three"][..],
+            "alpha one",
+        ),
+        (
+            "back_partial",
+            "\"\\C-o\": history-search-backward",
+            b"alpha\x1b2\x0f\r".as_slice(),
+            &["alpha one", "beta"][..],
+            "alpha one",
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, history);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), 0, "{desc}: {sushline}");
+    }
+}

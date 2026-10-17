@@ -76,14 +76,18 @@ where
                 }
                 state.record_undo();
                 let count = state.numeric_arg.take().unwrap_or(1);
+                let mut deleted = false;
                 if count < 0 {
                     for _ in 0..count.unsigned_abs() {
-                        state.buffer.backward_delete_char();
+                        deleted |= state.buffer.backward_delete_char();
                     }
                 } else {
                     for _ in 0..count.unsigned_abs() {
-                        state.buffer.delete_char();
+                        deleted |= state.buffer.delete_char();
                     }
+                }
+                if !deleted {
+                    self.ding()?;
                 }
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)

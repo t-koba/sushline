@@ -1786,3 +1786,30 @@ fn bash_readline_and_sushline_noop_deletions_ring_like_bash() {
         assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_forward_delete_noop_rings_like_bash() {
+    // Forward delete with nothing under the cursor rings once in the tested
+    // Bash 5.3 PTY fixtures, including an explicit zero count; deleting a
+    // character stays silent. Runtime observation, not GNU source proof.
+    for (desc, keys, expected, bells) in [
+        ("eol", b"abc\x04\r".as_slice(), "abc", 1),
+        ("zero_empty", b"\x1b0\x04\r".as_slice(), "", 1),
+        ("deletes", b"abc\x01\x04\r".as_slice(), "bc", 0),
+    ] {
+        let bash = run_bash_readline(keys);
+        let sushline = run_sushline_harness(keys);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
+    }
+}

@@ -100,7 +100,7 @@ sections; Sushline-only extensions are marked `Implementation-specific`.
 
 | Command(s) | Status | Notes |
 | --- | --- | --- |
-| `end-of-file`, `delete-char`, `backward-delete-char`, `forward-backward-delete-char` | Compatible | Empty-input EOF and delete behavior; backward delete with nothing to delete rings once. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
+| `end-of-file`, `delete-char`, `backward-delete-char`, `forward-backward-delete-char` | Compatible | Empty-input EOF and delete behavior; backward or forward delete with nothing to delete rings once. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `quoted-insert`, `tab-insert`, `self-insert`, `bracketed-paste-begin` | Compatible | Literal insertion/paste; embedded TAB expands to next multiple-of-eight stop; a negative self-insert count inserts nothing. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs), [`oracle/display.rs`](readline/tests/oracle/display.rs). |
 | `transpose-chars`, `transpose-words` | Compatible | Tested editor cases; transpose with nothing to swap rings once. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `shell-transpose-words` | Hook-backed | Tested shell constructs; exact spans may come from hooks. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |

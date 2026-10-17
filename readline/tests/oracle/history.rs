@@ -1741,10 +1741,9 @@ fn history_navigation_search_uses_text_before_cursor_like_bash() {
         return;
     }
 
-    // With point after "alpha" in "alphax", backward navigation uses the
-    // before-cursor "alpha" in the tested Bash 5.3 PTY fixtures and finds
-    // "ALPHA old" with ignore-case on. Runtime observation, not GNU source
-    // proof.
+    // With point after "alpha" in "alphax", navigation uses the
+    // before-cursor "alpha" in the tested Bash 5.3 PTY fixtures with
+    // ignore-case on. Runtime observation, not GNU source proof.
     let locale_env = [("LC_ALL", "C.UTF-8")];
     for command in [
         "history-search-backward",
@@ -1768,6 +1767,41 @@ fn history_navigation_search_uses_text_before_cursor_like_bash() {
         assert_eq!(
             accepted_line(&bash),
             Some("ALPHA old".to_string()),
+            "{command}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{command}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{command}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), 0, "{command}: {sushline}");
+    }
+
+    for (binding, command, key) in [
+        ("\"\\C-^\"", "history-search-forward", 0x1eu8),
+        ("\"\\C-o\"", "history-substring-search-forward", 0x0fu8),
+    ] {
+        let inputrc = format!("set search-ignore-case on\n{binding}: {command}");
+        let history = ["alpha old", "ALPHA new"];
+        let mut keys = b"\x10\x10\x01\x0balphax\x02".to_vec();
+        keys.push(key);
+        keys.push(b'\r');
+        let bash = run_bash_readline_with_inputrc_file_and_history_and_env(
+            &keys,
+            &inputrc,
+            &history,
+            &locale_env,
+        );
+        let sushline = run_sushline_harness_with_inputrc_and_history_and_env(
+            &keys,
+            &inputrc,
+            &history,
+            &locale_env,
+        );
+        assert_eq!(
+            accepted_line(&bash),
+            Some("ALPHA new".to_string()),
             "{command}: {bash}"
         );
         assert_eq!(bell_count(&bash), 0, "{command}: {bash}");

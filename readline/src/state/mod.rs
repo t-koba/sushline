@@ -119,7 +119,10 @@ impl EditorState {
     }
 
     pub(crate) fn region_bounds(&self) -> Option<(usize, usize)> {
-        let mark = self.mark?;
+        // GNU treats an unset mark as line start for region commands (tested
+        // kill-region and copy-region-as-kill with no mark set); a degenerate
+        // empty region stays a silent no-op.
+        let mark = self.mark.unwrap_or(0);
         let point = self.buffer.point();
         if mark == point {
             return None;

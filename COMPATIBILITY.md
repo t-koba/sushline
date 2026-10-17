@@ -115,7 +115,7 @@ sections; Sushline-only extensions are marked `Implementation-specific`.
 | `kill-word`, `backward-kill-word`, `unix-word-rubout`, `unix-filename-rubout` | Hook-backed | Tested numeric/rubout cases; a rubout with nothing to kill rings once; custom classes use `Hooks::editing_word_breaks`. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `shell-kill-word`, `shell-backward-kill-word` | Hook-backed | Tested shell constructs; exact spans may come from hooks. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `delete-horizontal-space` | Compatible | Tested editor cases. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
-| `kill-region`, `copy-region-as-kill`, `copy-backward-word`, `copy-forward-word` | Compatible | Accepted-line behavior. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
+| `kill-region`, `copy-region-as-kill`, `copy-backward-word`, `copy-forward-word` | Compatible | Accepted-line behavior; with no mark set the region starts at line start. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `yank` | Compatible | Includes Editor-owned kill-ring persistence across prompts. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `yank-pop` | Compatible | Kill cycling; yanking with an empty ring rings once. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 

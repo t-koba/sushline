@@ -2051,3 +2051,41 @@ fn bash_readline_and_sushline_kill_line_variants_ring_like_bash() {
         assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_region_without_mark_uses_line_start_like_bash() {
+    // With no mark set, region commands use line start as the mark in the
+    // tested Bash 5.3 PTY fixtures; a degenerate empty region stays a silent
+    // no-op. Runtime observation, not GNU source proof.
+    let kill = "\"\\C-o\": kill-region";
+    let copy = "\"\\C-o\": copy-region-as-kill";
+    for (desc, inputrc, keys, expected, bells) in [
+        ("kill_end", kill, b"abc\x0f\r".as_slice(), "", 0),
+        ("kill_mid", kill, b"abc\x01\x06\x0f\r".as_slice(), "bc", 0),
+        ("kill_point0", kill, b"abc\x01\x0f\r".as_slice(), "abc", 0),
+        (
+            "copy_then_yank",
+            copy,
+            b"abc\x0f\x01\x19\r".as_slice(),
+            "abcabc",
+            0,
+        ),
+    ] {
+        let inputrc: &str = inputrc;
+        let history: &[&str] = &[];
+        let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, history);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
+    }
+}

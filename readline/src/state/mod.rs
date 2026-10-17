@@ -81,7 +81,6 @@ impl EditorState {
         self.vi.pending_char_search_operator = None;
         self.vi.pending_vi_mark = None;
         self.vi.pending_mark_operator = None;
-        self.vi.pending_vi_register = false;
         self.vi.vi_operator = None;
         self.vi.vi_operator_key = None;
         self.vi.vi_count_keys.clear();
@@ -91,7 +90,7 @@ impl EditorState {
 
     /// Drop a pending numeric argument once a complete command has run.
     /// Prefix/pending input (meta/CSI/quote/replace/named/vi-search/mark/
-    /// register/operator) keeps the argument for the command it prefixes.
+    /// operator) keeps the argument for the command it prefixes.
     pub(crate) fn consume_numeric_arg_unless_prefix(&mut self) {
         if self.input.prefix_meta
             || self.input.skipping_csi
@@ -100,7 +99,6 @@ impl EditorState {
             || self.input.named_command.is_some()
             || self.vi.pending_char_search.is_some()
             || self.vi.pending_vi_mark.is_some()
-            || self.vi.pending_vi_register
             || self.vi.vi_operator.is_some()
         {
             return;

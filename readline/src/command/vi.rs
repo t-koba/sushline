@@ -91,7 +91,6 @@ fn named_vi_command_group(command: &str) -> Option<ViCommandGroup> {
         "vi-redo" | "vi-replace" => Some(ViCommandGroup::Edit),
         "vi-search" => Some(ViCommandGroup::Search),
         "vi-search-again" => Some(ViCommandGroup::Search),
-        "vi-set-register" => Some(ViCommandGroup::Mode),
         "vi-set-mark" => Some(ViCommandGroup::Mode),
         "vi-subst" => Some(ViCommandGroup::Operator),
         "vi-undo" => Some(ViCommandGroup::Edit),
@@ -382,12 +381,10 @@ where
             }
             "vi-put" => {
                 state.record_undo();
-                let yanked = if key == b"P" {
-                    state.vi_put_before()
-                } else {
+                if key != b"P" {
                     state.buffer.move_forward();
-                    state.vi_put()
-                };
+                }
+                let yanked = state.yank();
                 if !yanked {
                     self.ding()?;
                 }
@@ -560,10 +557,6 @@ where
                 let op_start = state.take_vi_operator();
                 self.vi_match_bracket(state);
                 self.finish_vi_motion_operator(state, op_start, key, true);
-                state.after_non_kill_command();
-            }
-            "vi-set-register" => {
-                state.vi.pending_vi_register = true;
                 state.after_non_kill_command();
             }
             "vi-set-mark" => {

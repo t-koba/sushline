@@ -61,9 +61,6 @@ where
         if let Some(outcome) = self.handle_pending_vi_mark(state, bytes, hooks)? {
             return Ok(outcome);
         }
-        if let Some(outcome) = self.handle_pending_vi_register(state, bytes, hooks)? {
-            return Ok(outcome);
-        }
         if let Some(outcome) = self.handle_pending_char_search(state, bytes, hooks)? {
             return Ok(outcome);
         }
@@ -425,51 +422,6 @@ where
                     }
                 }
             }
-            state.after_non_kill_command();
-            state.consume_numeric_arg_unless_prefix();
-        } else {
-            self.ding()?;
-            state.consume_numeric_arg_unless_prefix();
-        }
-
-        Ok(EditorOutcome::Continue)
-    }
-
-    pub(super) fn handle_pending_vi_register(
-        &mut self,
-        state: &mut EditorState,
-        bytes: &[u8],
-        hooks: &mut impl Hooks,
-    ) -> Result<Option<EditorOutcome>, ReadlineError> {
-        if !state.vi.pending_vi_register {
-            return Ok(None);
-        }
-        state.vi.pending_vi_register = false;
-
-        // Fragmentation-invariant: only the first unit selects the register;
-        // trailing bytes are separate input like split reads.
-        let (first, rest) = split_first_unit(bytes);
-        let outcome = self.handle_pending_vi_register_single(state, first)?;
-        if !rest.is_empty() {
-            let remainder_outcome = self.handle_bytes(state, rest, hooks)?;
-            return Ok(Some(remainder_outcome));
-        }
-        Ok(Some(outcome))
-    }
-
-    fn handle_pending_vi_register_single(
-        &mut self,
-        state: &mut EditorState,
-        bytes: &[u8],
-    ) -> Result<EditorOutcome, ReadlineError> {
-        let Ok(text) = std::str::from_utf8(bytes) else {
-            self.ding()?;
-            state.consume_numeric_arg_unless_prefix();
-            return Ok(EditorOutcome::Continue);
-        };
-
-        if let Some(ch) = text.chars().find(|ch| !ch.is_control()) {
-            state.vi.active_vi_register = Some(ch);
             state.after_non_kill_command();
             state.consume_numeric_arg_unless_prefix();
         } else {

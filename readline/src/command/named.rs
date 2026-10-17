@@ -79,7 +79,6 @@ fn named_command_group(command: &str) -> NamedCommandGroup {
         "vi-search" => NamedCommandGroup::Vi,
         "vi-search-again" => NamedCommandGroup::Vi,
         "vi-set-mark" => NamedCommandGroup::Vi,
-        "vi-set-register" => NamedCommandGroup::Vi,
         "vi-subst" => NamedCommandGroup::Vi,
         "vi-undo" => NamedCommandGroup::Vi,
         "vi-yank-pop" => NamedCommandGroup::Vi,

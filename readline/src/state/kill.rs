@@ -43,7 +43,6 @@ impl EditorState {
             self.kill.last_was_kill = true;
             return;
         }
-        self.store_active_vi_register(&text);
 
         if allow_append
             && self.kill.last_was_kill
@@ -111,47 +110,6 @@ impl EditorState {
             end: self.buffer.point(),
             kill_index: index,
         });
-    }
-
-    pub(crate) fn vi_put(&mut self) -> bool {
-        self.kill.last_was_kill = false;
-        if let Some(register) = self.vi.active_vi_register.take()
-            && let Some(text) = self
-                .vi
-                .vi_registers
-                .get(&register.to_ascii_lowercase())
-                .cloned()
-        {
-            repeat(self, |state| {
-                state.buffer.insert_bytes(&text);
-            });
-            self.kill.last_yank = None;
-            return true;
-        }
-        self.yank()
-    }
-
-    pub(crate) fn vi_put_before(&mut self) -> bool {
-        self.kill.last_was_kill = false;
-        if let Some(register) = self.vi.active_vi_register.take()
-            && let Some(text) = self
-                .vi
-                .vi_registers
-                .get(&register.to_ascii_lowercase())
-                .cloned()
-        {
-            repeat(self, |state| {
-                state.buffer.insert_bytes(&text);
-            });
-            self.kill.last_yank = None;
-            return true;
-        }
-        let Some(index) = self.kill.kill_ring.len().checked_sub(1) else {
-            self.kill.last_yank = None;
-            return false;
-        };
-        self.yank_from_index(index);
-        true
     }
 }
 

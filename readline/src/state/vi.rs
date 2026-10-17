@@ -15,9 +15,6 @@ pub(crate) struct ViModeState {
     pub(crate) pending_vi_mark: Option<ViMarkAction>,
     pub(crate) pending_mark_operator: Option<(ViOperator, usize, Vec<u8>)>,
     pub(crate) vi_marks: BTreeMap<char, usize>,
-    pub(crate) pending_vi_register: bool,
-    pub(crate) active_vi_register: Option<char>,
-    pub(crate) vi_registers: BTreeMap<char, Vec<u8>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -106,25 +103,6 @@ impl EditorState {
             ViOperator::Change => Some("c"),
             ViOperator::Delete => Some("d"),
             ViOperator::Yank => Some("y"),
-        }
-    }
-
-    pub(crate) fn store_active_vi_register(&mut self, text: &[u8]) {
-        let Some(register) = self.vi.active_vi_register.take() else {
-            return;
-        };
-        if matches!(register, '_' | ':' | '.' | '%' | '#') {
-            return;
-        }
-        let key = register.to_ascii_lowercase();
-        if register.is_ascii_uppercase() {
-            self.vi
-                .vi_registers
-                .entry(key)
-                .or_default()
-                .extend_from_slice(text);
-        } else {
-            self.vi.vi_registers.insert(key, text.to_vec());
         }
     }
 }

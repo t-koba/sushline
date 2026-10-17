@@ -1168,6 +1168,23 @@ fn bash_readline_and_sushline_accept_same_vi_insert_self_insert_controls() {
 }
 
 #[test]
+fn bash_readline_and_sushline_reject_hidden_vi_register_named_command() {
+    let inputrc = "set editing-mode vi\nset keymap vi-command\n\"Q\": execute-named-command";
+    let keys = b"abc\x1b0Qvi-set-register\rax\r";
+    let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+    assert_eq!(accepted_line(&bash), Some("axbc".to_string()), "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        Some("axbc".to_string()),
+        "{sushline}"
+    );
+    assert_eq!(bell_count(&bash), 1, "{bash}");
+    assert_eq!(bell_count(&sushline), 1, "{sushline}");
+}
+
+#[test]
 fn bash_readline_and_sushline_leave_vi_register_key_unbound_by_default() {
     let keys = b"abc def\x1b0\"ayw\r";
     let inputrc = "set editing-mode vi";

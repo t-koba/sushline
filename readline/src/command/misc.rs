@@ -193,6 +193,7 @@ where
                 state.after_non_kill_command();
             }
             _ => {
+                self.ding()?;
                 state.after_non_kill_command();
             }
         }

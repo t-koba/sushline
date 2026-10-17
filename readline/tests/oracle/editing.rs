@@ -2089,3 +2089,34 @@ fn bash_readline_and_sushline_region_without_mark_uses_line_start_like_bash() {
         assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_mark_bells_match_like_bash() {
+    // exchange-point-and-mark with no mark set stays silent while
+    // vi-goto-mark with no mark rings once in the tested Bash 5.3 PTY
+    // fixtures. Runtime observation, not GNU source proof.
+    let keys = b"\x18\x18\r";
+    let bash = run_bash_readline(keys);
+    let sushline = run_sushline_harness(keys);
+    assert_eq!(accepted_line(&bash), Some(String::new()), "{bash}");
+    assert_eq!(bell_count(&bash), 0, "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(bell_count(&sushline), 0, "{sushline}");
+
+    let inputrc = "set editing-mode vi";
+    let keys = b"\x1b`a\r";
+    let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+    assert_eq!(accepted_line(&bash), Some(String::new()), "{bash}");
+    assert_eq!(bell_count(&bash), 1, "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(bell_count(&sushline), 1, "{sushline}");
+}

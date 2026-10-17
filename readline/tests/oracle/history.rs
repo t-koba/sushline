@@ -1885,6 +1885,13 @@ fn history_navigation_search_excessive_count_stays_silent_like_bash() {
             &["alpha one", "beta"][..],
             "alpha one",
         ),
+        (
+            "fwd_excess",
+            "\"\\C-^\": history-search-forward",
+            b"\x10\x10\x10\x01\x0balpha\x1b5\x1e\r".as_slice(),
+            &["alpha one", "alpha two", "alpha three"][..],
+            "alpha three",
+        ),
     ] {
         let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, history);
         let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, history);

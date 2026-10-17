@@ -687,7 +687,6 @@ fn compatibility_document_classifies_editor_bind_and_history_coverage() {
         "| Cell width and locale |",
         "| Unwrapped ANSI in prompts |",
         "| Signal install/catch/reraise |",
-        "| Completion redraw of invalid filename bytes |",
     ] {
         assert!(
             known_deviation_rows
@@ -696,6 +695,10 @@ fn compatibility_document_classifies_editor_bind_and_history_coverage() {
             "COMPATIBILITY.md must retain the {expected} deviation"
         );
     }
+    assert!(documented_rows.lines().any(|line| {
+        line.starts_with("| Completion redraw of invalid filename bytes |")
+            && line.contains("| Compatible |")
+    }));
     assert!(documented_rows.lines().any(|line| line.starts_with(
         "| `menu-complete`, `menu-complete-backward`, `old-menu-complete` | Compatible |"
     )));

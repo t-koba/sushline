@@ -7138,6 +7138,10 @@ fn run_raw_filename_completion_pair(
 
     let inputrc_path = cwd.join("inputrc");
     fs::write(&inputrc_path, inputrc).expect("write inputrc");
+    // Editor::new reloads INPUTRC before the harness applies SUSHLINE_INPUTRC.
+    // Isolate that initial load so host configuration cannot override locale defaults.
+    let sushline_initial_inputrc_path = cwd.join("sushline-empty-inputrc");
+    fs::write(&sushline_initial_inputrc_path, b"").expect("write isolated inputrc");
     let mut bash_command = CommandBuilder::new("bash");
     bash_command.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
     for (name, value) in env {
@@ -7152,6 +7156,10 @@ fn run_raw_filename_completion_pair(
     ]);
 
     let mut sushline_command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    sushline_command.env(
+        "INPUTRC",
+        sushline_initial_inputrc_path.to_string_lossy().as_ref(),
+    );
     sushline_command.env("SUSHLINE_INPUTRC", inputrc);
     sushline_command.env("SUSHLINE_PROMPT", READY_PROMPT);
     sushline_command.env("SUSHLINE_HISTORY", "");
@@ -7270,6 +7278,7 @@ fn bash_readline_and_sushline_list_raw_invalid_byte_filename_under_tested_locale
     fs::write(dir.path().join(filename), "").expect("write raw-byte fixture");
 
     let inputrc = r#""\C-o": possible-filename-completions
+set output-meta on
 set colored-stats off
 set visible-stats off
 set colored-completion-prefix off
@@ -7379,7 +7388,7 @@ fn complete_filename_accepts_exact_raw_invalid_byte_filename_under_tested_locale
 
 #[cfg(unix)]
 #[test]
-fn filename_completion_redraw_shows_raw_invalid_byte_differently_by_locale() {
+fn filename_completion_redraw_respects_locale_output_meta_defaults_for_invalid_byte() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;
 
@@ -7405,15 +7414,12 @@ fn filename_completion_redraw_shows_raw_invalid_byte_differently_by_locale() {
             dir.path(),
             false,
         );
-        let expected_bash: &[u8] = if locale == "C" {
+        let expected: &[u8] = if locale == "C" {
             b"raw-\\377-item "
         } else {
             b"raw-\xff-item "
         };
-        for (output, implementation, expected) in [
-            (&bash, "Bash", expected_bash),
-            (&sushline, "Sushline", b"raw-\xff-item ".as_slice()),
-        ] {
+        for (output, implementation) in [(&bash, "Bash"), (&sushline, "Sushline")] {
             let redraw = before_accepted_marker(output).unwrap_or_else(|| {
                 panic!("missing acceptance boundary for {implementation} under LC_ALL={locale}")
             });

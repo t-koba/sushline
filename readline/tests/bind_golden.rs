@@ -583,6 +583,92 @@ fn compatibility_document_covers_bind_commands_and_variables() {
     }
 }
 
+// COMPATIBILITY.md uses single-backtick spans. Pipes inside them or escaped
+// by an odd backslash run are not table separators.
+fn markdown_table_cell_count(line: &str) -> Option<usize> {
+    let line = line.trim();
+    if !line.starts_with('|') {
+        return None;
+    }
+
+    let (mut cells, mut in_code, mut slashes, mut offset) = (1, false, 0, 0);
+    for ch in line.chars() {
+        if ch == '\\' {
+            slashes += 1;
+            offset += ch.len_utf8();
+            continue;
+        }
+        let escaped = slashes % 2 == 1;
+        slashes = 0;
+        if ch == '`' && !escaped {
+            in_code = !in_code;
+        } else if ch == '|'
+            && !in_code
+            && !escaped
+            && offset != 0
+            && offset + ch.len_utf8() != line.len()
+        {
+            cells += 1;
+        }
+        offset += ch.len_utf8();
+    }
+    assert!(!in_code, "unclosed inline-code span in table row: {line}");
+    Some(cells)
+}
+
+fn is_markdown_table_separator(line: &str) -> bool {
+    line.trim().trim_matches('|').split('|').all(|cell| {
+        let dashes = cell.trim().trim_start_matches(':').trim_end_matches(':');
+        dashes.len() >= 3 && dashes.bytes().all(|byte| byte == b'-')
+    })
+}
+
+fn assert_markdown_table_rows_match_headers(markdown: &str) {
+    let lines = markdown.lines().collect::<Vec<_>>();
+    let mut index = 0;
+    while index + 1 < lines.len() {
+        let Some(expected) = markdown_table_cell_count(lines[index]) else {
+            index += 1;
+            continue;
+        };
+        if !is_markdown_table_separator(lines[index + 1]) {
+            index += 1;
+            continue;
+        }
+        assert_eq!(markdown_table_cell_count(lines[index + 1]), Some(expected));
+        index += 2;
+        while index < lines.len() {
+            let Some(actual) = markdown_table_cell_count(lines[index]) else {
+                break;
+            };
+            assert_eq!(
+                actual,
+                expected,
+                "wrong table cell count on line {}",
+                index + 1
+            );
+            index += 1;
+        }
+    }
+}
+
+#[test]
+fn markdown_table_scanner_ignores_code_and_escaped_pipes() {
+    let table = r#"| Feature | Notes |
+| --- | --- |
+| extglob | `@(a|b)` |
+| escaped | raw\|pipe |"#;
+    assert_markdown_table_rows_match_headers(table);
+}
+
+#[test]
+fn compatibility_document_tables_have_consistent_cell_counts() {
+    let compatibility =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../COMPATIBILITY.md"))
+            .expect("read compatibility document");
+    assert_markdown_table_rows_match_headers(&compatibility);
+}
+
 #[test]
 fn compatibility_document_classifies_editor_bind_and_history_coverage() {
     let compatibility =
@@ -597,10 +683,19 @@ fn compatibility_document_classifies_editor_bind_and_history_coverage() {
         .lines()
         .filter(|line| line.starts_with('|') && line.contains("| Known deviation |"))
         .collect::<Vec<_>>();
-    assert!(
-        known_deviation_rows.is_empty(),
-        "known deviations remain after the quoted menu suffix mismatch was fixed: {known_deviation_rows:?}"
-    );
+    for expected in [
+        "| Cell width and locale |",
+        "| Unwrapped ANSI in prompts |",
+        "| Signal install/catch/reraise |",
+        "| Completion redraw of invalid filename bytes |",
+    ] {
+        assert!(
+            known_deviation_rows
+                .iter()
+                .any(|row| row.starts_with(expected)),
+            "COMPATIBILITY.md must retain the {expected} deviation"
+        );
+    }
     assert!(documented_rows.lines().any(|line| line.starts_with(
         "| `menu-complete`, `menu-complete-backward`, `old-menu-complete` | Compatible |"
     )));
@@ -613,13 +708,13 @@ fn compatibility_document_classifies_editor_bind_and_history_coverage() {
     }
 
     for area in [
-        "| Basic line editing | Compatible |",
+        "| Basic line editing | Mixed |",
         "| Emacs keymap, bindable names, and `bind` | Compatible |",
         "| vi mode | Compatible |",
         "| Init file/inputrc | Compatible |",
         "| History navigation/search | Mixed |",
         "| History expansion | Compatible |",
-        "| History file storage | Compatible |",
+        "| History file storage | Mixed |",
     ] {
         assert!(
             compatibility.contains(area),

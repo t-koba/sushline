@@ -2545,6 +2545,39 @@ fn glob_complete_word_matches_one_utf8_character_under_utf8_locale() {
     assert_eq!(bell_count(&sushline), 0);
 }
 
+#[cfg(unix)]
+#[test]
+fn glob_complete_word_uses_byte_matching_when_utf8_locale_is_unavailable() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::write(dir.path().join("éclair"), b"").expect("write UTF-8 filename");
+    let inputrc =
+        "\"\\C-o\": glob-complete-word\nset completion-query-items 999\nset page-completions off";
+    let typed = format!("{}/?clair\x0f\r", dir.path().display());
+    let env = [("LC_ALL", "sushline-no-such-locale.UTF-8")];
+    let expected = Some(format!("{}/?clair", dir.path().display()));
+    let bash = run_bash_readline_with_inputrc_file_and_env_in_dir(
+        typed.as_bytes(),
+        inputrc,
+        &env,
+        dir.path(),
+    );
+    let sushline = run_sushline_harness_with_inputrc_and_env_in_dir(
+        typed.as_bytes(),
+        inputrc,
+        &env,
+        dir.path(),
+    );
+
+    assert!(
+        accepted_line(&bash).as_deref() == expected.as_deref(),
+        "Bash 5.3 did not retain the unmatched byte-pattern for the invalid-locale fixture"
+    );
+    assert!(
+        accepted_line(&sushline).as_deref() == expected.as_deref(),
+        "Sushline did not retain the unmatched byte-pattern for the invalid-locale fixture"
+    );
+}
+
 #[test]
 fn bash_readline_and_sushline_mark_directories_for_glob_completion_only() {
     let dir = tempfile::tempdir().expect("tempdir");

@@ -159,7 +159,7 @@ impl Variables {
             strings,
             bytes,
             flags: [false; BoolVariable::COUNT],
-            utf8_locale: lc_ctype.as_deref().is_some_and(locale_value_uses_meta),
+            utf8_locale: lc_ctype.as_deref().is_some_and(locale_is_utf8),
             lc_ctype,
         };
         this.rebuild_flags();
@@ -388,9 +388,7 @@ fn default_variable_strings(
 }
 
 fn locale_uses_meta() -> bool {
-    effective_lc_ctype()
-        .as_deref()
-        .is_some_and(locale_value_uses_meta)
+    effective_lc_ctype().as_deref().is_some_and(locale_is_utf8)
 }
 
 fn effective_lc_ctype() -> Option<String> {
@@ -417,6 +415,50 @@ fn select_lc_ctype<'a>(
 fn locale_value_uses_meta(value: &str) -> bool {
     let lower = value.to_ascii_lowercase();
     lower.contains("utf-8") || lower.contains("utf8")
+}
+
+fn locale_is_utf8(value: &str) -> bool {
+    locale_value_uses_meta(value) && locale_name_is_available(value)
+}
+
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
+fn locale_name_is_available(name: &str) -> bool {
+    use std::ffi::CString;
+    let Ok(name) = CString::new(name) else {
+        return false;
+    };
+    // Validate the requested locale without changing process-global locale
+    // state. If it is unavailable, use the conservative byte path.
+    let locale =
+        unsafe { libc::newlocale(libc::LC_CTYPE_MASK, name.as_ptr(), std::ptr::null_mut()) };
+    if locale.is_null() {
+        return false;
+    }
+    unsafe { libc::freelocale(locale) };
+    true
+}
+
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "netbsd",
+    target_os = "openbsd"
+)))]
+fn locale_name_is_available(_name: &str) -> bool {
+    false
 }
 
 #[cfg(test)]
@@ -612,6 +654,15 @@ mod tests {
             variables.get_bytes("isearch-terminators"),
             Some(&b"z".to_vec())
         );
+    }
+
+    #[test]
+    fn unavailable_utf8_named_locale_does_not_enable_utf8_semantics() {
+        let unavailable = format!("sushline-invalid-{}.UTF-8", std::process::id());
+        assert!(!locale_is_utf8(&unavailable));
+        if locale_name_is_available("C.UTF-8") {
+            assert!(locale_is_utf8("C.UTF-8"));
+        }
     }
 
     #[test]

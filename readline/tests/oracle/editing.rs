@@ -2020,3 +2020,34 @@ fn bash_readline_and_sushline_abort_rings_like_bash() {
         assert_eq!(bell_count(&sushline), 1, "{desc}: {sushline}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_kill_line_variants_ring_like_bash() {
+    // kill-line and kill-whole-line stay silent with nothing to kill, while
+    // backward-kill-line with nothing behind point rings once, in the tested
+    // Bash 5.3 PTY fixtures. Runtime observation, not GNU source proof.
+    let kwh = "\"\\C-o\": kill-whole-line";
+    for (desc, inputrc, keys, expected, bells) in [
+        ("kill_line_empty", "", b"\x0b\r".as_slice(), "", 0),
+        ("kwhole_empty", kwh, b"\x0f\r".as_slice(), "", 0),
+        ("kwhole_nonempty", kwh, b"abc\x0f\r".as_slice(), "", 0),
+        ("bkill_empty", "", b"\x18\x7f\r".as_slice(), "", 1),
+        ("bkill_bol", "", b"abc\x01\x18\x7f\r".as_slice(), "abc", 1),
+    ] {
+        let inputrc: &str = inputrc;
+        let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
+    }
+}

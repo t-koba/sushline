@@ -90,6 +90,41 @@ fn bash_readline_and_sushline_accept_same_wide_character_edit() {
 }
 
 #[test]
+fn bash_and_sushline_c_locale_multibyte_motion_is_scoped_difference() {
+    // This is PTY runtime evidence for the tested Bash settings, not GNU source proof.
+    let keys = "中x\x02\x02\r".as_bytes();
+    let inputrc = "set input-meta on\nset output-meta on\nset convert-meta off\nset meta-flag off\nset byte-oriented off\n";
+    let env = [("LC_ALL", "C")];
+    let bash = run_bash_readline_with_inputrc_file_and_env(keys, inputrc, &env);
+    let sushline = run_sushline_harness_with_inputrc_and_env(keys, inputrc, &env);
+
+    assert_eq!(accepted_line(&bash), Some("中x".to_string()), "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        Some("中x".to_string()),
+        "{sushline}"
+    );
+    assert!(
+        bash.contains("中x\x08\x08"),
+        "expected two single backspaces immediately after input; {bash}"
+    );
+
+    // C-locale rendering emits 中's three UTF-8 bytes, while editing moves
+    // over it as one scalar. These output positions do not assert a physical
+    // terminal width for the glyph.
+    let after_first_motion = format!("{READY_PROMPT}中x\u{1b}[K\u{1b}[19G");
+    let after_second_motion = format!("{READY_PROMPT}中x\u{1b}[K\u{1b}[16G");
+    assert!(
+        sushline.contains(&after_first_motion),
+        "expected redraw cursor after 中 following first Ctrl-B; {sushline}"
+    );
+    assert!(
+        sushline.contains(&after_second_motion),
+        "expected redraw cursor at prompt end following second Ctrl-B; {sushline}"
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_combining_character_edit() {
     let keys = "e\u{301}b\u{2}X\r".as_bytes();
     let bash = run_bash_readline(keys);

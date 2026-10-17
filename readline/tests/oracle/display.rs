@@ -39,6 +39,87 @@ fn bash_readline_and_sushline_accept_same_edit_under_narrow_terminal() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn unwrapped_ansi_prompt_redisplay_differs_from_bash_markers_only_in_bash() {
+    use portable_pty::CommandBuilder;
+    use std::fs;
+
+    // Bash 5.3 PTY observation: at 10 columns, the same color prompt produces
+    // different redisplay when its escapes are not marked as nonprinting.
+    let root = tempfile::tempdir().expect("prompt PTY root");
+    // Keep host inputrc and shell history settings out of this prompt oracle.
+    let inputrc_path = root.path().join("empty-inputrc");
+    fs::write(&inputrc_path, b"").expect("write empty inputrc");
+    let inputrc = inputrc_path.to_string_lossy().into_owned();
+    let home = root.path().to_string_lossy().into_owned();
+    let history = root.path().join("history").to_string_lossy().into_owned();
+    let size = PtySize {
+        rows: 24,
+        cols: 10,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    // The shell emits a control-byte sentinel; C-a/C-e force redraw across the
+    // narrow wrap before Enter accepts the command.
+    let keys = b"printf '\\x1fBASHDONE\\n'\x01\x05\r";
+
+    let run_bash = |prompt: &str| {
+        let mut command = CommandBuilder::new("bash");
+        command.env("PS1", prompt);
+        command.env("INPUTRC", &inputrc);
+        command.env("HISTFILE", &history);
+        command.env("HOME", &home);
+        command.env("LC_ALL", "C");
+        command.env("PROMPT_COMMAND", "");
+        command.args(["--noprofile", "--norc", "-i"]);
+        run_pty_steps_with_size_until(command, &[("P>", keys)], size, "\u{1f}BASHDONE")
+    };
+    let bash_bare = run_bash(r"\e[31mP>\e[0m");
+    let bash_marked = run_bash(r"\[\e[31m\]P>\[\e[0m\]");
+    let visible_prompt = "\x1b[31mP>\x1b[0m";
+    assert!(bash_bare.contains(visible_prompt), "{bash_bare:?}");
+    assert!(bash_marked.contains(visible_prompt), "{bash_marked:?}");
+    assert!(bash_bare.contains("\u{1f}BASHDONE"), "{bash_bare:?}");
+    assert!(bash_marked.contains("\u{1f}BASHDONE"), "{bash_marked:?}");
+    let bash_bare_redraw = bash_bare.split("\u{1f}BASHDONE").next().unwrap();
+    let bash_marked_redraw = bash_marked.split("\u{1f}BASHDONE").next().unwrap();
+    assert_ne!(bash_bare_redraw, bash_marked_redraw);
+
+    let run_sushline = |prompt: &str| {
+        let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+        command.env("SUSHLINE_PROMPT", prompt);
+        command.env("SUSHLINE_INPUTRC", "");
+        command.env("INPUTRC", &inputrc);
+        command.env("SUSHLINE_HISTORY", "");
+        command.env("HOME", &home);
+        command.env("LC_ALL", "C");
+        run_pty_steps_with_size_until(command, &[("P>", keys)], size, "SUSHLINE_ACCEPTED:")
+    };
+    let sushline_bare = run_sushline("\x1b[31mP>\x1b[0m");
+    let sushline_marked = run_sushline("\x01\x1b[31m\x02P>\x01\x1b[0m\x02");
+    assert!(
+        sushline_bare.contains("SUSHLINE_ACCEPTED:"),
+        "{sushline_bare:?}"
+    );
+    assert!(
+        sushline_marked.contains("SUSHLINE_ACCEPTED:"),
+        "{sushline_marked:?}"
+    );
+    assert_eq!(
+        accepted_line(&sushline_bare),
+        accepted_line(&sushline_marked)
+    );
+    assert!(sushline_bare.contains(visible_prompt), "{sushline_bare:?}");
+    assert!(
+        sushline_marked.contains(visible_prompt),
+        "{sushline_marked:?}"
+    );
+    let sushline_bare_redraw = sushline_bare.split("SUSHLINE_ACCEPTED:").next().unwrap();
+    let sushline_marked_redraw = sushline_marked.split("SUSHLINE_ACCEPTED:").next().unwrap();
+    assert_eq!(sushline_bare_redraw, sushline_marked_redraw);
+}
+
 #[test]
 fn bash_readline_and_sushline_accept_same_screen_line_motion() {
     let size = PtySize {

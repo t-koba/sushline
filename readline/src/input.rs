@@ -610,6 +610,18 @@ where
         Ok(EditorOutcome::Continue)
     }
 
+    fn refresh_reverse_search_match(&self, search: &mut ReverseSearchState, repeat: bool) -> bool {
+        let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
+        let locale_lowercase = self.search_locale_lowercase(ignore_case);
+        update_reverse_search_match(
+            search,
+            &self.history,
+            repeat,
+            ignore_case,
+            locale_lowercase.as_ref(),
+        )
+    }
+
     fn handle_reverse_search_single(
         &mut self,
         state: &mut EditorState,
@@ -625,12 +637,7 @@ where
             };
             search.query.extend_from_slice(bytes);
             search.match_index = None;
-            let found = update_reverse_search_match(
-                &mut search,
-                &self.history,
-                false,
-                self.flag(BoolVariable::SearchIgnoreCase),
-            );
+            let found = self.refresh_reverse_search_match(&mut search, false);
             self.apply_search_match(state, &search);
             // GNU per-keystroke bell (patch 0 Bash 5.3 PTY oracle): each
             // failing emacs incremental query extension rings once.
@@ -673,10 +680,13 @@ where
                 if search.query.is_empty() {
                     buffer.set_point(search.original_point.min(buffer.len_chars()));
                 } else if search.match_line.is_some() {
+                    let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
+                    let locale_lowercase = self.search_locale_lowercase(ignore_case);
                     buffer.set_point(isearch_terminate_point(
                         buffer.as_bytes(),
                         &search.query,
-                        self.flag(BoolVariable::SearchIgnoreCase),
+                        ignore_case,
+                        locale_lowercase.as_ref(),
                     ));
                 } else if matches!(search.direction, SearchDirection::Forward)
                     && search.original_history_pos >= self.history.entries().len()
@@ -731,12 +741,7 @@ where
             &[0x7f] => {
                 search.query.pop();
                 search.match_index = None;
-                update_reverse_search_match(
-                    &mut search,
-                    &self.history,
-                    false,
-                    self.flag(BoolVariable::SearchIgnoreCase),
-                );
+                self.refresh_reverse_search_match(&mut search, false);
                 if !self.apply_search_match(state, &search) {
                     state.buffer = LineBuffer::from_bytes(search.original_line.clone());
                 }
@@ -763,12 +768,7 @@ where
             let input = bytes.to_vec();
             search.query.extend(input);
             search.match_index = None;
-            let found = update_reverse_search_match(
-                &mut search,
-                &self.history,
-                false,
-                self.flag(BoolVariable::SearchIgnoreCase),
-            );
+            let found = self.refresh_reverse_search_match(&mut search, false);
             self.apply_search_match(state, &search);
             if !found && !search.query.is_empty() && !search.exclude_cursor {
                 self.ding()?;
@@ -818,12 +818,7 @@ where
         if !input.is_empty() {
             search.query.extend(input);
             search.match_index = None;
-            let found = update_reverse_search_match(
-                &mut search,
-                &self.history,
-                false,
-                self.flag(BoolVariable::SearchIgnoreCase),
-            );
+            let found = self.refresh_reverse_search_match(&mut search, false);
             self.apply_search_match(state, &search);
             if !found && !search.query.is_empty() && !search.exclude_cursor {
                 self.ding()?;
@@ -859,12 +854,7 @@ where
         {
             search.query = previous;
         }
-        let found = update_reverse_search_match(
-            &mut search,
-            &self.history,
-            true,
-            self.flag(BoolVariable::SearchIgnoreCase),
-        );
+        let found = self.refresh_reverse_search_match(&mut search, true);
         self.apply_search_match(state, &search);
         if !found && !search.query.is_empty() {
             self.ding()?;
@@ -978,14 +968,26 @@ where
                             let end = search
                                 .original_history_pos
                                 .min(self.history.entries().len());
-                            search_history_backward(&self.history, &query, Some(end), ignore_case)
+                            search_history_backward(
+                                &self.history,
+                                &query,
+                                Some(end),
+                                ignore_case,
+                                None,
+                            )
                         }
                         SearchDirection::Forward => {
                             let start = search
                                 .original_history_pos
                                 .saturating_add(1)
                                 .min(self.history.entries().len());
-                            search_history_forward_from(&self.history, &query, start, ignore_case)
+                            search_history_forward_from(
+                                &self.history,
+                                &query,
+                                start,
+                                ignore_case,
+                                None,
+                            )
                         }
                     }
                 } else {
@@ -993,9 +995,15 @@ where
                         SearchDirection::Backward => HistoryDirection::Previous,
                         SearchDirection::Forward => HistoryDirection::Next,
                     };
-                    self.history
-                        .history_search_bytes_with_case(&query, direction, ignore_case)
-                        .map(|found| (found.entry_index, found.line_bytes.clone()))
+                    let locale_lowercase = self.search_locale_lowercase(ignore_case);
+                    history_search_with_locale(
+                        &mut self.history,
+                        &query,
+                        direction,
+                        ignore_case,
+                        locale_lowercase.as_ref(),
+                    )
+                    .map(|found| (found.entry_index, found.line_bytes.clone()))
                 };
                 let found_index = found.as_ref().map(|(index, _)| *index);
                 if let Some((index, line)) = found {
@@ -1215,16 +1223,20 @@ fn char_search_key(bytes: &[u8]) -> Option<char> {
     }
 }
 
-fn isearch_terminate_point(line: &[u8], query: &[u8], ignore_case: bool) -> usize {
-    if query.is_empty() || query.len() > line.len() {
+fn isearch_terminate_point(
+    line: &[u8],
+    query: &[u8],
+    ignore_case: bool,
+    locale_lowercase: Option<&crate::locale::LocaleLowercase>,
+) -> usize {
+    if query.is_empty() {
         return 0;
     }
-    let haystack = normalize_search_bytes(line, ignore_case);
-    let needle = normalize_search_bytes(query, ignore_case);
-    haystack
-        .windows(needle.len())
-        .position(|window| window == needle.as_slice())
-        .unwrap_or(0)
+    let Some(byte_offset) = search_bytes_offset(line, query, ignore_case, locale_lowercase, false)
+    else {
+        return 0;
+    };
+    byte_offset
 }
 
 fn accept_search_line(search: &ReverseSearchState) -> Vec<u8> {
@@ -1237,4 +1249,26 @@ fn accept_search_line(search: &ReverseSearchState) -> Vec<u8> {
 fn save_incremental_search(state: &mut EditorState, search: &ReverseSearchState) {
     state.search.last_incremental_search = (!search.query.is_empty()).then(|| search.query.clone());
     state.search.last_incremental_search_direction = Some(search.direction);
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::isearch_terminate_point;
+    use crate::locale::LocaleLowercase;
+
+    #[test]
+    fn incremental_search_cursor_uses_original_byte_match_start() {
+        let Some(locale) = LocaleLowercase::new("C.UTF-8") else {
+            return;
+        };
+        assert_eq!(
+            isearch_terminate_point(
+                "Ä x ÄLPHA".as_bytes(),
+                "älp".as_bytes(),
+                true,
+                Some(&locale),
+            ),
+            5
+        );
+    }
 }

@@ -31,10 +31,14 @@ where
             }
             EditCommand::HistorySearchBackward => {
                 let prefix = state.buffer.range_bytes(0, state.buffer.point());
-                if let Some(line) = self.history.search_prefix_backward_bytes_with_case(
+                let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
+                let locale_lowercase = self.search_locale_lowercase(ignore_case);
+                if let Some(line) = history_prefix_backward_with_locale(
+                    &mut self.history,
                     &prefix,
                     state.buffer.as_bytes().to_vec(),
-                    self.flag(BoolVariable::SearchIgnoreCase),
+                    ignore_case,
+                    locale_lowercase.as_ref(),
                 ) {
                     self.replace_from_history(state, &line);
                 }
@@ -43,9 +47,13 @@ where
             }
             EditCommand::HistorySearchForward => {
                 let prefix = state.buffer.range_bytes(0, state.buffer.point());
-                if let Some(line) = self.history.search_prefix_forward_bytes_with_case(
+                let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
+                let locale_lowercase = self.search_locale_lowercase(ignore_case);
+                if let Some(line) = history_prefix_forward_with_locale(
+                    &mut self.history,
                     &prefix,
-                    self.flag(BoolVariable::SearchIgnoreCase),
+                    ignore_case,
+                    locale_lowercase.as_ref(),
                 ) {
                     self.replace_from_history(state, &line);
                 }
@@ -166,28 +174,30 @@ where
             }
             "history-substring-search-forward" => {
                 let needle = state.buffer.range_bytes(0, state.buffer.point());
-                if let Some(line) = self
-                    .history
-                    .search_containing_forward_from_cursor_bytes_with_case(
-                        &needle,
-                        state.buffer.as_bytes().to_vec(),
-                        self.flag(BoolVariable::SearchIgnoreCase),
-                    )
-                {
+                let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
+                let locale_lowercase = self.search_locale_lowercase(ignore_case);
+                if let Some(line) = history_substring_forward_with_locale(
+                    &mut self.history,
+                    &needle,
+                    state.buffer.as_bytes().to_vec(),
+                    ignore_case,
+                    locale_lowercase.as_ref(),
+                ) {
                     self.replace_from_history(state, &line);
                 }
                 state.after_non_kill_command();
             }
             "history-substring-search-backward" => {
                 let needle = state.buffer.range_bytes(0, state.buffer.point());
-                if let Some(line) = self
-                    .history
-                    .search_containing_backward_from_cursor_bytes_with_case(
-                        &needle,
-                        state.buffer.as_bytes().to_vec(),
-                        self.flag(BoolVariable::SearchIgnoreCase),
-                    )
-                {
+                let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
+                let locale_lowercase = self.search_locale_lowercase(ignore_case);
+                if let Some(line) = history_substring_backward_with_locale(
+                    &mut self.history,
+                    &needle,
+                    state.buffer.as_bytes().to_vec(),
+                    ignore_case,
+                    locale_lowercase.as_ref(),
+                ) {
                     self.replace_from_history(state, &line);
                 }
                 state.after_non_kill_command();
@@ -251,11 +261,14 @@ where
                         moved = true;
                         self.history.set_pos(stepped.min(len));
                     }
+                    let locale_lowercase = self.search_locale_lowercase(ignore_case);
                     let found = if moved {
-                        self.history.history_search_bytes_with_case(
+                        history_search_with_locale(
+                            &mut self.history,
                             &query,
                             history_direction,
                             ignore_case,
+                            locale_lowercase.as_ref(),
                         )
                     } else {
                         None

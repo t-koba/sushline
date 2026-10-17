@@ -225,7 +225,7 @@ fn search_ignore_case_applies_to_history_navigation_commands() {
 }
 
 #[test]
-fn history_navigation_search_ignore_case_is_ascii_only_in_utf8_locale() {
+fn history_navigation_search_ignore_case_matches_locale_case_in_utf8_locale() {
     if !c_utf8_locale_available() {
         return;
     }
@@ -260,14 +260,14 @@ fn history_navigation_search_ignore_case_is_ascii_only_in_utf8_locale() {
         );
         assert_eq!(
             accepted_line(&sushline),
-            Some("älpha".to_string()),
-            "Sushline's ASCII-only fold does not match Ä/ä: {sushline}"
+            Some("ÄLPHA old".to_string()),
+            "{command}: {sushline}"
         );
     }
 }
 
 #[test]
-fn history_navigation_search_ignore_case_is_ascii_only_in_forward_commands() {
+fn history_navigation_search_ignore_case_matches_locale_case_in_forward_commands() {
     if !c_utf8_locale_available() {
         return;
     }
@@ -277,18 +277,13 @@ fn history_navigation_search_ignore_case_is_ascii_only_in_forward_commands() {
     let locale_env = [("LC_ALL", "C.UTF-8")];
     let history = ["älpha old", "ÄLPHA new"];
     let cases = [
-        (
-            "history-search-backward",
-            "history-search-forward",
-            "älpha o",
-        ),
+        ("history-search-backward", "history-search-forward"),
         (
             "history-substring-search-backward",
             "history-substring-search-forward",
-            "älpha",
         ),
     ];
-    for (backward, forward, expected_sushline) in cases {
+    for (backward, forward) in cases {
         let inputrc =
             format!("set search-ignore-case on\n\"\\C-o\": {backward}\n\"\\C-^\": {forward}");
         // The longer query selects the older lowercase entry; then search
@@ -316,14 +311,14 @@ fn history_navigation_search_ignore_case_is_ascii_only_in_forward_commands() {
         );
         assert_eq!(
             accepted_line(&sushline),
-            Some(expected_sushline.to_string()),
-            "Sushline's ASCII-only fold does not match Ä/ä: {sushline}"
+            Some("ÄLPHA new".to_string()),
+            "{forward}: {sushline}"
         );
     }
 }
 
 #[test]
-fn search_ignore_case_differs_on_non_ascii_in_utf8_locale() {
+fn search_ignore_case_matches_non_ascii_in_utf8_locale() {
     if !c_utf8_locale_available() {
         return;
     }
@@ -355,8 +350,103 @@ fn search_ignore_case_differs_on_non_ascii_in_utf8_locale() {
     );
     assert_eq!(
         accepted_line(&sushline),
-        Some(String::new()),
-        "Sushline's locale-independent ASCII folding does not match Ä/ä: {sushline}"
+        Some("ÄLPHA old".to_string()),
+        "{sushline}"
+    );
+}
+
+#[test]
+fn search_ignore_case_matches_measured_utf8_single_scalar_pairs() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    let inputrc = "set search-ignore-case on";
+    let locale_env = [("LC_ALL", "C.UTF-8")];
+    for (uppercase, lowercase) in [("Ä", "ä"), ("Σ", "σ"), ("K", "k"), ("İ", "i"), ("ẞ", "ß")]
+    {
+        let history_line = format!("{uppercase} entry");
+        let history = [history_line.as_str()];
+        let mut keys = vec![0x12];
+        keys.extend_from_slice(lowercase.as_bytes());
+        keys.push(b'\r');
+        let bash = run_bash_readline_with_inputrc_file_and_history_and_env(
+            &keys,
+            inputrc,
+            &history,
+            &locale_env,
+        );
+        let sushline = run_sushline_harness_with_inputrc_and_history_and_env(
+            &keys,
+            inputrc,
+            &history,
+            &locale_env,
+        );
+        assert_eq!(
+            accepted_line(&bash),
+            Some(history_line.clone()),
+            "{uppercase}/{lowercase}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{uppercase}/{lowercase}: bash={bash}\nsushline={sushline}"
+        );
+    }
+
+    for (entry, query) in [("Σ entry", "ς"), ("ß entry", "ss")] {
+        let history = [entry];
+        let mut keys = vec![0x12];
+        keys.extend_from_slice(query.as_bytes());
+        keys.push(b'\r');
+        let bash = run_bash_readline_with_inputrc_file_and_history_and_env(
+            &keys,
+            inputrc,
+            &history,
+            &locale_env,
+        );
+        let sushline = run_sushline_harness_with_inputrc_and_history_and_env(
+            &keys,
+            inputrc,
+            &history,
+            &locale_env,
+        );
+        assert_eq!(
+            accepted_line(&bash),
+            Some(String::new()),
+            "{entry}/{query}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{entry}/{query}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
+fn search_ignore_case_falls_back_to_ascii_in_c_locale() {
+    let inputrc = "set search-ignore-case on";
+    let locale_env = [("LC_ALL", "C")];
+    let history = ["ALPHA old"];
+    let keys = b"\x12alpha\r";
+    let bash = run_bash_readline_with_inputrc_file_and_history_and_env(
+        keys,
+        inputrc,
+        &history,
+        &locale_env,
+    );
+    let sushline =
+        run_sushline_harness_with_inputrc_and_history_and_env(keys, inputrc, &history, &locale_env);
+    assert_eq!(
+        accepted_line(&bash),
+        Some("ALPHA old".to_string()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
     );
 }
 
@@ -437,7 +527,7 @@ fn bash_readline_and_sushline_operate_and_get_next_prefill_same_next_read() {
 }
 
 #[test]
-fn nonincremental_search_ignore_case_differs_on_non_ascii_in_utf8_locale() {
+fn nonincremental_search_ignore_case_matches_non_ascii_in_utf8_locale() {
     if !c_utf8_locale_available() {
         return;
     }
@@ -470,8 +560,48 @@ set search-ignore-case on"#;
     );
     assert_eq!(
         accepted_line(&sushline),
-        Some(String::new()),
-        "Sushline's locale-independent ASCII folding does not match Ä/ä: {sushline}"
+        Some("ÄLPHA old".to_string()),
+        "{sushline}"
+    );
+}
+
+#[test]
+fn nonincremental_search_ignore_case_repeat_matches_in_utf8_locale() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    let inputrc = r#""\C-o": non-incremental-reverse-search-history
+"\C-]": non-incremental-reverse-search-history-again
+set search-ignore-case on"#;
+    let history = ["ÄLPHA old", "ÄLPHA new"];
+    let mut keys = vec![0x0f];
+    keys.extend_from_slice("älpha".as_bytes());
+    // Execute the newest match, repeat backward to the older match, then accept.
+    keys.extend_from_slice(b"\r\x1d\r");
+    let locale_env = [("LC_ALL", "C.UTF-8")];
+    let bash = run_bash_readline_with_inputrc_file_and_history_and_env(
+        &keys,
+        inputrc,
+        &history,
+        &locale_env,
+    );
+    let sushline = run_sushline_harness_with_inputrc_and_history_and_env(
+        &keys,
+        inputrc,
+        &history,
+        &locale_env,
+    );
+
+    assert_eq!(
+        accepted_line(&bash),
+        Some("ÄLPHA old".to_string()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
     );
 }
 

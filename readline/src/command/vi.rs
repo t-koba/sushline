@@ -497,10 +497,10 @@ where
                 let ignore_case = false;
                 let found = match search_direction {
                     SearchDirection::Backward => {
-                        search_history_backward(&self.history, &query, Some(pos), ignore_case)
+                        search_history_backward(&self.history, &query, Some(pos), ignore_case, None)
                     }
                     SearchDirection::Forward => {
-                        search_history_forward(&self.history, &query, Some(pos), ignore_case)
+                        search_history_forward(&self.history, &query, Some(pos), ignore_case, None)
                     }
                 };
                 if let Some((index, line)) = found {

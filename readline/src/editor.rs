@@ -505,6 +505,19 @@ where
         self.variables.flag(variable)
     }
 
+    pub(crate) fn search_locale_lowercase(
+        &self,
+        ignore_case: bool,
+    ) -> Option<crate::locale::LocaleLowercase> {
+        if ignore_case && self.variables.utf8_locale() {
+            self.variables
+                .lc_ctype()
+                .and_then(crate::locale::LocaleLowercase::new)
+        } else {
+            None
+        }
+    }
+
     fn histchars(&self) -> HistoryChars {
         // GNU has no `histchars` inputrc variable; the characters are fixed.
         HistoryChars::parse("!^#")

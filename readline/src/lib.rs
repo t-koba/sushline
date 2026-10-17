@@ -12,6 +12,7 @@ mod hooks;
 mod input;
 mod inputrc;
 mod keymap;
+mod locale;
 mod prompt;
 mod state;
 mod terminal;

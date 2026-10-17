@@ -423,10 +423,12 @@ fn history_prefix_forward_matching(
     if let Some((index, line)) = found {
         history.set_pos(index);
         Some(line)
-    } else {
-        // A failed forward prefix search returns to the saved current edit,
-        // even if an ASCII-only search would have matched a history entry.
+    } else if start + 1 >= history.entries().len() {
+        // Past the newest match, return to the saved current edit; otherwise
+        // preserve the current line (see Bash 5.3 PTY fixtures above).
         history.end_bytes()
+    } else {
+        None
     }
 }
 
@@ -562,12 +564,16 @@ mod tests {
             assert_eq!(history.where_history(), start);
             if start == 2 {
                 // The failed backward search must still save the current edit.
+                // A failed forward prefix search preserves the current line
+                // (Bash 5.3 PTY: forward past the newest match stays instead
+                // of returning to the saved edit).
                 history.set_pos(0);
                 assert_eq!(
                     history_prefix_forward_matching(&mut history, identity_prefix),
-                    Some(b"saved edit".to_vec())
+                    None
                 );
-                assert_eq!(history.where_history(), 2);
+                assert_eq!(history.where_history(), 0);
+                history.set_pos(2);
                 assert_eq!(
                     history_prefix_forward_matching(&mut history, identity_prefix),
                     None

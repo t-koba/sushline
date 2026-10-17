@@ -269,6 +269,82 @@ fn history_navigation_search_is_case_sensitive_by_default() {
 }
 
 #[test]
+fn history_navigation_forward_search_is_case_sensitive_by_default() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    // Default `search-ignore-case off` stays case-sensitive for forward
+    // navigation as well. Fixture-scoped Bash 5.3 PTY observation, not GNU
+    // source proof.
+    let locale_env = [("LC_ALL", "C.UTF-8")];
+    type ForwardCase<'a> = (&'a str, &'a str, &'a [&'a str], &'a [u8], &'a str, u8);
+    let cases: &[ForwardCase<'_>] = &[
+        (
+            "\"\\C-^\"",
+            "history-search-forward",
+            &["alpha old", "ALPHA new"],
+            b"\x10\x10\x01\x0b",
+            "alpha",
+            0x1e,
+        ),
+        (
+            "\"\\C-o\"",
+            "history-substring-search-forward",
+            &["alpha old", "ALPHA new"],
+            b"\x10\x10\x01\x0b",
+            "alpha",
+            0x0f,
+        ),
+        (
+            "\"\\C-^\"",
+            "history-search-forward",
+            &["älpha old", "ÄLPHA new"],
+            b"\x10\x10\x01\x0b",
+            "älpha",
+            0x1e,
+        ),
+        (
+            "\"\\C-o\"",
+            "history-substring-search-forward",
+            &["älpha old", "ÄLPHA new"],
+            b"\x10\x10\x01\x0b",
+            "älpha",
+            0x0f,
+        ),
+    ];
+    for (binding, command, history, prefix, query, search_key) in cases {
+        let inputrc = format!("{binding}: {command}");
+        let mut keys = prefix.to_vec();
+        keys.extend_from_slice(query.as_bytes());
+        keys.push(*search_key);
+        keys.push(b'\r');
+        let bash = run_bash_readline_with_inputrc_file_and_history_and_env(
+            &keys,
+            &inputrc,
+            history,
+            &locale_env,
+        );
+        let sushline = run_sushline_harness_with_inputrc_and_history_and_env(
+            &keys,
+            &inputrc,
+            history,
+            &locale_env,
+        );
+        assert_eq!(
+            accepted_line(&bash),
+            Some((*query).to_string()),
+            "{command} {query}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{command} {query}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
 fn history_navigation_search_ignore_case_matches_locale_case_in_utf8_locale() {
     if !c_utf8_locale_available() {
         return;

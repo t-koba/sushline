@@ -432,8 +432,16 @@ impl History {
             return Some(self.entries[found].line_bytes.clone());
         }
 
-        self.cursor = None;
-        Some(self.current_edit.clone())
+        // A failed forward search from the newest entry returns to the saved
+        // current edit (Bash 5.3 PTY: `alp` backward to `alpha two`, forward
+        // past the newest match restores `alp`); from an older entry it
+        // preserves the current line (cross-case fixtures stay at the typed
+        // prefix instead of reverting to a stale saved edit).
+        if cursor + 1 >= self.entries.len() {
+            self.cursor = None;
+            return Some(self.current_edit.clone());
+        }
+        None
     }
 
     /// Search containing backward index bytes.

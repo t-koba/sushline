@@ -1892,6 +1892,20 @@ fn history_navigation_search_excessive_count_stays_silent_like_bash() {
             &["alpha one", "alpha two", "alpha three"][..],
             "alpha three",
         ),
+        (
+            "back_substring_excess",
+            "\"\\C-o\": history-substring-search-backward",
+            b"alpha\x1b5\x0f\r".as_slice(),
+            &["alpha one", "alpha two", "alpha three"][..],
+            "alpha one",
+        ),
+        (
+            "fwd_substring_excess",
+            "\"\\C-o\": history-substring-search-forward",
+            b"\x10\x10\x10\x01\x0balpha\x1b5\x0f\r".as_slice(),
+            &["alpha one", "alpha two", "alpha three"][..],
+            "alpha three",
+        ),
     ] {
         let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, history);
         let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, history);

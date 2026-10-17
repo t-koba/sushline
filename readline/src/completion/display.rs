@@ -189,7 +189,7 @@ pub(crate) fn color_completion_prefix(item: &str, replacement: &str, prefix: &st
         return item.to_string();
     }
     let color = ls_color_named_code("readline-colored-completion-prefix")
-        .unwrap_or_else(|| "1".to_string());
+        .unwrap_or_else(|| "01;35".to_string());
     let (split, suffix_sgr_history) = split_ansi_visible_prefix(item, prefix.chars().count());
     let highlighted_prefix = strip_sgr_sequences(&item[..split]);
     let suffix_sgr_history = suffix_sgr_history.unwrap_or_default();

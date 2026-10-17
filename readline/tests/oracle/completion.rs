@@ -10008,9 +10008,9 @@ fn bash_readline_and_sushline_display_colored_filename_stats_for_tested_types() 
         prefix_inputrc,
         &prefix_env,
     );
-    for (output, prefix_code) in [(&bash, "01;35"), (&sushline, "1")] {
+    for output in [&bash, &sushline] {
         assert!(
-            output.contains(&format!("\x1b[{prefix_code}malpha-\x1b[0m")),
+            output.contains("\x1b[01;35malpha-\x1b[0m"),
             "missing highlighted full shared prefix in {output:?}"
         );
         for suffix in ["one", "two"] {

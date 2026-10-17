@@ -474,7 +474,7 @@ fn colored_completion_prefix_marks_common_prefix() {
     let replacement = std::str::from_utf8(&candidates[0].replacement).unwrap();
     assert_eq!(
         color_completion_prefix(&items[0], replacement, prefix),
-        "\x1b[1malp\x1b[0mha"
+        "\x1b[01;35malp\x1b[0mha"
     );
 }
 

@@ -1735,6 +1735,7 @@ fn bash_readline_and_sushline_unix_discard_empty_line_rings() {
     for (desc, keys, expected, bells) in [
         ("empty", b"\x15\r".as_slice(), "", 1),
         ("kills_line", b"abc\x15\r".as_slice(), "", 0),
+        ("point_at_start", b"abc\x01\x15\r".as_slice(), "abc", 1),
     ] {
         let bash = run_bash_readline(keys);
         let sushline = run_sushline_harness(keys);

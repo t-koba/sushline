@@ -1616,3 +1616,29 @@ fn non_incremental_search_again_uses_completed_search_across_reads() {
     let second = line.read_line(Prompt::new("> "), &mut ()).unwrap();
     assert_eq!(second, ReadlineResult::Line(b"foo old".to_vec()));
 }
+
+#[test]
+fn excessive_forward_search_rollback_preserves_point() {
+    let mut history = History::new();
+    history.push("alpha one");
+    history.push("alpha two");
+    history.push("alpha three");
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(vec![0x10, 0x10, 0x10]),
+        TerminalEvent::Bytes(vec![0x01]),
+        TerminalEvent::Bytes(vec![0x0b]),
+        TerminalEvent::Bytes(b"alpha".to_vec()),
+        TerminalEvent::Bytes(vec![0x02]),
+        TerminalEvent::Bytes(vec![0x1b, b'5', 0x1e]),
+        TerminalEvent::Bytes(b"Z".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, history);
+    line.load_inputrc_str("set history-preserve-point on\n\"\\C-^\": history-search-forward")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(
+        result,
+        ReadlineResult::Line("alphZa three".as_bytes().to_vec())
+    );
+}

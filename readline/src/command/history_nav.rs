@@ -71,7 +71,7 @@ where
                     .unwrap_or(1);
                 let mut matched = false;
                 for _ in 0..count {
-                    let before_line = state.buffer.as_bytes().to_vec();
+                    let before_buffer = state.buffer.clone();
                     let before_pos = self.history.where_history();
                     if let Some(line) = history_prefix_forward_with_locale(
                         &mut self.history,
@@ -84,7 +84,7 @@ where
                         // stay at the newest match instead (Bash 5.3 PTY).
                         if matched && self.history.where_history() >= self.history.entries().len() {
                             self.history.set_pos(before_pos);
-                            state.buffer = LineBuffer::from_bytes(before_line);
+                            state.buffer = before_buffer;
                             break;
                         }
                         self.replace_from_history(state, &line);

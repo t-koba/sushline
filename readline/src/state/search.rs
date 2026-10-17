@@ -460,7 +460,7 @@ fn history_substring_forward_matching(
     let start = history.where_history();
     // Keep current-edit bookkeeping while rejecting ASCII-only matches below.
     history.search_containing_forward_from_cursor_bytes_with_case(needle, current, true);
-    if needle.is_empty() || start >= history.entries().len() {
+    if start >= history.entries().len() {
         return None;
     }
     let current_matches = matches(&history.entries()[start].line_bytes);
@@ -507,16 +507,12 @@ fn history_substring_backward_matching(
     let start = history.where_history().min(history.entries().len());
     // Keep current-edit bookkeeping while rejecting ASCII-only matches below.
     history.search_containing_backward_from_cursor_bytes_with_case(needle, current, true);
-    let found = if needle.is_empty() {
-        None
-    } else {
-        history.entries()[..start]
-            .iter()
-            .enumerate()
-            .rev()
-            .find(|(_, entry)| matches(&entry.line_bytes))
-            .map(|(index, entry)| (index, entry.line_bytes.clone()))
-    };
+    let found = history.entries()[..start]
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, entry)| matches(&entry.line_bytes))
+        .map(|(index, entry)| (index, entry.line_bytes.clone()));
     if let Some((index, line)) = found {
         history.set_pos(index);
         Some(line)

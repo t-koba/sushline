@@ -1597,3 +1597,60 @@ fn failed_history_navigation_search_rings_bell_like_bash() {
         assert_eq!(bell_count(&sushline), 1, "{command}: {sushline}");
     }
 }
+
+#[test]
+fn empty_history_substring_search_matches_like_bash() {
+    // Empty substring matches every entry like an empty prefix in the tested
+    // Bash 5.3 PTY fixtures: from the end backward finds the newest, from the
+    // oldest forward finds the newer; at a dead end it rings once and
+    // preserves the empty line. Runtime observation, not GNU source proof.
+    for (desc, inputrc, keys, history, expected, bells) in [
+        (
+            "back_from_end",
+            "\"\\C-o\": history-substring-search-backward",
+            b"\x0f\r".as_slice(),
+            &["alpha one", "beta"][..],
+            "beta",
+            0,
+        ),
+        (
+            "back_from_oldest",
+            "\"\\C-o\": history-substring-search-backward",
+            b"\x10\x10\x01\x0b\x0f\r".as_slice(),
+            &["alpha one", "beta"][..],
+            "",
+            1,
+        ),
+        (
+            "fwd_from_oldest",
+            "\"\\C-o\": history-substring-search-forward",
+            b"\x10\x10\x01\x0b\x0f\r".as_slice(),
+            &["alpha one", "beta"][..],
+            "beta",
+            0,
+        ),
+        (
+            "fwd_from_end",
+            "\"\\C-o\": history-substring-search-forward",
+            b"\x0f\r".as_slice(),
+            &["alpha one", "beta"][..],
+            "",
+            1,
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, history);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
+    }
+}

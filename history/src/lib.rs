@@ -627,7 +627,7 @@ impl History {
         current: Vec<u8>,
         ignore_case: bool,
     ) -> Option<Vec<u8>> {
-        if needle.is_empty() || self.entries.is_empty() {
+        if self.entries.is_empty() {
             return None;
         }
         if self.cursor.is_none() {
@@ -663,7 +663,7 @@ impl History {
         current: Vec<u8>,
         ignore_case: bool,
     ) -> Option<Vec<u8>> {
-        if needle.is_empty() || self.entries.is_empty() {
+        if self.entries.is_empty() {
             return None;
         }
         if self.cursor.is_none() {

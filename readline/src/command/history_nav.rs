@@ -31,18 +31,27 @@ where
             }
             EditCommand::HistorySearchBackward => {
                 let prefix = state.buffer.range_bytes(0, state.buffer.point());
+                let current = state.buffer.as_bytes().to_vec();
                 let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
                 let locale_lowercase = self.search_locale_lowercase(ignore_case);
-                if let Some(line) = history_prefix_backward_with_locale(
-                    &mut self.history,
-                    &prefix,
-                    state.buffer.as_bytes().to_vec(),
-                    ignore_case,
-                    locale_lowercase.as_ref(),
-                ) {
-                    self.replace_from_history(state, &line);
-                } else {
-                    self.ding()?;
+                let count = state
+                    .numeric_arg
+                    .take()
+                    .map(|arg| arg.unsigned_abs() as usize)
+                    .unwrap_or(1);
+                for _ in 0..count {
+                    if let Some(line) = history_prefix_backward_with_locale(
+                        &mut self.history,
+                        &prefix,
+                        current.clone(),
+                        ignore_case,
+                        locale_lowercase.as_ref(),
+                    ) {
+                        self.replace_from_history(state, &line);
+                    } else {
+                        self.ding()?;
+                        break;
+                    }
                 }
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
@@ -51,15 +60,23 @@ where
                 let prefix = state.buffer.range_bytes(0, state.buffer.point());
                 let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
                 let locale_lowercase = self.search_locale_lowercase(ignore_case);
-                if let Some(line) = history_prefix_forward_with_locale(
-                    &mut self.history,
-                    &prefix,
-                    ignore_case,
-                    locale_lowercase.as_ref(),
-                ) {
-                    self.replace_from_history(state, &line);
-                } else {
-                    self.ding()?;
+                let count = state
+                    .numeric_arg
+                    .take()
+                    .map(|arg| arg.unsigned_abs() as usize)
+                    .unwrap_or(1);
+                for _ in 0..count {
+                    if let Some(line) = history_prefix_forward_with_locale(
+                        &mut self.history,
+                        &prefix,
+                        ignore_case,
+                        locale_lowercase.as_ref(),
+                    ) {
+                        self.replace_from_history(state, &line);
+                    } else {
+                        self.ding()?;
+                        break;
+                    }
                 }
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
@@ -178,35 +195,53 @@ where
             }
             "history-substring-search-forward" => {
                 let needle = state.buffer.range_bytes(0, state.buffer.point());
+                let current = state.buffer.as_bytes().to_vec();
                 let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
                 let locale_lowercase = self.search_locale_lowercase(ignore_case);
-                if let Some(line) = history_substring_forward_with_locale(
-                    &mut self.history,
-                    &needle,
-                    state.buffer.as_bytes().to_vec(),
-                    ignore_case,
-                    locale_lowercase.as_ref(),
-                ) {
-                    self.replace_from_history(state, &line);
-                } else {
-                    self.ding()?;
+                let count = state
+                    .numeric_arg
+                    .take()
+                    .map(|arg| arg.unsigned_abs() as usize)
+                    .unwrap_or(1);
+                for _ in 0..count {
+                    if let Some(line) = history_substring_forward_with_locale(
+                        &mut self.history,
+                        &needle,
+                        current.clone(),
+                        ignore_case,
+                        locale_lowercase.as_ref(),
+                    ) {
+                        self.replace_from_history(state, &line);
+                    } else {
+                        self.ding()?;
+                        break;
+                    }
                 }
                 state.after_non_kill_command();
             }
             "history-substring-search-backward" => {
                 let needle = state.buffer.range_bytes(0, state.buffer.point());
+                let current = state.buffer.as_bytes().to_vec();
                 let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
                 let locale_lowercase = self.search_locale_lowercase(ignore_case);
-                if let Some(line) = history_substring_backward_with_locale(
-                    &mut self.history,
-                    &needle,
-                    state.buffer.as_bytes().to_vec(),
-                    ignore_case,
-                    locale_lowercase.as_ref(),
-                ) {
-                    self.replace_from_history(state, &line);
-                } else {
-                    self.ding()?;
+                let count = state
+                    .numeric_arg
+                    .take()
+                    .map(|arg| arg.unsigned_abs() as usize)
+                    .unwrap_or(1);
+                for _ in 0..count {
+                    if let Some(line) = history_substring_backward_with_locale(
+                        &mut self.history,
+                        &needle,
+                        current.clone(),
+                        ignore_case,
+                        locale_lowercase.as_ref(),
+                    ) {
+                        self.replace_from_history(state, &line);
+                    } else {
+                        self.ding()?;
+                        break;
+                    }
                 }
                 state.after_non_kill_command();
             }

@@ -1779,3 +1779,54 @@ fn history_navigation_search_uses_text_before_cursor_like_bash() {
         assert_eq!(bell_count(&sushline), 0, "{command}: {sushline}");
     }
 }
+
+#[test]
+fn history_navigation_search_honors_numeric_argument_like_bash() {
+    // A numeric argument repeats prefix/substring navigation in the tested
+    // Bash 5.3 PTY fixtures. Runtime observation, not GNU source proof.
+    for (desc, inputrc, keys, history, expected) in [
+        (
+            "back_prefix",
+            "\"\\C-o\": history-search-backward",
+            b"alpha\x1b2\x0f\r".as_slice(),
+            &["alpha one", "alpha two", "alpha three"][..],
+            "alpha two",
+        ),
+        (
+            "back_substring",
+            "\"\\C-o\": history-substring-search-backward",
+            b"alpha\x1b2\x0f\r".as_slice(),
+            &["alpha one", "alpha two", "alpha three"][..],
+            "alpha two",
+        ),
+        (
+            "fwd_prefix",
+            "\"\\C-^\": history-search-forward",
+            b"\x10\x10\x10\x01\x0balpha\x1b2\x1e\r".as_slice(),
+            &["alpha one", "alpha two", "alpha three"][..],
+            "alpha three",
+        ),
+        (
+            "fwd_substring",
+            "\"\\C-o\": history-substring-search-forward",
+            b"\x10\x10\x10\x01\x0balpha\x1b2\x0f\r".as_slice(),
+            &["alpha one", "alpha two", "alpha three"][..],
+            "alpha three",
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, history);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), 0, "{desc}: {sushline}");
+    }
+}

@@ -108,6 +108,9 @@ where
             EditCommand::UnixLineDiscard => {
                 state.record_undo();
                 let killed = state.buffer.kill_to_start();
+                if killed.is_empty() {
+                    self.ding()?;
+                }
                 state.push_kill(killed, KillDirection::Backward, self.kill_append_allowed());
                 Ok(EditorOutcome::Continue)
             }

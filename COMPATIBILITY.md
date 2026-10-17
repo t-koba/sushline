@@ -111,7 +111,7 @@ sections; Sushline-only extensions are marked `Implementation-specific`.
 
 | Command(s) | Status | Notes |
 | --- | --- | --- |
-| `kill-line`, `backward-kill-line`, `unix-line-discard`, `kill-whole-line` | Compatible | Direction and numeric cases. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
+| `kill-line`, `backward-kill-line`, `unix-line-discard`, `kill-whole-line` | Compatible | Direction and numeric cases; `unix-line-discard` with nothing to kill rings once. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `kill-word`, `backward-kill-word`, `unix-word-rubout`, `unix-filename-rubout` | Hook-backed | Tested numeric/rubout cases; custom classes use `Hooks::editing_word_breaks`. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `shell-kill-word`, `shell-backward-kill-word` | Hook-backed | Tested shell constructs; exact spans may come from hooks. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `delete-horizontal-space` | Compatible | Tested editor cases. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |

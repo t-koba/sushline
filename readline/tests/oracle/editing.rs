@@ -1726,3 +1726,29 @@ fn bash_readline_and_sushline_blink_matching_paren_on_self_insert() {
         "{sushline_unmatched:?}"
     );
 }
+
+#[test]
+fn bash_readline_and_sushline_unix_discard_empty_line_rings() {
+    // C-u with nothing to kill rings once in the tested Bash 5.3 PTY
+    // fixtures; killing a line stays silent. Runtime observation, not GNU
+    // source proof.
+    for (desc, keys, expected, bells) in [
+        ("empty", b"\x15\r".as_slice(), "", 1),
+        ("kills_line", b"abc\x15\r".as_slice(), "", 0),
+    ] {
+        let bash = run_bash_readline(keys);
+        let sushline = run_sushline_harness(keys);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
+    }
+}

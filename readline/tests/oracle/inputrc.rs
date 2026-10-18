@@ -88,6 +88,12 @@ fn bash_readline_and_sushline_match_inputrc_include_path_rules() {
         &[("HOME", home_path)],
         "abcQX",
     );
+    check(
+        "missing include preserves prior binding",
+        "$include missing.inputrc",
+        &[],
+        "abcQX",
+    );
 }
 
 #[test]

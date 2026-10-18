@@ -249,10 +249,12 @@ pub fn expand_history_with_status_with_state(
     while idx < line.len() {
         let byte = line[idx];
         if let Some(active) = quote {
-            if byte == active {
+            // Backslash escapes a double quote, but is literal inside single
+            // quotes; preserve the active quote until its real delimiter.
+            if byte == active && (active != b'"' || !is_escaped_history_expansion(line, idx)) {
                 quote = None;
             }
-        } else if byte == b'\'' || byte == b'"' {
+        } else if (byte == b'\'' || byte == b'"') && !is_escaped_history_expansion(line, idx) {
             quote = Some(byte);
         }
         if histchars.comment == Some(byte as char) && at_word_start {

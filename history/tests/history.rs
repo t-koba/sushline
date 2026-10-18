@@ -1146,6 +1146,39 @@ fn history_expansion_supports_line_so_far_status_and_policy() {
 }
 
 #[test]
+fn history_expansion_tracks_escaped_quotes_in_context() {
+    let mut history = History::new();
+    history.push("echo previous");
+    let policy = HistoryExpansionPolicy::default();
+    let cases = [
+        (
+            br"echo \' !!".as_slice(),
+            br"echo \' echo previous".as_slice(),
+        ),
+        (br#"echo \"'!!"#.as_slice(), br#"echo \"'!!"#.as_slice()),
+        (
+            br#"echo "a\"'!!"#.as_slice(),
+            br#"echo "a\"'echo previous"#.as_slice(),
+        ),
+        (
+            br"echo 'a\' !!".as_slice(),
+            br"echo 'a\' echo previous".as_slice(),
+        ),
+    ];
+
+    for (input, expected) in cases {
+        assert_eq!(
+            expand_history(input, &history, HistoryChars::parse("!^#"), &policy, |_| {
+                false
+            },)
+            .unwrap(),
+            expected,
+            "input={input:?}"
+        );
+    }
+}
+
+#[test]
 fn history_expansion_matches_readline_search_and_substitution_failures() {
     let mut history = History::new();
     history.push("grep needle middle needle-last tail");

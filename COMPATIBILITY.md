@@ -77,7 +77,7 @@ sections; Sushline-only extensions are marked `Implementation-specific`.
 
 | Command(s) | Status | Notes |
 | --- | --- | --- |
-| `beginning-of-line`, `end-of-line`, `forward-char`, `backward-char`, `forward-word`, `backward-word` | Compatible | Covered editing and word-motion cases. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
+| `beginning-of-line`, `end-of-line`, `forward-char`, `backward-char`, `forward-word`, `backward-word` | Compatible | Covered editing and word-motion cases; a character move that cannot move (including an excessive count) rings once, while a zero or fully satisfied count stays silent. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `forward-byte`, `backward-byte` | Compatible | Includes movement inside UTF-8 byte sequences. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `shell-forward-word`, `shell-backward-word` | Hook-backed | Built-in parser covers tested cases; exact spans can come from `Hooks::shell_word_spans`. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `previous-screen-line`, `next-screen-line` | Compatible | Narrow-terminal cases. Tests: [`oracle/display.rs`](readline/tests/oracle/display.rs). |

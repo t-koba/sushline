@@ -30,15 +30,9 @@ where
         match command {
             EditCommand::BackwardChar => {
                 let op_start = state.take_vi_operator();
-                repeat_signed(
-                    state,
-                    |state| {
-                        state.buffer.move_backward();
-                    },
-                    |state| {
-                        state.buffer.move_forward();
-                    },
-                );
+                if !move_by_char(state, false) {
+                    self.ding()?;
+                }
                 self.finish_vi_motion_operator(state, op_start, key, false);
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
@@ -82,15 +76,9 @@ where
             }
             EditCommand::ForwardChar => {
                 let op_start = state.take_vi_operator();
-                repeat_signed(
-                    state,
-                    |state| {
-                        state.buffer.move_forward();
-                    },
-                    |state| {
-                        state.buffer.move_backward();
-                    },
-                );
+                if !move_by_char(state, true) {
+                    self.ding()?;
+                }
                 self.finish_vi_motion_operator(state, op_start, key, false);
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
@@ -192,4 +180,24 @@ where
         }
         Ok(EditorOutcome::Continue)
     }
+}
+
+/// Move point by characters honoring a signed numeric argument, like
+/// `repeat_signed`: a negative argument moves the opposite way. Returns
+/// false when the count is nonzero and any step could not move, in which
+/// case the caller rings once (blocked movement rings in the tested Bash
+/// fixtures); a zero count or a fully satisfied count stays silent.
+fn move_by_char(state: &mut EditorState, forward: bool) -> bool {
+    let arg = state.numeric_arg.take().unwrap_or(1);
+    for _ in 0..arg.unsigned_abs() {
+        let stepped = if forward != (arg < 0) {
+            state.buffer.move_forward()
+        } else {
+            state.buffer.move_backward()
+        };
+        if !stepped {
+            return false;
+        }
+    }
+    true
 }

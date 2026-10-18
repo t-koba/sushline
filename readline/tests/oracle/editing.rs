@@ -2286,3 +2286,27 @@ fn bash_readline_and_sushline_unbound_esc_matches_like_bash() {
         assert_eq!(bell_count(&sush), bells, "{desc}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_char_move_edges_ring_like_bash() {
+    for (desc, keys, expected, bells) in [
+        ("back_at_start", b"abc\x01\x02\r".as_slice(), "abc", 1),
+        ("fwd_at_end", b"abc\x06\r".as_slice(), "abc", 1),
+        ("back_over_count", b"abc\x1b5\x02\r".as_slice(), "abc", 1),
+        ("fwd_over_count", b"abc\x1b5\x06\r".as_slice(), "abc", 1),
+        ("back_exact_count", b"abc\x1b2\x02\r".as_slice(), "abc", 0),
+        ("back_zero_count", b"abc\x1b0\x02\r".as_slice(), "abc", 0),
+        ("back_negative", b"abc\x1b-\x02\r".as_slice(), "abc", 1),
+    ] {
+        let bash = run_bash_readline(keys);
+        let sushline = run_sushline_harness(keys);
+        assert_eq!(accepted_line(&bash), Some(expected.to_string()), "{desc}");
+        assert_eq!(
+            accepted_line(&sushline),
+            Some(expected.to_string()),
+            "{desc}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}");
+        assert_eq!(bell_count(&sushline), bells, "{desc}");
+    }
+}

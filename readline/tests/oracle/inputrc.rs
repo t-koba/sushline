@@ -134,20 +134,30 @@ fn bash_and_sushline_nested_inputrc_depth_is_a_scoped_deviation() {
         };
         fs::write(&chain[depth], contents).expect("write include chain");
     }
-    let main = dir.path().join("main.inputrc");
+    let keys = b"abc\x0fX\r";
+    let main_at_depth_16 = dir.path().join("main-depth-16.inputrc");
     fs::write(
-        &main,
+        &main_at_depth_16,
+        format!("\"\\C-o\": \"Q\"\n$include {}\n", chain[1].display()),
+    )
+    .expect("write depth-16 main inputrc");
+    let bash_16 = run_bash_readline_with_inputrc_path(keys, &main_at_depth_16);
+    let sushline_16 = run_sushline_harness_with_inputrc_path(keys, &main_at_depth_16);
+    assert_eq!(accepted_line(&bash_16).as_deref(), Some("Xabc"));
+    assert_eq!(accepted_line(&sushline_16).as_deref(), Some("Xabc"));
+
+    let main_at_depth_17 = dir.path().join("main-depth-17.inputrc");
+    fs::write(
+        &main_at_depth_17,
         format!("\"\\C-o\": \"Q\"\n$include {}\n", chain[0].display()),
     )
-    .expect("write main inputrc");
-    let keys = b"abc\x0fX\r";
+    .expect("write depth-17 main inputrc");
+    let bash_17 = run_bash_readline_with_inputrc_path(keys, &main_at_depth_17);
+    assert_eq!(accepted_line(&bash_17).as_deref(), Some("Xabc"));
 
-    let bash = run_bash_readline_with_inputrc_path(keys, &main);
-    assert_eq!(accepted_line(&bash).as_deref(), Some("Xabc"));
-
-    let sushline = run_sushline_harness_with_inputrc_path(keys, &main);
-    assert!(sushline.contains("SUSHLINE_INPUTRC_FILE_ERROR"));
-    assert!(sushline.contains("inputrc include depth exceeded"));
+    let sushline_17 = run_sushline_harness_with_inputrc_path(keys, &main_at_depth_17);
+    assert!(sushline_17.contains("SUSHLINE_INPUTRC_FILE_ERROR"));
+    assert!(sushline_17.contains("inputrc include depth exceeded"));
 }
 
 #[test]

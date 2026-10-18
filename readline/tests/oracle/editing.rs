@@ -2600,7 +2600,12 @@ fn bash_and_sushline_keep_truncated_paste_end_prefix_pending() {
 #[test]
 fn bash_and_sushline_accept_bracketed_paste_end_marker_split_across_writes() {
     let steps = [
-        b"\x1b[200~abc\x1b[201".to_vec(),
+        b"\x1b[200~abc".to_vec(),
+        b"\x1b".to_vec(),
+        b"[".to_vec(),
+        b"2".to_vec(),
+        b"0".to_vec(),
+        b"1".to_vec(),
         b"~".to_vec(),
         b"\r".to_vec(),
     ];
@@ -2609,13 +2614,13 @@ fn bash_and_sushline_accept_bracketed_paste_end_marker_split_across_writes() {
     for (name, frames) in [("Bash", &bash_frames), ("Sushline", &sushline_frames)] {
         assert_eq!(frames.len(), steps.len(), "{name}: {frames:?}");
         assert!(
-            frames[..2]
+            frames[..7]
                 .iter()
                 .all(|frame| !frame.contains("SUSHLINE_ACCEPTED:")),
             "{name} accepted before Enter: {frames:?}"
         );
         assert_eq!(
-            accepted_line(&frames[2]).as_deref(),
+            accepted_line(&frames[7]).as_deref(),
             Some("abc"),
             "{name}: {frames:?}"
         );

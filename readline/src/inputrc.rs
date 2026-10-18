@@ -133,8 +133,20 @@ impl InputrcParser {
             if trimmed_bytes.is_empty() || trimmed_bytes.starts_with(b"#") {
                 continue;
             }
-            let Ok(decoded) = std::str::from_utf8(trimmed_bytes) else {
-                continue;
+            let decoded = match std::str::from_utf8(trimmed_bytes) {
+                Ok(decoded) => decoded,
+                Err(_) => {
+                    // Ignore invalid bytes in an unquoted trailing comment,
+                    // while keeping inputrc syntax itself UTF-8. GNU accepts
+                    // raw comment bytes and still applies the valid binding.
+                    let Some(comment_start) = inputrc_comment_start(trimmed_bytes) else {
+                        continue;
+                    };
+                    let Ok(decoded) = std::str::from_utf8(&trimmed_bytes[..comment_start]) else {
+                        continue;
+                    };
+                    decoded
+                }
             };
             let line = decoded.trim();
             if line.is_empty() || line.starts_with('#') {
@@ -255,6 +267,30 @@ fn split_inputrc_lines(source: &[u8]) -> impl Iterator<Item = &[u8]> {
         parts.clear();
     }
     parts.into_iter()
+}
+
+fn inputrc_comment_start(line: &[u8]) -> Option<usize> {
+    let mut quote = None;
+    let mut escaped = false;
+    for (index, byte) in line.iter().copied().enumerate() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if byte == b'\\' {
+            escaped = true;
+            continue;
+        }
+        match byte {
+            b'"' | b'\'' if quote == Some(byte) => quote = None,
+            b'"' | b'\'' if quote.is_none() => quote = Some(byte),
+            b'#' if quote.is_none() && (index == 0 || line[index - 1].is_ascii_whitespace()) => {
+                return Some(index);
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 fn trim_ascii(line: &[u8]) -> &[u8] {

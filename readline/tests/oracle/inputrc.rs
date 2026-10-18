@@ -466,3 +466,60 @@ fn assert_no_meta_key_sequences(
         );
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_apply_binding_before_non_utf8_inputrc_comment() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    let mut inputrc = br##""\C-o": beginning-of-line # comment "##.to_vec();
+    inputrc.push(0xff);
+    inputrc.push(b'\n');
+    fs::write(&path, inputrc).expect("write inputrc");
+    let keys = [b"abc".as_slice(), &[0x0f, b'X', b'\r']].concat();
+
+    let bash = run_bash_readline_with_inputrc_path(&keys, &path);
+    let sushline = run_sushline_harness_with_inputrc_path(&keys, &path);
+
+    assert_eq!(accepted_line(&bash), Some("Xabc".to_string()), "{bash}");
+    assert_eq!(bell_count(&bash), 0, "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        Some("Xabc".to_string()),
+        "{sushline}"
+    );
+    assert_eq!(bell_count(&sushline), 0, "{sushline}");
+}
+
+#[test]
+fn raw_non_utf8_inputrc_key_is_a_documented_deviation_but_escape_matches() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    let prefix = b"set convert-meta off\nset input-meta on\nset meta-flag off\n";
+    let mut raw_inputrc = prefix.to_vec();
+    raw_inputrc.push(b'"');
+    raw_inputrc.push(0xff);
+    raw_inputrc.extend_from_slice(b"\": beginning-of-line\n");
+    fs::write(&path, raw_inputrc).expect("write raw inputrc");
+    let keys = [b"abc".as_slice(), &[0xff, b'X', b'\r']].concat();
+
+    let bash = run_bash_readline_with_inputrc_path(&keys, &path);
+    let sushline = run_sushline_harness_with_inputrc_path(&keys, &path);
+    assert_eq!(accepted_line(&bash), Some("Xabc".to_string()), "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        Some("abc\u{fffd}X".to_string()),
+        "{sushline}"
+    );
+
+    let mut escaped_inputrc = prefix.to_vec();
+    escaped_inputrc.extend_from_slice(b"\"\\377\": beginning-of-line\n");
+    fs::write(&path, escaped_inputrc).expect("write escaped inputrc");
+    let bash = run_bash_readline_with_inputrc_path(&keys, &path);
+    let sushline = run_sushline_harness_with_inputrc_path(&keys, &path);
+    assert_eq!(accepted_line(&bash), Some("Xabc".to_string()), "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        Some("Xabc".to_string()),
+        "{sushline}"
+    );
+}

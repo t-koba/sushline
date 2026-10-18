@@ -180,7 +180,7 @@ sections; deliberate Sushline-only extensions use the `Sushline extension` statu
 | Feature | Status | Notes |
 | --- | --- | --- |
 | Blank lines and `#` comments | Compatible | Byte-detected, including non-UTF-8 comment bytes. Tests: [`oracle/inputrc.rs`](readline/tests/oracle/inputrc.rs). |
-| Inputrc file encoding | Implementation-specific | Files/includes are read as bytes; valid lines survive invalid bytes elsewhere, non-UTF-8 non-comment lines are skipped; use ASCII `\\nnn`/`\\xHH` escapes for eight-bit keys. GNU parses raw C bytes without UTF-8 validation. Tests: [`oracle/inputrc.rs`](readline/tests/oracle/inputrc.rs). |
+| Inputrc file encoding | Known deviation | Files/includes are read as bytes, but non-UTF-8 syntax lines are skipped; in the tested fixture Bash binds a raw `0xFF` key while Sushline skips it. The equivalent ASCII `\\377` escape binds in both. Requiring UTF-8 syntax with explicit byte escapes keeps configuration text portable across source encodings. Invalid bytes in an unquoted trailing comment do not discard the valid binding. Tests: [`oracle/inputrc.rs`](readline/tests/oracle/inputrc.rs), [`inputrc/tests.rs`](readline/src/inputrc/tests.rs). |
 | `set variable value` | Compatible | Recognized variables normalized; unknown names ignored. Tests: [`oracle/inputrc.rs`](readline/tests/oracle/inputrc.rs). |
 | Key bindings by key name or quoted key sequence | Compatible | Functions and macros. Tests: [`oracle/inputrc.rs`](readline/tests/oracle/inputrc.rs). |
 | Escape sequences `\C-`, `\M-`, `\e`, `\\`, `\"`, `\'`, `\a`, `\b`, `\d`, `\f`, `\n`, `\r`, `\t`, `\v`, octal, hex | Compatible | Decoded through `KeySequence`. Tests: [`oracle/inputrc.rs`](readline/tests/oracle/inputrc.rs). |

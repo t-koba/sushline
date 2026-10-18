@@ -345,6 +345,24 @@ fn cyclic_include_hits_depth_protection() {
 }
 
 #[test]
+fn parses_valid_binding_before_non_utf8_trailing_comment() {
+    let mut bytes = br##""\C-o": beginning-of-line # comment "##.to_vec();
+    bytes.push(0xff);
+    bytes.push(b'\n');
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+
+    InputrcParser::new()
+        .parse_bytes(&bytes, &Config::default(), &mut keymap, &mut variables)
+        .unwrap();
+
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
+        Some(&KeyBinding::Command(EditCommand::BeginningOfLine))
+    );
+}
+
+#[test]
 fn non_utf8_comment_bytes_do_not_fail_surrounding_lines() {
     // Valid lines survive a Latin-1 0xFF comment byte; eight-bit escapes
     // still decode to bytes.

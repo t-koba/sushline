@@ -44,6 +44,23 @@ fn bash_and_sushline_ctrl_c_return_to_next_prompt_without_partial_line() {
 }
 
 #[test]
+fn bash_and_sushline_tty_special_binding_precedence_is_a_scoped_deviation() {
+    let keys = b"ab\x7f\r";
+    for (enabled, sushline_expected) in [("on", "a"), ("off", "abQ")] {
+        let inputrc = format!("set bind-tty-special-chars {enabled}\n\"\\x7f\": \"Q\"\n");
+        let bash = run_bash_readline_with_inputrc_file(keys, &inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, &inputrc);
+
+        assert_eq!(accepted_line(&bash).as_deref(), Some("abQ"));
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(sushline_expected),
+            "bind-tty-special-chars {enabled}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_backspace_edit() {
     let keys = b"abc\x7fd\r";
     let bash = run_bash_readline(keys);

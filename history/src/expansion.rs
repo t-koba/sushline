@@ -1389,30 +1389,19 @@ fn history_tail(value: &[u8]) -> Vec<u8> {
 }
 
 fn history_root(value: &[u8]) -> Vec<u8> {
-    let tail_start = value
-        .iter()
-        .rposition(|byte| *byte == b'/')
-        .map_or(0, |idx| idx + 1);
-    let Some(dot) = value[tail_start..]
+    value
         .iter()
         .rposition(|byte| *byte == b'.')
-        .map(|idx| tail_start + idx)
-    else {
-        return value.to_vec();
-    };
-    value[..dot].to_vec()
+        .map(|idx| value[..idx].to_vec())
+        .unwrap_or_else(|| value.to_vec())
 }
 
 fn history_extension(value: &[u8]) -> Vec<u8> {
-    let tail_start = value
-        .iter()
-        .rposition(|byte| *byte == b'/')
-        .map_or(0, |idx| idx + 1);
-    value[tail_start..]
+    value
         .iter()
         .rposition(|byte| *byte == b'.')
-        .map(|idx| value[tail_start + idx..].to_vec())
-        .unwrap_or_default()
+        .map(|idx| value[idx..].to_vec())
+        .unwrap_or_else(|| value.to_vec())
 }
 
 fn quote_history_word(value: &[u8]) -> Vec<u8> {

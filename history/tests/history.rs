@@ -1821,6 +1821,62 @@ fn history_tokenize_splits_parameter_and_arithmetic_expansions_at_spaces() {
 }
 
 #[test]
+fn history_tokenize_matches_gnu_nested_command_delimiter_scanning() {
+    let policy = HistoryExpansionPolicy::default();
+    for (line, expected) in [
+        (
+            br#"echo $(echo ")" a) z"#.as_slice(),
+            vec![b"echo".as_slice(), br#"$(echo ")" a) z"#],
+        ),
+        (
+            br#"echo $(echo `printf ")"` a) z"#.as_slice(),
+            vec![b"echo".as_slice(), br#"$(echo `printf ")"` a) z"#],
+        ),
+        (
+            br#"echo $(echo "a b") z"#.as_slice(),
+            vec![b"echo".as_slice(), br#"$(echo "a b")"#, b"z"],
+        ),
+        (
+            b"echo $(echo a b) z".as_slice(),
+            vec![b"echo".as_slice(), b"$(echo a b)", b"z"],
+        ),
+        (
+            b"echo <(echo a b) z".as_slice(),
+            vec![b"echo".as_slice(), b"<(echo a b)", b"z"],
+        ),
+        (
+            b"echo `echo a b` z".as_slice(),
+            vec![b"echo".as_slice(), b"`echo a b`", b"z"],
+        ),
+    ] {
+        assert_eq!(
+            history_tokenize(line, &policy),
+            expected.into_iter().map(<[u8]>::to_vec).collect::<Vec<_>>(),
+            "line={line:?}"
+        );
+    }
+
+    let event = br#"echo $(echo `printf ")"` a) z"#;
+    let mut history = History::new();
+    history.push(std::str::from_utf8(event).unwrap());
+    assert_eq!(
+        expand_history(
+            b"!!:1",
+            &history,
+            HistoryChars::parse("!^#"),
+            &policy,
+            |_| false,
+        )
+        .unwrap(),
+        br#"$(echo `printf ")"` a) z"#.to_vec()
+    );
+    assert_eq!(
+        history_arg_extract(1, 1, event, &policy),
+        Some(br#"$(echo `printf ")"` a) z"#.to_vec())
+    );
+}
+
+#[test]
 fn history_expansion_exposes_helper_functions() {
     let policy = HistoryExpansionPolicy::default();
     let line = b"echo arr=(one two) | sed 's/ /_/g'";

@@ -1145,8 +1145,9 @@ fn shell_operator_len(line: &[u8], idx: usize) -> usize {
 }
 
 fn command_substitution_end(line: &[u8], idx: usize) -> usize {
+    // GNU History scans `$()` as a nested delimiter: quotes do not shield
+    // parentheses until the group closes, but backslash still quotes one byte.
     let mut depth = 1usize;
-    let mut quote = None;
     let mut escape = false;
     let mut cursor = idx + 2;
     while let Some(byte) = line.get(cursor).copied() {
@@ -1155,20 +1156,8 @@ fn command_substitution_end(line: &[u8], idx: usize) -> usize {
             cursor += 1;
             continue;
         }
-        if byte == b'\\' && quote != Some(b'\'') {
+        if byte == b'\\' {
             escape = true;
-            cursor += 1;
-            continue;
-        }
-        if let Some(active) = quote {
-            if byte == active {
-                quote = None;
-            }
-            cursor += 1;
-            continue;
-        }
-        if matches!(byte, b'\'' | b'"') {
-            quote = Some(byte);
             cursor += 1;
             continue;
         }

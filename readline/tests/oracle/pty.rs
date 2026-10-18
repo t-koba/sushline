@@ -1257,10 +1257,20 @@ pub(super) fn shell_single_quote(value: &str) -> String {
 /// write is separated by an output-idle interval, so a byte-at-a-time test
 /// does not accidentally become a single batched-input test.
 pub(super) fn run_pty_checkpoints(
+    command: CommandBuilder,
+    prompt: &str,
+    steps: &[Vec<u8>],
+    size: PtySize,
+) -> Vec<String> {
+    run_pty_checkpoints_with_idle_period(command, prompt, steps, size, Duration::from_millis(100))
+}
+
+pub(super) fn run_pty_checkpoints_with_idle_period(
     mut command: CommandBuilder,
     prompt: &str,
     steps: &[Vec<u8>],
     size: PtySize,
+    idle_period: Duration,
 ) -> Vec<String> {
     command.env("TERM", "xterm-256color");
     command.cwd("/");
@@ -1278,10 +1288,11 @@ pub(super) fn run_pty_checkpoints(
             }
         }
     });
-    // A short idle period can snapshot before delayed PTY redisplay arrives
-    // when several oracle processes are scheduled concurrently.
-    let idle_period = Duration::from_millis(100);
-    let deadline = Instant::now() + Duration::from_secs(20);
+    let step_count = u32::try_from(steps.len()).unwrap_or(u32::MAX);
+    let settle_budget = idle_period
+        .saturating_mul(step_count)
+        .saturating_add(Duration::from_secs(5));
+    let deadline = Instant::now() + Duration::from_secs(20).max(settle_budget);
     let mut output = Vec::new();
     let mut frames = Vec::new();
     let mut sent = 0;

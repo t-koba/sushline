@@ -139,7 +139,10 @@ fn checkpoint_outputs_with_locale(
     };
     command.env("LC_ALL", locale);
     let wait_prompt = prompt.replace(['\x01', '\x02'], "");
-    run_pty_checkpoints(
+    // Bash's incremental redisplay can arrive after the short settling window
+    // when PTY oracle processes are scheduled concurrently.
+    let idle_period = std::time::Duration::from_millis(if bash { 250 } else { 100 });
+    run_pty_checkpoints_with_idle_period(
         command,
         &wait_prompt,
         steps,
@@ -149,6 +152,7 @@ fn checkpoint_outputs_with_locale(
             pixel_width: 0,
             pixel_height: 0,
         },
+        idle_period,
     )
 }
 

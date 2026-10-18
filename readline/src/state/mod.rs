@@ -37,6 +37,8 @@ pub(crate) struct EditorState {
     pub(crate) display: DisplayState,
     pub(crate) numeric_arg: Option<i32>,
     pub(crate) numeric_arg_sign_only: bool,
+    /// The pending count is an implicit universal-argument multiplier.
+    pub(crate) numeric_arg_universal: bool,
     pub(crate) mark: Option<usize>,
     pub(crate) overwrite_mode: bool,
     pub(crate) original_line: Vec<u8>,
@@ -59,6 +61,7 @@ impl EditorState {
             display: DisplayState::default(),
             numeric_arg: None,
             numeric_arg_sign_only: false,
+            numeric_arg_universal: false,
             mark: None,
             overwrite_mode: false,
             original_line,
@@ -72,6 +75,8 @@ impl EditorState {
         self.input.skipping_csi = false;
         self.input.csi_sequence_started = false;
         self.numeric_arg = None;
+        self.numeric_arg_sign_only = false;
+        self.numeric_arg_universal = false;
         self.search.reverse_search = None;
         self.search.non_incremental_search = None;
         self.search.quoted_pending = false;
@@ -107,6 +112,7 @@ impl EditorState {
         }
         self.numeric_arg.take();
         self.numeric_arg_sign_only = false;
+        self.numeric_arg_universal = false;
     }
 
     pub(crate) fn after_self_insert(&mut self) {

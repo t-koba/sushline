@@ -99,6 +99,8 @@ pub(crate) fn update_numeric_argument(state: &mut EditorState, key: &[u8]) -> bo
             let current = state.numeric_arg.unwrap_or(0);
             let next = if state.numeric_arg_sign_only {
                 Some(-digit)
+            } else if state.numeric_arg_universal {
+                Some(if current < 0 { -digit } else { digit })
             } else if current < 0 {
                 current
                     .checked_mul(10)
@@ -113,11 +115,13 @@ pub(crate) fn update_numeric_argument(state: &mut EditorState, key: &[u8]) -> bo
                     state.numeric_arg = Some(value);
                     // Preserve a negative sign through leading zero digits.
                     state.numeric_arg_sign_only &= digit == 0;
+                    state.numeric_arg_universal = false;
                     false
                 }
                 None => {
                     state.numeric_arg = None;
                     state.numeric_arg_sign_only = false;
+                    state.numeric_arg_universal = false;
                     true
                 }
             }

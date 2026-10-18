@@ -838,6 +838,55 @@ fn bash_and_sushline_preserve_negative_numeric_argument_after_leading_zero_digit
 }
 
 #[test]
+fn bash_and_sushline_match_universal_argument_digit_composition() {
+    let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
+    for (name, prefix, expected) in [
+        (
+            "universal then digit",
+            b"\x0f3".as_slice(),
+            "abcXdefghijklmnopqrstuvwxyz",
+        ),
+        (
+            "repeated universal then digit",
+            b"\x0f\x0f3".as_slice(),
+            "abcXdefghijklmnopqrstuvwxyz",
+        ),
+        (
+            "explicit digit then universal",
+            b"\x1b3\x0f".as_slice(),
+            "abcXdefghijklmnopqrstuvwxyz",
+        ),
+        (
+            "digit after universal then universal",
+            b"\x0f3\x0f".as_slice(),
+            "abcXdefghijklmnopqrstuvwxyz",
+        ),
+        (
+            "negative universal count control",
+            b"\x0f-2".as_slice(),
+            "Xabcdefghijklmnopqrstuvwxyz",
+        ),
+    ] {
+        let mut keys = b"abcdefghijklmnopqrstuvwxyz\x01".to_vec();
+        keys.extend_from_slice(prefix);
+        keys.extend_from_slice(b"\x06X\r");
+        let bash = run_bash_readline_with_inputrc_file(&keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&keys, inputrc);
+
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "Bash {name}: {bash:?}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "Sushline {name}: {sushline:?}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_zero_numeric_self_insert() {
     let keys = b"\x1b0x\r";
     let bash = run_bash_readline(keys);

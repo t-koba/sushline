@@ -58,14 +58,25 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::UniversalArgument => {
-                match state.numeric_arg.unwrap_or(1).checked_mul(4) {
-                    Some(next) => state.numeric_arg = Some(next),
-                    None => {
-                        state.numeric_arg = None;
-                        self.ding()?;
+                // Explicit digit counts are already complete; only implicit
+                // counts and sign-only prefixes are multiplied by four.
+                if state.numeric_arg.is_none()
+                    || state.numeric_arg_sign_only
+                    || state.numeric_arg_universal
+                {
+                    match state.numeric_arg.unwrap_or(1).checked_mul(4) {
+                        Some(next) => {
+                            state.numeric_arg = Some(next);
+                            state.numeric_arg_universal = true;
+                        }
+                        None => {
+                            state.numeric_arg = None;
+                            state.numeric_arg_sign_only = false;
+                            state.numeric_arg_universal = false;
+                            self.ding()?;
+                        }
                     }
                 }
-                state.numeric_arg_sign_only = false;
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::PrintLastKbdMacro => {

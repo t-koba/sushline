@@ -88,8 +88,6 @@ impl HistoryExpansion {
 }
 
 type HistorySubstitution = (Vec<u8>, Vec<u8>);
-type HistorySubstitutionResult =
-    Result<(Vec<u8>, usize, HistorySubstitution), HistoryExpansionError>;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 /// HistoryExpansionState.
@@ -102,8 +100,12 @@ type HistorySubstitutionResult =
 /// fallback, and the `%` matched word across successive expansion calls;
 /// embedders and `Editor` keep one state per expansion session and pass it to
 /// the `*_with_state` APIs. Fresh `HistoryExpansionState::new()` means no
-/// previous substitution or search, so `&` without prior success and `!??`
-/// without a prior search both fail closed.
+/// previous substitution or search, so `&` without a prior substitution and `!??`
+/// without a prior search both fail closed. Like GNU, a parsed ordinary
+/// (`:s`), global (`:gs`/`:as`), per-word (`:Gs`), or leading quick
+/// substitution replaces the remembered pair before replacement is
+/// attempted, so later `&` and empty-old reuse use that pair after a no-match
+/// failure instead of retaining stale state.
 pub struct HistoryExpansionState {
     last_substitution: Option<HistorySubstitution>,
     last_search: Option<Vec<u8>>,
@@ -222,9 +224,11 @@ pub fn expand_history_with_status_with_state(
             };
         let old = line[1..old_end].to_vec();
         let new = line[old_end + 1..new_end].to_vec();
+        // GNU records the parsed pair before attempting replacement, so a
+        // no-match failure replaces stale memory for later `&`/empty-old.
+        state.last_substitution = Some((old.clone(), new.clone()));
         let substituted = replace_once_checked(&last.line_bytes, &old, &new)
             .ok_or(HistoryExpansionError::SubstitutionFailed)?;
-        state.last_substitution = Some((old, new));
         let mut event = substituted;
         let mut next = if has_closing { new_end + 1 } else { new_end };
         while line.get(next) == Some(&b':') {
@@ -761,51 +765,47 @@ fn apply_history_modifier(
             (line.to_vec(), idx + 1)
         }
         Some(b's') => {
-            let (line, idx, substitution) = apply_substitution_modifier(
+            let (line, idx) = apply_substitution_modifier(
                 line,
                 input,
                 idx + 1,
                 false,
-                last_substitution.as_ref(),
+                last_substitution,
                 last_event_search,
             )?;
-            *last_substitution = Some(substitution);
             (line, idx)
         }
         Some(b'g') if input.get(idx + 1) == Some(&b's') => {
-            let (line, idx, substitution) = apply_substitution_modifier(
+            let (line, idx) = apply_substitution_modifier(
                 line,
                 input,
                 idx + 2,
                 true,
-                last_substitution.as_ref(),
+                last_substitution,
                 last_event_search,
             )?;
-            *last_substitution = Some(substitution);
             (line, idx)
         }
         Some(b'G') if input.get(idx + 1) == Some(&b's') => {
-            let (line, idx, substitution) = apply_substitution_modifier_each_word(
+            let (line, idx) = apply_substitution_modifier_each_word(
                 line,
                 input,
                 idx + 2,
-                last_substitution.as_ref(),
+                last_substitution,
                 last_event_search,
                 policy,
             )?;
-            *last_substitution = Some(substitution);
             (line, idx)
         }
         Some(b'a') if input.get(idx + 1) == Some(&b's') => {
-            let (line, idx, substitution) = apply_substitution_modifier(
+            let (line, idx) = apply_substitution_modifier(
                 line,
                 input,
                 idx + 2,
                 true,
-                last_substitution.as_ref(),
+                last_substitution,
                 last_event_search,
             )?;
-            *last_substitution = Some(substitution);
             (line, idx)
         }
         Some(b'&') => {
@@ -866,9 +866,9 @@ fn apply_substitution_modifier(
     input: &[u8],
     mut idx: usize,
     global: bool,
-    last_substitution: Option<&HistorySubstitution>,
+    last_substitution: &mut Option<HistorySubstitution>,
     last_event_search: Option<&[u8]>,
-) -> HistorySubstitutionResult {
+) -> Result<(Vec<u8>, usize), HistoryExpansionError> {
     let delimiter = input.get(idx).copied().unwrap_or(b'/');
     if input.get(idx).is_some() {
         idx += 1;
@@ -876,7 +876,7 @@ fn apply_substitution_modifier(
     let (mut old, next_idx) = read_history_substitution_part(input, idx, delimiter, None);
     idx = next_idx;
     if old.is_empty()
-        && let Some((previous_old, _)) = last_substitution
+        && let Some((previous_old, _)) = last_substitution.as_ref()
     {
         old = previous_old.clone();
     }
@@ -887,23 +887,26 @@ fn apply_substitution_modifier(
     }
     let (new, next_idx) = read_history_substitution_part(input, idx, delimiter, Some(&old));
     idx = next_idx;
+    // GNU records the parsed pair before attempting replacement, so a
+    // no-match failure replaces stale memory for later `&`/empty-old.
+    *last_substitution = Some((old.clone(), new.clone()));
     let replaced = if global {
         replace_all_checked(line, &old, &new)
     } else {
         replace_once_checked(line, &old, &new)
     }
     .ok_or(HistoryExpansionError::SubstitutionFailed)?;
-    Ok((replaced, idx, (old, new)))
+    Ok((replaced, idx))
 }
 
 fn apply_substitution_modifier_each_word(
     line: &[u8],
     input: &[u8],
     mut idx: usize,
-    last_substitution: Option<&HistorySubstitution>,
+    last_substitution: &mut Option<HistorySubstitution>,
     last_event_search: Option<&[u8]>,
     policy: &HistoryExpansionPolicy,
-) -> HistorySubstitutionResult {
+) -> Result<(Vec<u8>, usize), HistoryExpansionError> {
     let delimiter = input.get(idx).copied().unwrap_or(b'/');
     if input.get(idx).is_some() {
         idx += 1;
@@ -911,7 +914,7 @@ fn apply_substitution_modifier_each_word(
     let (mut old, next_idx) = read_history_substitution_part(input, idx, delimiter, None);
     idx = next_idx;
     if old.is_empty()
-        && let Some((previous_old, _)) = last_substitution
+        && let Some((previous_old, _)) = last_substitution.as_ref()
     {
         old = previous_old.clone();
     }
@@ -922,9 +925,12 @@ fn apply_substitution_modifier_each_word(
     }
     let (new, next_idx) = read_history_substitution_part(input, idx, delimiter, Some(&old));
     idx = next_idx;
+    // GNU records the parsed pair before attempting replacement, so a
+    // no-match failure replaces stale memory for later `&`/empty-old.
+    *last_substitution = Some((old.clone(), new.clone()));
     let replaced = replace_each_word_once_checked(line, &old, &new, policy)
         .ok_or(HistoryExpansionError::SubstitutionFailed)?;
-    Ok((replaced, idx, (old, new)))
+    Ok((replaced, idx))
 }
 
 fn read_history_substitution_part(

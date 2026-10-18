@@ -2701,7 +2701,7 @@ fn history_expansion_retains_substitution_memory_across_calls() {
     let policy = HistoryExpansionPolicy::default();
     let mut state = HistoryExpansionState::new();
 
-    // Fresh single-call `&` fails closed without prior success.
+    // Fresh single-call `&` fails closed without a prior substitution.
     assert_eq!(
         expand_history(b"!!:&", &history, histchars, &policy, |_| false),
         Err(HistoryExpansionError::SubstitutionFailed),
@@ -2738,7 +2738,9 @@ fn history_expansion_retains_substitution_memory_across_calls() {
         .unwrap(),
         b"echo Z beta alpha".to_vec(),
     );
-    // A failed substitution keeps the remembered pair for the next `&`.
+    // A failed parsed substitution replaces memory (GNU comparison
+    // `e1f2e9a262794e4ca618bdda1bc91242`): later `&` and empty-old reuse the
+    // failed pair and fail instead of retaining stale state.
     assert_eq!(
         expand_history_with_state(
             b"!!:s/missing/MISSING/",
@@ -2751,9 +2753,19 @@ fn history_expansion_retains_substitution_memory_across_calls() {
         Err(HistoryExpansionError::SubstitutionFailed),
     );
     assert_eq!(
-        expand_history_with_state(b"!!:&", &history, histchars, &policy, &mut state, |_| false)
-            .unwrap(),
-        b"echo Z beta alpha".to_vec(),
+        expand_history_with_state(b"!!:&", &history, histchars, &policy, &mut state, |_| false),
+        Err(HistoryExpansionError::SubstitutionFailed),
+    );
+    assert_eq!(
+        expand_history_with_state(
+            b"!!:s//Z/",
+            &history,
+            histchars,
+            &policy,
+            &mut state,
+            |_| false,
+        ),
+        Err(HistoryExpansionError::SubstitutionFailed),
     );
 
     // Quick substitution seeds the same session memory for a later `&`.
@@ -2782,5 +2794,114 @@ fn history_expansion_retains_substitution_memory_across_calls() {
         )
         .unwrap(),
         b"echo OMEGA beta alpha".to_vec(),
+    );
+}
+
+#[test]
+fn history_expansion_failed_substitution_replaces_memory() {
+    // GNU comparisons `e1f2e9a262794e4ca618bdda1bc91242` and
+    // `167300f533954bbfb7f55dfb77cfd585`: a parsed ordinary (`:s`), global
+    // (`:gs`/`:as`), per-word (`:Gs`), or leading quick
+    // substitution is remembered before replacement is attempted, so a
+    // no-match failure replaces stale state and later `&`/empty-old fail.
+    let mut history = History::new();
+    history.push("echo alpha beta alpha");
+    let histchars = HistoryChars::parse("!^#");
+    let policy = HistoryExpansionPolicy::default();
+
+    for failed in [
+        b"!!:s/missing/MISSING/".as_slice(),
+        b"!!:gs/missing/MISSING/".as_slice(),
+        b"!!:as/missing/MISSING/".as_slice(),
+        b"!!:Gs/missing/MISSING/".as_slice(),
+    ] {
+        let mut state = HistoryExpansionState::new();
+        assert_eq!(
+            expand_history_with_state(
+                b"!!:s/alpha/OMEGA/",
+                &history,
+                histchars,
+                &policy,
+                &mut state,
+                |_| false,
+            )
+            .unwrap(),
+            b"echo OMEGA beta alpha".to_vec(),
+            "{}",
+            String::from_utf8_lossy(failed),
+        );
+        assert_eq!(
+            expand_history_with_state(failed, &history, histchars, &policy, &mut state, |_| false),
+            Err(HistoryExpansionError::SubstitutionFailed),
+            "{}",
+            String::from_utf8_lossy(failed),
+        );
+        assert_eq!(
+            expand_history_with_state(b"!!:&", &history, histchars, &policy, &mut state, |_| false),
+            Err(HistoryExpansionError::SubstitutionFailed),
+            "{}",
+            String::from_utf8_lossy(failed),
+        );
+        assert_eq!(
+            expand_history_with_state(
+                b"!!:s//Z/",
+                &history,
+                histchars,
+                &policy,
+                &mut state,
+                |_| false
+            ),
+            Err(HistoryExpansionError::SubstitutionFailed),
+            "{}",
+            String::from_utf8_lossy(failed),
+        );
+    }
+
+    // Leading quick substitution participates in the same lifecycle.
+    let mut quick_state = HistoryExpansionState::new();
+    assert_eq!(
+        expand_history_with_state(
+            b"!!:s/alpha/OMEGA/",
+            &history,
+            histchars,
+            &policy,
+            &mut quick_state,
+            |_| false,
+        )
+        .unwrap(),
+        b"echo OMEGA beta alpha".to_vec(),
+    );
+    assert_eq!(
+        expand_history_with_state(
+            b"^missing^MISSING^",
+            &history,
+            histchars,
+            &policy,
+            &mut quick_state,
+            |_| false,
+        ),
+        Err(HistoryExpansionError::SubstitutionFailed),
+    );
+    assert_eq!(
+        expand_history_with_state(
+            b"!!:&",
+            &history,
+            histchars,
+            &policy,
+            &mut quick_state,
+            |_| false
+        ),
+        Err(HistoryExpansionError::SubstitutionFailed),
+    );
+    assert_eq!(
+        expand_history_with_state(
+            b"!!:s//Z/",
+            &history,
+            histchars,
+            &policy,
+            &mut quick_state,
+            |_| false
+        ),
+        Err(HistoryExpansionError::SubstitutionFailed),
     );
 }

@@ -812,6 +812,32 @@ fn bash_readline_and_sushline_ignore_negative_numeric_self_insert() {
 }
 
 #[test]
+fn bash_and_sushline_preserve_negative_numeric_argument_after_leading_zero_digits() {
+    for (name, keys, expected) in [
+        ("bare digits", b"abc\x01\x1b-01\x06X\r".as_slice(), "Xabc"),
+        (
+            "separate meta-digit events",
+            b"abc\x05\x1b-\x1b0\x1b1\x02X\r".as_slice(),
+            "abcX",
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, "");
+        let sushline = run_sushline_harness_with_inputrc(keys, "");
+
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "Bash {name}: {bash:?}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "Sushline {name}: {sushline:?}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_zero_numeric_self_insert() {
     let keys = b"\x1b0x\r";
     let bash = run_bash_readline(keys);

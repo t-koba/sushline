@@ -97,14 +97,12 @@ pub(crate) fn update_numeric_argument(state: &mut EditorState, key: &[u8]) -> bo
         b'0'..=b'9' => {
             let digit = (last - b'0') as i32;
             let current = state.numeric_arg.unwrap_or(0);
-            let next = if current < 0 {
-                if state.numeric_arg_sign_only {
-                    Some(-digit)
-                } else {
-                    current
-                        .checked_mul(10)
-                        .and_then(|scaled| scaled.checked_sub(digit))
-                }
+            let next = if state.numeric_arg_sign_only {
+                Some(-digit)
+            } else if current < 0 {
+                current
+                    .checked_mul(10)
+                    .and_then(|scaled| scaled.checked_sub(digit))
             } else {
                 current
                     .checked_mul(10)
@@ -113,7 +111,8 @@ pub(crate) fn update_numeric_argument(state: &mut EditorState, key: &[u8]) -> bo
             match next {
                 Some(value) => {
                     state.numeric_arg = Some(value);
-                    state.numeric_arg_sign_only = false;
+                    // Preserve a negative sign through leading zero digits.
+                    state.numeric_arg_sign_only &= digit == 0;
                     false
                 }
                 None => {

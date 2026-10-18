@@ -88,7 +88,18 @@ fn bash_readline_and_sushline_match_inputrc_include_path_rules() {
         &[("HOME", home_path)],
         "abcQX",
     );
-    check("missing include", "$include missing.inputrc", &[], "abcQX");
+}
+
+#[test]
+fn bash_readline_and_sushline_continue_after_missing_inputrc_include() {
+    let cwd = tempfile::tempdir().expect("cwd");
+    let inputrc = "\"\\C-o\": \"Q\"\n$include missing.inputrc\n\"\\C-o\": beginning-of-line\n";
+    let keys = b"abc\x0fX\r";
+    let bash = run_bash_readline_with_inputrc_file_and_env_in_dir(keys, inputrc, &[], cwd.path());
+    let sushline = run_sushline_harness_with_inputrc_and_env_in_dir(keys, inputrc, &[], cwd.path());
+
+    assert_eq!(accepted_line(&bash).as_deref(), Some("Xabc"));
+    assert_eq!(accepted_line(&sushline).as_deref(), Some("Xabc"));
 }
 
 #[test]

@@ -42,22 +42,53 @@ fn bash_readline_and_sushline_load_same_absolute_inputrc_include() {
 }
 
 #[test]
-fn bash_readline_and_sushline_resolve_relative_inputrc_include_from_inputrc_directory() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let main = dir.path().join("inputrc");
-    let included = dir.path().join("included.inputrc");
-    fs::write(&included, "\"\\C-x\\C-a\": beginning-of-line\n").expect("write included inputrc");
-    fs::write(&main, "$include included.inputrc\n").expect("write main inputrc");
-    let keys = b"abc\x18\x01X\r";
+fn bash_readline_and_sushline_match_inputrc_include_path_rules() {
+    let cwd = tempfile::tempdir().expect("cwd");
+    let home = tempfile::tempdir().expect("home");
+    let included = "\"\\C-o\": beginning-of-line\n";
+    fs::write(cwd.path().join("relative.inputrc"), included).expect("write CWD include");
+    fs::write(home.path().join("home.inputrc"), included).expect("write HOME include");
+    let home_path = home.path().to_str().expect("HOME path is UTF-8");
+    let keys = b"abc\x0fX\r";
 
-    let bash = run_bash_readline_with_inputrc_path(keys, &main);
-    let sushline = run_sushline_harness_with_inputrc_path(keys, &main);
+    let check = |label: &str, directive: &str, env: &[(&str, &str)], expected: &str| {
+        // A sentinel binding proves whether the include replaced the binding.
+        let inputrc = format!("\"\\C-o\": \"Q\"\n{directive}\n");
+        let bash =
+            run_bash_readline_with_inputrc_file_and_env_in_dir(keys, &inputrc, env, cwd.path());
+        let sushline =
+            run_sushline_harness_with_inputrc_and_env_in_dir(keys, &inputrc, env, cwd.path());
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "{label}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "{label}: {sushline}"
+        );
+    };
 
-    assert_eq!(
-        accepted_line(&sushline),
-        accepted_line(&bash),
-        "bash={bash}\nsushline={sushline}"
+    check(
+        "CWD-relative include",
+        "$include relative.inputrc",
+        &[],
+        "Xabc",
     );
+    check(
+        "HOME tilde include",
+        "$include ~/home.inputrc",
+        &[("HOME", home_path)],
+        "Xabc",
+    );
+    check(
+        "literal environment-variable include",
+        "$include $HOME/home.inputrc",
+        &[("HOME", home_path)],
+        "abcQX",
+    );
+    check("missing include", "$include missing.inputrc", &[], "abcQX");
 }
 
 #[test]

@@ -62,7 +62,7 @@ fn bash_and_sushline_tty_special_binding_precedence_is_a_scoped_deviation() {
 
 #[cfg(any(target_os = "macos", target_os = "ios", target_os = "linux"))]
 #[test]
-fn bash_and_sushline_tty_special_binding_precedence_covers_kill_and_word_erase() {
+fn bash_and_sushline_tty_special_binding_precedence_covers_tty_specials() {
     let cases = [
         (
             "kill",
@@ -77,6 +77,13 @@ fn bash_and_sushline_tty_special_binding_precedence_covers_kill_and_word_erase()
             "\"\\C-w\": \"Q\"",
             "alpha betaQX",
             "alpha X",
+        ),
+        (
+            "eof",
+            b"ab\x04X\r".as_slice(),
+            "\"\\C-d\": \"Q\"",
+            "abQX",
+            "abX",
         ),
     ];
     for (label, keys, binding, bash_expected, sushline_expected) in cases {

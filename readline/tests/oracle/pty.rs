@@ -1253,24 +1253,25 @@ pub(super) fn shell_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-/// Capture settled redisplay checkpoints without accepting the line. Each
-/// write is separated by an output-idle interval, so a byte-at-a-time test
-/// does not accidentally become a single batched-input test.
+/// Capture redisplay before dispatching the next complete key step.
+///
+/// Each step is followed by Ctrl-G with its default abort binding and audible
+/// bell. Both editors finish ordinary key redisplay before dispatching abort;
+/// the BEL is thus a causal barrier, not an output-idle guess. Capture only
+/// bytes preceding that BEL, even when a read also contains abort's redisplay.
+/// The built-in Sushline terminal reads one byte per event; batching that read
+/// would require revalidating this ordering.
+///
+/// Callers must use complete, non-belling commands in the default Emacs map.
+/// Do not use this inside paste, key prefixes, searches, quoted insert, numeric
+/// arguments or macros, or for Enter/EOF: abort is not inert in those states.
+/// Paste callers instead barrier after the terminator and wait for the accepted
+/// line after Enter. The deadline is only a hang bound, never a success signal.
 pub(super) fn run_pty_checkpoints(
-    command: CommandBuilder,
-    prompt: &str,
-    steps: &[Vec<u8>],
-    size: PtySize,
-) -> Vec<String> {
-    run_pty_checkpoints_with_idle_period(command, prompt, steps, size, Duration::from_millis(100))
-}
-
-pub(super) fn run_pty_checkpoints_with_idle_period(
     mut command: CommandBuilder,
     prompt: &str,
     steps: &[Vec<u8>],
     size: PtySize,
-    idle_period: Duration,
 ) -> Vec<String> {
     command.env("TERM", "xterm-256color");
     command.cwd("/");
@@ -1288,34 +1289,34 @@ pub(super) fn run_pty_checkpoints_with_idle_period(
             }
         }
     });
-    let step_count = u32::try_from(steps.len()).unwrap_or(u32::MAX);
-    let settle_budget = idle_period
-        .saturating_mul(step_count)
-        .saturating_add(Duration::from_secs(5));
-    let deadline = Instant::now() + Duration::from_secs(20).max(settle_budget);
+    let deadline = Instant::now() + Duration::from_secs(20);
     let mut output = Vec::new();
     let mut frames = Vec::new();
     let mut sent = 0;
+    let mut scan_start = 0;
     let mut ready = false;
-    while Instant::now() < deadline {
-        match rx.recv_timeout(idle_period) {
+    while frames.len() < steps.len() && Instant::now() < deadline {
+        match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
             Ok(chunk) => {
                 output.extend_from_slice(&chunk);
-                ready |= find_bytes(&output, prompt.as_bytes()).is_some();
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) if ready => {
-                if sent > 0 {
-                    frames.push(lossy_output(&output));
+                let send_next = if !ready {
+                    ready = find_bytes(&output, prompt.as_bytes()).is_some();
+                    ready
+                } else if let Some(frame) = checkpoint_before_bell(&mut output, scan_start) {
+                    frames.push(frame);
+                    true
+                } else {
+                    false
+                };
+                if send_next && sent < steps.len() {
+                    scan_start = output.len();
+                    writer.write_all(&steps[sent]).expect("write keys");
+                    writer.write_all(b"\x07").expect("write abort barrier");
+                    writer.flush().expect("flush keys and barrier");
+                    sent += 1;
                 }
-                if sent == steps.len() {
-                    break;
-                }
-                writer.write_all(&steps[sent]).expect("write keys");
-                writer.flush().expect("flush keys");
-                sent += 1;
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(mpsc::RecvTimeoutError::Timeout | mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
     let _ = child.kill();
@@ -1324,7 +1325,40 @@ pub(super) fn run_pty_checkpoints_with_idle_period(
     assert_eq!(
         frames.len(),
         steps.len(),
-        "PTY checkpoints did not settle all requested steps"
+        "PTY checkpoints did not receive all abort barriers"
     );
     frames
+}
+
+// Remove the barrier itself but retain post-BEL output for the next frame.
+fn checkpoint_before_bell(output: &mut Vec<u8>, scan_start: usize) -> Option<String> {
+    let bell = scan_start
+        + output[scan_start..]
+            .iter()
+            .position(|byte| *byte == b'\x07')?;
+    let frame = lossy_output(&output[..bell]);
+    output.remove(bell);
+    Some(frame)
+}
+
+#[test]
+fn checkpoint_barrier_excludes_post_bell_bytes_and_survives_split_output() {
+    let mut output = b"prompt".to_vec();
+    let start = output.len();
+    for chunk in [b"re".as_slice(), b"display"] {
+        output.extend_from_slice(chunk);
+        assert!(checkpoint_before_bell(&mut output, start).is_none());
+    }
+    output.extend_from_slice(b"\x07abort redisplay");
+    assert_eq!(
+        checkpoint_before_bell(&mut output, start).as_deref(),
+        Some("promptredisplay")
+    );
+    assert_eq!(output, b"promptredisplayabort redisplay");
+    let start = output.len();
+    output.extend_from_slice(b"next\x07not part of this frame");
+    assert_eq!(
+        checkpoint_before_bell(&mut output, start).as_deref(),
+        Some("promptredisplayabort redisplaynext")
+    );
 }

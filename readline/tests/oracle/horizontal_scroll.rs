@@ -116,7 +116,8 @@ fn checkpoint_outputs_with_locale(
     locale: &str,
 ) -> Vec<String> {
     let dir = tempfile::tempdir().unwrap();
-    let inputrc = "set horizontal-scroll-mode on\nset enable-bracketed-paste off\n";
+    let inputrc =
+        "set horizontal-scroll-mode on\nset enable-bracketed-paste off\nset bell-style audible\n";
     let mut command = if bash {
         let path = dir.path().join("inputrc");
         std::fs::write(&path, inputrc).unwrap();
@@ -139,10 +140,7 @@ fn checkpoint_outputs_with_locale(
     };
     command.env("LC_ALL", locale);
     let wait_prompt = prompt.replace(['\x01', '\x02'], "");
-    // Bash's incremental redisplay can arrive after the short settling window
-    // when PTY oracle processes are scheduled concurrently.
-    let idle_period = std::time::Duration::from_millis(if bash { 250 } else { 100 });
-    run_pty_checkpoints_with_idle_period(
+    run_pty_checkpoints(
         command,
         &wait_prompt,
         steps,
@@ -152,7 +150,6 @@ fn checkpoint_outputs_with_locale(
             pixel_width: 0,
             pixel_height: 0,
         },
-        idle_period,
     )
 }
 
@@ -473,5 +470,29 @@ fn bash_readline_and_sushline_horizontal_scroll_keeps_long_line_history_below_ed
                 );
             }
         }
+    }
+}
+
+#[test]
+fn bash_and_sushline_checkpoint_barriers_follow_complete_key_redisplay() {
+    // Includes batched insertion, cursor-only movement and a no-op Ctrl-E.
+    // No step itself bells, so only abort can acknowledge it.
+    let steps = [b"a".to_vec(), b"bc".to_vec(), vec![2], vec![5], vec![5]];
+    for bash in [true, false] {
+        let outputs = checkpoint_outputs_with_locale(bash, 80, "P>", &steps, "C");
+        let frames: Vec<_> = outputs.iter().map(|out| screen(out, 80)).collect();
+        assert_eq!(
+            frames,
+            [
+                ("P>a", 3),
+                ("P>abc", 5),
+                ("P>abc", 4),
+                ("P>abc", 5),
+                ("P>abc", 5)
+            ]
+            .map(|(text, col)| (text.to_owned(), col)),
+            "bash={bash}"
+        );
+        assert!(outputs.iter().all(|out| !out.contains('\x07')));
     }
 }

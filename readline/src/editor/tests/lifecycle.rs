@@ -1296,3 +1296,67 @@ fn incomplete_bracketed_paste_flushes_before_propagating_read_error() {
         editor.terminal().out
     );
 }
+
+#[test]
+fn bracketed_paste_buffers_partial_data_until_the_split_terminator_completes() {
+    let mut editor = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
+    let mut state = EditorState::new(Prompt::new("> "), Some(b"prefix".to_vec()));
+    editor
+        .handle_bytes(&mut state, b"\x1b[200~", &mut ())
+        .unwrap();
+    let chunks = [
+        b"abcdefgh".as_slice(),
+        b"ijklmnop",
+        b"\x1b",
+        b"[",
+        b"2",
+        b"0",
+        b"1",
+    ];
+    let mut pending = Vec::new();
+    for chunk in chunks {
+        pending.extend_from_slice(chunk);
+        assert!(matches!(
+            editor.handle_bytes(&mut state, chunk, &mut ()).unwrap(),
+            EditorOutcome::Continue
+        ));
+        editor.render(&mut state).unwrap();
+        assert!(state.paste.bracketed_paste);
+        assert_eq!(state.buffer.as_bytes(), b"prefix");
+        assert_eq!(state.paste.bracketed_paste_pending, pending);
+        assert!(!editor.terminal().out.contains("abc"));
+        assert!(!editor.terminal().out.contains("ijklmnop"));
+    }
+    editor.handle_bytes(&mut state, b"~", &mut ()).unwrap();
+    editor.render(&mut state).unwrap();
+    assert!(!state.paste.bracketed_paste);
+    assert!(state.paste.bracketed_paste_pending.is_empty());
+    assert_eq!(state.buffer.as_bytes(), b"prefixabcdefghijklmnop");
+    assert!(editor.terminal().out.contains("abcdefghijklmnop"));
+    assert!(matches!(
+        editor.handle_bytes(&mut state, b"\r", &mut ()).unwrap(),
+        EditorOutcome::Accepted(line) if line == b"prefixabcdefghijklmnop"
+    ));
+}
+
+#[test]
+fn bracketed_paste_keeps_truncated_end_prefix_and_cr_pending() {
+    let mut editor = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
+    let mut state = EditorState::new(Prompt::new("> "), None);
+    for chunk in [b"\x1b[200~abc\x1b[201".as_slice(), b"\r", b"~"] {
+        assert!(matches!(
+            editor.handle_bytes(&mut state, chunk, &mut ()).unwrap(),
+            EditorOutcome::Continue
+        ));
+        editor.render(&mut state).unwrap();
+        assert!(state.paste.bracketed_paste);
+        assert!(state.buffer.as_bytes().is_empty());
+        assert!(!editor.terminal().out.contains("abc"));
+    }
+    assert_eq!(state.paste.bracketed_paste_pending, b"abc\x1b[201\r~");
+    editor
+        .handle_bytes(&mut state, b"\x1b[201~", &mut ())
+        .unwrap();
+    assert!(!state.paste.bracketed_paste);
+    assert_eq!(state.buffer.as_bytes(), b"abc\x1b[201\r~");
+}

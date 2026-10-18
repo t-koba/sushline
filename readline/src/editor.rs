@@ -302,12 +302,20 @@ where
 
             let event = match self.terminal.read_event(self.keyseq_timeout()) {
                 Ok(event) => event,
-                Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => {
-                    if state.paste.bracketed_paste {
-                        self.finish_bracketed_paste_on_eof(&mut state);
-                        self.render(&mut state)?;
+                Err(error)
+                    if state.paste.bracketed_paste
+                        && error.kind() != io::ErrorKind::Interrupted =>
+                {
+                    // The nested Readline paste read ends on a negative key, so
+                    // expose its accumulated bytes before reporting a fatal error.
+                    self.finish_bracketed_paste(&mut state);
+                    self.render(&mut state)?;
+                    if error.kind() == io::ErrorKind::UnexpectedEof {
                         continue;
                     }
+                    return Err(error.into());
+                }
+                Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => {
                     return self.finish_outcome(&mut state, EditorOutcome::Eof);
                 }
                 Err(error) => return Err(error.into()),

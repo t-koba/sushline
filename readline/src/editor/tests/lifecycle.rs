@@ -1265,7 +1265,34 @@ fn empty_bracketed_paste_sets_mark_at_point_for_frame_and_eof() {
     eof.mark = Some(1);
     eof.paste.bracketed_paste = true;
     eof.paste.bracketed_paste_start = Some(point);
-    editor.finish_bracketed_paste_on_eof(&mut eof);
+    editor.finish_bracketed_paste(&mut eof);
     assert_eq!(eof.mark, Some(point));
     assert!(!eof.paste.bracketed_paste);
+}
+
+#[test]
+fn incomplete_bracketed_paste_flushes_before_propagating_read_error() {
+    let terminal = MemoryTerminal::with_events_then_error(
+        vec![
+            TerminalEvent::Bytes(b"\x1b[200~".to_vec()),
+            TerminalEvent::Bytes(b"partial\x1b[201".to_vec()),
+        ],
+        std::io::Error::from_raw_os_error(libc::EIO),
+    );
+    let mut editor = Editor::new(Config::default(), terminal, History::new());
+    editor
+        .load_inputrc_str("set enable-bracketed-paste on")
+        .unwrap();
+
+    let result = editor.read_line(Prompt::new("> "), &mut ());
+
+    match result {
+        Err(ReadlineError::Io(error)) => assert_eq!(error.raw_os_error(), Some(libc::EIO)),
+        other => panic!("expected EIO, got {other:?}"),
+    }
+    assert!(
+        editor.terminal().out.contains("partial") && editor.terminal().out.contains("201"),
+        "pending paste and its partial end marker were not redisplayed before the I/O error: {:?}",
+        editor.terminal().out
+    );
 }

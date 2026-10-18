@@ -191,6 +191,7 @@ impl Hooks for TestHistoryHook {
 #[derive(Default)]
 struct MemoryTerminal {
     events: VecDeque<TerminalEvent>,
+    read_error: Option<io::Error>,
     out: String,
     columns: u16,
     tty_special: Vec<(u8, &'static str)>,
@@ -205,6 +206,7 @@ impl MemoryTerminal {
     fn with_events(events: Vec<TerminalEvent>) -> Self {
         Self {
             events: events.into(),
+            read_error: None,
             out: String::new(),
             columns: 80,
             tty_special: Vec::new(),
@@ -214,6 +216,12 @@ impl MemoryTerminal {
             moved_up: Vec::new(),
             cleared_screen: 0,
         }
+    }
+
+    fn with_events_then_error(events: Vec<TerminalEvent>, error: io::Error) -> Self {
+        let mut terminal = Self::with_events(events);
+        terminal.read_error = Some(error);
+        terminal
     }
 }
 
@@ -227,7 +235,13 @@ impl TerminalIo for MemoryTerminal {
     }
 
     fn read_event(&mut self, _: Option<Duration>) -> io::Result<TerminalEvent> {
-        Ok(self.events.pop_front().unwrap_or(TerminalEvent::Timeout))
+        if let Some(event) = self.events.pop_front() {
+            return Ok(event);
+        }
+        if let Some(error) = self.read_error.take() {
+            return Err(error);
+        }
+        Ok(TerminalEvent::Timeout)
     }
 
     fn write(&mut self, text: &str) -> io::Result<()> {

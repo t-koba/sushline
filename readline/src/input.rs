@@ -169,7 +169,7 @@ where
         Ok(EditorOutcome::Continue)
     }
 
-    pub(super) fn finish_bracketed_paste_on_eof(&mut self, state: &mut EditorState) {
+    pub(super) fn finish_bracketed_paste(&mut self, state: &mut EditorState) {
         let start = state
             .paste
             .bracketed_paste_start

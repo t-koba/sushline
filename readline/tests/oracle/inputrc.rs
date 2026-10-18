@@ -109,6 +109,36 @@ fn bash_readline_and_sushline_continue_after_missing_inputrc_include() {
 }
 
 #[test]
+fn bash_and_sushline_nested_inputrc_depth_is_a_scoped_deviation() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let chain = (0..17)
+        .map(|depth| dir.path().join(format!("chain-{depth}.inputrc")))
+        .collect::<Vec<_>>();
+    for depth in (0..chain.len()).rev() {
+        let contents = if let Some(child) = chain.get(depth + 1) {
+            format!("$include {}\n", child.display())
+        } else {
+            "\"\\C-o\": beginning-of-line\n".to_string()
+        };
+        fs::write(&chain[depth], contents).expect("write include chain");
+    }
+    let main = dir.path().join("main.inputrc");
+    fs::write(
+        &main,
+        format!("\"\\C-o\": \"Q\"\n$include {}\n", chain[0].display()),
+    )
+    .expect("write main inputrc");
+    let keys = b"abc\x0fX\r";
+
+    let bash = run_bash_readline_with_inputrc_path(keys, &main);
+    assert_eq!(accepted_line(&bash).as_deref(), Some("Xabc"));
+
+    let sushline = run_sushline_harness_with_inputrc_path(keys, &main);
+    assert!(sushline.contains("SUSHLINE_INPUTRC_FILE_ERROR"));
+    assert!(sushline.contains("inputrc include depth exceeded"));
+}
+
+#[test]
 fn bash_readline_and_sushline_apply_same_term_condition_inputrc_branch() {
     let keys = b"abc\x0fX\r";
     let inputrc = r#"

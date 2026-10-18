@@ -855,6 +855,49 @@ fn bash_readline_and_sushline_record_inputrc_macro_binding_same_way() {
 }
 
 #[test]
+fn bash_and_sushline_ignore_numeric_arguments_before_inputrc_macro_expansion() {
+    let macros = [
+        ("simple", r#""\C-xm": "ab""#, "abZ"),
+        ("compound", r#""\C-xm": "a\C-bX""#, "XZa"),
+    ];
+    let arguments = [
+        ("M-2", b"\x1b2".as_slice()),
+        ("M-0", b"\x1b0".as_slice()),
+        ("sign-only M-minus", b"\x1b-".as_slice()),
+    ];
+
+    for (macro_name, inputrc, expected) in macros {
+        for (argument_name, argument) in arguments {
+            let mut keys = argument.to_vec();
+            keys.extend_from_slice(b"\x18mZ\r");
+            let bash = run_bash_readline_with_inputrc_file(&keys, inputrc);
+            let sushline = run_sushline_harness_with_inputrc(&keys, inputrc);
+
+            assert_eq!(
+                accepted_line(&bash).as_deref(),
+                Some(expected),
+                "Bash {macro_name} {argument_name}: {bash:?}"
+            );
+            assert_eq!(
+                accepted_line(&sushline).as_deref(),
+                Some(expected),
+                "Sushline {macro_name} {argument_name}: {sushline:?}"
+            );
+            assert_eq!(
+                bell_count(&bash),
+                0,
+                "Bash {macro_name} {argument_name}: {bash}"
+            );
+            assert_eq!(
+                bell_count(&sushline),
+                0,
+                "Sushline {macro_name} {argument_name}: {sushline}"
+            );
+        }
+    }
+}
+
+#[test]
 fn sushline_keyboard_macro_call_while_recording_does_not_recurse() {
     for (keys, expected) in [
         (b"\x18(a\x18e\x18)\x18e\r".as_slice(), "a"),

@@ -37,6 +37,9 @@ where
                 self.apply_named_command(state, &command, key, hooks)
             }
             KeyBinding::Macro(text) => {
+                // Inputrc macro bindings ignore numeric arguments; clear the
+                // prefix before any command in the expansion can consume it.
+                state.take_numeric_arg();
                 state.completion.menu_completion = None;
                 state.record_macro_insert_bytes(&text);
                 if state.macro_state.inputrc_macro_depth >= MAX_INPUTRC_MACRO_DEPTH {

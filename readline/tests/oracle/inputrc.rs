@@ -109,6 +109,18 @@ fn bash_readline_and_sushline_continue_after_missing_inputrc_include() {
 }
 
 #[test]
+fn bash_readline_and_sushline_skip_unknown_named_user_include() {
+    let cwd = tempfile::tempdir().expect("cwd");
+    let inputrc = "\"\\C-o\": \"Q\"\n$include ~no-such-inputrc-user-xyz/missing.inputrc\n\"\\C-o\": beginning-of-line\n";
+    let keys = b"abc\x0fX\r";
+    let bash = run_bash_readline_with_inputrc_file_and_env_in_dir(keys, inputrc, &[], cwd.path());
+    let sushline = run_sushline_harness_with_inputrc_and_env_in_dir(keys, inputrc, &[], cwd.path());
+
+    assert_eq!(accepted_line(&bash).as_deref(), Some("Xabc"));
+    assert_eq!(accepted_line(&sushline).as_deref(), Some("Xabc"));
+}
+
+#[test]
 fn bash_and_sushline_nested_inputrc_depth_is_a_scoped_deviation() {
     let dir = tempfile::tempdir().expect("tempdir");
     let chain = (0..17)

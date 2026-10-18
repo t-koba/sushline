@@ -86,10 +86,20 @@ pub(crate) fn update_numeric_argument(state: &mut EditorState, key: &[u8]) -> bo
     match last {
         b'-' => {
             let current = state.numeric_arg.unwrap_or(1);
-            state.numeric_arg = Some(if current == i32::MIN {
-                i32::MIN
+            state.numeric_arg_negative = if state.numeric_arg_sign_only {
+                !state.numeric_arg_negative
             } else {
-                -current.abs()
+                true
+            };
+            let magnitude = current.unsigned_abs();
+            state.numeric_arg = Some(if state.numeric_arg_negative {
+                if magnitude > i32::MAX as u32 {
+                    i32::MIN
+                } else {
+                    -(magnitude as i32)
+                }
+            } else {
+                magnitude.min(i32::MAX as u32) as i32
             });
             state.numeric_arg_sign_only = true;
             false
@@ -97,11 +107,13 @@ pub(crate) fn update_numeric_argument(state: &mut EditorState, key: &[u8]) -> bo
         b'0'..=b'9' => {
             let digit = (last - b'0') as i32;
             let current = state.numeric_arg.unwrap_or(0);
-            let next = if state.numeric_arg_sign_only {
-                Some(-digit)
-            } else if state.numeric_arg_universal {
-                Some(if current < 0 { -digit } else { digit })
-            } else if current < 0 {
+            let next = if state.numeric_arg_sign_only || state.numeric_arg_universal {
+                Some(if state.numeric_arg_negative {
+                    -digit
+                } else {
+                    digit
+                })
+            } else if state.numeric_arg_negative {
                 current
                     .checked_mul(10)
                     .and_then(|scaled| scaled.checked_sub(digit))
@@ -121,6 +133,7 @@ pub(crate) fn update_numeric_argument(state: &mut EditorState, key: &[u8]) -> bo
                 None => {
                     state.numeric_arg = None;
                     state.numeric_arg_sign_only = false;
+                    state.numeric_arg_negative = false;
                     state.numeric_arg_universal = false;
                     true
                 }

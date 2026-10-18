@@ -887,6 +887,41 @@ fn bash_and_sushline_match_universal_argument_digit_composition() {
 }
 
 #[test]
+fn bash_and_sushline_match_repeated_and_post_digit_meta_minus() {
+    for (name, keys, expected) in [
+        (
+            "repeated sign-only minus",
+            b"abcdefghijklmnopqrstuvwxyz\x01\x1b-\x1b-\x06X\r".as_slice(),
+            "aXbcdefghijklmnopqrstuvwxyz",
+        ),
+        (
+            "post-digit minus",
+            b"abcdefghijklmnopqrstuvwxyz\x01\x1b3\x1b-\x06X\r".as_slice(),
+            "---aXbcdefghijklmnopqrstuvwxyz",
+        ),
+        (
+            "minus toggles sign after leading zero",
+            b"abcdefghijklmnopqrstuvwxyz\x01\x1b-\x1b0\x1b-\x1b1\x06X\r".as_slice(),
+            "aXbcdefghijklmnopqrstuvwxyz",
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, "");
+        let sushline = run_sushline_harness_with_inputrc(keys, "");
+
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "Bash {name}: {bash:?}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "Sushline {name}: {sushline:?}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_zero_numeric_self_insert() {
     let keys = b"\x1b0x\r";
     let bash = run_bash_readline(keys);

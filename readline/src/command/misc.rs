@@ -72,6 +72,7 @@ where
                         None => {
                             state.numeric_arg = None;
                             state.numeric_arg_sign_only = false;
+                            state.numeric_arg_negative = false;
                             state.numeric_arg_universal = false;
                             self.ding()?;
                         }

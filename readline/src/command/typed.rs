@@ -103,6 +103,14 @@ where
         key: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
+        if command == EditCommand::DigitArgument
+            && key.last() == Some(&b'-')
+            && state.numeric_arg.is_some()
+            && !state.numeric_arg_sign_only
+            && !state.numeric_arg_universal
+        {
+            return self.apply_command(state, EditCommand::SelfInsert, b"-", hooks);
+        }
         let builds_arg = matches!(
             command,
             EditCommand::DigitArgument | EditCommand::UniversalArgument

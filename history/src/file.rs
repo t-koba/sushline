@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+const MAX_SYMLINK_HOPS: usize = 40;
 
 impl History {
     /// Default file path.
@@ -172,7 +173,8 @@ impl History {
     /// Truncate file.
     pub fn truncate_file(path: impl AsRef<Path>, max_len: usize) -> io::Result<()> {
         let path = path.as_ref();
-        if dest_is_non_regular(&effective_write_path(path)) {
+        let dest = effective_write_path(path)?;
+        if dest_is_non_regular(&dest) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "history truncate requires a regular file",
@@ -227,7 +229,7 @@ fn write_atomic(
     path: &Path,
     write_tmp: impl FnOnce(&mut fs::File) -> io::Result<()>,
 ) -> io::Result<()> {
-    let dest = effective_write_path(path);
+    let dest = effective_write_path(path)?;
     if dest_is_non_regular(&dest) {
         return write_in_place(path, write_tmp);
     }
@@ -289,22 +291,36 @@ fn write_in_place(
     Ok(())
 }
 
-fn effective_write_path(path: &Path) -> PathBuf {
-    let is_link = fs::symlink_metadata(path)
-        .map(|metadata| metadata.file_type().is_symlink())
-        .unwrap_or(false);
-    if !is_link {
-        return path.to_path_buf();
-    }
-    let Ok(target) = fs::read_link(path) else {
-        return path.to_path_buf();
-    };
-    if target.is_absolute() {
-        return target;
-    }
-    match path.parent() {
-        Some(parent) if !parent.as_os_str().is_empty() => parent.join(target),
-        _ => target,
+fn effective_write_path(path: &Path) -> io::Result<PathBuf> {
+    let mut current = path.to_path_buf();
+    let mut hops = 0;
+    loop {
+        let metadata = match fs::symlink_metadata(&current) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(current),
+            Err(error) => return Err(error),
+        };
+        if !metadata.file_type().is_symlink() {
+            return Ok(current);
+        }
+        if hops == MAX_SYMLINK_HOPS {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "too many symbolic links in history path",
+            ));
+        }
+        hops += 1;
+
+        let target = fs::read_link(&current)?;
+        current = if target.is_absolute() {
+            target
+        } else {
+            current
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."))
+                .join(target)
+        };
     }
 }
 

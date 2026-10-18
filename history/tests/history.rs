@@ -753,6 +753,116 @@ fn full_write_preserves_symlinked_history_path() {
 }
 
 #[test]
+#[cfg_attr(not(unix), ignore = "requires Unix symlinks")]
+fn full_write_preserves_relative_symlink_chain() {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        use std::path::PathBuf;
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target-history");
+        fs::write(&target, "target-v1\n").unwrap();
+        let intermediate = dir.path().join("intermediate-history");
+        symlink("target-history", &intermediate).unwrap();
+        let link = dir.path().join("link-history");
+        symlink("intermediate-history", &link).unwrap();
+
+        let mut history = History::new();
+        history.push("target-v2");
+        history.write_file(&link).unwrap();
+
+        assert!(
+            fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert!(
+            fs::symlink_metadata(&intermediate)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(
+            fs::read_link(&link).unwrap(),
+            PathBuf::from("intermediate-history")
+        );
+        assert_eq!(
+            fs::read_link(&intermediate).unwrap(),
+            PathBuf::from("target-history")
+        );
+        assert_eq!(fs::read_to_string(target).unwrap(), "target-v2\n");
+    }
+}
+
+#[test]
+#[cfg_attr(not(unix), ignore = "requires Unix symlinks")]
+fn truncate_preserves_relative_symlink_chain() {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target-history");
+        fs::write(&target, "one\ntwo\nthree\n").unwrap();
+        let intermediate = dir.path().join("intermediate-history");
+        symlink("target-history", &intermediate).unwrap();
+        let link = dir.path().join("link-history");
+        symlink("intermediate-history", &link).unwrap();
+
+        History::truncate_file(&link, 2).unwrap();
+
+        assert!(
+            fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert!(
+            fs::symlink_metadata(&intermediate)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(fs::read_to_string(target).unwrap(), "two\nthree\n");
+    }
+}
+
+#[test]
+#[cfg_attr(not(unix), ignore = "requires Unix symlinks")]
+fn full_write_rejects_symlink_loops_without_replacing_links() {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        use std::path::PathBuf;
+        let dir = tempfile::tempdir().unwrap();
+        let first = dir.path().join("first");
+        let second = dir.path().join("second");
+        symlink("second", &first).unwrap();
+        symlink("first", &second).unwrap();
+
+        let mut history = History::new();
+        history.push("new");
+        let error = history.write_file(&first).unwrap_err();
+
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(
+            fs::symlink_metadata(&first)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert!(
+            fs::symlink_metadata(&second)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(fs::read_link(&first).unwrap(), PathBuf::from("second"));
+        assert_eq!(fs::read_link(&second).unwrap(), PathBuf::from("first"));
+    }
+}
+
+#[test]
 #[cfg_attr(not(unix), ignore = "requires Unix symlinks and /dev/null")]
 fn symlinked_special_history_discards_and_preserves_link() {
     #[cfg(unix)]

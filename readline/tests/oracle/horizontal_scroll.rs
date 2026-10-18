@@ -308,6 +308,47 @@ fn bash_readline_and_sushline_horizontal_scroll_keeps_clipped_combining_marks_wi
 }
 
 #[test]
+fn bash_and_sushline_horizontal_scroll_differs_for_visible_combining_mark() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+    let marked = format!("{}{}e\u{301}", "a".repeat(24), "b".repeat(64));
+    let plain = format!("{}{}e", "a".repeat(24), "b".repeat(64));
+    let marked_steps = vec![marked.into_bytes()];
+    let plain_steps = vec![plain.into_bytes()];
+
+    for bash in [true, false] {
+        let marked_screen = checkpoints_with_locale(bash, 80, "P>", &marked_steps, "C.UTF-8")
+            .pop()
+            .unwrap();
+        let plain_screen = checkpoints_with_locale(bash, 80, "P>", &plain_steps, "C.UTF-8")
+            .pop()
+            .unwrap();
+
+        assert!(marked_screen.0.ends_with("e\u{301}"), "bash={bash}");
+        assert!(plain_screen.0.ends_with('e'), "bash={bash}");
+        let marked_b = marked_screen.0.matches('b').count();
+        let plain_b = plain_screen.0.matches('b').count();
+        if bash {
+            assert_eq!(marked_screen.1, 50);
+            assert_eq!(plain_screen.1, 52);
+            assert_eq!(plain_b, marked_b + 2);
+        } else {
+            assert_eq!(marked_screen.1, 65);
+            assert_eq!(plain_screen.1, 65);
+            assert_eq!(marked_b, plain_b);
+            assert_eq!(
+                marked_screen
+                    .0
+                    .strip_suffix('\u{301}')
+                    .expect("mark suffix"),
+                plain_screen.0
+            );
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_horizontal_scroll_reset_after_deletion() {
     let text = "0123456789".repeat(10);
     let mut steps: Vec<_> = text.bytes().map(|byte| vec![byte]).collect();

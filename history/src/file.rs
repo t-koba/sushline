@@ -330,9 +330,8 @@ fn unique_tmp_path(base: &Path, nonce: u64) -> PathBuf {
     PathBuf::from(name)
 }
 
-fn is_timestamp_record(line: &str) -> bool {
-    let bytes = line.as_bytes();
-    bytes.len() >= 2 && bytes[0] == b'#' && bytes[1].is_ascii_digit()
+fn is_timestamp_record(line: &[u8]) -> bool {
+    line.len() >= 2 && line[0] == b'#' && line[1].is_ascii_digit()
 }
 
 fn write_entry(
@@ -374,11 +373,13 @@ fn read_history_records(file: fs::File) -> io::Result<Vec<(Vec<u8>, Option<Strin
         if line.ends_with(b"\r") {
             line.pop();
         }
-        if let Ok(text) = std::str::from_utf8(&line)
-            && is_timestamp_record(text)
-        {
+        // GNU recognizes a timestamp record from its raw `#` plus ASCII
+        // digit prefix. Invalid UTF-8 in the remaining metadata must not turn
+        // the delimiter into command text; the public String field stores it
+        // with replacement characters.
+        if is_timestamp_record(&line) {
             flush_delimited_lines(&mut delimited_lines, &mut pending_timestamp, &mut records);
-            pending_timestamp = Some(text.to_string());
+            pending_timestamp = Some(String::from_utf8_lossy(&line).into_owned());
             line.clear();
             continue;
         }

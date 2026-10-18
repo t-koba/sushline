@@ -670,6 +670,30 @@ fn treats_digits_with_trailing_junk_as_timestamp() {
 }
 
 #[test]
+fn recognizes_timestamp_delimiters_before_utf8_decoding() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(&path, b"#123\xff\none\ntwo\n#456\nlast\n").unwrap();
+
+    let loaded = History::read_file(&path).unwrap();
+    assert_eq!(loaded.entries().len(), 2);
+    assert_eq!(
+        loaded.entries()[0].timestamp.as_deref(),
+        Some("#123\u{fffd}")
+    );
+    assert_eq!(loaded.entries()[0].line_bytes, b"one\ntwo");
+    assert_eq!(loaded.entries()[1].timestamp.as_deref(), Some("#456"));
+    assert_eq!(loaded.entries()[1].line_bytes, b"last");
+
+    let output = dir.path().join("roundtrip");
+    loaded.write_file_with_timestamps(&output, true).unwrap();
+    assert_eq!(
+        fs::read(output).unwrap(),
+        b"#123\xef\xbf\xbd\none\ntwo\n#456\nlast\n"
+    );
+}
+
+#[test]
 fn preserves_timestamped_history_file_records() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");

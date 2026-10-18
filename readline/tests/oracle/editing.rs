@@ -706,6 +706,19 @@ fn bash_and_sushline_apply_numeric_arguments_to_whole_keyboard_macro() {
 }
 
 #[test]
+fn bash_and_sushline_ring_once_when_calling_last_macro_without_a_definition() {
+    for keys in [b"\x18eZ\r".as_slice(), b"\x1b3\x18eZ\r".as_slice()] {
+        let bash = run_bash_readline_with_inputrc_file(keys, "");
+        let sushline = run_sushline_harness_with_inputrc(keys, "");
+
+        assert_eq!(accepted_line(&bash).as_deref(), Some("Z"), "{bash}");
+        assert_eq!(accepted_line(&sushline).as_deref(), Some("Z"), "{sushline}");
+        assert_eq!(bell_count(&bash), 1, "{bash}");
+        assert_eq!(bell_count(&sushline), 1, "{sushline}");
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_replay_same_keyboard_macro_edge_cases() {
     for keys in [
         b"\x18(a\x18)\x1b3\x18e\r".as_slice(),

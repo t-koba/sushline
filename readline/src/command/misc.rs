@@ -49,6 +49,7 @@ where
                     state.macro_state.replaying_macro = false;
                     outcome
                 } else {
+                    self.ding()?;
                     state.after_non_kill_command();
                     Ok(EditorOutcome::Continue)
                 }

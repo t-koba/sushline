@@ -1244,3 +1244,28 @@ fn lone_bracketed_paste_end_respects_keymap_and_chunk_boundaries() {
         }
     }
 }
+
+#[test]
+fn empty_bracketed_paste_sets_mark_at_point_for_frame_and_eof() {
+    let mut editor = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
+
+    let mut framed = EditorState::new(Prompt::new("> "), Some(b"abc".to_vec()));
+    let point = framed.buffer.point();
+    framed.mark = Some(1);
+    framed.paste.bracketed_paste = true;
+    framed.paste.bracketed_paste_start = Some(point);
+    editor
+        .handle_bytes(&mut framed, b"\x1b[201~", &mut ())
+        .unwrap();
+    assert_eq!(framed.mark, Some(point));
+    assert!(!framed.paste.bracketed_paste);
+
+    let mut eof = EditorState::new(Prompt::new("> "), Some(b"abc".to_vec()));
+    let point = eof.buffer.point();
+    eof.mark = Some(1);
+    eof.paste.bracketed_paste = true;
+    eof.paste.bracketed_paste_start = Some(point);
+    editor.finish_bracketed_paste_on_eof(&mut eof);
+    assert_eq!(eof.mark, Some(point));
+    assert!(!eof.paste.bracketed_paste);
+}

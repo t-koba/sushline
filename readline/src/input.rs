@@ -158,8 +158,8 @@ where
         let remainder = combined[end_pos + BRACKETED_PASTE_END_SEQUENCE.len()..].to_vec();
         if !payload.is_empty() {
             self.insert_literal(state, &payload, false);
-            state.mark = Some(start);
         }
+        state.mark = Some(start);
         state.paste.bracketed_paste = false;
         state.paste.bracketed_paste_start = None;
         state.paste.bracketed_paste_pending.clear();

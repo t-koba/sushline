@@ -2310,3 +2310,96 @@ fn bash_readline_and_sushline_char_move_edges_ring_like_bash() {
         assert_eq!(bell_count(&sushline), bells, "{desc}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_match_lone_bracketed_paste_end() {
+    let keys = b"\x1b[201~abc\r";
+    for inputrc in ["", "set enable-bracketed-paste off\n"] {
+        let bash = run_bash_readline_with_term(keys, inputrc, Some("xterm-256color"));
+        let sushline = run_sushline_harness_with_term(keys, inputrc, Some("xterm-256color"));
+        for (name, output) in [("bash", &bash), ("sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some("~abc"),
+                "{name}, inputrc={inputrc:?}: {output:?}"
+            );
+            assert_eq!(
+                bell_count(output),
+                1,
+                "{name}, inputrc={inputrc:?}: {output:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn bash_and_sushline_match_bracketed_paste_terminal_mode_matrix() {
+    let cases = [
+        (Some("xterm-256color"), "", true),
+        (Some("vt100"), "", true),
+        (Some("vt52"), "", false),
+        (Some("dumb"), "", false),
+        (None, "", false),
+        (Some("dumb"), "set enable-bracketed-paste on\n", true),
+        (Some("vt52"), "set enable-bracketed-paste on\n", true),
+        (
+            Some("xterm-256color"),
+            "set enable-bracketed-paste off\n",
+            false,
+        ),
+    ];
+
+    for (term, inputrc, expected) in cases {
+        let bash = run_bash_readline_with_term(b"\r", inputrc, term);
+        let sushline = run_sushline_harness_with_term(b"\r", inputrc, term);
+        for (name, output) in [("bash", &bash), ("sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(""),
+                "{name}, TERM={term:?}, inputrc={inputrc:?}: {output:?}"
+            );
+            assert_eq!(
+                output.contains("\x1b[?2004h"),
+                expected,
+                "{name}, TERM={term:?}, inputrc={inputrc:?}: {output:?}"
+            );
+            assert_eq!(
+                output.contains("\x1b[?2004l"),
+                expected,
+                "{name}, TERM={term:?}, inputrc={inputrc:?}: {output:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn bash_and_sushline_match_complete_bracketed_paste_fixtures() {
+    let framed_paste = b"\x1b[200~abc\x1b[201~\r";
+    for (term, inputrc) in [
+        (Some("xterm-256color"), ""),
+        (Some("xterm-256color"), "set enable-bracketed-paste off\n"),
+        (Some("dumb"), "set enable-bracketed-paste on\n"),
+    ] {
+        let bash = run_bash_readline_with_term(framed_paste, inputrc, term);
+        let sushline = run_sushline_harness_with_term(framed_paste, inputrc, term);
+        assert_eq!(accepted_line(&bash).as_deref(), Some("abc"), "{bash:?}");
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some("abc"),
+            "{sushline:?}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{bash:?}");
+        assert_eq!(bell_count(&sushline), 0, "{sushline:?}");
+    }
+
+    // Pasted text sets the mark at its starting point in both editors.
+    let mark_keys = b"\x1b[200~abc\x1b[201~\x18\x18X\r";
+    let bash = run_bash_readline_with_term(mark_keys, "", Some("xterm-256color"));
+    let sushline = run_sushline_harness_with_term(mark_keys, "", Some("xterm-256color"));
+    assert_eq!(accepted_line(&bash).as_deref(), Some("Xabc"), "{bash:?}");
+    assert_eq!(
+        accepted_line(&sushline).as_deref(),
+        Some("Xabc"),
+        "{sushline:?}"
+    );
+}

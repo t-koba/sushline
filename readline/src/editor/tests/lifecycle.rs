@@ -1180,3 +1180,67 @@ fn repeated_universal_argument_overflow_resets_without_panic() {
         line.terminal.out
     );
 }
+
+#[test]
+fn lone_bracketed_paste_end_dispatches_when_fragmented() {
+    let mut line = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
+    line.load_inputrc_str("set enable-bracketed-paste off")
+        .unwrap();
+    let mut state = EditorState::new(Prompt::new("> "), None);
+    let marker = b"\x1b[201~";
+    for (index, byte) in marker.iter().enumerate() {
+        let outcome = line.handle_bytes(&mut state, &[*byte], &mut ()).unwrap();
+        assert!(matches!(outcome, EditorOutcome::Continue));
+        if index + 1 < marker.len() {
+            assert!(state.buffer.as_bytes().is_empty());
+            assert!(!line.terminal().out.contains('\x07'));
+        }
+    }
+    // Do not wait for another byte (or a key-sequence timeout) to complete
+    // an otherwise-unbound marker.
+    assert!(state.input.pending_key.is_empty());
+    assert_eq!(state.buffer.as_bytes(), b"~");
+    assert_eq!(line.terminal().out.matches('\x07').count(), 1);
+    let outcome = line.handle_bytes(&mut state, b"abc\r", &mut ()).unwrap();
+    assert!(matches!(outcome, EditorOutcome::Accepted(bytes) if bytes == b"~abc"));
+}
+
+#[test]
+fn lone_bracketed_paste_end_respects_keymap_and_chunk_boundaries() {
+    let keys = b"\x1b[201~abc\r";
+    for (inputrc, expected, bells) in [
+        ("", b"~abc".as_slice(), 1),
+        ("set enable-bracketed-paste off", b"~abc", 1),
+        ("\"\\e[201~\": \"X\"", b"Xabc", 0),
+        ("\"\\e[201\": \"X\"", b"X~abc", 0),
+        ("\"\\e[201~a\": \"X\"", b"Xbc", 0),
+        ("\"\\e[201~z\": \"X\"", b"~abc", 1),
+        ("\"~\": \"X\"", b"Xabc", 1),
+    ] {
+        // Batched, every two-chunk split, and entirely bytewise reads.
+        let mut chunks = vec![vec![keys.as_slice()]];
+        chunks.extend((1..keys.len()).map(|split| vec![&keys[..split], &keys[split..]]));
+        chunks.push(keys.chunks(1).collect());
+        for chunks in chunks {
+            let terminal = MemoryTerminal::with_events(
+                chunks
+                    .iter()
+                    .map(|chunk| TerminalEvent::Bytes(chunk.to_vec()))
+                    .collect(),
+            );
+            let mut line = Editor::new(Config::default(), terminal, History::new());
+            line.load_inputrc_str(inputrc).unwrap();
+            let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+            assert_eq!(
+                result,
+                ReadlineResult::Line(expected.to_vec()),
+                "inputrc={inputrc:?}, chunks={chunks:?}"
+            );
+            assert_eq!(
+                line.terminal().out.matches('\x07').count(),
+                bells,
+                "inputrc={inputrc:?}, chunks={chunks:?}"
+            );
+        }
+    }
+}

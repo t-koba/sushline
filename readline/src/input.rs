@@ -7,6 +7,8 @@ use crate::terminal::TerminalIo;
 use crate::variables::BoolVariable;
 use history::HistoryDirection;
 
+const BRACKETED_PASTE_END_SEQUENCE: &[u8] = b"\x1b[201~";
+
 impl<T> Editor<T>
 where
     T: TerminalIo,
@@ -140,19 +142,18 @@ where
     ) -> Result<EditorOutcome, ReadlineError> {
         let mut combined = std::mem::take(&mut state.paste.bracketed_paste_pending);
         combined.extend_from_slice(bytes);
-        let end_seq = b"\x1b[201~";
         let end_pos = combined
-            .windows(end_seq.len())
-            .position(|window| window == end_seq);
+            .windows(BRACKETED_PASTE_END_SEQUENCE.len())
+            .position(|window| window == BRACKETED_PASTE_END_SEQUENCE);
         let paste_ends = end_pos.is_some();
         let payload_len = end_pos.unwrap_or_else(|| {
             combined
                 .len()
-                .saturating_sub(end_seq.len().saturating_sub(1))
+                .saturating_sub(BRACKETED_PASTE_END_SEQUENCE.len().saturating_sub(1))
         });
         let payload = combined[..payload_len].to_vec();
         let remainder = end_pos
-            .map(|pos| combined[pos + end_seq.len()..].to_vec())
+            .map(|pos| combined[pos + BRACKETED_PASTE_END_SEQUENCE.len()..].to_vec())
             .unwrap_or_default();
         if payload_len < combined.len() && !paste_ends {
             state
@@ -334,6 +335,30 @@ where
             }
             if use_len < pending.len() {
                 return self.handle_bytes(state, &pending[use_len..], hooks);
+            }
+            return Ok(EditorOutcome::Continue);
+        }
+
+        // A bracketed-paste end marker outside a paste is not payload. GNU
+        // rings once, then processes the marker's final `~` as ordinary input.
+        // Buffer its otherwise-unbound prefixes so split reads behave alike;
+        // normal key bindings and prefixes take precedence above.
+        if pending.len() > 1
+            && pending.len() < BRACKETED_PASTE_END_SEQUENCE.len()
+            && BRACKETED_PASTE_END_SEQUENCE.starts_with(&pending)
+        {
+            state.input.pending_key = pending;
+            return Ok(EditorOutcome::Continue);
+        }
+        if let Some(remainder) = pending.strip_prefix(BRACKETED_PASTE_END_SEQUENCE) {
+            state.input.prefix_meta_command_len = 0;
+            self.ding()?;
+            let outcome = self.handle_bytes(state, b"~", hooks)?;
+            if !matches!(outcome, EditorOutcome::Continue) {
+                return Ok(outcome);
+            }
+            if !remainder.is_empty() {
+                return self.handle_bytes(state, remainder, hooks);
             }
             return Ok(EditorOutcome::Continue);
         }

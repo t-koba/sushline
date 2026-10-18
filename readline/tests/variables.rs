@@ -333,8 +333,8 @@ fn bracketed_paste_off_guards_mark_hold_and_lone_end() {
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
     assert_eq!(result, ReadlineResult::Line(vec![b'a', b'\r', b'b']));
     assert!(!line.terminal().out.contains("\x1b[?2004h"));
-    // A lone unframed end marker takes the normal unbound path: ESC is
-    // filtered as a control and the remaining bytes insert literally.
+    // A lone unbound end marker rings once and redispatches its final `~`,
+    // even with bracketed-paste terminal mode disabled.
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"\x1b[201~".to_vec()),
         TerminalEvent::Bytes(b"\r".to_vec()),
@@ -343,7 +343,8 @@ fn bracketed_paste_off_guards_mark_hold_and_lone_end() {
     line.load_inputrc_str("set enable-bracketed-paste off")
         .unwrap();
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
-    assert_eq!(result, ReadlineResult::Line(b"[201~".to_vec()));
+    assert_eq!(result, ReadlineResult::Line(b"~".to_vec()));
+    assert_eq!(line.terminal().out.matches('\x07').count(), 1);
     assert!(!line.terminal().out.contains("\x1b[?2004h"));
 }
 

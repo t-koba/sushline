@@ -1899,3 +1899,159 @@ fn bell_style_controls_completion_failure_signal() {
     assert_eq!(result, ReadlineResult::Line(Vec::new()));
     assert!(line.terminal().out.contains("\x1b[?5h\x1b[?5l"));
 }
+
+#[test]
+fn completion_query_response_suffix_survives_batching() {
+    fn run(events: Vec<TerminalEvent>) -> (ReadlineResult, ReadlineResult, String) {
+        let terminal = MemoryTerminal::with_events(events);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str("set completion-query-items 1")
+            .unwrap();
+        let mut hooks = StaticCompletion::default();
+        let first = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+        let second = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+        let out = line.terminal().out.clone();
+        (first, second, out)
+    }
+
+    for answer in [b"y".as_slice(), b"n".as_slice()] {
+        let split = run(vec![
+            TerminalEvent::Bytes(b"\t".to_vec()),
+            TerminalEvent::Bytes(b"\t".to_vec()),
+            TerminalEvent::Bytes(answer.to_vec()),
+            TerminalEvent::Bytes(b"Z".to_vec()),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+            TerminalEvent::Bytes(b"W".to_vec()),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+        ]);
+        let mut batched_answer = answer.to_vec();
+        batched_answer.extend_from_slice(b"Z\rW");
+        let batched = run(vec![
+            TerminalEvent::Bytes(b"\t".to_vec()),
+            TerminalEvent::Bytes(b"\t".to_vec()),
+            TerminalEvent::Bytes(batched_answer),
+            TerminalEvent::Bytes(b"\r".to_vec()),
+        ]);
+        assert_eq!(split.0, batched.0, "answer={answer:?}");
+        assert_eq!(split.1, batched.1, "answer={answer:?}");
+        assert_eq!(
+            split.0,
+            ReadlineResult::Line(b"Z".to_vec()),
+            "answer={answer:?}"
+        );
+        assert_eq!(
+            split.1,
+            ReadlineResult::Line(b"W".to_vec()),
+            "answer={answer:?}"
+        );
+        let split_listed = split.2.contains("alpha") && split.2.contains("beta");
+        let batched_listed = batched.2.contains("alpha") && batched.2.contains("beta");
+        assert_eq!(split_listed, batched_listed, "answer={answer:?}");
+        assert_eq!(
+            split_listed,
+            answer == b"y",
+            "answer={answer:?} split={:?} batched={:?}",
+            split.2,
+            batched.2
+        );
+    }
+}
+
+#[test]
+fn completion_query_interrupt_preserves_suffix_for_next_read() {
+    for batched in [false, true] {
+        let query_response = if batched {
+            TerminalEvent::Bytes(vec![0x03, b'Z'])
+        } else {
+            TerminalEvent::Bytes(vec![0x03])
+        };
+        let mut events = vec![
+            TerminalEvent::Bytes(b"\t".to_vec()),
+            TerminalEvent::Bytes(b"\t".to_vec()),
+            query_response,
+        ];
+        if !batched {
+            events.push(TerminalEvent::Bytes(b"Z".to_vec()));
+        }
+        events.push(TerminalEvent::Bytes(b"\r".to_vec()));
+        let terminal = MemoryTerminal::with_events(events);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str("set completion-query-items 1")
+            .unwrap();
+        let mut hooks = StaticCompletion::default();
+        let first = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+        assert_eq!(first, ReadlineResult::Interrupted, "batched={batched}");
+        let second = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+        assert_eq!(
+            second,
+            ReadlineResult::Line(b"Z".to_vec()),
+            "batched={batched}"
+        );
+    }
+}
+
+struct ManyCompletion;
+
+impl Hooks for ManyCompletion {
+    fn complete(&mut self, _: CompletionRequest) -> Option<CompletionResponse> {
+        Some(CompletionResponse {
+            candidates: [
+                "alpha-00",
+                "bravo-01",
+                "charlie-02",
+                "delta-03",
+                "echo-04",
+                "foxtrot-05",
+                "golf-06",
+                "hotel-07",
+                "india-08",
+                "juliet-09",
+            ]
+            .into_iter()
+            .map(|name| CompletionCandidate {
+                replacement: name.as_bytes().to_vec(),
+                display: None,
+            })
+            .collect(),
+            options: CompletionOptions::default(),
+        })
+    }
+}
+
+#[test]
+fn completion_pager_quit_preserves_batched_suffix() {
+    fn run(events: Vec<TerminalEvent>) -> (ReadlineResult, String) {
+        let mut terminal = MemoryTerminal::with_events(events);
+        terminal.columns = 20;
+        terminal.rows = 5;
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str("set completion-display-width 20")
+            .unwrap();
+        let mut hooks = ManyCompletion;
+        let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+        let out = line.terminal().out.clone();
+        (result, out)
+    }
+
+    let split = run(vec![
+        TerminalEvent::Bytes(b"\t".to_vec()),
+        TerminalEvent::Bytes(b"\t".to_vec()),
+        TerminalEvent::Bytes(b"q".to_vec()),
+        TerminalEvent::Bytes(b"Z".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let batched = run(vec![
+        TerminalEvent::Bytes(b"\t".to_vec()),
+        TerminalEvent::Bytes(b"\t".to_vec()),
+        TerminalEvent::Bytes(b"qZ".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    for (label, output) in [("split", &split.1), ("batched", &batched.1)] {
+        assert!(
+            output.contains("--More--"),
+            "{label} pager should prompt, got {output:?}"
+        );
+    }
+    assert_eq!(split.0, batched.0);
+    assert_eq!(split.0, ReadlineResult::Line(b"Z".to_vec()));
+}

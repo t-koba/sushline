@@ -312,7 +312,7 @@ where
                 ),
             )?;
             self.terminal.flush()?;
-            match self.terminal.read_event(None)? {
+            match self.read_completion_response()? {
                 TerminalEvent::Bytes(bytes) if bytes.as_slice() == [0x03] => {
                     self.echo_signal_interrupt(state)?;
                     state.input.interrupted = true;
@@ -467,7 +467,7 @@ where
                 let more_prompt = "--More--";
                 self.terminal.write(more_prompt)?;
                 self.terminal.flush()?;
-                match self.terminal.read_event(None)? {
+                match self.read_completion_response()? {
                     TerminalEvent::Bytes(bytes) if bytes.as_slice() == [0x03] => {
                         self.echo_signal_interrupt(state)?;
                         state.input.interrupted = true;

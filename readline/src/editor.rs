@@ -12,6 +12,7 @@ use history::History;
 use history::expansion::{
     HistoryChars, HistoryExpansion, HistoryExpansionPolicy, HistoryExpansionState,
 };
+use std::collections::VecDeque;
 use std::fmt;
 use std::io;
 use std::path::Path;
@@ -76,6 +77,7 @@ where
     pub(crate) last_char_search: Option<(CharSearchMode, char)>,
     pub(crate) last_vi_change: Option<Vec<u8>>,
     initial_inputrc_error: Option<String>,
+    pending_input: VecDeque<u8>,
 }
 
 impl<T> Editor<T>
@@ -123,6 +125,7 @@ where
             last_char_search: None,
             last_vi_change: None,
             initial_inputrc_error: None,
+            pending_input: VecDeque::new(),
         }
     }
 
@@ -300,7 +303,7 @@ where
                 continue;
             }
 
-            let event = match self.terminal.read_event(self.keyseq_timeout()) {
+            let event = match self.read_input_event(self.keyseq_timeout()) {
                 Ok(event) => event,
                 Err(error)
                     if state.paste.bracketed_paste
@@ -629,6 +632,28 @@ where
             .get("history-size")
             .and_then(|value| value.parse::<isize>().ok())
             .and_then(|value| (value >= 0).then_some(value as usize))
+    }
+
+    pub(crate) fn read_input_event(
+        &mut self,
+        timeout: Option<Duration>,
+    ) -> io::Result<TerminalEvent> {
+        if let Some(byte) = self.pending_input.pop_front() {
+            return Ok(TerminalEvent::Bytes(vec![byte]));
+        }
+        self.terminal.read_event(timeout)
+    }
+
+    pub(crate) fn read_completion_response(&mut self) -> io::Result<TerminalEvent> {
+        let event = self.read_input_event(None)?;
+        match event {
+            TerminalEvent::Bytes(bytes) if bytes.len() > 1 => {
+                let first = bytes[0];
+                self.pending_input.extend(bytes[1..].iter().copied());
+                Ok(TerminalEvent::Bytes(vec![first]))
+            }
+            event => Ok(event),
+        }
     }
 
     fn keyseq_timeout(&self) -> Option<Duration> {

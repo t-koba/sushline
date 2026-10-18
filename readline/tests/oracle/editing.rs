@@ -2755,6 +2755,47 @@ fn run_bracketed_paste_checkpoints(steps: &[Vec<u8>]) -> (Vec<String>, Vec<Strin
 }
 
 #[test]
+fn bash_and_sushline_buffer_bracketed_paste_until_terminator() {
+    let steps = [
+        b"\x1b[200~abcdefgh".to_vec(),
+        b"ijklmnop".to_vec(),
+        b"\x1b[201~".to_vec(),
+        b"\r".to_vec(),
+    ];
+    let (bash_frames, sushline_frames) = run_bracketed_paste_checkpoints(&steps);
+
+    for (name, frames) in [("Bash", &bash_frames), ("Sushline", &sushline_frames)] {
+        assert_eq!(frames.len(), steps.len(), "{name}: {frames:?}");
+        assert!(
+            frames[..3]
+                .iter()
+                .all(|frame| !frame.contains("SUSHLINE_ACCEPTED:")),
+            "{name} accepted before Enter: {frames:?}"
+        );
+        assert!(
+            frames[2].contains("abcdefghijklmnop"),
+            "{name} did not insert the full paste after its terminator: {frames:?}"
+        );
+        assert!(
+            frames[3].contains("SUSHLINE_ACCEPTED:abcdefghijklmnop"),
+            "{name}: {frames:?}"
+        );
+    }
+    assert!(
+        bash_frames[..2]
+            .iter()
+            .all(|frame| !frame.contains("abc") && !frame.contains("ijklmnop")),
+        "Bash exposed paste contents before the terminator: {bash_frames:?}"
+    );
+    assert!(
+        sushline_frames[..2]
+            .iter()
+            .all(|frame| !frame.contains("abc") && !frame.contains("ijklmnop")),
+        "Sushline exposed paste contents before the terminator: {sushline_frames:?}"
+    );
+}
+
+#[test]
 fn bash_and_sushline_hold_unterminated_paste_until_end_but_handle_cr_differently() {
     let steps = [
         b"\x1b[200~a".to_vec(),

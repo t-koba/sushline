@@ -142,40 +142,29 @@ where
     ) -> Result<EditorOutcome, ReadlineError> {
         let mut combined = std::mem::take(&mut state.paste.bracketed_paste_pending);
         combined.extend_from_slice(bytes);
-        let end_pos = combined
-            .windows(BRACKETED_PASTE_END_SEQUENCE.len())
-            .position(|window| window == BRACKETED_PASTE_END_SEQUENCE);
-        let paste_ends = end_pos.is_some();
-        let payload_len = end_pos.unwrap_or_else(|| {
-            combined
-                .len()
-                .saturating_sub(BRACKETED_PASTE_END_SEQUENCE.len().saturating_sub(1))
-        });
-        let payload = combined[..payload_len].to_vec();
-        let remainder = end_pos
-            .map(|pos| combined[pos + BRACKETED_PASTE_END_SEQUENCE.len()..].to_vec())
-            .unwrap_or_default();
-        if payload_len < combined.len() && !paste_ends {
-            state
-                .paste
-                .bracketed_paste_pending
-                .extend_from_slice(&combined[payload_len..]);
-        }
         let start = *state
             .paste
             .bracketed_paste_start
             .get_or_insert_with(|| state.buffer.point());
+        let Some(end_pos) = combined
+            .windows(BRACKETED_PASTE_END_SEQUENCE.len())
+            .position(|window| window == BRACKETED_PASTE_END_SEQUENCE)
+        else {
+            // Do not expose or edit a partial paste before its complete end marker.
+            state.paste.bracketed_paste_pending = combined;
+            return Ok(EditorOutcome::Continue);
+        };
+        let payload = combined[..end_pos].to_vec();
+        let remainder = combined[end_pos + BRACKETED_PASTE_END_SEQUENCE.len()..].to_vec();
         if !payload.is_empty() {
             self.insert_literal(state, &payload, false);
             state.mark = Some(start);
         }
-        if paste_ends {
-            state.paste.bracketed_paste = false;
-            state.paste.bracketed_paste_start = None;
-            state.paste.bracketed_paste_pending.clear();
-            if !remainder.is_empty() {
-                return self.handle_bytes(state, &remainder, hooks);
-            }
+        state.paste.bracketed_paste = false;
+        state.paste.bracketed_paste_start = None;
+        state.paste.bracketed_paste_pending.clear();
+        if !remainder.is_empty() {
+            return self.handle_bytes(state, &remainder, hooks);
         }
         Ok(EditorOutcome::Continue)
     }

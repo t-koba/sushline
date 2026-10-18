@@ -2390,6 +2390,69 @@ fn bash_and_sushline_match_bracketed_paste_terminal_mode_matrix() {
 }
 
 #[test]
+fn bash_and_sushline_hold_unterminated_paste_until_end_but_handle_cr_differently() {
+    use portable_pty::{CommandBuilder, PtySize};
+    use std::fs;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let inputrc = "set enable-bracketed-paste on\n";
+    let inputrc_path = dir.path().join("inputrc");
+    fs::write(&inputrc_path, inputrc).expect("write inputrc");
+    let mut bash = CommandBuilder::new("bash");
+    bash.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
+    let script = format!(
+        r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line"; sleep 5"#
+    );
+    bash.args(["--noprofile", "--norc", "-i", "-c", &script]);
+
+    let mut sushline = CommandBuilder::new("sh");
+    sushline.env("SUSHLINE_INPUTRC", inputrc);
+    sushline.env("SUSHLINE_PROMPT", READY_PROMPT);
+    sushline.env("SUSHLINE_HISTORY", "");
+    sushline.env("SUSHLINE_BIN", env!("CARGO_BIN_EXE_sushline-harness"));
+    sushline.args(["-c", "\"$SUSHLINE_BIN\"; sleep 5"]);
+
+    let steps = [
+        b"\x1b[200~a".to_vec(),
+        b"\r".to_vec(),
+        b"b".to_vec(),
+        b"\x1b[201~".to_vec(),
+        b"\r".to_vec(),
+    ];
+    let size = PtySize {
+        rows: 24,
+        cols: 80,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let bash_frames = super::pty::run_pty_checkpoints(bash, READY_PROMPT, &steps, size);
+    let sushline_frames = super::pty::run_pty_checkpoints(sushline, READY_PROMPT, &steps, size);
+
+    for (name, frames) in [("bash", &bash_frames), ("sushline", &sushline_frames)] {
+        assert!(
+            frames[..4]
+                .iter()
+                .all(|frame| !frame.contains("SUSHLINE_ACCEPTED:")),
+            "{name} accepted before the later CR: {frames:?}"
+        );
+        assert!(
+            frames[4].contains("SUSHLINE_ACCEPTED:"),
+            "{name}: {frames:?}"
+        );
+    }
+    let bash_line = bash_frames[4]
+        .split_once("SUSHLINE_ACCEPTED:")
+        .expect("Bash accepted marker")
+        .1;
+    let sushline_line = sushline_frames[4]
+        .split_once("SUSHLINE_ACCEPTED:")
+        .expect("Sushline accepted marker")
+        .1;
+    assert!(bash_line.starts_with("a\r\n"), "{bash_line:?}");
+    assert!(sushline_line.starts_with("a\rb\r\n"), "{sushline_line:?}");
+}
+
+#[test]
 fn bash_and_sushline_match_complete_bracketed_paste_fixtures() {
     let framed_paste = b"\x1b[200~abc\x1b[201~\r";
     for (term, inputrc) in [

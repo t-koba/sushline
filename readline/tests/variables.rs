@@ -317,8 +317,8 @@ fn bracketed_paste_off_guards_mark_hold_and_lone_end() {
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
     assert_eq!(result, ReadlineResult::Line(b"Xa".to_vec()));
     assert!(!line.terminal().out.contains("\x1b[?2004h"));
-    // An unterminated begin holds the line: the intermediate CR is paste
-    // payload, so only the CR after the end marker accepts the line.
+    // Sushline holds an unterminated begin and keeps the intermediate CR as
+    // paste payload; only the CR after the end marker accepts the line.
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"\x1b[200~".to_vec()),
         TerminalEvent::Bytes(b"a".to_vec()),

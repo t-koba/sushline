@@ -28,7 +28,8 @@ impl HistoryChars {
 pub struct HistoryExpansionPolicy {
     /// Word delimiters used by history word selection.
     ///
-    /// Whitespace separates words without producing fields. A configured
+    /// Space, tab, and LF separate words without producing fields. Other
+    /// word delimiters come from this set. A configured
     /// non-operator delimiter that starts a field groups all contiguous bytes
     /// from this set, including whitespace, operators, and redirections when
     /// they are present in the set. Operators and redirections encountered at
@@ -1052,7 +1053,9 @@ fn command_word_spans(line: &[u8], policy: &HistoryExpansionPolicy) -> Vec<(usiz
         if byte == b'#' && word_start.is_none() {
             break;
         }
-        if byte.is_ascii_whitespace() {
+        // GNU History's default word separators are space, tab, and LF;
+        // carriage return, form feed, and vertical tab remain word bytes.
+        if matches!(byte, b' ' | b'\t' | b'\n') {
             if let Some(start) = word_start.take() {
                 spans.push((start, idx));
             }

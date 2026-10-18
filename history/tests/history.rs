@@ -1658,6 +1658,73 @@ fn custom_history_word_delimiters_preserve_punctuation_fields() {
 }
 
 #[test]
+fn history_tokenize_uses_gnu_history_default_whitespace_classes() {
+    let policy = HistoryExpansionPolicy::default();
+    for (line, expected) in [
+        (
+            b"echo a\x0cb".as_slice(),
+            vec![b"echo".as_slice(), b"a\x0cb".as_slice()],
+        ),
+        (
+            b"echo a\rb".as_slice(),
+            vec![b"echo".as_slice(), b"a\rb".as_slice()],
+        ),
+        (
+            b"echo a\x0bb".as_slice(),
+            vec![b"echo".as_slice(), b"a\x0bb".as_slice()],
+        ),
+        (b"echo a b".as_slice(), vec![b"echo".as_slice(), b"a", b"b"]),
+        (
+            b"echo a\tb".as_slice(),
+            vec![b"echo".as_slice(), b"a", b"b"],
+        ),
+        (
+            b"echo a\nb".as_slice(),
+            vec![b"echo".as_slice(), b"a", b"b"],
+        ),
+    ] {
+        assert_eq!(
+            history_tokenize(line, &policy),
+            expected.into_iter().map(<[u8]>::to_vec).collect::<Vec<_>>(),
+            "line={line:?}"
+        );
+    }
+
+    let configurable_form_feed = HistoryExpansionPolicy {
+        word_delimiters: b"\x0c".to_vec(),
+        ..policy.clone()
+    };
+    assert_eq!(
+        history_tokenize(b"echo a\x0cb", &configurable_form_feed),
+        vec![
+            b"echo".to_vec(),
+            b"a".to_vec(),
+            b"\x0c".to_vec(),
+            b"b".to_vec()
+        ]
+    );
+
+    let event = b"echo a\x0cb other";
+    let mut history = History::new();
+    history.push(std::str::from_utf8(event).unwrap());
+    assert_eq!(
+        expand_history(
+            b"!!:1",
+            &history,
+            HistoryChars::parse("!^#"),
+            &policy,
+            |_| false,
+        )
+        .unwrap(),
+        b"a\x0cb"
+    );
+    assert_eq!(
+        history_arg_extract(1, 1, event, &policy),
+        Some(b"a\x0cb".to_vec())
+    );
+}
+
+#[test]
 fn history_expansion_exposes_helper_functions() {
     let policy = HistoryExpansionPolicy::default();
     let line = b"echo arr=(one two) | sed 's/ /_/g'";

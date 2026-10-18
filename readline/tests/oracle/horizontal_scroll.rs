@@ -211,6 +211,25 @@ fn bash_readline_and_sushline_horizontal_scroll_counts_hidden_ansi_prompt() {
 }
 
 #[test]
+fn bash_readline_and_sushline_horizontal_scroll_exposes_unwrapped_ansi_prompt_width() {
+    let prompt = "\x1b[31mP>\x1b[0m";
+    let steps = vec![vec![b'a'; 90]];
+    let bash = checkpoints(true, 80, prompt, &steps);
+    let sushline = checkpoints(false, 80, prompt, &steps);
+
+    assert_eq!(
+        bash.last(),
+        Some(&(format!("<{}", "a".repeat(51)), 52)),
+        "Bash"
+    );
+    assert_eq!(
+        sushline.last(),
+        Some(&(format!("<{}", "a".repeat(65)), 66)),
+        "Sushline"
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_horizontal_scroll_reset_after_deletion() {
     let text = "0123456789".repeat(10);
     let mut steps: Vec<_> = text.bytes().map(|byte| vec![byte]).collect();

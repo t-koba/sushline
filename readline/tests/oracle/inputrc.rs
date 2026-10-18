@@ -121,6 +121,66 @@ fn bash_readline_and_sushline_skip_unknown_named_user_include() {
 }
 
 #[test]
+fn bash_readline_and_sushline_expand_current_home_named_user() {
+    use std::path::Path;
+
+    let Some(home) = std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .and_then(|path| fs::canonicalize(path).ok())
+    else {
+        eprintln!("skip named-user inputrc oracle: HOME is unavailable");
+        return;
+    };
+    let Some((username, passwd_home)) = fs::read_to_string("/etc/passwd").ok().and_then(|passwd| {
+        passwd.lines().find_map(|line| {
+            let fields = line.split(':').collect::<Vec<_>>();
+            let username = *fields.first()?;
+            let account_home = *fields.get(5)?;
+            let safe_username = !username.is_empty()
+                && username
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"_.-".contains(&byte));
+            let account_home = Path::new(account_home).canonicalize().ok()?;
+            (safe_username && account_home == home).then(|| (username.to_string(), account_home))
+        })
+    }) else {
+        eprintln!("skip named-user inputrc oracle: HOME has no matching local passwd entry");
+        return;
+    };
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::write(
+        dir.path().join("named-user.inputrc"),
+        "\"\\C-o\": beginning-of-line\n",
+    )
+    .expect("write included inputrc");
+    let target = fs::canonicalize(dir.path()).expect("canonicalize tempdir");
+    let target = target
+        .strip_prefix("/")
+        .expect("tempdir has an absolute path");
+    let relative = format!(
+        "{}{}/named-user.inputrc",
+        "../".repeat(passwd_home.components().count()),
+        target.display()
+    );
+    let inputrc = format!("\"\\C-o\": \"Q\"\n$include ~{username}/{relative}\n");
+    let fake_home = dir.path().join("empty-home");
+    fs::create_dir(&fake_home).expect("create empty HOME");
+    let Some(fake_home) = fake_home.to_str() else {
+        eprintln!("skip named-user inputrc oracle: temporary HOME is not UTF-8");
+        return;
+    };
+    let env = [("HOME", fake_home)];
+    let keys = b"abc\x0fX\r";
+    let bash = run_bash_readline_with_inputrc_file_and_env_in_dir(keys, &inputrc, &env, dir.path());
+    let sushline =
+        run_sushline_harness_with_inputrc_and_env_in_dir(keys, &inputrc, &env, dir.path());
+
+    assert_eq!(accepted_line(&bash).as_deref(), Some("Xabc"));
+    assert_eq!(accepted_line(&sushline).as_deref(), Some("Xabc"));
+}
+
+#[test]
 fn bash_and_sushline_nested_inputrc_depth_is_a_scoped_deviation() {
     let dir = tempfile::tempdir().expect("tempdir");
     let chain = (0..17)

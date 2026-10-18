@@ -2486,8 +2486,7 @@ fn bash_and_sushline_match_bracketed_paste_terminal_mode_matrix() {
     }
 }
 
-#[test]
-fn bash_and_sushline_hold_unterminated_paste_until_end_but_handle_cr_differently() {
+fn run_bracketed_paste_checkpoints(steps: &[Vec<u8>]) -> (Vec<String>, Vec<String>) {
     use portable_pty::{CommandBuilder, PtySize};
     use std::fs;
 
@@ -2503,7 +2502,6 @@ fn bash_and_sushline_hold_unterminated_paste_until_end_but_handle_cr_differently
         r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line"; sleep 5"#
     );
     bash.args(["--noprofile", "--norc", "-i", "-c", &script]);
-
     let mut sushline = CommandBuilder::new("sh");
     sushline.env("LC_ALL", "C");
     sushline.env("TERM", "xterm-256color");
@@ -2512,7 +2510,19 @@ fn bash_and_sushline_hold_unterminated_paste_until_end_but_handle_cr_differently
     sushline.env("SUSHLINE_HISTORY", "");
     sushline.env("SUSHLINE_BIN", env!("CARGO_BIN_EXE_sushline-harness"));
     sushline.args(["-c", "\"$SUSHLINE_BIN\"; sleep 5"]);
+    let size = PtySize {
+        rows: 24,
+        cols: 80,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let bash_frames = super::pty::run_pty_checkpoints(bash, READY_PROMPT, steps, size);
+    let sushline_frames = super::pty::run_pty_checkpoints(sushline, READY_PROMPT, steps, size);
+    (bash_frames, sushline_frames)
+}
 
+#[test]
+fn bash_and_sushline_hold_unterminated_paste_until_end_but_handle_cr_differently() {
     let steps = [
         b"\x1b[200~a".to_vec(),
         b"\r".to_vec(),
@@ -2520,16 +2530,10 @@ fn bash_and_sushline_hold_unterminated_paste_until_end_but_handle_cr_differently
         b"\x1b[201~".to_vec(),
         b"\r".to_vec(),
     ];
-    let size = PtySize {
-        rows: 24,
-        cols: 80,
-        pixel_width: 0,
-        pixel_height: 0,
-    };
-    let bash_frames = super::pty::run_pty_checkpoints(bash, READY_PROMPT, &steps, size);
-    let sushline_frames = super::pty::run_pty_checkpoints(sushline, READY_PROMPT, &steps, size);
+    let (bash_frames, sushline_frames) = run_bracketed_paste_checkpoints(&steps);
 
     for (name, frames) in [("bash", &bash_frames), ("sushline", &sushline_frames)] {
+        assert_eq!(frames.len(), steps.len(), "{name}: {frames:?}");
         assert!(
             frames[..4]
                 .iter()
@@ -2574,38 +2578,9 @@ fn bash_and_sushline_match_cr_splitting_partial_paste_end_marker() {
 
 #[test]
 fn bash_and_sushline_keep_truncated_paste_end_prefix_pending() {
-    use portable_pty::{CommandBuilder, PtySize};
-    use std::fs;
-
-    let dir = tempfile::tempdir().expect("tempdir");
-    let inputrc = "set enable-bracketed-paste on\n";
-    let inputrc_path = dir.path().join("inputrc");
-    fs::write(&inputrc_path, inputrc).expect("write inputrc");
-    let mut bash = CommandBuilder::new("bash");
-    bash.env("LC_ALL", "C");
-    bash.env("TERM", "xterm-256color");
-    bash.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
-    let script = format!(
-        r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line"; sleep 5"#
-    );
-    bash.args(["--noprofile", "--norc", "-i", "-c", &script]);
-    let mut sushline = CommandBuilder::new("sh");
-    sushline.env("LC_ALL", "C");
-    sushline.env("TERM", "xterm-256color");
-    sushline.env("SUSHLINE_INPUTRC", inputrc);
-    sushline.env("SUSHLINE_PROMPT", READY_PROMPT);
-    sushline.env("SUSHLINE_HISTORY", "");
-    sushline.env("SUSHLINE_BIN", env!("CARGO_BIN_EXE_sushline-harness"));
-    sushline.args(["-c", "\"$SUSHLINE_BIN\"; sleep 5"]);
     let steps = [b"\x1b[200~abc\x1b[201".to_vec(), b"\r".to_vec()];
-    let size = PtySize {
-        rows: 24,
-        cols: 80,
-        pixel_width: 0,
-        pixel_height: 0,
-    };
-    let bash_frames = super::pty::run_pty_checkpoints(bash, READY_PROMPT, &steps, size);
-    let sushline_frames = super::pty::run_pty_checkpoints(sushline, READY_PROMPT, &steps, size);
+    let (bash_frames, sushline_frames) = run_bracketed_paste_checkpoints(&steps);
+
     assert_eq!(bash_frames.len(), steps.len(), "{bash_frames:?}");
     assert_eq!(sushline_frames.len(), steps.len(), "{sushline_frames:?}");
     assert!(
@@ -2620,6 +2595,31 @@ fn bash_and_sushline_keep_truncated_paste_end_prefix_pending() {
             .all(|frame| !frame.contains("SUSHLINE_ACCEPTED:")),
         "Sushline accepted before a complete paste end marker: {sushline_frames:?}"
     );
+}
+
+#[test]
+fn bash_and_sushline_accept_bracketed_paste_end_marker_split_across_writes() {
+    let steps = [
+        b"\x1b[200~abc\x1b[201".to_vec(),
+        b"~".to_vec(),
+        b"\r".to_vec(),
+    ];
+    let (bash_frames, sushline_frames) = run_bracketed_paste_checkpoints(&steps);
+
+    for (name, frames) in [("Bash", &bash_frames), ("Sushline", &sushline_frames)] {
+        assert_eq!(frames.len(), steps.len(), "{name}: {frames:?}");
+        assert!(
+            frames[..2]
+                .iter()
+                .all(|frame| !frame.contains("SUSHLINE_ACCEPTED:")),
+            "{name} accepted before Enter: {frames:?}"
+        );
+        assert_eq!(
+            accepted_line(&frames[2]).as_deref(),
+            Some("abc"),
+            "{name}: {frames:?}"
+        );
+    }
 }
 
 #[test]

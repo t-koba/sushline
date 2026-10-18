@@ -41,6 +41,8 @@ pub(crate) struct EditorState {
     pub(crate) numeric_arg_negative: bool,
     /// The pending count is an implicit universal-argument multiplier.
     pub(crate) numeric_arg_universal: bool,
+    /// An explicit count was followed by a no-op universal-argument command.
+    pub(crate) numeric_arg_universal_noop: bool,
     pub(crate) mark: Option<usize>,
     pub(crate) overwrite_mode: bool,
     pub(crate) original_line: Vec<u8>,
@@ -65,6 +67,7 @@ impl EditorState {
             numeric_arg_sign_only: false,
             numeric_arg_negative: false,
             numeric_arg_universal: false,
+            numeric_arg_universal_noop: false,
             mark: None,
             overwrite_mode: false,
             original_line,
@@ -119,6 +122,7 @@ impl EditorState {
         self.numeric_arg_sign_only = false;
         self.numeric_arg_negative = false;
         self.numeric_arg_universal = false;
+        self.numeric_arg_universal_noop = false;
         arg
     }
 

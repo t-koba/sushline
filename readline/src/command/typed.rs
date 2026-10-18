@@ -107,9 +107,17 @@ where
             && key.last() == Some(&b'-')
             && state.numeric_arg.is_some()
             && !state.numeric_arg_sign_only
-            && !state.numeric_arg_universal
         {
-            return self.apply_command(state, EditCommand::SelfInsert, b"-", hooks);
+            if state.numeric_arg_universal_noop {
+                state.numeric_arg = Some(1);
+                state.numeric_arg_negative = false;
+                state.numeric_arg_universal = false;
+                self.ding()?;
+                return self.apply_command(state, EditCommand::SelfInsert, b"-", hooks);
+            }
+            if !state.numeric_arg_universal {
+                return self.apply_command(state, EditCommand::SelfInsert, b"-", hooks);
+            }
         }
         let builds_arg = matches!(
             command,

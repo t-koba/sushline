@@ -268,7 +268,7 @@ where
         backward: bool,
         previous_match_index: Option<usize>,
     ) -> usize {
-        let arg = state.numeric_arg.take();
+        let arg = state.take_numeric_arg();
         let signed_arg = arg.unwrap_or(1);
         let backward = if signed_arg < 0 { !backward } else { backward };
         let steps = repeat_count(arg) as usize;

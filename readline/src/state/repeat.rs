@@ -4,7 +4,7 @@ pub(crate) fn repeat<F>(state: &mut EditorState, mut op: F)
 where
     F: FnMut(&mut EditorState),
 {
-    let count = repeat_count(state.numeric_arg.take());
+    let count = repeat_count(state.take_numeric_arg());
     for _ in 0..count {
         op(state);
     }
@@ -15,7 +15,7 @@ where
     F: FnMut(&mut EditorState),
     R: FnMut(&mut EditorState),
 {
-    let arg = state.numeric_arg.take().unwrap_or(1);
+    let arg = state.take_numeric_arg().unwrap_or(1);
     let count = arg.unsigned_abs();
     let op: &mut dyn FnMut(&mut EditorState) = if arg < 0 { &mut reverse } else { &mut forward };
     for _ in 0..count {
@@ -28,7 +28,7 @@ where
     F: FnMut(&mut EditorState) -> bool,
     R: FnMut(&mut EditorState) -> bool,
 {
-    let arg = state.numeric_arg.take().unwrap_or(1);
+    let arg = state.take_numeric_arg().unwrap_or(1);
     let count = arg.unsigned_abs();
     let op: &mut dyn FnMut(&mut EditorState) -> bool =
         if arg < 0 { &mut reverse } else { &mut forward };
@@ -54,7 +54,7 @@ where
     AF: FnMut(Vec<u8>, &mut Vec<u8>),
     AR: FnMut(Vec<u8>, &mut Vec<u8>),
 {
-    let arg = state.numeric_arg.take().unwrap_or(1);
+    let arg = state.take_numeric_arg().unwrap_or(1);
     let count = arg.unsigned_abs();
     if arg < 0 {
         for _ in 0..count {
@@ -83,14 +83,16 @@ pub(crate) fn update_numeric_argument(state: &mut EditorState, key: &[u8]) -> bo
     let Some(last) = key.last().copied() else {
         return false;
     };
+    state.numeric_arg_universal_noop = false;
     match last {
         b'-' => {
             let current = state.numeric_arg.unwrap_or(1);
-            state.numeric_arg_negative = if state.numeric_arg_sign_only {
-                !state.numeric_arg_negative
-            } else {
-                true
-            };
+            state.numeric_arg_negative =
+                if state.numeric_arg_sign_only && !state.numeric_arg_universal {
+                    !state.numeric_arg_negative
+                } else {
+                    true
+                };
             let magnitude = current.unsigned_abs();
             state.numeric_arg = Some(if state.numeric_arg_negative {
                 if magnitude > i32::MAX as u32 {

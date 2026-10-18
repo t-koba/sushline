@@ -46,12 +46,13 @@ where
             }
             KeyBinding::ApplicationCommand(command) => {
                 state.completion.menu_completion = None;
+                let argument = state.take_numeric_arg();
                 let context = CommandContext {
                     command: &command,
                     line: state.buffer.as_bytes(),
                     point: state.buffer.point(),
                     mark: state.mark,
-                    argument: state.numeric_arg.take(),
+                    argument,
                     key,
                     keymap: self.keymap.current(),
                 };

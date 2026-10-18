@@ -16,7 +16,7 @@ where
         match command {
             EditCommand::BackwardDeleteChar => {
                 state.record_undo();
-                if let Some(arg) = state.numeric_arg.take() {
+                if let Some(arg) = state.take_numeric_arg() {
                     let mut killed = Vec::new();
                     let count = arg.unsigned_abs();
                     if arg < 0 {
@@ -75,7 +75,7 @@ where
                     return Ok(EditorOutcome::Eof);
                 }
                 state.record_undo();
-                let count = state.numeric_arg.take().unwrap_or(1);
+                let count = state.take_numeric_arg().unwrap_or(1);
                 let mut deleted = false;
                 if count < 0 {
                     for _ in 0..count.unsigned_abs() {
@@ -129,7 +129,7 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::SelfInsert => {
-                let raw = state.numeric_arg.take().unwrap_or(1);
+                let raw = state.take_numeric_arg().unwrap_or(1);
                 // GNU inserts nothing for a negative repeat count (tested
                 // M-- M-1 M-0); only non-negative counts repeat the insert.
                 let count: u32 = if raw < 0 { 0 } else { raw as u32 };
@@ -177,7 +177,7 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::TransposeChars => {
-                let count = state.numeric_arg.take().unwrap_or(1);
+                let count = state.take_numeric_arg().unwrap_or(1);
                 // An explicit zero count is a silent no-op; a negative count
                 // keeps the historical silent no-op.
                 if count > 0 {
@@ -192,7 +192,7 @@ where
             EditCommand::TransposeWords => {
                 state.record_undo();
                 let word_breaks = self.editing_word_breaks(hooks);
-                let count = state.numeric_arg.take().unwrap_or(1);
+                let count = state.take_numeric_arg().unwrap_or(1);
                 // An explicit zero count is a silent no-op like the other
                 // transpose command; otherwise ring only when no swap happened.
                 let mut swapped = false;
@@ -289,7 +289,7 @@ where
                     .get("comment-begin")
                     .map(String::as_str)
                     .unwrap_or("#");
-                if state.numeric_arg.take().is_some() {
+                if state.take_numeric_arg().is_some() {
                     state.buffer.toggle_comment(comment);
                 } else {
                     state.buffer.insert_comment(comment);
@@ -297,7 +297,7 @@ where
                 return Ok(EditorOutcome::Accepted(state.buffer.as_bytes().to_vec()));
             }
             "overwrite-mode" => {
-                if let Some(arg) = state.numeric_arg.take() {
+                if let Some(arg) = state.take_numeric_arg() {
                     state.overwrite_mode = arg > 0;
                 } else {
                     state.overwrite_mode = !state.overwrite_mode;

@@ -14,7 +14,7 @@ where
         match command {
             EditCommand::BackwardKillLine => {
                 state.record_undo();
-                let (killed, direction) = if state.numeric_arg.take().unwrap_or(1) < 0 {
+                let (killed, direction) = if state.take_numeric_arg().unwrap_or(1) < 0 {
                     (state.buffer.kill_to_end(), KillDirection::Forward)
                 } else {
                     (state.buffer.kill_to_start(), KillDirection::Backward)
@@ -66,7 +66,7 @@ where
             }
             EditCommand::KillLine => {
                 state.record_undo();
-                if state.numeric_arg.take().unwrap_or(1) < 0 {
+                if state.take_numeric_arg().unwrap_or(1) < 0 {
                     let killed = state.buffer.kill_to_start();
                     state.push_kill(killed, KillDirection::Backward, self.kill_append_allowed());
                 } else {
@@ -162,13 +162,13 @@ where
             }
             "insert-last-argument" | "yank-last-arg" => {
                 state.record_undo();
-                let arg = state.numeric_arg.take();
+                let arg = state.take_numeric_arg();
                 self.yank_history_arg(state, arg, hooks, true)?;
                 state.after_non_kill_command();
             }
             "yank-nth-arg" => {
                 state.record_undo();
-                let n = state.numeric_arg.take().unwrap_or(1);
+                let n = state.take_numeric_arg().unwrap_or(1);
                 self.yank_history_arg(state, Some(n), hooks, false)?;
                 state.after_non_kill_command();
             }
@@ -184,7 +184,7 @@ where
             "shell-backward-kill-word" => {
                 state.record_undo();
                 let mut killed = Vec::new();
-                let arg = state.numeric_arg.take().unwrap_or(1);
+                let arg = state.take_numeric_arg().unwrap_or(1);
                 let direction = if arg < 0 {
                     for _ in 0..arg.unsigned_abs() {
                         killed.extend(shell_words::kill_shell_forward_word(
@@ -205,7 +205,7 @@ where
             "shell-kill-word" => {
                 state.record_undo();
                 let mut killed = Vec::new();
-                let arg = state.numeric_arg.take().unwrap_or(1);
+                let arg = state.take_numeric_arg().unwrap_or(1);
                 let direction = if arg < 0 {
                     for _ in 0..arg.unsigned_abs() {
                         let part = shell_words::kill_shell_backward_word(&mut state.buffer, hooks);

@@ -139,7 +139,7 @@ where
             "next-screen-line" => {
                 let columns = self.tracked_terminal_columns(state);
                 let prompt_width = self.current_prompt_width(state);
-                let count = repeat_count(state.numeric_arg.take()) as isize;
+                let count = repeat_count(state.take_numeric_arg()) as isize;
                 state
                     .buffer
                     .move_screen_line(prompt_width, columns, count, self.render_options());
@@ -148,14 +148,14 @@ where
             "previous-screen-line" => {
                 let columns = self.tracked_terminal_columns(state);
                 let prompt_width = self.current_prompt_width(state);
-                let count = repeat_count(state.numeric_arg.take()) as isize;
+                let count = repeat_count(state.take_numeric_arg()) as isize;
                 state
                     .buffer
                     .move_screen_line(prompt_width, columns, -count, self.render_options());
                 state.after_non_kill_command();
             }
             "shell-backward-word" => {
-                let arg = state.numeric_arg.take().unwrap_or(1);
+                let arg = state.take_numeric_arg().unwrap_or(1);
                 for _ in 0..arg.unsigned_abs() {
                     if arg < 0 {
                         shell_words::move_shell_forward_word(&mut state.buffer, hooks);
@@ -166,7 +166,7 @@ where
                 state.after_non_kill_command();
             }
             "shell-forward-word" => {
-                let arg = state.numeric_arg.take().unwrap_or(1);
+                let arg = state.take_numeric_arg().unwrap_or(1);
                 for _ in 0..arg.unsigned_abs() {
                     if arg < 0 {
                         shell_words::move_shell_backward_word(&mut state.buffer, hooks);
@@ -188,7 +188,7 @@ where
 /// case the caller rings once (blocked movement rings in the tested Bash
 /// fixtures); a zero count or a fully satisfied count stays silent.
 fn move_by_char(state: &mut EditorState, forward: bool) -> bool {
-    let arg = state.numeric_arg.take().unwrap_or(1);
+    let arg = state.take_numeric_arg().unwrap_or(1);
     for _ in 0..arg.unsigned_abs() {
         let stepped = if forward != (arg < 0) {
             state.buffer.move_forward()

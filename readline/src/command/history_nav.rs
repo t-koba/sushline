@@ -33,7 +33,7 @@ where
                 let prefix = state.buffer.range_bytes(0, state.buffer.point());
                 let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
                 let locale_lowercase = self.search_locale_lowercase(ignore_case);
-                let arg = state.numeric_arg.take().unwrap_or(1);
+                let arg = state.take_numeric_arg().unwrap_or(1);
                 let count = arg.unsigned_abs() as usize;
                 if arg < 0 {
                     let mut matched = false;
@@ -93,7 +93,7 @@ where
                 let prefix = state.buffer.range_bytes(0, state.buffer.point());
                 let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
                 let locale_lowercase = self.search_locale_lowercase(ignore_case);
-                let arg = state.numeric_arg.take().unwrap_or(1);
+                let arg = state.take_numeric_arg().unwrap_or(1);
                 let count = arg.unsigned_abs() as usize;
                 if arg < 0 {
                     let current = state.buffer.as_bytes().to_vec();
@@ -229,7 +229,7 @@ where
                 }
             }
             "fetch-history" | "vi-fetch-history" => {
-                let index = state.numeric_arg.take().unwrap_or(1).unsigned_abs() as usize;
+                let index = state.take_numeric_arg().unwrap_or(1).unsigned_abs() as usize;
                 // GNU fetches the first entry for an out-of-range number
                 // (tested 0/4/5/6 against 3 entries, silently); an empty
                 // history stays put.
@@ -275,7 +275,7 @@ where
                 let current = state.buffer.as_bytes().to_vec();
                 let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
                 let locale_lowercase = self.search_locale_lowercase(ignore_case);
-                let arg = state.numeric_arg.take().unwrap_or(1);
+                let arg = state.take_numeric_arg().unwrap_or(1);
                 let count = arg.unsigned_abs() as usize;
                 let mut matched = false;
                 for _ in 0..count {
@@ -313,7 +313,7 @@ where
                 let current = state.buffer.as_bytes().to_vec();
                 let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
                 let locale_lowercase = self.search_locale_lowercase(ignore_case);
-                let arg = state.numeric_arg.take().unwrap_or(1);
+                let arg = state.take_numeric_arg().unwrap_or(1);
                 let count = arg.unsigned_abs() as usize;
                 let mut matched = false;
                 for _ in 0..count {

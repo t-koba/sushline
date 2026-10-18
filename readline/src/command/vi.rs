@@ -159,7 +159,7 @@ where
             }
             "vi-column" => {
                 self.apply_vi_motion_with_operator(state, key, false, |state| {
-                    let column = state.numeric_arg.take().unwrap_or(1).max(1) as usize - 1;
+                    let column = state.take_numeric_arg().unwrap_or(1).max(1) as usize - 1;
                     state.buffer.set_point(column);
                 });
             }

@@ -54,7 +54,7 @@ where
                 }
             }
             EditCommand::ClearScreen => {
-                if state.numeric_arg.take().is_none() {
+                if state.take_numeric_arg().is_none() {
                     self.clear_display_and_reset(state)?;
                 }
                 state.after_non_kill_command();
@@ -78,6 +78,7 @@ where
                     || state.numeric_arg_sign_only
                     || state.numeric_arg_universal
                 {
+                    state.numeric_arg_universal_noop = false;
                     match state.numeric_arg.unwrap_or(1).checked_mul(4) {
                         Some(next) => {
                             state.numeric_arg = Some(next);
@@ -88,6 +89,8 @@ where
                             self.ding()?;
                         }
                     }
+                } else {
+                    state.numeric_arg_universal_noop = true;
                 }
                 Ok(EditorOutcome::Continue)
             }
@@ -162,7 +165,7 @@ where
                 state.after_non_kill_command();
             }
             "dump-functions" => {
-                let query = if state.numeric_arg.take().is_some() {
+                let query = if state.take_numeric_arg().is_some() {
                     crate::bind::BindQuery::PrintReusable
                 } else {
                     crate::bind::BindQuery::PrintFunctions
@@ -172,7 +175,7 @@ where
                 state.after_non_kill_command();
             }
             "dump-macros" => {
-                let query = if state.numeric_arg.take().is_some() {
+                let query = if state.take_numeric_arg().is_some() {
                     crate::bind::BindQuery::PrintMacrosReusable
                 } else {
                     crate::bind::BindQuery::PrintMacros
@@ -182,7 +185,7 @@ where
                 state.after_non_kill_command();
             }
             "dump-variables" => {
-                let query = if state.numeric_arg.take().is_some() {
+                let query = if state.take_numeric_arg().is_some() {
                     crate::bind::BindQuery::PrintVariablesReusable
                 } else {
                     crate::bind::BindQuery::PrintVariables

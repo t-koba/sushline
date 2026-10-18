@@ -939,7 +939,74 @@ fn bash_and_sushline_match_universal_argument_digit_composition() {
             Some(expected),
             "Sushline {name}: {sushline:?}"
         );
+        if name == "explicit digit then universal" {
+            assert_eq!(bell_count(&bash), 0, "Bash {name}: {bash:?}");
+            assert_eq!(bell_count(&sushline), 0, "Sushline {name}: {sushline:?}");
+        }
     }
+}
+
+#[test]
+fn bash_and_sushline_keep_negative_sign_across_universal_argument() {
+    let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
+    let keys = b"abcdefghijklmnopqrstuvwxyz\x01\x1b-\x0f\x1b-\x06X\r";
+    let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+    assert_eq!(
+        accepted_line(&bash).as_deref(),
+        Some("Xabcdefghijklmnopqrstuvwxyz"),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(bell_count(&bash), 1, "{bash}");
+    assert_eq!(bell_count(&sushline), bell_count(&bash), "{sushline}");
+}
+
+#[test]
+fn bash_and_sushline_match_post_digit_meta_minus_after_universal_noop() {
+    let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
+    let keys = b"abcdefghijklmnopqrstuvwxyz\x01\x1b3\x0f\x1b-\x06X\r";
+    let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+    assert_eq!(
+        accepted_line(&bash).as_deref(),
+        Some("-aXbcdefghijklmnopqrstuvwxyz"),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(bell_count(&bash), 1, "{bash}");
+    assert_eq!(bell_count(&sushline), bell_count(&bash), "{sushline}");
+}
+
+#[test]
+fn bash_and_sushline_keep_negative_universal_count_when_followed_by_digit() {
+    let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
+    let keys = b"abcdefghijklmnopqrstuvwxyz\x01\x1b-\x0f\x1b-\x1b1\x06X\r";
+    let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+    assert_eq!(
+        accepted_line(&bash).as_deref(),
+        Some("Xabcdefghijklmnopqrstuvwxyz"),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(bell_count(&bash), 1, "{bash}");
+    assert_eq!(bell_count(&sushline), bell_count(&bash), "{sushline}");
 }
 
 #[test]

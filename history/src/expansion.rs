@@ -1365,27 +1365,19 @@ fn replace_each_word_once_checked(
 }
 
 fn history_head(value: &[u8]) -> Vec<u8> {
-    let trimmed = value.strip_suffix(b"/").unwrap_or(value);
-    trimmed
+    value
         .iter()
         .rposition(|byte| *byte == b'/')
-        .map(|idx| {
-            if idx == 0 {
-                b"/".to_vec()
-            } else {
-                trimmed[..idx].to_vec()
-            }
-        })
-        .unwrap_or_default()
+        .map(|idx| value[..idx].to_vec())
+        .unwrap_or_else(|| value.to_vec())
 }
 
 fn history_tail(value: &[u8]) -> Vec<u8> {
-    let trimmed = value.strip_suffix(b"/").unwrap_or(value);
-    trimmed
+    value
         .iter()
         .rposition(|byte| *byte == b'/')
-        .map(|idx| trimmed[idx + 1..].to_vec())
-        .unwrap_or_else(|| trimmed.to_vec())
+        .map(|idx| value[idx + 1..].to_vec())
+        .unwrap_or_else(|| value.to_vec())
 }
 
 fn history_root(value: &[u8]) -> Vec<u8> {

@@ -1210,6 +1210,38 @@ fn history_root_and_extension_modifiers_search_the_entire_selected_text() {
 }
 
 #[test]
+fn history_head_and_tail_modifiers_use_byte_string_slash_rules() {
+    let mut history = History::new();
+    for (event, expected_head, expected_tail) in [
+        ("foo", "foo", "foo"),
+        ("/foo", "", "foo"),
+        ("foo/", "foo", ""),
+        ("/", "", ""),
+        ("a//", "a/", ""),
+        ("a//b", "a/", "b"),
+    ] {
+        history.push(event);
+        for (modifier, expected) in [
+            (b"!!:h".as_slice(), expected_head.as_bytes()),
+            (b"!!:t".as_slice(), expected_tail.as_bytes()),
+        ] {
+            assert_eq!(
+                expand_history(
+                    modifier,
+                    &history,
+                    HistoryChars::parse("!^#"),
+                    &HistoryExpansionPolicy::default(),
+                    |_| false,
+                )
+                .unwrap(),
+                expected,
+                "event={event:?} modifier={modifier:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn history_expansion_matches_readline_search_and_substitution_failures() {
     let mut history = History::new();
     history.push("grep needle middle needle-last tail");

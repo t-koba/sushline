@@ -118,6 +118,29 @@ fn bash_and_sushline_tty_special_binding_precedence_covers_tty_specials() {
     }
 }
 
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "linux"))]
+#[test]
+fn bash_and_sushline_ctrl_r_enters_reverse_search_with_bind_tty_special_chars_on_and_off() {
+    let keys = b"ab\x12X\r";
+    for enabled in ["on", "off"] {
+        let inputrc = format!("set bind-tty-special-chars {enabled}\n");
+        let bash = run_bash_readline_with_inputrc_file(keys, &inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, &inputrc);
+
+        for (implementation, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert!(
+                output.contains("reverse-i-search"),
+                "{implementation}, bind-tty-special-chars {enabled}: {output}"
+            );
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some("ab"),
+                "{implementation}, bind-tty-special-chars {enabled}"
+            );
+        }
+    }
+}
+
 #[test]
 fn bash_readline_and_sushline_accept_same_backspace_edit() {
     let keys = b"abc\x7fd\r";

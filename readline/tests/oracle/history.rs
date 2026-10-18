@@ -2125,13 +2125,15 @@ fn bash_readline_and_sushline_yank_last_arg_empty_rings_like_bash() {
 #[test]
 fn bash_readline_and_sushline_yank_nth_arg_out_of_range_rings_like_bash() {
     // yank-nth-arg with no such word rings once in the tested Bash 5.3 PTY
-    // fixtures instead of clamping to the last word; an in-range number
-    // stays silent. Runtime observation, not GNU source proof.
+    // fixtures instead of clamping to the last word; an in-range number or
+    // 0 (the command word itself) stays silent. Runtime observation, not GNU
+    // source proof.
     let inputrc = "\"\\C-o\": yank-nth-arg";
     let history = ["cmd one two"];
     for (desc, keys, expected, bells) in [
         ("out_of_range", b"\x1b5\x0f\r".as_slice(), "", 1),
         ("in_range", b"\x1b2\x0f\r".as_slice(), "two", 0),
+        ("zero_is_command", b"\x1b0\x0f\r".as_slice(), "cmd", 0),
     ] {
         let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &history);
         let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
@@ -2151,25 +2153,70 @@ fn bash_readline_and_sushline_yank_nth_arg_out_of_range_rings_like_bash() {
 }
 
 #[test]
-fn bash_readline_and_sushline_yank_nth_arg_negative_rings_like_bash() {
+fn bash_readline_and_sushline_negative_yank_word_number_rings_like_bash() {
     // An explicitly negative word number rings instead of yanking in the
-    // tested Bash 5.3 PTY fixtures; only the default (no argument) means the
-    // last word. Runtime observation, not GNU source proof.
-    let inputrc = "\"\\C-o\": yank-nth-arg";
-    let history = ["cmd one two"];
-    for (desc, keys) in [
-        ("neg1", b"\x1b-\x1b1\x0f\r".as_slice()),
-        ("neg2", b"\x1b-\x1b2\x0f\r".as_slice()),
-    ] {
-        let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &history);
-        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
-        assert_eq!(accepted_line(&bash), Some(String::new()), "{desc}: {bash}");
-        assert_eq!(bell_count(&bash), 1, "{desc}: {bash}");
+    // tested Bash 5.3 PTY fixtures; only the default (no argument) means
+    // the last word. An in-range number still yanks silently. Runtime
+    // observation, not GNU source proof.
+    let cases = &[
+        (
+            "nth_neg1",
+            "\"\\C-o\": yank-nth-arg",
+            b"\x1b-\x1b1\x0f\r".as_slice(),
+            &["cmd one two"][..],
+            "",
+            1,
+        ),
+        (
+            "nth_neg2",
+            "\"\\C-o\": yank-nth-arg",
+            b"\x1b-\x1b2\x0f\r".as_slice(),
+            &["cmd one two"][..],
+            "",
+            1,
+        ),
+        (
+            "nth_in_range",
+            "\"\\C-o\": yank-nth-arg",
+            b"\x1b2\x0f\r".as_slice(),
+            &["cmd one two"][..],
+            "two",
+            0,
+        ),
+        (
+            "last_neg",
+            "",
+            b"\x1b-\x1b2\x1b.\r".as_slice(),
+            &["cmd one two", "cmd alpha beta"][..],
+            "",
+            1,
+        ),
+        (
+            // vi-yank-arg shares the helper: exercise it in emacs mode to
+            // avoid vi initial-mode flake in this harness.
+            "vi_neg",
+            "\"\\C-o\": vi-yank-arg",
+            b"\x1b-\x1b2\x0f\r".as_slice(),
+            &["cmd one two", "cmd alpha beta"][..],
+            "",
+            1,
+        ),
+    ];
+    for (desc, inputrc, keys, history, expected, bells) in cases {
+        let keys: &[u8] = keys;
+        let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, history);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), *bells, "{desc}: {bash}");
         assert_eq!(
             accepted_line(&sushline),
             accepted_line(&bash),
             "{desc}: bash={bash}\nsushline={sushline}"
         );
-        assert_eq!(bell_count(&sushline), 1, "{desc}: {sushline}");
+        assert_eq!(bell_count(&sushline), *bells, "{desc}: {sushline}");
     }
 }

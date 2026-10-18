@@ -169,23 +169,16 @@ where
             "yank-nth-arg" => {
                 state.record_undo();
                 let n = state.numeric_arg.take().unwrap_or(1);
-                // GNU rings for an explicitly negative word number (tested
-                // M-- M-1 and M-- M-2); only non-negative numbers yank.
-                if n < 0 {
-                    self.ding()?;
-                } else {
-                    self.yank_history_arg(state, Some(n), hooks, false)?;
-                }
+                self.yank_history_arg(state, Some(n), hooks, false)?;
                 state.after_non_kill_command();
             }
             "vi-yank-arg" => {
                 state.record_undo();
-                let n = match state.numeric_arg.take() {
-                    Some(arg) if arg > 0 => arg - 1,
-                    Some(arg) => arg,
-                    None => -1,
-                };
-                self.yank_history_arg(state, Some(n), hooks, false)?;
+                let n = state
+                    .numeric_arg
+                    .take()
+                    .map(|arg| if arg > 0 { arg - 1 } else { arg });
+                self.yank_history_arg(state, n, hooks, false)?;
                 state.after_non_kill_command();
             }
             "shell-backward-kill-word" => {

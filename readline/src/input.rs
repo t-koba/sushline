@@ -539,8 +539,25 @@ where
 
         if matches!(self.keymap.current(), KeyMapName::ViCommand) {
             state.cancel_pending_command();
+            // Redundant bare ESCs are silent no-ops in vi command mode:
+            // Bash accepts after them without ringing. Drop the whole
+            // leading ESC run, then keep processing what follows so that
+            // batched reads cannot swallow trailing input.
+            let esc_run = bytes.iter().take_while(|byte| **byte == 0x1b).count();
+            if esc_run > 0 {
+                let rest = &bytes[esc_run..];
+                if rest.is_empty() {
+                    return Ok(EditorOutcome::Continue);
+                }
+                return self.handle_bytes(state, rest, hooks);
+            }
             self.ding()?;
-            return Ok(EditorOutcome::Continue);
+            state.consume_numeric_arg_unless_prefix();
+            let (_, rest) = split_first_unit(bytes);
+            if rest.is_empty() {
+                return Ok(EditorOutcome::Continue);
+            }
+            return self.handle_bytes(state, rest, hooks);
         }
 
         // Unknown Meta-style ESC keys ring; CSI and SS3 keep their literal fallback.
@@ -558,9 +575,17 @@ where
         }
 
         if unbound_meta_prefix && prefix_meta_command_len == 0 {
+            // An unbound ESC-prefixed sequence rings once, then processing
+            // continues with the bytes after it so that a batched read can
+            // never swallow trailing input (fragmentation-invariant: split
+            // and batched reads reach the same state).
             self.ding()?;
             state.consume_numeric_arg_unless_prefix();
-            return Ok(EditorOutcome::Continue);
+            let (_, rest) = split_first_unit(&bytes[1..]);
+            if rest.is_empty() {
+                return Ok(EditorOutcome::Continue);
+            }
+            return self.handle_bytes(state, rest, hooks);
         }
 
         if let Ok(text) = std::str::from_utf8(bytes) {

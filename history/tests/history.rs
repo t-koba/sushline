@@ -1542,7 +1542,10 @@ fn supports_history_library_state_and_stifle_operations() {
     h.push("three");
     assert!(h.add_time("#1700000000"));
     assert_eq!(h.entries()[2].timestamp.as_deref(), Some("#1700000000"));
-    assert_eq!(h.total_bytes(), "one".len() + "two".len() + "three".len());
+    assert_eq!(
+        h.total_bytes(),
+        "one".len() + "two".len() + "three".len() + "#1700000000".len()
+    );
 
     h.stifle(2);
     assert!(h.is_stifled());
@@ -1568,6 +1571,41 @@ fn supports_history_library_state_and_stifle_operations() {
     assert!(h.is_empty());
 }
 
+#[test]
+fn total_bytes_counts_resident_timestamps() {
+    let mut history = History::new();
+    assert_eq!(history.total_bytes(), 0);
+
+    // A line without timestamp counts only its own bytes.
+    history.push("one");
+    assert_eq!(history.total_bytes(), 3);
+
+    // An explicitly empty timestamp adds nothing.
+    assert!(history.add_time(""));
+    assert_eq!(history.total_bytes(), 3);
+
+    // An explicit timestamp adds its UTF-8 byte length.
+    assert!(history.add_time("#123"));
+    assert_eq!(history.total_bytes(), 3 + 4);
+
+    // Multibyte lines count bytes, and empty timestamps stay free.
+    history.push("\u{e9}");
+    assert!(history.add_time(""));
+    assert_eq!(history.total_bytes(), 3 + 4 + 2);
+
+    // Replacement keeps the timestamp and recounts the new line.
+    history.replace(0, "changed").unwrap();
+    assert_eq!(history.total_bytes(), 7 + 4 + 2);
+
+    // Removal subtracts the entry, clear returns to zero.
+    history.remove(1).unwrap();
+    assert_eq!(history.total_bytes(), 7 + 4);
+    history.remove(0).unwrap();
+    assert_eq!(history.total_bytes(), 0);
+    history.push("last");
+    history.clear();
+    assert_eq!(history.total_bytes(), 0);
+}
 #[test]
 fn replace_preserves_timestamps_undo_history_and_timestamped_serialization() {
     let mut history = History::new();
@@ -1611,6 +1649,36 @@ fn replace_preserves_timestamps_undo_history_and_timestamped_serialization() {
         fs::read_to_string(path).unwrap(),
         "#1700000000\nnew timed\nnew untimed\n"
     );
+}
+
+#[test]
+fn replace_preserves_cursor_and_invalid_remove_is_noop() {
+    let mut history = History::new();
+    history.push("first");
+    history.push("second");
+
+    // Replacing the positioned entry keeps the cursor in place.
+    assert!(history.set_pos(0));
+    let previous = history.replace(0, "changed").unwrap();
+    assert_eq!(previous.line_bytes, b"first");
+    assert_eq!(history.where_history(), 0);
+    assert_eq!(history.current_history().unwrap().line_bytes, b"changed");
+    assert_eq!(history.next_history().unwrap().line_bytes, b"second");
+    assert_eq!(history.previous_history().unwrap().line_bytes, b"changed");
+
+    // Replacing the middle entry keeps a middle cursor too.
+    history.push("third");
+    assert!(history.set_pos(1));
+    history.replace(1, "middle").unwrap();
+    assert_eq!(history.where_history(), 1);
+    assert_eq!(history.current_history().unwrap().line_bytes, b"middle");
+
+    // Removing an invalid index changes nothing, not even the cursor.
+    assert!(history.set_pos(0));
+    assert!(history.remove(99).is_none());
+    assert_eq!(history.where_history(), 0);
+    assert_eq!(history.current_history().unwrap().line_bytes, b"changed");
+    assert_eq!(history.entries().len(), 3);
 }
 
 #[test]

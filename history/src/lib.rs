@@ -174,7 +174,7 @@ impl History {
     /// Remove.
     pub fn remove(&mut self, index: usize) -> Option<HistoryEntry> {
         if index >= self.entries.len() {
-            self.reset_cursor();
+            // An invalid removal is a no-op: the positioned cursor is kept.
             return None;
         }
         let removed = self.entries.remove(index);
@@ -200,7 +200,8 @@ impl History {
                 undo_list,
             },
         );
-        self.reset_cursor();
+        // Replacing content keeps the positioned cursor (and any stashed
+        // current edit), matching the pinned GNU behavior.
         Some(previous)
     }
 
@@ -285,11 +286,15 @@ impl History {
         self.current_history()
     }
 
-    /// Total bytes.
+    /// Total bytes of resident lines plus resident timestamps (UTF-8 byte
+    /// lengths, without terminators); this is content accounting, not a
+    /// heap-allocation measure.
     pub fn total_bytes(&self) -> usize {
         self.entries
             .iter()
-            .map(|entry| entry.line_bytes.len())
+            .map(|entry| {
+                entry.line_bytes.len() + entry.timestamp.as_ref().map(|ts| ts.len()).unwrap_or(0)
+            })
             .sum()
     }
 

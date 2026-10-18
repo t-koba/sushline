@@ -1736,6 +1736,9 @@ fn bash_readline_and_sushline_unix_discard_empty_line_rings() {
         ("empty", b"\x15\r".as_slice(), "", 1),
         ("kills_line", b"abc\x15\r".as_slice(), "", 0),
         ("point_at_start", b"abc\x01\x15\r".as_slice(), "abc", 1),
+        ("twice_empty", b"\x15\x15\r".as_slice(), "", 2),
+        ("neg_point0", b"abc\x01\x1b-\x15\r".as_slice(), "abc", 1),
+        ("count_ignored", b"abc\x1b2\x15\r".as_slice(), "", 0),
     ] {
         let bash = run_bash_readline(keys);
         let sushline = run_sushline_harness(keys);
@@ -1870,6 +1873,13 @@ fn bash_readline_and_sushline_empty_undo_rings_like_bash() {
             b"abc\x1f\r".as_slice(),
             "".to_string(),
             0,
+        ),
+        (
+            "emacs_exhausted",
+            "".to_string(),
+            b"abc\x1f\x1f\r".as_slice(),
+            "".to_string(),
+            1,
         ),
         (
             // Leading ESC forces vi command mode deterministically: a bare
@@ -2033,6 +2043,7 @@ fn bash_readline_and_sushline_kill_line_variants_ring_like_bash() {
         ("kwhole_nonempty", kwh, b"abc\x0f\r".as_slice(), "", 0),
         ("bkill_empty", "", b"\x18\x7f\r".as_slice(), "", 1),
         ("bkill_bol", "", b"abc\x01\x18\x7f\r".as_slice(), "abc", 1),
+        ("kill_line_bol", "", b"abc\x01\x0b\r".as_slice(), "", 0),
     ] {
         let inputrc: &str = inputrc;
         let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
@@ -2151,5 +2162,127 @@ fn bash_readline_and_sushline_backward_kill_word_matches_like_bash() {
             "{desc}: bash={bash}\nsushline={sushline}"
         );
         assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_vi_put_empty_rings_like_bash() {
+    // vi put with an empty kill ring rings once in the tested Bash 5.3 PTY
+    // fixtures; command mode is entered explicitly for determinism.
+    // Runtime observation, not GNU source proof.
+    let inputrc = "set editing-mode vi";
+    for (desc, keys) in [
+        ("put", b"\x1bp\r".as_slice()),
+        ("put_before", b"\x1bP\r".as_slice()),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        assert_eq!(accepted_line(&bash), Some(String::new()), "{desc}: {bash}");
+        assert_eq!(bell_count(&bash), 1, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), 1, "{desc}: {sushline}");
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_vi_redo_empty_stays_silent_like_bash() {
+    // vi redo with nothing to redo stays silent in the tested Bash 5.3 PTY
+    // fixtures. Runtime observation, not GNU source proof.
+    let inputrc = "set editing-mode vi";
+    let keys = b"\x1b.\r";
+    let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+    assert_eq!(accepted_line(&bash), Some(String::new()), "{bash}");
+    assert_eq!(bell_count(&bash), 0, "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(bell_count(&sushline), 0, "{sushline}");
+}
+
+#[test]
+fn bash_readline_and_sushline_vi_char_search_bells_like_bash() {
+    // vi character search with no match rings once in the tested Bash 5.3
+    // PTY fixtures; a successful search stays silent. Runtime observation,
+    // not GNU source proof.
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, expected, bells) in [
+        ("fwd_no_match", b"ab\x1bfx\r".as_slice(), "ab", 1),
+        ("bwd_no_match", b"ab\x1bFx\r".as_slice(), "ab", 1),
+        ("bwd_match", b"abx\x1bFb\r".as_slice(), "abx", 0),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_numeric_kill_line_matches_like_bash() {
+    // A numeric argument on kill-line, backward-kill-line and revert-line
+    // behaves the same in the tested Bash 5.3 PTY fixtures: kills happen
+    // silently, and revert-line ignores the count. Runtime observation, not
+    // GNU source proof.
+    for (desc, keys, expected, bells) in [
+        ("kill_line_m2", b"abcdef\x1b2\x0b\r".as_slice(), "abcdef", 0),
+        ("bkill_line_m2", b"abcdef\x1b2\x18\x7f\r".as_slice(), "", 0),
+        ("revert_m2", b"abc\x1b2\x1br\r".as_slice(), "", 0),
+    ] {
+        let bash = run_bash_readline(keys);
+        let sushline = run_sushline_harness(keys);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_unbound_esc_matches_like_bash() {
+    let vi = "set editing-mode vi";
+    let em_pair: &[u8] = b"\x1b\x1babc\r";
+    let em_meta: &[u8] = b"\x1bqabc\r";
+    let vi_double: &[u8] = b"\x1b\x1b\r";
+    let vi_triple: &[u8] = b"\x1b\x1b\x1b\r";
+    let vi_meta: &[u8] = b"\x1b\x1bqabc\r";
+    for (desc, keys, inputrc, expected, bells) in [
+        ("vi_double", vi_double, vi, Some(""), 0),
+        ("vi_triple", vi_triple, vi, Some(""), 0),
+        ("vi_meta", vi_meta, vi, Some("bc"), 1),
+        ("em_pair", em_pair, "", Some("abc"), 1),
+        ("em_meta", em_meta, "", Some("abc"), 1),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+        let sush = run_sushline_harness_with_inputrc(keys, inputrc);
+        let want = expected.map(str::to_string);
+        assert_eq!(accepted_line(&bash), want, "{desc}");
+        assert_eq!(accepted_line(&sush), want, "{desc}");
+        assert_eq!(bell_count(&bash), bells, "{desc}");
+        assert_eq!(bell_count(&sush), bells, "{desc}");
     }
 }

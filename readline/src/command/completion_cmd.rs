@@ -282,6 +282,14 @@ where
                 None => (previous.history_index.saturating_sub(1), previous.arg),
             }
         } else {
+            // An explicitly negative word number rings like an out-of-range
+            // one (tested M-- M-1 and M-- M-2 on yank-nth-arg, yank-last-arg
+            // and vi-yank-arg); only the default (no argument) means the
+            // last word.
+            if matches!(arg, Some(n) if n < 0) {
+                self.ding()?;
+                return Ok(());
+            }
             (entries.len().saturating_sub(1), arg.unwrap_or(-1))
         };
         let Some(entry) = entries.get(history_index) else {

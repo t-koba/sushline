@@ -102,9 +102,10 @@ fn checkpoints(bash: bool, columns: u16, prompt: &str, steps: &[Vec<u8>]) -> Vec
         command
     };
     command.env("LC_ALL", "C");
+    let wait_prompt = prompt.replace(['\x01', '\x02'], "");
     run_pty_checkpoints(
         command,
-        prompt,
+        &wait_prompt,
         steps,
         PtySize {
             rows: 24,
@@ -195,6 +196,17 @@ fn bash_readline_and_sushline_horizontal_scroll_retains_margin_between_batches()
                 "bash={bash}, chunk={chunk}"
             );
         }
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_horizontal_scroll_counts_hidden_ansi_prompt() {
+    let prompt = "\x01\x1b[31m\x02P>\x01\x1b[0m\x02";
+    let steps = vec![vec![b'a'; 90]];
+    for bash in [true, false] {
+        let plain = checkpoints(bash, 80, "P>", &steps);
+        let ansi = checkpoints(bash, 80, prompt, &steps);
+        assert_eq!(ansi, plain, "bash={bash}");
     }
 }
 

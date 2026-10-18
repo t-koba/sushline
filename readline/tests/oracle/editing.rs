@@ -16,6 +16,20 @@ fn bash_readline_and_sushline_accept_same_basic_emacs_edit() {
 }
 
 #[test]
+fn bash_and_sushline_ctrl_c_signal_path_wins_over_inputrc_macro() {
+    let inputrc = "set bind-tty-special-chars on\n\"\\C-c\": \"Q\"\n";
+    let keys = b"abc\x03X\r";
+    let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+    let sushline = run_sushline_harness_until(keys, inputrc, "SUSHLINE_INTERRUPTED");
+
+    assert!(bash.contains("^C"), "{bash}");
+    assert_eq!(accepted_line(&bash), None);
+    assert!(sushline.contains("^C"), "{sushline}");
+    assert!(sushline.contains("SUSHLINE_INTERRUPTED"), "{sushline}");
+    assert_eq!(accepted_line(&sushline), None);
+}
+
+#[test]
 fn sushline_ctrl_c_signal_interrupts_readline_without_io_error() {
     let sushline = run_sushline_harness_until(b"abc\x03", "", "SUSHLINE_INTERRUPTED");
 

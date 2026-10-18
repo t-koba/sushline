@@ -706,6 +706,107 @@ fn bash_and_sushline_apply_numeric_arguments_to_whole_keyboard_macro() {
 }
 
 #[test]
+fn bash_and_sushline_apply_numeric_arguments_to_end_keyboard_macro() {
+    let universal_inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
+    let diagnostic = "readline: maximum macro execution nesting level exceeded";
+    for (name, keys, inputrc, expected, bells, diagnostics) in [
+        (
+            "default count",
+            b"\x18(a\x18)Z\r".as_slice(),
+            "",
+            "aZ",
+            0,
+            0,
+        ),
+        (
+            "explicit one",
+            b"\x18(a\x1b1\x18)Z\r".as_slice(),
+            "",
+            "aZ",
+            0,
+            0,
+        ),
+        (
+            "explicit two",
+            b"\x18(a\x1b2\x18)Z\r".as_slice(),
+            "",
+            "aaZ",
+            0,
+            0,
+        ),
+        (
+            "explicit three",
+            b"\x18(a\x1b3\x18)Z\r".as_slice(),
+            "",
+            "aaaZ",
+            0,
+            0,
+        ),
+        (
+            "zero count",
+            b"\x18(a\x1b0\x18)Z\r".as_slice(),
+            "",
+            "aZ",
+            1,
+            1,
+        ),
+        (
+            "sign-only negative count",
+            b"\x18(a\x1b-\x18)Z\r".as_slice(),
+            "",
+            "aZ",
+            1,
+            1,
+        ),
+        (
+            "whole-body replay",
+            b"\x18(a\x01b\x1b2\x18)Z\r".as_slice(),
+            "",
+            "bZbaa",
+            0,
+            0,
+        ),
+        (
+            "whole-body replay twice",
+            b"\x18(a\x01b\x1b3\x18)Z\r".as_slice(),
+            "",
+            "bZbabaa",
+            0,
+            0,
+        ),
+        (
+            "universal argument",
+            b"\x18(a\x0f\x18)Z\r".as_slice(),
+            universal_inputrc,
+            "aaaaZ",
+            0,
+            0,
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "Bash {name}: {bash:?}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "Sushline {name}: {sushline:?}"
+        );
+        for output in [&bash, &sushline] {
+            assert_eq!(bell_count(output), bells, "{name}: {output}");
+            assert_eq!(
+                output.matches(diagnostic).count(),
+                diagnostics,
+                "{name}: {output}"
+            );
+        }
+    }
+}
+
+#[test]
 fn bash_and_sushline_ring_once_when_calling_last_macro_without_a_definition() {
     for keys in [b"\x18eZ\r".as_slice(), b"\x1b3\x18eZ\r".as_slice()] {
         let bash = run_bash_readline_with_inputrc_file(keys, "");

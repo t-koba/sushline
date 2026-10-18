@@ -68,9 +68,33 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::EndKbdMacro => {
+                let count = state.numeric_arg.unwrap_or(1);
+                let was_recording = state.macro_state.keyboard_macro.is_some();
                 state.end_keyboard_macro();
+                state.take_numeric_arg();
                 state.after_non_kill_command();
-                Ok(EditorOutcome::Continue)
+
+                if !was_recording || count == 1 {
+                    return Ok(EditorOutcome::Continue);
+                }
+                if count <= 0 {
+                    self.write_below_rendered_line(
+                        state,
+                        "readline: maximum macro execution nesting level exceeded",
+                    )?;
+                    self.write_tracked_newline(state)?;
+                    self.ding()?;
+                    return Ok(EditorOutcome::Continue);
+                }
+
+                // The definition itself is the first execution. Reuse the
+                // existing whole-macro replay path for the remaining count.
+                state.numeric_arg = Some(count - 1);
+                let previous_replaying = state.macro_state.replaying_macro;
+                let outcome =
+                    self.apply_misc_command(state, EditCommand::CallLastKbdMacro, key, hooks);
+                state.macro_state.replaying_macro = previous_replaying;
+                outcome
             }
             EditCommand::UniversalArgument => {
                 // Explicit digit counts are already complete; only implicit

@@ -123,6 +123,7 @@ impl EditorState {
         self.numeric_arg_negative = false;
         self.numeric_arg_universal = false;
         self.numeric_arg_universal_noop = false;
+        self.macro_state.numeric_arg_recording_start = None;
         arg
     }
 

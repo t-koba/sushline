@@ -16,6 +16,8 @@ pub(crate) struct MacroState {
     pub(crate) replaying_macro: bool,
     pub(crate) last_recorded_self_insert: bool,
     pub(crate) inputrc_macro_depth: usize,
+    /// Start of a still-pending numeric prefix recorded in the active macro.
+    pub(crate) numeric_arg_recording_start: Option<usize>,
 }
 
 impl EditorState {
@@ -25,10 +27,18 @@ impl EditorState {
             .flatten();
         self.macro_state.keyboard_macro = Some(previous_macro.clone().unwrap_or_default());
         self.macro_state.last_recorded_self_insert = false;
+        self.macro_state.numeric_arg_recording_start = None;
         previous_macro
     }
 
     pub(crate) fn end_keyboard_macro(&mut self) {
+        if let Some(start) = self.macro_state.numeric_arg_recording_start.take()
+            && let Some(macro_bytes) = self.macro_state.keyboard_macro.as_mut()
+        {
+            // The numeric prefix belongs to end-kbd-macro's argument, not
+            // to the definition being recorded.
+            macro_bytes.truncate(start);
+        }
         if let Some(macro_bytes) = self.macro_state.keyboard_macro.take() {
             self.macro_state.last_keyboard_macro = Some(macro_bytes);
         }
@@ -48,6 +58,16 @@ impl EditorState {
             )
         ) {
             return;
+        }
+
+        if matches!(
+            binding,
+            KeyBinding::Command(EditCommand::DigitArgument | EditCommand::UniversalArgument)
+        ) && self.numeric_arg.is_none()
+            && self.macro_state.numeric_arg_recording_start.is_none()
+        {
+            self.macro_state.numeric_arg_recording_start =
+                self.macro_state.keyboard_macro.as_ref().map(Vec::len);
         }
 
         let is_self_insert = matches!(binding, KeyBinding::Command(EditCommand::SelfInsert));

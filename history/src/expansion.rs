@@ -1023,12 +1023,9 @@ fn command_word_spans(line: &[u8], policy: &HistoryExpansionPolicy) -> Vec<(usiz
             idx += 2;
             continue;
         }
-        if byte == b'$'
-            && matches!(line.get(idx + 1), Some(b'(' | b'{' | b'['))
-            && let Some(end) = shell_group_end(line, idx)
-        {
+        if byte == b'$' && line.get(idx + 1) == Some(&b'(') {
             word_start.get_or_insert(idx);
-            idx = end;
+            idx = command_substitution_end(line, idx);
             continue;
         }
         if matches!(byte, b'<' | b'>')
@@ -1141,13 +1138,7 @@ fn shell_operator_len(line: &[u8], idx: usize) -> usize {
     ) as usize
 }
 
-fn shell_group_end(line: &[u8], idx: usize) -> Option<usize> {
-    let (open, close) = match line.get(idx + 1).copied()? {
-        b'(' => (b'(', b')'),
-        b'{' => (b'{', b'}'),
-        b'[' => (b'[', b']'),
-        _ => return None,
-    };
+fn command_substitution_end(line: &[u8], idx: usize) -> usize {
     let mut depth = 1usize;
     let mut quote = None;
     let mut escape = false;
@@ -1175,17 +1166,17 @@ fn shell_group_end(line: &[u8], idx: usize) -> Option<usize> {
             cursor += 1;
             continue;
         }
-        if byte == open {
+        if byte == b'(' {
             depth += 1;
-        } else if byte == close {
+        } else if byte == b')' {
             depth -= 1;
             if depth == 0 {
-                return Some(cursor + 1);
+                return cursor + 1;
             }
         }
         cursor += 1;
     }
-    Some(line.len())
+    line.len()
 }
 
 fn paired_group_end(line: &[u8], mut cursor: usize, open: u8, close: u8) -> Option<usize> {

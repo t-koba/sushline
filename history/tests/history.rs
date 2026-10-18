@@ -1769,6 +1769,58 @@ fn history_tokenize_retains_comment_looking_words() {
 }
 
 #[test]
+fn history_tokenize_splits_parameter_and_arithmetic_expansions_at_spaces() {
+    let policy = HistoryExpansionPolicy::default();
+    for (line, expected) in [
+        (
+            b"echo ${v:-a b} z".as_slice(),
+            vec![b"echo".as_slice(), b"${v:-a", b"b}", b"z"],
+        ),
+        (
+            b"echo $[1 + 2] z".as_slice(),
+            vec![b"echo".as_slice(), b"$[1", b"+", b"2]", b"z"],
+        ),
+        (
+            b"echo ${v:-${w:-a b}} z".as_slice(),
+            vec![b"echo".as_slice(), b"${v:-${w:-a", b"b}}", b"z"],
+        ),
+        (
+            b"echo $(echo a b) z".as_slice(),
+            vec![b"echo".as_slice(), b"$(echo a b)", b"z"],
+        ),
+        (
+            b"echo <(echo a b) z".as_slice(),
+            vec![b"echo".as_slice(), b"<(echo a b)", b"z"],
+        ),
+    ] {
+        assert_eq!(
+            history_tokenize(line, &policy),
+            expected.into_iter().map(<[u8]>::to_vec).collect::<Vec<_>>(),
+            "line={line:?}"
+        );
+    }
+
+    let event = b"echo ${v:-a b} z";
+    let mut history = History::new();
+    history.push(std::str::from_utf8(event).unwrap());
+    assert_eq!(
+        expand_history(
+            b"!!:1",
+            &history,
+            HistoryChars::parse("!^#"),
+            &policy,
+            |_| false,
+        )
+        .unwrap(),
+        b"${v:-a"
+    );
+    assert_eq!(
+        history_arg_extract(1, 2, event, &policy),
+        Some(b"${v:-a b}".to_vec())
+    );
+}
+
+#[test]
 fn history_expansion_exposes_helper_functions() {
     let policy = HistoryExpansionPolicy::default();
     let line = b"echo arr=(one two) | sed 's/ /_/g'";

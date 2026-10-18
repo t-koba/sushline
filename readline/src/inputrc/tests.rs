@@ -363,6 +363,39 @@ fn parses_valid_binding_before_non_utf8_trailing_comment() {
 }
 
 #[test]
+fn parses_valid_binding_before_bare_non_utf8_trailing_bytes() {
+    let mut bytes = br##""\C-o": beginning-of-line trailing "##.to_vec();
+    bytes.push(0xff);
+    bytes.push(b'\n');
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+
+    InputrcParser::new()
+        .parse_bytes(&bytes, &Config::default(), &mut keymap, &mut variables)
+        .unwrap();
+
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
+        Some(&KeyBinding::Command(EditCommand::BeginningOfLine))
+    );
+}
+
+#[test]
+fn does_not_strip_non_utf8_comments_from_set_directives() {
+    let mut bytes = b"set bell-style none # comment ".to_vec();
+    bytes.push(0xff);
+    bytes.push(b'\n');
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::default_for_config(&Config::default());
+
+    InputrcParser::new()
+        .parse_bytes(&bytes, &Config::default(), &mut keymap, &mut variables)
+        .unwrap();
+
+    assert_eq!(variables["bell-style"], "audible");
+}
+
+#[test]
 fn non_utf8_comment_bytes_do_not_fail_surrounding_lines() {
     // Valid lines survive a Latin-1 0xFF comment byte; eight-bit escapes
     // still decode to bytes.

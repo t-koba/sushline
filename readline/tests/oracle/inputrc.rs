@@ -523,3 +523,45 @@ fn raw_non_utf8_inputrc_key_is_a_documented_deviation_but_escape_matches() {
         "{sushline}"
     );
 }
+
+#[test]
+fn bash_readline_and_sushline_do_not_strip_invalid_comments_from_set_directives() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    let mut inputrc = b"set bell-style none # comment ".to_vec();
+    inputrc.push(0xff);
+    inputrc.push(b'\n');
+    fs::write(&path, inputrc).expect("write inputrc");
+    let keys = [b"abc".as_slice(), &[0x07, b'\r']].concat();
+    let bash = run_bash_readline_with_inputrc_path(&keys, &path);
+    let sushline = run_sushline_harness_with_inputrc_path(&keys, &path);
+
+    assert_eq!(accepted_line(&bash), Some("abc".to_string()), "{bash}");
+    assert_eq!(bell_count(&bash), 1, "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        Some("abc".to_string()),
+        "{sushline}"
+    );
+    assert_eq!(bell_count(&sushline), 1, "{sushline}");
+}
+
+#[test]
+fn bash_readline_and_sushline_apply_binding_before_bare_invalid_trailing_bytes() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    let mut inputrc = br##""\C-o": beginning-of-line trailing "##.to_vec();
+    inputrc.push(0xff);
+    inputrc.push(b'\n');
+    fs::write(&path, inputrc).expect("write inputrc");
+    let keys = b"abc\x0fX\r";
+    let bash = run_bash_readline_with_inputrc_path(keys, &path);
+    let sushline = run_sushline_harness_with_inputrc_path(keys, &path);
+
+    assert_eq!(accepted_line(&bash), Some("Xabc".to_string()), "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        Some("Xabc".to_string()),
+        "{sushline}"
+    );
+}

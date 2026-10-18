@@ -136,13 +136,14 @@ impl InputrcParser {
             let decoded = match std::str::from_utf8(trimmed_bytes) {
                 Ok(decoded) => decoded,
                 Err(_) => {
-                    // Ignore invalid bytes in an unquoted trailing comment,
-                    // while keeping inputrc syntax itself UTF-8. GNU accepts
-                    // raw comment bytes and still applies the valid binding.
-                    let Some(comment_start) = inputrc_comment_start(trimmed_bytes) else {
+                    // GNU parses the first command word of a binding and
+                    // ignores trailing text. Keep invalid bytes out of the
+                    // key/command syntax, and do not apply this rule to set
+                    // directives or other inputrc lines.
+                    let Some(prefix_end) = binding_command_prefix_end(trimmed_bytes) else {
                         continue;
                     };
-                    let Ok(decoded) = std::str::from_utf8(&trimmed_bytes[..comment_start]) else {
+                    let Ok(decoded) = std::str::from_utf8(&trimmed_bytes[..prefix_end]) else {
                         continue;
                     };
                     decoded
@@ -269,9 +270,19 @@ fn split_inputrc_lines(source: &[u8]) -> impl Iterator<Item = &[u8]> {
     parts.into_iter()
 }
 
-fn inputrc_comment_start(line: &[u8]) -> Option<usize> {
+fn binding_command_prefix_end(line: &[u8]) -> Option<usize> {
+    let trimmed = trim_ascii(line);
+    if trimmed.starts_with(b"$")
+        || (trimmed.len() > 3
+            && trimmed[..3].eq_ignore_ascii_case(b"set")
+            && trimmed[3].is_ascii_whitespace())
+    {
+        return None;
+    }
+
     let mut quote = None;
     let mut escaped = false;
+    let mut colon = None;
     for (index, byte) in line.iter().copied().enumerate() {
         if escaped {
             escaped = false;
@@ -285,12 +296,34 @@ fn inputrc_comment_start(line: &[u8]) -> Option<usize> {
             b'"' | b'\'' if quote == Some(byte) => quote = None,
             b'"' | b'\'' if quote.is_none() => quote = Some(byte),
             b'#' if quote.is_none() && (index == 0 || line[index - 1].is_ascii_whitespace()) => {
-                return Some(index);
+                return None;
             }
+            b':' if quote.is_none() => colon = Some(index),
             _ => {}
         }
+        if colon.is_some() {
+            break;
+        }
     }
-    None
+    let colon = colon?;
+    std::str::from_utf8(trim_ascii(&line[..colon])).ok()?;
+
+    let after_colon = &line[colon + 1..];
+    let leading = after_colon
+        .iter()
+        .take_while(|byte| byte.is_ascii_whitespace())
+        .count();
+    let command_start = colon + 1 + leading;
+    let value = &line[command_start..];
+    if matches!(value.first(), Some(b'"' | b'\'')) {
+        return None;
+    }
+    let command_len = value.iter().position(|byte| byte.is_ascii_whitespace())?;
+    if command_len == 0 {
+        return None;
+    }
+    std::str::from_utf8(&value[..command_len]).ok()?;
+    Some(command_start + command_len)
 }
 
 fn trim_ascii(line: &[u8]) -> &[u8] {

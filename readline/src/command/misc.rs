@@ -105,9 +105,19 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::StartKbdMacro => {
-                state.start_keyboard_macro();
+                // Readline appends and replays the previous macro for an explicit
+                // count or sign argument, but not for a universal-argument prefix.
+                let append_previous = state.numeric_arg.is_some() && !state.numeric_arg_universal;
+                state.take_numeric_arg();
+                let previous_macro = state.start_keyboard_macro(append_previous);
                 state.after_non_kill_command();
-                Ok(EditorOutcome::Continue)
+                if let Some(macro_bytes) = previous_macro {
+                    let outcome = self.handle_bytes(state, &macro_bytes, hooks);
+                    state.macro_state.last_recorded_self_insert = false;
+                    outcome
+                } else {
+                    Ok(EditorOutcome::Continue)
+                }
             }
             EditCommand::PrefixMeta => {
                 state.input.prefix_meta = true;

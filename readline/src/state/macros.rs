@@ -11,9 +11,13 @@ pub(crate) struct MacroState {
 }
 
 impl EditorState {
-    pub(crate) fn start_keyboard_macro(&mut self) {
-        self.macro_state.keyboard_macro = Some(Vec::new());
+    pub(crate) fn start_keyboard_macro(&mut self, append_previous: bool) -> Option<Vec<u8>> {
+        let previous_macro = append_previous
+            .then(|| self.macro_state.last_keyboard_macro.clone())
+            .flatten();
+        self.macro_state.keyboard_macro = Some(previous_macro.clone().unwrap_or_default());
         self.macro_state.last_recorded_self_insert = false;
+        previous_macro
     }
 
     pub(crate) fn end_keyboard_macro(&mut self) {

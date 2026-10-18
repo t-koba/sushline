@@ -588,6 +588,68 @@ fn bash_readline_and_sushline_accept_same_keyboard_macro_with_command() {
 }
 
 #[test]
+fn bash_and_sushline_append_the_previous_macro_for_explicit_start_arguments() {
+    let universal_inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
+    for (name, keys, inputrc, expected) in [
+        (
+            "no argument starts a fresh definition",
+            b"\x18(a\x18)\x18(b\x18)\x18e\r".as_slice(),
+            "",
+            "abb",
+        ),
+        (
+            "explicit one",
+            b"\x18(a\x18)\x1b1\x18(b\x18)\x18e\r".as_slice(),
+            "",
+            "aabaab",
+        ),
+        (
+            "explicit two",
+            b"\x18(a\x18)\x1b2\x18(b\x18)\x18e\r".as_slice(),
+            "",
+            "aabaab",
+        ),
+        (
+            "explicit zero",
+            b"\x18(a\x18)\x1b0\x18(b\x18)\x18e\r".as_slice(),
+            "",
+            "aabaab",
+        ),
+        (
+            "sign-only negative argument",
+            b"\x18(a\x18)\x1b-\x18(b\x18)\x18e\r".as_slice(),
+            "",
+            "aabaab",
+        ),
+        (
+            "universal argument only",
+            b"\x18(a\x18)\x0f\x18(b\x18)\x18e\r".as_slice(),
+            universal_inputrc,
+            "abb",
+        ),
+        (
+            "explicit count followed by universal argument",
+            b"\x18(a\x18)\x1b1\x0f\x18(b\x18)\x18e\r".as_slice(),
+            universal_inputrc,
+            "aabaab",
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "Bash {name}: {bash:?}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "Sushline {name}: {sushline:?}"
+        );
+    }
+}
+
+#[test]
 fn bash_and_sushline_apply_numeric_arguments_to_whole_keyboard_macro() {
     for (name, keys, expected, bash_bells) in [
         (

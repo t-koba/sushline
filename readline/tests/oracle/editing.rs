@@ -60,6 +60,43 @@ fn bash_and_sushline_tty_special_binding_precedence_is_a_scoped_deviation() {
     }
 }
 
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "linux"))]
+#[test]
+fn bash_and_sushline_tty_special_binding_precedence_covers_kill_and_word_erase() {
+    let cases = [
+        (
+            "kill",
+            b"ab\x15X\r".as_slice(),
+            "\"\\C-u\": \"Q\"",
+            "abQX",
+            "X",
+        ),
+        (
+            "word erase",
+            b"alpha beta\x17X\r".as_slice(),
+            "\"\\C-w\": \"Q\"",
+            "alpha betaQX",
+            "alpha X",
+        ),
+    ];
+    for (label, keys, binding, bash_expected, sushline_expected) in cases {
+        let inputrc = format!("set bind-tty-special-chars on\n{binding}\n");
+        let bash = run_bash_readline_with_inputrc_file(keys, &inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, &inputrc);
+
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(bash_expected),
+            "{label}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(sushline_expected),
+            "{label}"
+        );
+    }
+}
+
 #[test]
 fn bash_readline_and_sushline_accept_same_backspace_edit() {
     let keys = b"abc\x7fd\r";

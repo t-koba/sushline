@@ -349,6 +349,47 @@ fn bash_and_sushline_horizontal_scroll_differs_for_visible_combining_mark() {
 }
 
 #[test]
+fn bash_and_sushline_horizontal_scroll_exposes_ambiguous_width_difference() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+    let ambiguous = format!("{}{}·", "a".repeat(24), "b".repeat(64));
+    let plain = format!("{}{}x", "a".repeat(24), "b".repeat(64));
+    let ambiguous_steps = vec![ambiguous.into_bytes()];
+    let plain_steps = vec![plain.into_bytes()];
+
+    for bash in [true, false] {
+        let ambiguous_screen = checkpoints_with_locale(bash, 80, "P>", &ambiguous_steps, "C.UTF-8")
+            .pop()
+            .unwrap();
+        let plain_screen = checkpoints_with_locale(bash, 80, "P>", &plain_steps, "C.UTF-8")
+            .pop()
+            .unwrap();
+        assert!(ambiguous_screen.0.ends_with('·'), "bash={bash}");
+        assert!(plain_screen.0.ends_with('x'), "bash={bash}");
+        let ambiguous_b = ambiguous_screen.0.matches('b').count();
+        let plain_b = plain_screen.0.matches('b').count();
+
+        if bash {
+            assert_eq!(ambiguous_screen.1, 51);
+            assert_eq!(plain_screen.1, 52);
+            assert_eq!(plain_b, ambiguous_b + 1);
+        } else {
+            assert_eq!(ambiguous_screen.1, 65);
+            assert_eq!(plain_screen.1, 65);
+            assert_eq!(ambiguous_b, plain_b);
+            assert_eq!(
+                ambiguous_screen
+                    .0
+                    .strip_suffix('·')
+                    .expect("ambiguous suffix"),
+                plain_screen.0.strip_suffix('x').expect("plain suffix")
+            );
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_horizontal_scroll_reset_after_deletion() {
     let text = "0123456789".repeat(10);
     let mut steps: Vec<_> = text.bytes().map(|byte| vec![byte]).collect();

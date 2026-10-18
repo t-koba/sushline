@@ -69,10 +69,11 @@ impl InputrcParser {
     /// Parse bytes.
     ///
     /// Byte-tolerant entry for inputrc content that may contain non-UTF-8
-    /// bytes. ASCII structure (blank lines, `#` comments, `$` directives)
-    /// is detected on bytes so valid lines survive invalid bytes elsewhere;
-    /// eight-bit sequences should use `\\nnn`/`\\xHH` escapes.
-    /// Lines that are not blank/comments but are not valid UTF-8 are skipped.
+    /// bytes. Blank lines and `#` comments are detected before UTF-8 decoding
+    /// so valid lines survive invalid bytes elsewhere;
+    /// eight-bit sequences should use `\\nnn`/`\\xHH` escapes. Complete
+    /// UTF-8 binding keys and command/macro values survive invalid trailing
+    /// bytes; invalid bytes in binding syntax and other line types are skipped.
     pub fn parse_bytes(
         &self,
         source: &[u8],
@@ -315,22 +316,8 @@ fn binding_value_prefix_end(line: &[u8]) -> Option<usize> {
         .count();
     let command_start = colon + 1 + leading;
     let value = &line[command_start..];
-    if let Some(quote @ (b'"' | b'\'')) = value.first().copied() {
-        let mut escaped = false;
-        for (offset, byte) in value.iter().copied().enumerate().skip(1) {
-            if escaped {
-                escaped = false;
-                continue;
-            }
-            if byte == b'\\' {
-                escaped = true;
-                continue;
-            }
-            if byte == quote {
-                return Some(command_start + offset + 1);
-            }
-        }
-        return None;
+    if matches!(value.first(), Some(b'"' | b'\'')) {
+        return Some(command_start + quoted_value_end(value)?);
     }
     let command_len = value.iter().position(|byte| byte.is_ascii_whitespace())?;
     if command_len == 0 {
@@ -338,6 +325,28 @@ fn binding_value_prefix_end(line: &[u8]) -> Option<usize> {
     }
     std::str::from_utf8(&value[..command_len]).ok()?;
     Some(command_start + command_len)
+}
+
+fn quoted_value_end(value: &[u8]) -> Option<usize> {
+    let quote = value
+        .first()
+        .copied()
+        .filter(|quote| matches!(quote, b'"' | b'\''))?;
+    let mut escaped = false;
+    for (offset, byte) in value.iter().copied().enumerate().skip(1) {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if byte == b'\\' {
+            escaped = true;
+            continue;
+        }
+        if byte == quote {
+            return Some(offset + 1);
+        }
+    }
+    None
 }
 
 fn trim_ascii(line: &[u8]) -> &[u8] {
@@ -371,8 +380,9 @@ pub fn parse_binding_line_in_map(
     let meta_prefix =
         variable_is_on(variables, "force-meta-prefix") || variable_is_on(variables, "convert-meta");
     let seq = KeySequence::parse_with_meta(key, meta_prefix)?;
-    let binding = if is_quoted(value) {
-        KeyBinding::Macro(decode_inputrc_bytes(value, meta_prefix)?)
+    // GNU consumes one complete quoted macro value and ignores any suffix.
+    let binding = if let Some(end) = quoted_value_end(value.as_bytes()) {
+        KeyBinding::Macro(decode_inputrc_bytes(&value[..end], meta_prefix)?)
     } else if let Some(command) = value.split_whitespace().next().and_then(EditCommand::parse) {
         KeyBinding::Command(command)
     } else if let Some(command) = value.split_whitespace().next().filter(|command| {
@@ -567,8 +577,7 @@ fn find_unquoted_colon(line: &str) -> Option<usize> {
 }
 
 fn is_quoted(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    bytes.len() >= 2 && matches!(bytes.first(), Some(b'"' | b'\'')) && bytes.first() == bytes.last()
+    quoted_value_end(value.as_bytes()) == Some(value.len())
 }
 
 fn normalize_variable_value(name: &str, value: &str) -> Option<String> {

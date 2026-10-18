@@ -396,6 +396,29 @@ fn does_not_strip_non_utf8_comments_from_set_directives() {
 }
 
 #[test]
+fn parses_quoted_macros_before_valid_trailing_text() {
+    let inputrc = r#"
+"\C-o": "hello" trailing
+"\C-p": 'world' # comment
+"#;
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+
+    InputrcParser::new()
+        .parse_str(inputrc, &Config::default(), &mut keymap, &mut variables)
+        .unwrap();
+
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
+        Some(&KeyBinding::Macro(b"hello".to_vec()))
+    );
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, &[0x10]),
+        Some(&KeyBinding::Macro(b"world".to_vec()))
+    );
+}
+
+#[test]
 fn parses_quoted_macros_before_non_utf8_trailing_bytes() {
     for (line, key, expected) in [
         (

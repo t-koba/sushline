@@ -639,3 +639,23 @@ fn bash_readline_and_sushline_decode_single_quoted_macro_escapes() {
         "{sushline:?}"
     );
 }
+
+#[test]
+fn bash_readline_and_sushline_apply_quoted_macros_before_valid_trailing_text() {
+    for inputrc in [
+        "\"\\C-o\": \"hello\" trailing\n",
+        "\"\\C-o\": \"hello\" # comment\n",
+        "\"\\C-o\": 'hello' # comment\n",
+    ] {
+        let keys = b"\x0f\r";
+        let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+        assert_eq!(accepted_line(&bash).as_deref(), Some("hello"), "{bash:?}");
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some("hello"),
+            "{sushline:?}"
+        );
+    }
+}

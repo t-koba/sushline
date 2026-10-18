@@ -1050,9 +1050,6 @@ fn command_word_spans(line: &[u8], policy: &HistoryExpansionPolicy) -> Vec<(usiz
             idx += 1;
             continue;
         }
-        if byte == b'#' && word_start.is_none() {
-            break;
-        }
         // GNU History's default word separators are space, tab, and LF;
         // carriage return, form feed, and vertical tab remain word bytes.
         if matches!(byte, b' ' | b'\t' | b'\n') {

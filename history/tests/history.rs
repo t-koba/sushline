@@ -1725,6 +1725,50 @@ fn history_tokenize_uses_gnu_history_default_whitespace_classes() {
 }
 
 #[test]
+fn history_tokenize_retains_comment_looking_words() {
+    let policy = HistoryExpansionPolicy::default();
+    for (line, expected) in [
+        (
+            b"echo #comment trailing".as_slice(),
+            vec![b"echo".as_slice(), b"#comment", b"trailing"],
+        ),
+        (
+            b"#comment trailing".as_slice(),
+            vec![b"#comment".as_slice(), b"trailing"],
+        ),
+        (
+            b"echo foo#bar tail".as_slice(),
+            vec![b"echo".as_slice(), b"foo#bar", b"tail"],
+        ),
+    ] {
+        assert_eq!(
+            history_tokenize(line, &policy),
+            expected.into_iter().map(<[u8]>::to_vec).collect::<Vec<_>>(),
+            "line={line:?}"
+        );
+    }
+
+    let event = b"echo #comment trailing";
+    let mut history = History::new();
+    history.push(std::str::from_utf8(event).unwrap());
+    assert_eq!(
+        expand_history(
+            b"!!:1",
+            &history,
+            HistoryChars::parse("!^#"),
+            &policy,
+            |_| false,
+        )
+        .unwrap(),
+        b"#comment"
+    );
+    assert_eq!(
+        history_arg_extract(1, 2, event, &policy),
+        Some(b"#comment trailing".to_vec())
+    );
+}
+
+#[test]
 fn history_expansion_exposes_helper_functions() {
     let policy = HistoryExpansionPolicy::default();
     let line = b"echo arr=(one two) | sed 's/ /_/g'";

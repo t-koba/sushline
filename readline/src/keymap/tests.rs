@@ -27,6 +27,15 @@ fn parses_control_and_meta_sequences() {
 }
 
 #[test]
+fn prefix_meta_is_not_bound_in_the_default_keymap() {
+    let keymap = KeyMap::emacs_default();
+    assert!(keymap.maps.values().all(|map| {
+        map.values()
+            .all(|binding| !matches!(binding, KeyBinding::Command(EditCommand::PrefixMeta)))
+    }));
+}
+
+#[test]
 fn detects_key_sequence_prefixes() {
     let mut keymap = KeyMap::emacs_default();
     keymap.bind(

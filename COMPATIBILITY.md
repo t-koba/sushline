@@ -19,6 +19,7 @@ feature coverage.
 | Compatible | Matched against the baseline for the scoped behavior, with no known user-visible difference. |
 | Implemented | Implemented, but not audited enough to claim GNU-compatible behavior for the whole row. |
 | Implementation-specific | Implemented through Sushline's Rust model rather than GNU Readline/History internals; observable differences may exist outside tested cases. |
+| Sushline extension | Deliberate Sushline-only behavior, unavailable by default unless explicitly enabled or bound; it does not alter GNU-default behavior. |
 | Terminal-backed | Implemented through `TerminalIo`, terminfo-backed capabilities where available, and fixed ANSI helpers for the built-in terminal; exact bytes may still depend on terminal/backend capabilities. |
 | Mixed | The area contains multiple statuses; use the detailed rows below. |
 | Known deviation | A known observable behavior differs from the baseline. |
@@ -71,7 +72,7 @@ and supplied through `Hooks` where applicable.
 ## User-Facing Readline Commands
 
 GNU command names below come from the Readline User Manual bindable-command
-sections; Sushline-only extensions are marked `Implementation-specific`.
+sections; deliberate Sushline-only extensions use the `Sushline extension` status.
 
 ### Moving
 
@@ -150,7 +151,7 @@ sections; Sushline-only extensions are marked `Implementation-specific`.
 | Command(s) | Status | Notes |
 | --- | --- | --- |
 | `re-read-init-file`, `abort`, `do-lowercase-version`, `undo`, `revert-line`, `set-mark`, `exchange-point-and-mark`, `skip-csi-sequence`, `dump-functions`, `dump-variables`, `dump-macros`, `execute-named-command`, `emacs-editing-mode`, `vi-editing-mode` | Compatible | Observable editing, reload and dump behavior; `do-lowercase-version` rings when the key has no case variant, empty or exhausted `undo` rings once, `revert-line` with no changes rings once, `abort` rings while preserving the line, and `exchange-point-and-mark` with no mark stays silent. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs), [`bind_golden.rs`](readline/tests/bind_golden.rs). |
-| `prefix-meta` | Implementation-specific | Sushline inputrc extension, not a GNU binding or Bash oracle target; physical ESC input is separate. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
+| `prefix-meta` | Sushline extension | Sushline-only command; no default key binding, so it affects behavior only when explicitly bound in inputrc. Physical ESC input is separate. Tests: [`keymap/tests.rs`](readline/src/keymap/tests.rs), [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `arrow-key-prefix` | Compatible | Accepted CSI-skip command. Tests: [`variables.rs`](readline/tests/variables.rs). |
 | `display-shell-version`, `tty-status` | Hook-backed | Status supplied by hooks. Tests: [`bind_golden.rs`](readline/tests/bind_golden.rs). |
 | `shell-expand-line`, `spell-correct-word`, `edit-and-execute-command` | Hook-backed | Application services use hooks. Tests: [`bind_golden.rs`](readline/tests/bind_golden.rs). |
@@ -170,7 +171,7 @@ sections; Sushline-only extensions are marked `Implementation-specific`.
 | `vi-overstrike`, `vi-overstrike-delete`, `vi-rubout`, `vi-put`, `vi-redo`, `vi-undo`, `vi-yank-pop` | Compatible | Tested editor cases; last change persists across reads; empty `vi-undo` or `vi-put` rings once, while empty `vi-redo` stays silent. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs), [`vi_mode.rs`](readline/tests/vi_mode.rs). |
 | `vi-fetch-history`, `vi-eof-maybe`, `vi-goto-mark`, `vi-set-mark`, `vi-tilde-expand`, `vi-unix-word-rubout`, `vi-yank-arg` | Compatible | Tested fetch, EOF, tilde, mark, default register-command behavior, rubout and numeric yank-arg behavior; `vi-goto-mark` with no mark rings once. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `vi-edit-and-execute-command` | Hook-backed | External edit behavior uses `Hooks::edit_and_execute`. Tests: [`bind_golden.rs`](readline/tests/bind_golden.rs). |
-| `vi-set-register` | Implementation-specific | Named vi registers are a Sushline extension, disabled by default; enable by setting `sushline-vi-registers` to `on` in inputrc. |
+| `vi-set-register` | Sushline extension | Named vi registers are unavailable by default; enable by setting `sushline-vi-registers` to `on` in inputrc. Tests: [`inputrc/tests.rs`](readline/src/inputrc/tests.rs), [`bind/tests.rs`](readline/src/bind/tests.rs). |
 
 ## Readline Init File and Variables
 

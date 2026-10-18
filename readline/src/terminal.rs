@@ -300,11 +300,12 @@ impl TerminalIo for Terminal {
 
 #[cfg(unix)]
 fn prepare_readline_termios(readline: &mut libc::termios) {
-    readline.c_iflag &= !(libc::IXON | libc::IXOFF);
+    // Preserve configured software flow control. When enabled, the line
+    // discipline consumes VSTOP/VSTART instead of dispatching them as editor
+    // keys, matching the tested Bash PTY behavior.
     // Match GNU prepare_terminal_settings for the translation bits that need
     // no policy knob: CR/NL translation off unconditionally so RET (CR) stays
-    // distinct from C-J (LF) for isearch dispatch. IXON/IXOFF handling stays
-    // as-is pending the flow-control policy decision.
+    // distinct from C-J (LF) for isearch dispatch.
     readline.c_iflag &= !(libc::ICRNL | libc::INLCR);
     // Match GNU `rltty.c:prepare_terminal_settings` eight-bit preparation for
     // the CS8 case: an inherited ISTRIP would strip high bits in the kernel

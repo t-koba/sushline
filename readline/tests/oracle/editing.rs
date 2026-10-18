@@ -141,6 +141,22 @@ fn bash_and_sushline_ctrl_r_enters_reverse_search_with_bind_tty_special_chars_on
     }
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn bash_and_sushline_keep_ixon_flow_control_for_ctrl_s_ctrl_q() {
+    let keys = b"ab\x13X\x11\r";
+    let inputrc = "set bind-tty-special-chars on\n";
+    let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+    assert_eq!(accepted_line(&bash).as_deref(), Some("abX"), "{bash}");
+    assert_eq!(
+        accepted_line(&sushline).as_deref(),
+        Some("abX"),
+        "{sushline}"
+    );
+}
+
 #[test]
 fn bash_readline_and_sushline_accept_same_backspace_edit() {
     let keys = b"abc\x7fd\r";

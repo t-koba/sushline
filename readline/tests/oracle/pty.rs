@@ -700,6 +700,166 @@ pub(super) fn run_bash_prompt_with_history(keys: &[u8], inputrc: &str, history: 
     run_pty_steps_until(command, &steps, "SUSHLINE_ACCEPTED:")
 }
 
+#[cfg(target_os = "linux")]
+pub(super) fn run_bash_readline_with_canonical_paste_eof() -> String {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let inputrc_path = dir.path().join("inputrc");
+    fs::write(&inputrc_path, "set enable-bracketed-paste on\n").expect("write inputrc");
+    let mut command = CommandBuilder::new("bash");
+    command.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
+    command.args([
+        "--noprofile",
+        "--norc",
+        "-i",
+        "-c",
+        &format!(
+            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+        ),
+    ]);
+    run_pty_with_canonical_paste_eof(command)
+}
+
+#[cfg(target_os = "linux")]
+pub(super) fn run_sushline_harness_with_canonical_paste_eof() -> String {
+    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    command.env("SUSHLINE_INPUTRC", "set enable-bracketed-paste on\n");
+    command.env("SUSHLINE_PROMPT", READY_PROMPT);
+    command.env("SUSHLINE_HISTORY", "");
+    run_pty_with_canonical_paste_eof(command)
+}
+
+#[cfg(target_os = "linux")]
+fn run_pty_with_canonical_paste_eof(mut command: CommandBuilder) -> String {
+    command.env("TERM", "xterm-256color");
+    command.cwd("/");
+    let pty_system = NativePtySystem::default();
+    let pair = pty_system
+        .openpty(PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .expect("open pty");
+    let mut child = pair.slave.spawn_command(command).expect("spawn command");
+    drop(pair.slave);
+
+    let master_fd = pair.master.as_raw_fd().expect("PTY master file descriptor");
+    let mut reader = pair.master.try_clone_reader().expect("pty reader");
+    let mut writer = pair.master.take_writer().expect("pty writer");
+    let (tx, rx) = mpsc::channel();
+    let reader_thread = thread::spawn(move || {
+        let mut buf = [0_u8; 1024];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if tx.send(buf[..n].to_vec()).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut output = Vec::new();
+    let mut sent_eof_input = false;
+    let mut eof_checkpoint_seen = false;
+    let mut child_alive_at_eof_checkpoint = false;
+    let mut master_open_at_eof_checkpoint = false;
+    let mut accepted_before_followup = false;
+    let mut sent_followup = false;
+
+    while Instant::now() < deadline {
+        match rx.recv_timeout(Duration::from_millis(20)) {
+            Ok(chunk) => {
+                output.extend_from_slice(&chunk);
+                if !sent_eof_input && find_bytes(&output, READY_PROMPT.as_bytes()).is_some() {
+                    let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
+                    let get_rc = unsafe { libc::tcgetattr(master_fd, termios.as_mut_ptr()) };
+                    assert_eq!(
+                        get_rc,
+                        0,
+                        "read PTY termios: {}",
+                        std::io::Error::last_os_error()
+                    );
+                    let mut termios = unsafe { termios.assume_init() };
+                    termios.c_lflag |= libc::ICANON;
+                    termios.c_lflag &= !libc::ECHO;
+                    termios.c_cc[libc::VEOF] = 0x04;
+                    let set_rc = unsafe { libc::tcsetattr(master_fd, libc::TCSANOW, &termios) };
+                    assert_eq!(
+                        set_rc,
+                        0,
+                        "set PTY termios: {}",
+                        std::io::Error::last_os_error()
+                    );
+                    // In canonical mode, the first VEOF releases the queued paste bytes;
+                    // the second creates a zero-byte read without closing the PTY master.
+                    writer
+                        .write_all(b"\x1b[200~partial\x04\x04")
+                        .expect("write paste and VEOF bytes");
+                    writer.flush().expect("flush paste and VEOF bytes");
+                    sent_eof_input = true;
+                }
+                if sent_eof_input && !sent_followup && find_bytes(&output, b"partial").is_some() {
+                    eof_checkpoint_seen = true;
+                    accepted_before_followup = find_bytes(&output, b"SUSHLINE_ACCEPTED:").is_some();
+                    child_alive_at_eof_checkpoint = child
+                        .try_wait()
+                        .expect("check child after true EOF")
+                        .is_none();
+                    let mut probe = std::mem::MaybeUninit::<libc::termios>::uninit();
+                    master_open_at_eof_checkpoint =
+                        unsafe { libc::tcgetattr(master_fd, probe.as_mut_ptr()) == 0 };
+                    writer.write_all(b"\n").expect("write post-EOF newline");
+                    writer.flush().expect("flush post-EOF newline");
+                    sent_followup = true;
+                }
+                if stop_marker_line_complete(&output, "SUSHLINE_ACCEPTED:") {
+                    break;
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+
+    let saw_accepted_line = stop_marker_line_complete(&output, "SUSHLINE_ACCEPTED:");
+    let output_text = lossy_output(&output);
+    let _ = child.kill();
+    let _ = child.wait();
+    drop(writer);
+    drop(pair.master);
+    let _ = reader_thread.join();
+
+    assert!(sent_eof_input, "PTY prompt not observed: {output_text}");
+    assert!(
+        eof_checkpoint_seen,
+        "partial paste was not redisplayed after EOF: {output_text}"
+    );
+    assert!(
+        child_alive_at_eof_checkpoint,
+        "child terminated at the EOF checkpoint: {output_text}"
+    );
+    assert!(
+        master_open_at_eof_checkpoint,
+        "PTY master closed at the EOF checkpoint: {output_text}"
+    );
+    assert!(
+        !accepted_before_followup,
+        "line accepted before the follow-up LF: {output_text}"
+    );
+    assert!(sent_followup, "follow-up LF was not sent: {output_text}");
+    assert!(
+        saw_accepted_line,
+        "accepted line not observed: {output_text}"
+    );
+    output_text
+}
+
 pub(super) fn run_pty(command: CommandBuilder, keys: &[u8]) -> String {
     run_pty_with_size(
         command,
@@ -1115,13 +1275,16 @@ pub(super) fn run_pty_checkpoints(
             }
         }
     });
+    // A short idle period can snapshot before delayed PTY redisplay arrives
+    // when several oracle processes are scheduled concurrently.
+    let idle_period = Duration::from_millis(100);
     let deadline = Instant::now() + Duration::from_secs(20);
     let mut output = Vec::new();
     let mut frames = Vec::new();
     let mut sent = 0;
     let mut ready = false;
     while Instant::now() < deadline {
-        match rx.recv_timeout(Duration::from_millis(40)) {
+        match rx.recv_timeout(idle_period) {
             Ok(chunk) => {
                 output.extend_from_slice(&chunk);
                 ready |= find_bytes(&output, prompt.as_bytes()).is_some();

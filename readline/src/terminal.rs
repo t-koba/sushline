@@ -580,7 +580,10 @@ fn read_raw_event(timeout: Option<Duration>) -> io::Result<TerminalEvent> {
         return read_error_event(io::Error::last_os_error());
     }
     if read == 0 {
-        return Ok(TerminalEvent::Timeout);
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "terminal input reached EOF",
+        ));
     }
     Ok(TerminalEvent::Bytes(buf[..read as usize].to_vec()))
 }

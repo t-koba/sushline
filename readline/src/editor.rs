@@ -300,7 +300,18 @@ where
                 continue;
             }
 
-            let event = self.terminal.read_event(self.keyseq_timeout())?;
+            let event = match self.terminal.read_event(self.keyseq_timeout()) {
+                Ok(event) => event,
+                Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => {
+                    if state.paste.bracketed_paste {
+                        self.finish_bracketed_paste_on_eof(&mut state);
+                        self.render(&mut state)?;
+                        continue;
+                    }
+                    return self.finish_outcome(&mut state, EditorOutcome::Eof);
+                }
+                Err(error) => return Err(error.into()),
+            };
 
             match event {
                 TerminalEvent::Timeout => {

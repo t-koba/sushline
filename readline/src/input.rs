@@ -169,6 +169,20 @@ where
         Ok(EditorOutcome::Continue)
     }
 
+    pub(super) fn finish_bracketed_paste_on_eof(&mut self, state: &mut EditorState) {
+        let start = state
+            .paste
+            .bracketed_paste_start
+            .take()
+            .unwrap_or_else(|| state.buffer.point());
+        let pending = std::mem::take(&mut state.paste.bracketed_paste_pending);
+        state.paste.bracketed_paste = false;
+        if !pending.is_empty() {
+            self.insert_literal(state, &pending, false);
+        }
+        state.mark = Some(start);
+    }
+
     fn handle_replace_input(
         &mut self,
         state: &mut EditorState,

@@ -2457,6 +2457,7 @@ fn bash_and_sushline_hold_unterminated_paste_until_end_but_handle_cr_differently
     let inputrc_path = dir.path().join("inputrc");
     fs::write(&inputrc_path, inputrc).expect("write inputrc");
     let mut bash = CommandBuilder::new("bash");
+    bash.env("LC_ALL", "C");
     bash.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
     let script = format!(
         r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line"; sleep 5"#
@@ -2464,6 +2465,7 @@ fn bash_and_sushline_hold_unterminated_paste_until_end_but_handle_cr_differently
     bash.args(["--noprofile", "--norc", "-i", "-c", &script]);
 
     let mut sushline = CommandBuilder::new("sh");
+    sushline.env("LC_ALL", "C");
     sushline.env("SUSHLINE_INPUTRC", inputrc);
     sushline.env("SUSHLINE_PROMPT", READY_PROMPT);
     sushline.env("SUSHLINE_HISTORY", "");

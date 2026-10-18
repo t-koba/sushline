@@ -1100,7 +1100,6 @@ pub(super) fn run_pty_checkpoints(
     size: PtySize,
 ) -> Vec<String> {
     command.env("TERM", "xterm-256color");
-    command.env("LC_ALL", "C");
     command.cwd("/");
     let pair = NativePtySystem::default().openpty(size).expect("open pty");
     let mut child = pair.slave.spawn_command(command).expect("spawn command");

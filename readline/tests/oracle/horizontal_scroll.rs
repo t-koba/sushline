@@ -1,77 +1,89 @@
 use super::pty::*;
 use portable_pty::{CommandBuilder, PtySize};
+use unicode_width::UnicodeWidthChar;
 
-// Deliberately ASCII-only screen replay for these PTY observations, not a
-// Unicode terminal emulator. Compare visible cells/cursor, not redisplay bytes:
-// Bash incrementally updates the screen and Sushline repaints the viewport.
+// Cell-width screen replay for the tested ASCII and wide-Unicode cases, not a
+// full terminal emulator. It ignores SGR and zero-width marks. Compare visible
+// cells/cursor, not redisplay bytes: Bash updates incrementally; Sushline repaints.
 fn screen(output: &str, columns: usize) -> (String, usize) {
-    let mut rows = vec![vec![b' '; columns]];
+    let mut rows = vec![vec![' '; columns]];
     let (mut row, mut col) = (0_usize, 0_usize);
-    let mut bytes = output.bytes().peekable();
-    while let Some(byte) = bytes.next() {
-        if byte == 0x1b {
-            assert_eq!(bytes.next(), Some(b'['), "unsupported escape: {output:?}");
+    let mut chars = output.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            assert_eq!(chars.next(), Some('['), "unsupported escape: {output:?}");
             let mut params = String::new();
             let op = loop {
-                let byte = bytes.next().expect("complete CSI");
-                if (b'@'..=b'~').contains(&byte) {
-                    break byte;
+                let ch = chars.next().expect("complete CSI");
+                if ('@'..='~').contains(&ch) {
+                    break ch;
                 }
-                params.push(byte as char);
+                params.push(ch);
             };
             let n = params.parse::<usize>().unwrap_or(1).max(1);
             match op {
-                b'G' => col = n - 1,
-                b'A' => row = row.saturating_sub(n),
-                b'B' => row += n,
-                b'C' => col += n,
-                b'D' => col = col.saturating_sub(n),
-                b'K' | b'J' => {
-                    rows[row][col.min(columns)..].fill(b' ');
-                    if op == b'J' {
+                'G' => col = n - 1,
+                'A' => row = row.saturating_sub(n),
+                'B' => row += n,
+                'C' => col += n,
+                'D' => col = col.saturating_sub(n),
+                'K' | 'J' => {
+                    rows[row][col.min(columns)..].fill(' ');
+                    if op == 'J' {
                         rows.truncate(row + 1);
                     }
                 }
-                b'@' => {
+                '@' => {
                     for _ in 0..n {
-                        rows[row].insert(col, b' ');
+                        rows[row].insert(col, ' ');
                         rows[row].pop();
                     }
                 }
-                b'P' => {
+                'P' => {
                     for _ in 0..n {
                         rows[row].remove(col);
-                        rows[row].push(b' ');
+                        rows[row].push(' ');
                     }
                 }
-                b'h' | b'l' | b'm' => {}
+                'h' | 'l' | 'm' => {}
                 _ => panic!("unsupported CSI {params}{op:?}: {output:?}"),
             }
         } else {
-            match byte {
-                b'\r' => col = 0,
-                b'\n' => row += 1,
-                b'\x08' => col = col.saturating_sub(1),
-                b' '..=b'~' => {
-                    if col >= columns {
+            match ch {
+                '\r' => col = 0,
+                '\n' => row += 1,
+                '\x08' => col = col.saturating_sub(1),
+                '\x07' => {}
+                ch if !ch.is_control() => {
+                    let width = UnicodeWidthChar::width(ch).unwrap_or(0);
+                    if width == 0 {
+                        continue;
+                    }
+                    if col + width > columns {
                         row += 1;
                         col = 0;
                     }
-                    rows.resize_with(row.max(rows.len() - 1) + 1, || vec![b' '; columns]);
-                    rows[row][col] = byte;
-                    col += 1;
+                    if rows.len() <= row {
+                        rows.resize_with(row + 1, || vec![' '; columns]);
+                    }
+                    rows[row][col] = ch;
+                    for continuation in 1..width {
+                        rows[row][col + continuation] = '\0';
+                    }
+                    col += width;
                 }
-                b'\x07' => {}
-                _ => panic!("non-ASCII screen byte {byte}: {output:?}"),
+                _ => panic!("nonprinting screen character {ch:?}: {output:?}"),
             }
         }
         if rows.len() <= row {
-            rows.resize(row + 1, vec![b' '; columns]);
+            rows.resize_with(row + 1, || vec![' '; columns]);
         }
     }
     (
-        String::from_utf8(rows[row].clone())
-            .unwrap()
+        rows[row]
+            .iter()
+            .filter(|ch| **ch != '\0')
+            .collect::<String>()
             .trim_end()
             .to_string(),
         col,
@@ -79,6 +91,16 @@ fn screen(output: &str, columns: usize) -> (String, usize) {
 }
 
 fn checkpoints(bash: bool, columns: u16, prompt: &str, steps: &[Vec<u8>]) -> Vec<(String, usize)> {
+    checkpoints_with_locale(bash, columns, prompt, steps, "C")
+}
+
+fn checkpoints_with_locale(
+    bash: bool,
+    columns: u16,
+    prompt: &str,
+    steps: &[Vec<u8>],
+    locale: &str,
+) -> Vec<(String, usize)> {
     let dir = tempfile::tempdir().unwrap();
     let inputrc = "set horizontal-scroll-mode on\nset enable-bracketed-paste off\n";
     let mut command = if bash {
@@ -101,7 +123,7 @@ fn checkpoints(bash: bool, columns: u16, prompt: &str, steps: &[Vec<u8>]) -> Vec
         command.env("SUSHLINE_HISTORY", "");
         command
     };
-    command.env("LC_ALL", "C");
+    command.env("LC_ALL", locale);
     let wait_prompt = prompt.replace(['\x01', '\x02'], "");
     run_pty_checkpoints(
         command,
@@ -225,6 +247,28 @@ fn bash_readline_and_sushline_horizontal_scroll_exposes_unwrapped_ansi_prompt_wi
     assert_eq!(
         sushline.last(),
         Some(&(format!("<{}", "a".repeat(65)), 66)),
+        "Sushline"
+    );
+}
+
+#[test]
+fn bash_readline_and_sushline_horizontal_scroll_records_wide_character_clipping() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+    let text = format!("{}中{}", "a".repeat(24), "b".repeat(64));
+    let steps = vec![text.into_bytes()];
+    let bash = checkpoints_with_locale(true, 80, "P>", &steps, "C.UTF-8");
+    let sushline = checkpoints_with_locale(false, 80, "P>", &steps, "C.UTF-8");
+
+    assert_eq!(
+        bash.last(),
+        Some(&(format!("<{}", "b".repeat(51)), 52)),
+        "Bash"
+    );
+    assert_eq!(
+        sushline.last(),
+        Some(&(format!("< {}", "b".repeat(64)), 66)),
         "Sushline"
     );
 }

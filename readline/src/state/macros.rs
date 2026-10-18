@@ -2,12 +2,20 @@ use crate::keymap::{EditCommand, KeyBinding};
 
 use super::EditorState;
 
+/// Maximum number of simultaneously active inputrc macro expansions.
+///
+/// GNU Readline defines `MAX_MACRO_LEVEL` as 16 and rejects the push once
+/// `macro_level > MAX_MACRO_LEVEL`, so 17 nested macro inputs can be active
+/// while the 18th entry fails.
+pub(crate) const MAX_INPUTRC_MACRO_DEPTH: usize = 17;
+
 #[derive(Debug, Default)]
 pub(crate) struct MacroState {
     pub(crate) keyboard_macro: Option<Vec<u8>>,
     pub(crate) last_keyboard_macro: Option<Vec<u8>>,
     pub(crate) replaying_macro: bool,
     pub(crate) last_recorded_self_insert: bool,
+    pub(crate) inputrc_macro_depth: usize,
 }
 
 impl EditorState {

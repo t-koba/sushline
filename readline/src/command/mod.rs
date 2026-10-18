@@ -39,10 +39,40 @@ where
             KeyBinding::Macro(text) => {
                 state.completion.menu_completion = None;
                 state.record_macro_insert_bytes(&text);
+                if state.macro_state.inputrc_macro_depth >= MAX_INPUTRC_MACRO_DEPTH {
+                    return Ok(EditorOutcome::MacroOverflow);
+                }
+                let previous_replaying = state.macro_state.replaying_macro;
+                state.macro_state.inputrc_macro_depth += 1;
                 state.macro_state.replaying_macro = true;
-                let outcome = self.handle_bytes(state, &text, hooks)?;
-                state.macro_state.replaying_macro = false;
-                Ok(outcome)
+                let result = self.handle_bytes(state, &text, hooks);
+                state.macro_state.inputrc_macro_depth -= 1;
+                state.macro_state.replaying_macro = previous_replaying;
+                let outcome = result?;
+                match outcome {
+                    EditorOutcome::MacroOverflow => {
+                        if state.macro_state.inputrc_macro_depth == 0 {
+                            // Outermost inputrc macro frame: abort every
+                            // active macro suffix, keep physical bytes queued
+                            // by the caller, and report the limit once.
+                            // Only the buffered key prefix can belong to the
+                            // discarded macro suffix, so clear that pending
+                            // dispatch state and leave other state intact.
+                            state.input.pending_key.clear();
+                            state.input.prefix_meta_command_len = 0;
+                            self.write_below_rendered_line(
+                                state,
+                                "readline: maximum macro execution nesting level exceeded",
+                            )?;
+                            self.write_tracked_newline(state)?;
+                            self.ding()?;
+                            Ok(EditorOutcome::Continue)
+                        } else {
+                            Ok(EditorOutcome::MacroOverflow)
+                        }
+                    }
+                    outcome => Ok(outcome),
+                }
             }
             KeyBinding::ApplicationCommand(command) => {
                 state.completion.menu_completion = None;

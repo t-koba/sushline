@@ -792,3 +792,76 @@ fn bash_readline_and_sushline_apply_quoted_macros_before_valid_trailing_text() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_bound_direct_inputrc_macro_recursion() {
+    let inputrc = "\"\\C-o\": \"x\\C-oS\"\n\"\\C-p\": \"Q\"\n";
+    // The active macro suffix `S` is discarded; physical `Z` and later
+    // ordinary macros survive in this batch and the following read.
+    let keys = b"\x0fZ\x10R\r\x10\r";
+    let bash = run_bash_readline_two_reads_with_inputrc_file_and_history(keys, inputrc, &[]);
+    let sushline = run_sushline_harness_two_reads_with_inputrc_and_history(keys, inputrc, &[]);
+    let expected_first = format!("{}ZQR", "x".repeat(17));
+
+    assert_eq!(
+        accepted_numbered_line(&bash, 1).as_deref(),
+        Some(expected_first.as_str()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_numbered_line(&sushline, 1).as_deref(),
+        Some(expected_first.as_str()),
+        "{sushline}"
+    );
+    assert_eq!(
+        accepted_numbered_line(&bash, 2).as_deref(),
+        Some("Q"),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_numbered_line(&sushline, 2).as_deref(),
+        Some("Q"),
+        "{sushline}"
+    );
+    for output in [&bash, &sushline] {
+        assert_eq!(
+            output
+                .matches("readline: maximum macro execution nesting level exceeded")
+                .count(),
+            1,
+            "{output}"
+        );
+        assert_eq!(bell_count(output), 1, "{output}");
+    }
+}
+
+#[test]
+fn bash_and_sushline_bound_indirect_inputrc_macro_recursion() {
+    let inputrc = "\"\\C-o\": \"x\\C-p\"\n\"\\C-p\": \"\\C-o\"\n";
+    // Single-batch input proves the physical suffix survives the unwind.
+    let keys = b"\x0fZ\r";
+    let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+    let expected = format!("{}Z", "x".repeat(9));
+
+    assert_eq!(
+        accepted_line(&bash).as_deref(),
+        Some(expected.as_str()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline).as_deref(),
+        Some(expected.as_str()),
+        "{sushline}"
+    );
+    for output in [&bash, &sushline] {
+        assert_eq!(
+            output
+                .matches("readline: maximum macro execution nesting level exceeded")
+                .count(),
+            1,
+            "{output}"
+        );
+        assert_eq!(bell_count(output), 1, "{output}");
+    }
+}

@@ -719,6 +719,15 @@ fn match_bracket_class_bytes(pattern_after_open: &[u8], value: u8) -> Option<(bo
     let mut saw_member = false;
     while idx < pattern_after_open.len() {
         let ch = pattern_after_open[idx];
+        if ch == b'\\'
+            && idx + 1 < pattern_after_open.len()
+            && matches!(pattern_after_open[idx + 1], b'[' | b']')
+        {
+            saw_member = true;
+            matched |= pattern_after_open[idx + 1] == value;
+            idx += 2;
+            continue;
+        }
         if ch == b']' && saw_member {
             return Some((matched != negated, &pattern_after_open[idx + 1..]));
         }
@@ -791,6 +800,15 @@ fn match_bracket_class(pattern_after_open: &[char], value: char) -> Option<(bool
     let mut saw_member = false;
     while idx < pattern_after_open.len() {
         let ch = pattern_after_open[idx];
+        if ch == '\\'
+            && idx + 1 < pattern_after_open.len()
+            && matches!(pattern_after_open[idx + 1], '[' | ']')
+        {
+            saw_member = true;
+            matched |= pattern_after_open[idx + 1] == value;
+            idx += 2;
+            continue;
+        }
         if ch == ']' && saw_member {
             return Some((matched != negated, &pattern_after_open[idx + 1..]));
         }
@@ -1077,6 +1095,19 @@ mod tests {
             false,
             lowercase,
         ));
+    }
+
+    #[test]
+    fn glob_bracket_classes_match_escaped_open_and_close_delimiters() {
+        assert!(glob_match(r"[\]]", "]"));
+        assert!(glob_match(r"[\[]", "["));
+        assert!(!glob_match(r"[\]]", "["));
+        assert!(!glob_match(r"[\[]", "]"));
+
+        assert!(glob_match_filename_bytes(b"[\\]]", b"]", false));
+        assert!(glob_match_filename_bytes(b"[\\[]", b"[", false));
+        assert!(glob_match_filename_bytes(b"[\\]]", b"]", true));
+        assert!(glob_match_filename_bytes(b"[\\[]", b"[", true));
     }
 
     #[test]

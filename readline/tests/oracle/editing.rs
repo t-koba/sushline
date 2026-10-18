@@ -2552,6 +2552,25 @@ fn bash_and_sushline_hold_unterminated_paste_until_end_but_handle_cr_differently
 }
 
 #[test]
+fn bash_and_sushline_match_cr_splitting_partial_paste_end_marker() {
+    let keys = b"\x1b[200~abc\x1b[201\r~\x1b[201~\r";
+    let inputrc = "set enable-bracketed-paste on\n";
+    let bash = run_bash_readline_with_term(keys, inputrc, Some("xterm-256color"));
+    let sushline = run_sushline_harness_with_term(keys, inputrc, Some("xterm-256color"));
+
+    assert_eq!(
+        accepted_line(&bash).as_deref(),
+        Some("abc\x1b[201"),
+        "{bash:?}"
+    );
+    assert_eq!(
+        accepted_line(&sushline).as_deref(),
+        Some("abc\x1b[201"),
+        "{sushline:?}"
+    );
+}
+
+#[test]
 fn bash_and_sushline_match_complete_bracketed_paste_fixtures() {
     let framed_paste = b"\x1b[200~abc\x1b[201~\r";
     for (term, inputrc) in [

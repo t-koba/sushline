@@ -2,11 +2,11 @@ use super::pty::*;
 use portable_pty::{CommandBuilder, PtySize};
 use unicode_width::UnicodeWidthChar;
 
-// Cell-width screen replay for the tested ASCII and wide-Unicode cases, not a
-// full terminal emulator. It ignores SGR and zero-width marks. Compare visible
-// cells/cursor, not redisplay bytes: Bash updates incrementally; Sushline repaints.
+// Cell-width screen replay for tested ASCII and Unicode cases, not a full
+// terminal emulator. It ignores SGR and attaches zero-width marks to the last
+// occupied cell. Compare cells/cursor, not redisplay bytes: Bash updates incrementally.
 fn screen(output: &str, columns: usize) -> (String, usize) {
-    let mut rows = vec![vec![' '; columns]];
+    let mut rows = vec![vec![String::from(" "); columns]];
     let (mut row, mut col) = (0_usize, 0_usize);
     let mut chars = output.chars().peekable();
     while let Some(ch) = chars.next() {
@@ -28,21 +28,23 @@ fn screen(output: &str, columns: usize) -> (String, usize) {
                 'C' => col += n,
                 'D' => col = col.saturating_sub(n),
                 'K' | 'J' => {
-                    rows[row][col.min(columns)..].fill(' ');
+                    for cell in &mut rows[row][col.min(columns)..] {
+                        *cell = String::from(" ");
+                    }
                     if op == 'J' {
                         rows.truncate(row + 1);
                     }
                 }
                 '@' => {
                     for _ in 0..n {
-                        rows[row].insert(col, ' ');
+                        rows[row].insert(col, String::from(" "));
                         rows[row].pop();
                     }
                 }
                 'P' => {
                     for _ in 0..n {
                         rows[row].remove(col);
-                        rows[row].push(' ');
+                        rows[row].push(String::from(" "));
                     }
                 }
                 'h' | 'l' | 'm' => {}
@@ -57,6 +59,13 @@ fn screen(output: &str, columns: usize) -> (String, usize) {
                 ch if !ch.is_control() => {
                     let width = UnicodeWidthChar::width(ch).unwrap_or(0);
                     if width == 0 {
+                        let mut base = col.min(columns).saturating_sub(1);
+                        while base > 0 && rows[row][base].is_empty() {
+                            base -= 1;
+                        }
+                        if !rows[row][base].is_empty() {
+                            rows[row][base].push(ch);
+                        }
                         continue;
                     }
                     if col + width > columns {
@@ -64,11 +73,11 @@ fn screen(output: &str, columns: usize) -> (String, usize) {
                         col = 0;
                     }
                     if rows.len() <= row {
-                        rows.resize_with(row + 1, || vec![' '; columns]);
+                        rows.resize_with(row + 1, || vec![String::from(" "); columns]);
                     }
-                    rows[row][col] = ch;
+                    rows[row][col] = ch.to_string();
                     for continuation in 1..width {
-                        rows[row][col + continuation] = '\0';
+                        rows[row][col + continuation].clear();
                     }
                     col += width;
                 }
@@ -76,18 +85,10 @@ fn screen(output: &str, columns: usize) -> (String, usize) {
             }
         }
         if rows.len() <= row {
-            rows.resize_with(row + 1, || vec![' '; columns]);
+            rows.resize_with(row + 1, || vec![String::from(" "); columns]);
         }
     }
-    (
-        rows[row]
-            .iter()
-            .filter(|ch| **ch != '\0')
-            .collect::<String>()
-            .trim_end()
-            .to_string(),
-        col,
-    )
+    (rows[row].concat().trim_end().to_string(), col)
 }
 
 fn checkpoints(bash: bool, columns: u16, prompt: &str, steps: &[Vec<u8>]) -> Vec<(String, usize)> {
@@ -101,6 +102,19 @@ fn checkpoints_with_locale(
     steps: &[Vec<u8>],
     locale: &str,
 ) -> Vec<(String, usize)> {
+    checkpoint_outputs_with_locale(bash, columns, prompt, steps, locale)
+        .iter()
+        .map(|out| screen(out, columns as usize))
+        .collect()
+}
+
+fn checkpoint_outputs_with_locale(
+    bash: bool,
+    columns: u16,
+    prompt: &str,
+    steps: &[Vec<u8>],
+    locale: &str,
+) -> Vec<String> {
     let dir = tempfile::tempdir().unwrap();
     let inputrc = "set horizontal-scroll-mode on\nset enable-bracketed-paste off\n";
     let mut command = if bash {
@@ -136,9 +150,6 @@ fn checkpoints_with_locale(
             pixel_height: 0,
         },
     )
-    .iter()
-    .map(|out| screen(out, columns as usize))
-    .collect()
 }
 
 #[test]
@@ -271,6 +282,29 @@ fn bash_readline_and_sushline_horizontal_scroll_records_wide_character_clipping(
         Some(&(format!("< {}", "b".repeat(64)), 66)),
         "Sushline"
     );
+}
+
+#[test]
+fn bash_readline_and_sushline_horizontal_scroll_keeps_clipped_combining_marks_with_base() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+    let marked = format!("{}e\u{301}{}", "a".repeat(24), "b".repeat(65));
+    let plain = format!("{}e{}", "a".repeat(24), "b".repeat(65));
+    let marked_steps = vec![marked.into_bytes()];
+    let plain_steps = vec![plain.into_bytes()];
+
+    for bash in [true, false] {
+        let marked_output =
+            checkpoint_outputs_with_locale(bash, 80, "P>", &marked_steps, "C.UTF-8");
+        let plain_output = checkpoint_outputs_with_locale(bash, 80, "P>", &plain_steps, "C.UTF-8");
+        let marked_screen = screen(marked_output.last().unwrap(), 80);
+        let plain_screen = screen(plain_output.last().unwrap(), 80);
+
+        assert_eq!(marked_screen, plain_screen, "bash={bash}");
+        assert!(!marked_screen.0.contains('e'), "bash={bash}");
+        assert!(!marked_screen.0.contains('\u{301}'), "bash={bash}");
+    }
 }
 
 #[test]

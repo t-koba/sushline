@@ -299,8 +299,7 @@ where
             .get("completion-query-items")
             .and_then(|value| value.parse::<isize>().ok())
             .unwrap_or(100);
-        let displayed_query = self.flag(BoolVariable::PageCompletions)
-            && query_items > 0
+        let displayed_query = query_items > 0
             && response.candidates.len() > 1
             && response.candidates.len() >= query_items as usize;
         if displayed_query {

@@ -637,6 +637,36 @@ fn possible_completions_uses_query_and_visible_stats() {
 }
 
 #[test]
+fn completion_query_is_independent_of_page_completions() {
+    let response = CompletionResponse {
+        candidates: (0..24)
+            .map(|index| crate::completion::CompletionCandidate {
+                replacement: format!("candidate-{index:02}-{}", "x".repeat(90)).into_bytes(),
+                display: None,
+            })
+            .collect(),
+        options: Default::default(),
+    };
+
+    for (answer, should_display) in [(b"y".as_slice(), true), (b"n".as_slice(), false)] {
+        let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(answer.to_vec())]);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str("set page-completions off\nset completion-query-items 1")
+            .unwrap();
+
+        line.display_completions(&response).unwrap();
+        assert!(line.terminal.out.contains("Display all 24 possibilities?"));
+        assert_eq!(
+            line.terminal.out.contains("candidate-00-"),
+            should_display,
+            "answer={answer:?} output={:?}",
+            line.terminal.out
+        );
+        assert!(!line.terminal.out.contains("--More--"));
+    }
+}
+
+#[test]
 fn visible_stats_marks_file_types_for_filename_completions() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir(dir.path().join("dir")).unwrap();

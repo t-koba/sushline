@@ -77,10 +77,7 @@ impl EditorState {
         self.input.quoted_insert = false;
         self.input.skipping_csi = false;
         self.input.csi_sequence_started = false;
-        self.numeric_arg = None;
-        self.numeric_arg_sign_only = false;
-        self.numeric_arg_negative = false;
-        self.numeric_arg_universal = false;
+        self.take_numeric_arg();
         self.search.reverse_search = None;
         self.search.non_incremental_search = None;
         self.search.quoted_pending = false;
@@ -114,10 +111,15 @@ impl EditorState {
         {
             return;
         }
-        self.numeric_arg.take();
+        self.take_numeric_arg();
+    }
+
+    pub(crate) fn take_numeric_arg(&mut self) -> Option<i32> {
+        let arg = self.numeric_arg.take();
         self.numeric_arg_sign_only = false;
         self.numeric_arg_negative = false;
         self.numeric_arg_universal = false;
+        arg
     }
 
     pub(crate) fn after_self_insert(&mut self) {

@@ -588,6 +588,62 @@ fn bash_readline_and_sushline_accept_same_keyboard_macro_with_command() {
 }
 
 #[test]
+fn bash_and_sushline_apply_numeric_arguments_to_whole_keyboard_macro() {
+    for (name, keys, expected, bash_bells) in [
+        (
+            "repeat whole body twice",
+            b"\x18(a\x01b\x18)\x1b2\x18e\r".as_slice(),
+            "bbabaa",
+            0,
+        ),
+        (
+            "zero repetitions",
+            b"\x18(a\x01b\x18)\x1b0\x18eZ\r".as_slice(),
+            "bZa",
+            0,
+        ),
+        (
+            "negative repetitions",
+            b"\x18(a\x01b\x18)\x1b-\x18eZ\r".as_slice(),
+            "bZa",
+            1,
+        ),
+        (
+            "repeat backward-edit body three times",
+            b"\x18(a\x02b\x18)\x1b3\x18e\r".as_slice(),
+            "bbbbaaaa",
+            0,
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, "");
+        let sushline = run_sushline_harness_with_inputrc(keys, "");
+
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "Bash {name}: {bash:?}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "Sushline {name}: {sushline:?}"
+        );
+        assert_eq!(bell_count(&bash), bash_bells, "Bash {name}: {bash:?}");
+        assert_eq!(bell_count(&sushline), 0, "Sushline {name}: {sushline:?}");
+        if name == "negative repetitions" {
+            assert!(
+                bash.contains("readline: maximum macro execution nesting level exceeded"),
+                "Bash {name}: {bash:?}"
+            );
+            assert!(
+                !sushline.contains("readline: maximum macro execution nesting level exceeded"),
+                "Sushline {name}: {sushline:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_replay_same_keyboard_macro_edge_cases() {
     for keys in [
         b"\x18(a\x18)\x1b3\x18e\r".as_slice(),

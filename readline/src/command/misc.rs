@@ -30,10 +30,24 @@ where
                     return Ok(EditorOutcome::Continue);
                 }
                 if let Some(macro_bytes) = state.macro_state.last_keyboard_macro.clone() {
+                    let count = state.take_numeric_arg().unwrap_or(1);
+                    if count <= 0 {
+                        state.after_non_kill_command();
+                        return Ok(EditorOutcome::Continue);
+                    }
                     state.macro_state.replaying_macro = true;
-                    let outcome = self.handle_bytes(state, &macro_bytes, hooks)?;
+                    let outcome = (|| -> Result<EditorOutcome, ReadlineError> {
+                        let mut outcome = EditorOutcome::Continue;
+                        for _ in 0..count as u32 {
+                            outcome = self.handle_bytes(state, &macro_bytes, hooks)?;
+                            if !matches!(outcome, EditorOutcome::Continue) {
+                                break;
+                            }
+                        }
+                        Ok(outcome)
+                    })();
                     state.macro_state.replaying_macro = false;
-                    Ok(outcome)
+                    outcome
                 } else {
                     state.after_non_kill_command();
                     Ok(EditorOutcome::Continue)
@@ -70,10 +84,7 @@ where
                             state.numeric_arg_universal = true;
                         }
                         None => {
-                            state.numeric_arg = None;
-                            state.numeric_arg_sign_only = false;
-                            state.numeric_arg_negative = false;
-                            state.numeric_arg_universal = false;
+                            state.take_numeric_arg();
                             self.ding()?;
                         }
                     }

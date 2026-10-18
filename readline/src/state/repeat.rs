@@ -131,10 +131,7 @@ pub(crate) fn update_numeric_argument(state: &mut EditorState, key: &[u8]) -> bo
                     false
                 }
                 None => {
-                    state.numeric_arg = None;
-                    state.numeric_arg_sign_only = false;
-                    state.numeric_arg_negative = false;
-                    state.numeric_arg_universal = false;
+                    state.take_numeric_arg();
                     true
                 }
             }

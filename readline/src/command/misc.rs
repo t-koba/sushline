@@ -78,6 +78,7 @@ where
                     return Ok(EditorOutcome::Continue);
                 }
                 if count <= 0 {
+                    state.macro_state.last_keyboard_macro = None;
                     self.write_below_rendered_line(
                         state,
                         "readline: maximum macro execution nesting level exceeded",

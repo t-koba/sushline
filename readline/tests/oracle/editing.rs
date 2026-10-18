@@ -807,6 +807,36 @@ fn bash_and_sushline_apply_numeric_arguments_to_end_keyboard_macro() {
 }
 
 #[test]
+fn bash_and_sushline_discard_macro_after_nonpositive_end_count() {
+    for (name, argument) in [
+        ("M-0", b"\x1b0".as_slice()),
+        ("sign-only M-minus", b"\x1b-".as_slice()),
+    ] {
+        let mut keys = b"\x18(a".to_vec();
+        keys.extend_from_slice(argument);
+        keys.extend_from_slice(b"\x18)\x18eZ\r");
+        let bash = run_bash_readline_with_inputrc_file(&keys, "");
+        let sushline = run_sushline_harness_with_inputrc(&keys, "");
+
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some("aZ"),
+                "{editor} {name}: {output:?}"
+            );
+            assert_eq!(bell_count(output), 2, "{editor} {name}: {output}");
+            assert_eq!(
+                output
+                    .matches("readline: maximum macro execution nesting level exceeded")
+                    .count(),
+                1,
+                "{editor} {name}: {output}"
+            );
+        }
+    }
+}
+
+#[test]
 fn bash_and_sushline_ring_once_when_calling_last_macro_without_a_definition() {
     for keys in [b"\x18eZ\r".as_slice(), b"\x1b3\x18eZ\r".as_slice()] {
         let bash = run_bash_readline_with_inputrc_file(keys, "");

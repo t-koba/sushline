@@ -396,6 +396,56 @@ fn does_not_strip_non_utf8_comments_from_set_directives() {
 }
 
 #[test]
+fn parses_quoted_macros_before_non_utf8_trailing_bytes() {
+    for (line, key, expected) in [
+        (
+            br##""\C-o": "hello" trailing "##.as_slice(),
+            &[0x0f][..],
+            b"hello".as_slice(),
+        ),
+        (
+            br##""\C-p": 'world' # comment "##.as_slice(),
+            &[0x10][..],
+            b"world".as_slice(),
+        ),
+    ] {
+        let mut bytes = line.to_vec();
+        bytes.push(0xff);
+        bytes.push(b'\n');
+        let mut keymap = KeyMap::emacs_default();
+        let mut variables = Variables::new();
+
+        InputrcParser::new()
+            .parse_bytes(&bytes, &Config::default(), &mut keymap, &mut variables)
+            .unwrap();
+
+        assert_eq!(
+            keymap.lookup(KeyMapName::EmacsStandard, key),
+            Some(&KeyBinding::Macro(expected.to_vec()))
+        );
+    }
+}
+
+#[test]
+fn does_not_salvage_invalid_bytes_inside_a_quoted_macro() {
+    let mut bytes = br##""\C-q": "before "##.to_vec();
+    bytes.push(0xff);
+    bytes.extend_from_slice(b" after\"\n");
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+
+    InputrcParser::new()
+        .parse_bytes(&bytes, &Config::default(), &mut keymap, &mut variables)
+        .unwrap();
+
+    assert!(
+        keymap
+            .lookup(KeyMapName::EmacsStandard, &[0x11])
+            .is_some_and(|binding| !matches!(binding, KeyBinding::Macro(_)))
+    );
+}
+
+#[test]
 fn non_utf8_comment_bytes_do_not_fail_surrounding_lines() {
     // Valid lines survive a Latin-1 0xFF comment byte; eight-bit escapes
     // still decode to bytes.

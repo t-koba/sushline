@@ -136,11 +136,11 @@ impl InputrcParser {
             let decoded = match std::str::from_utf8(trimmed_bytes) {
                 Ok(decoded) => decoded,
                 Err(_) => {
-                    // GNU parses the first command word of a binding and
-                    // ignores trailing text. Keep invalid bytes out of the
-                    // key/command syntax, and do not apply this rule to set
+                    // GNU accepts a complete binding command or quoted
+                    // macro and ignores trailing text. Keep invalid bytes
+                    // out of key/value syntax; do not apply this rule to set
                     // directives or other inputrc lines.
-                    let Some(prefix_end) = binding_command_prefix_end(trimmed_bytes) else {
+                    let Some(prefix_end) = binding_value_prefix_end(trimmed_bytes) else {
                         continue;
                     };
                     let Ok(decoded) = std::str::from_utf8(&trimmed_bytes[..prefix_end]) else {
@@ -270,7 +270,7 @@ fn split_inputrc_lines(source: &[u8]) -> impl Iterator<Item = &[u8]> {
     parts.into_iter()
 }
 
-fn binding_command_prefix_end(line: &[u8]) -> Option<usize> {
+fn binding_value_prefix_end(line: &[u8]) -> Option<usize> {
     let trimmed = trim_ascii(line);
     if trimmed.starts_with(b"$")
         || (trimmed.len() > 3
@@ -315,7 +315,21 @@ fn binding_command_prefix_end(line: &[u8]) -> Option<usize> {
         .count();
     let command_start = colon + 1 + leading;
     let value = &line[command_start..];
-    if matches!(value.first(), Some(b'"' | b'\'')) {
+    if let Some(quote @ (b'"' | b'\'')) = value.first().copied() {
+        let mut escaped = false;
+        for (offset, byte) in value.iter().copied().enumerate().skip(1) {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            if byte == b'\\' {
+                escaped = true;
+                continue;
+            }
+            if byte == quote {
+                return Some(command_start + offset + 1);
+            }
+        }
         return None;
     }
     let command_len = value.iter().position(|byte| byte.is_ascii_whitespace())?;
@@ -553,7 +567,8 @@ fn find_unquoted_colon(line: &str) -> Option<usize> {
 }
 
 fn is_quoted(value: &str) -> bool {
-    value.len() >= 2 && value.starts_with('"') && value.ends_with('"')
+    let bytes = value.as_bytes();
+    bytes.len() >= 2 && matches!(bytes.first(), Some(b'"' | b'\'')) && bytes.first() == bytes.last()
 }
 
 fn normalize_variable_value(name: &str, value: &str) -> Option<String> {
@@ -642,9 +657,15 @@ fn decode_inputrc_string(value: &str) -> Result<String, String> {
 }
 
 fn decode_inputrc_bytes(value: &str, meta_prefix: bool) -> Result<Vec<u8>, String> {
+    let quote = value
+        .as_bytes()
+        .first()
+        .copied()
+        .filter(|quote| matches!(quote, b'"' | b'\''))
+        .ok_or_else(|| "expected quoted string".to_string())? as char;
     let inner = value
-        .strip_prefix('"')
-        .and_then(|value| value.strip_suffix('"'))
+        .strip_prefix(quote)
+        .and_then(|value| value.strip_suffix(quote))
         .ok_or_else(|| "expected quoted string".to_string())?;
     let keyseq = KeySequence::parse_with_meta(&format!("\"{inner}\""), meta_prefix)?;
     Ok(keyseq.bytes().to_vec())

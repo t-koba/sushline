@@ -565,3 +565,46 @@ fn bash_readline_and_sushline_apply_binding_before_bare_invalid_trailing_bytes()
         "{sushline}"
     );
 }
+
+#[test]
+fn bash_readline_and_sushline_apply_quoted_macros_before_non_utf8_trailing_bytes() {
+    for line in [
+        br##""\C-o": "hello" trailing "##.as_slice(),
+        br##""\C-o": 'hello' # comment "##.as_slice(),
+    ] {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("inputrc");
+        let mut inputrc = line.to_vec();
+        inputrc.push(0xff);
+        inputrc.push(b'\n');
+        fs::write(&path, inputrc).expect("write inputrc");
+        let keys = b"\x0f\r";
+        let bash = run_bash_readline_with_inputrc_path(keys, &path);
+        let sushline = run_sushline_harness_with_inputrc_path(keys, &path);
+
+        assert_eq!(accepted_line(&bash).as_deref(), Some("hello"), "{bash:?}");
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some("hello"),
+            "{sushline:?}"
+        );
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_decode_single_quoted_macro_escapes() {
+    let inputrc = br##""\C-o": '\C-aX'"##;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    fs::write(&path, inputrc).expect("write inputrc");
+    let keys = b"abc\x0f\r";
+    let bash = run_bash_readline_with_inputrc_path(keys, &path);
+    let sushline = run_sushline_harness_with_inputrc_path(keys, &path);
+
+    assert_eq!(accepted_line(&bash).as_deref(), Some("Xabc"), "{bash:?}");
+    assert_eq!(
+        accepted_line(&sushline).as_deref(),
+        Some("Xabc"),
+        "{sushline:?}"
+    );
+}

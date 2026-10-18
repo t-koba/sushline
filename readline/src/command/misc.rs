@@ -74,7 +74,12 @@ where
                 state.take_numeric_arg();
                 state.after_non_kill_command();
 
-                if !was_recording || count == 1 {
+                if !was_recording {
+                    state.macro_state.last_keyboard_macro = None;
+                    self.ding()?;
+                    return Ok(EditorOutcome::Continue);
+                }
+                if count == 1 {
                     return Ok(EditorOutcome::Continue);
                 }
                 if count <= 0 {

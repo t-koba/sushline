@@ -701,7 +701,7 @@ pub(super) fn run_bash_prompt_with_history(keys: &[u8], inputrc: &str, history: 
 }
 
 #[cfg(target_os = "linux")]
-pub(super) fn run_bash_readline_with_canonical_paste_eof() -> String {
+pub(super) fn run_bash_readline_with_canonical_paste_eof(suffix: &[u8]) -> String {
     let dir = tempfile::tempdir().expect("tempdir");
     let inputrc_path = dir.path().join("inputrc");
     fs::write(&inputrc_path, "set enable-bracketed-paste on\n").expect("write inputrc");
@@ -716,20 +716,20 @@ pub(super) fn run_bash_readline_with_canonical_paste_eof() -> String {
             r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
         ),
     ]);
-    run_pty_with_canonical_paste_eof(command)
+    run_pty_with_canonical_paste_eof(command, suffix)
 }
 
 #[cfg(target_os = "linux")]
-pub(super) fn run_sushline_harness_with_canonical_paste_eof() -> String {
+pub(super) fn run_sushline_harness_with_canonical_paste_eof(suffix: &[u8]) -> String {
     let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
     command.env("SUSHLINE_INPUTRC", "set enable-bracketed-paste on\n");
     command.env("SUSHLINE_PROMPT", READY_PROMPT);
     command.env("SUSHLINE_HISTORY", "");
-    run_pty_with_canonical_paste_eof(command)
+    run_pty_with_canonical_paste_eof(command, suffix)
 }
 
 #[cfg(target_os = "linux")]
-fn run_pty_with_canonical_paste_eof(mut command: CommandBuilder) -> String {
+fn run_pty_with_canonical_paste_eof(mut command: CommandBuilder, suffix: &[u8]) -> String {
     command.env("TERM", "xterm-256color");
     command.cwd("/");
     let pty_system = NativePtySystem::default();
@@ -798,8 +798,11 @@ fn run_pty_with_canonical_paste_eof(mut command: CommandBuilder) -> String {
                     );
                     // In canonical mode, the first VEOF releases the queued paste bytes;
                     // the second creates a zero-byte read without closing the PTY master.
+                    let mut paste = b"\x1b[200~partial".to_vec();
+                    paste.extend_from_slice(suffix);
+                    paste.extend_from_slice(b"\x04\x04");
                     writer
-                        .write_all(b"\x1b[200~partial\x04\x04")
+                        .write_all(&paste)
                         .expect("write paste and VEOF bytes");
                     writer.flush().expect("flush paste and VEOF bytes");
                     sent_eof_input = true;

@@ -2938,13 +2938,32 @@ fn bash_and_sushline_match_complete_bracketed_paste_fixtures() {
 fn bash_and_sushline_insert_partial_bracketed_paste_at_true_pty_eof() {
     // The PTY master stays open. Canonical VEOF releases the partial paste and
     // produces a zero-byte read; the child must remain alive until the later LF.
-    let bash = run_bash_readline_with_canonical_paste_eof();
-    let sushline = run_sushline_harness_with_canonical_paste_eof();
+    let bash = run_bash_readline_with_canonical_paste_eof(b"");
+    let sushline = run_sushline_harness_with_canonical_paste_eof(b"");
 
     assert_eq!(accepted_line(&bash).as_deref(), Some("partial"), "{bash}");
     assert_eq!(
         accepted_line(&sushline).as_deref(),
         Some("partial"),
+        "{sushline}"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn bash_and_sushline_insert_partial_end_marker_at_true_pty_eof() {
+    let suffix = b"\x1b[201";
+    let bash = run_bash_readline_with_canonical_paste_eof(suffix);
+    let sushline = run_sushline_harness_with_canonical_paste_eof(suffix);
+
+    assert_eq!(
+        accepted_line(&bash).as_deref(),
+        Some("partial\x1b[201"),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline).as_deref(),
+        Some("partial\x1b[201"),
         "{sushline}"
     );
 }

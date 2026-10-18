@@ -212,7 +212,9 @@ mod terminal_signal_options {
                 Some((true, true)),
             ] {
                 for signal in SIGNALS {
-                    let handler = if ignore && [libc::SIGALRM, libc::SIGWINCH].contains(&signal) {
+                    let handler = if ignore
+                        && [libc::SIGALRM, libc::SIGQUIT, libc::SIGWINCH].contains(&signal)
+                    {
                         libc::SIG_IGN
                     } else if signal == libc::SIGQUIT {
                         libc::SIG_DFL
@@ -274,6 +276,14 @@ mod terminal_signal_options {
                         TerminalEvent::Timeout
                     }
                 );
+                if ignore {
+                    assert_eq!(unsafe { libc::raise(libc::SIGQUIT) }, 0);
+                    assert_eq!(
+                        terminal.read_event(Some(Duration::ZERO)).unwrap(),
+                        TerminalEvent::Timeout,
+                        "inherited SIG_IGN keeps SIGQUIT ignored"
+                    );
+                }
 
                 // Setters do not change an active installation, nor do they
                 // determine which saved actions restoration must restore.

@@ -121,7 +121,7 @@ fn bash_readline_and_sushline_skip_unknown_named_user_include() {
 }
 
 #[test]
-fn bash_readline_and_sushline_expand_current_home_named_user() {
+fn bash_readline_and_sushline_expand_current_home_named_user_when_traversable() {
     use std::path::Path;
 
     let Some(home) = std::env::var_os("HOME")
@@ -163,6 +163,10 @@ fn bash_readline_and_sushline_expand_current_home_named_user() {
         "../".repeat(passwd_home.components().count()),
         target.display()
     );
+    if fs::metadata(passwd_home.join(&relative)).is_err() {
+        eprintln!("skip named-user inputrc oracle: passwd home cannot reach the fixture");
+        return;
+    }
     let inputrc = format!("\"\\C-o\": \"Q\"\n$include ~{username}/{relative}\n");
     let fake_home = dir.path().join("empty-home");
     fs::create_dir(&fake_home).expect("create empty HOME");

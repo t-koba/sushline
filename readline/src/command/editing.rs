@@ -269,7 +269,20 @@ where
                     self.complete(state, key, CompletionType::PossibleCompletions, hooks)?;
                 } else {
                     state.record_undo();
-                    state.buffer.delete_char();
+                    let arg = state.take_numeric_arg().unwrap_or(1);
+                    if arg > 0 {
+                        for _ in 0..arg as u32 {
+                            if !state.buffer.delete_char() {
+                                break;
+                            }
+                        }
+                    } else {
+                        for _ in 0..arg.unsigned_abs() {
+                            if !state.buffer.backward_delete_char() {
+                                break;
+                            }
+                        }
+                    }
                 }
                 state.after_non_kill_command();
             }

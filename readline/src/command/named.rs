@@ -123,7 +123,13 @@ where
             if entry.record_undo {
                 state.record_undo();
             }
-            self.complete(state, key, entry.completion_type, hooks)?;
+            self.complete(
+                state,
+                key,
+                entry.completion_type,
+                command == "old-menu-complete",
+                hooks,
+            )?;
             state.after_non_kill_command();
             state.consume_numeric_arg_unless_prefix();
             return Ok(EditorOutcome::Continue);

@@ -39,6 +39,7 @@ where
         state: &mut EditorState,
         response: CompletionResponse,
         backward: bool,
+        old_menu_complete: bool,
         edit: &CompletionEdit,
         hooks: &mut impl Hooks,
     ) -> Result<(), ReadlineError> {
@@ -65,7 +66,14 @@ where
             ansi_c_quote_closer_available: ansi_c_quote_suffix_bytes(&original) > 0,
             original,
         };
-        self.menu_complete_with_context(state, response, backward, hooks, context)
+        self.menu_complete_with_context(
+            state,
+            response,
+            backward,
+            old_menu_complete,
+            hooks,
+            context,
+        )
     }
 
     pub(super) fn menu_complete_from_previous(
@@ -73,6 +81,7 @@ where
         state: &mut EditorState,
         previous: MenuCompletionState,
         backward: bool,
+        old_menu_complete: bool,
         hooks: &mut impl Hooks,
     ) -> Result<(), ReadlineError> {
         let context = MenuCompleteContext {
@@ -83,7 +92,14 @@ where
             edit: previous.edit,
         };
         let response = previous.response;
-        self.menu_complete_with_context(state, response, backward, hooks, context)
+        self.menu_complete_with_context(
+            state,
+            response,
+            backward,
+            old_menu_complete,
+            hooks,
+            context,
+        )
     }
 
     fn menu_complete_with_context(
@@ -91,10 +107,11 @@ where
         state: &mut EditorState,
         response: CompletionResponse,
         backward: bool,
+        old_menu_complete: bool,
         hooks: &mut impl Hooks,
         context: MenuCompleteContext,
     ) -> Result<(), ReadlineError> {
-        let next_index = self.menu_complete_cycle(
+        let (next_index, ring_on_prefix) = self.menu_complete_cycle(
             state,
             response.candidates.len(),
             backward,
@@ -146,6 +163,9 @@ where
                 completion_type,
                 next_byte,
             );
+        if old_menu_complete && ring_on_prefix {
+            replacement_bytes.clone_from(&context.original);
+        }
         if next_index > 0 {
             let candidate = &response.candidates[next_index - 1];
             if let Some(unquoted) = closed_ansi_c_safe_candidate(
@@ -258,6 +278,9 @@ where
             response: response.clone(),
         });
         state.completion.last_completion = Some(response);
+        if ring_on_prefix {
+            self.ding()?;
+        }
         Ok(())
     }
 
@@ -267,23 +290,28 @@ where
         candidate_count: usize,
         backward: bool,
         previous_match_index: Option<usize>,
-    ) -> usize {
+    ) -> (usize, bool) {
         let arg = state.take_numeric_arg();
         let signed_arg = arg.unwrap_or(1);
         let backward = if signed_arg < 0 { !backward } else { backward };
         let steps = repeat_count(arg) as usize;
         let match_count = candidate_count + 1;
         if previous_match_index.is_none() && self.flag(BoolVariable::MenuCompleteDisplayPrefix) {
-            return 0;
+            return (0, false);
         }
         let current = previous_match_index.unwrap_or(0);
-        match (backward, current) {
+        let next_index = match (backward, current) {
             (true, current) => {
                 let offset = steps % match_count;
                 (current + match_count - offset) % match_count
             }
             (false, current) => (current + steps) % match_count,
-        }
+        };
+        let ring_on_prefix = arg.is_some()
+            && signed_arg >= 0
+            && next_index == 0
+            && steps.is_multiple_of(match_count);
+        (next_index, ring_on_prefix)
     }
 
     fn menu_complete_replacement(

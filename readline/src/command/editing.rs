@@ -266,7 +266,13 @@ where
             "delete-char-or-list" => {
                 let mut counted_kill = false;
                 if state.buffer.point() >= state.buffer.len_chars() {
-                    self.complete(state, key, CompletionType::PossibleCompletions, hooks)?;
+                    self.complete(
+                        state,
+                        key,
+                        CompletionType::PossibleCompletions,
+                        false,
+                        hooks,
+                    )?;
                 } else {
                     state.record_undo();
                     if let Some(arg) = state.take_numeric_arg() {

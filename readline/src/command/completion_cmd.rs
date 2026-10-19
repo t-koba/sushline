@@ -171,7 +171,7 @@ where
         match command {
             EditCommand::TabComplete => {
                 state.record_undo();
-                self.complete(state, key, CompletionType::Complete, hooks)?;
+                self.complete(state, key, CompletionType::Complete, false, hooks)?;
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
             }

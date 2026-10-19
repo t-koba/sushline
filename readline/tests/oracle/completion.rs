@@ -7972,6 +7972,235 @@ fn bash_readline_and_sushline_cycle_same_menu_completion_items() {
 
 #[cfg(unix)]
 #[test]
+fn bash_readline_and_sushline_menu_completion_numeric_exhaustion_matches_bash_5_3() {
+    struct Case {
+        name: &'static str,
+        argument: &'static [u8],
+        expected: &'static str,
+        bells: usize,
+    }
+
+    let forward = [
+        Case {
+            name: "plain",
+            argument: b"",
+            expected: "alpha X",
+            bells: 0,
+        },
+        Case {
+            name: "one",
+            argument: b"\x1b1",
+            expected: "alpha X",
+            bells: 0,
+        },
+        Case {
+            name: "two",
+            argument: b"\x1b2",
+            expected: "alpine X",
+            bells: 0,
+        },
+        Case {
+            name: "three",
+            argument: b"\x1b3",
+            expected: "alpX",
+            bells: 1,
+        },
+        Case {
+            name: "four",
+            argument: b"\x1b4",
+            expected: "alpha X",
+            bells: 0,
+        },
+        Case {
+            name: "five",
+            argument: b"\x1b5",
+            expected: "alpine X",
+            bells: 0,
+        },
+        Case {
+            name: "zero",
+            argument: b"\x1b0",
+            expected: "alpX",
+            bells: 1,
+        },
+        Case {
+            name: "negative_one",
+            argument: b"\x1b-1",
+            expected: "alpine X",
+            bells: 0,
+        },
+        Case {
+            name: "negative_two",
+            argument: b"\x1b-2",
+            expected: "alpha X",
+            bells: 0,
+        },
+    ];
+    let backward = [
+        Case {
+            name: "plain",
+            argument: b"",
+            expected: "alpine X",
+            bells: 0,
+        },
+        Case {
+            name: "one",
+            argument: b"\x1b1",
+            expected: "alpine X",
+            bells: 0,
+        },
+        Case {
+            name: "two",
+            argument: b"\x1b2",
+            expected: "alpha X",
+            bells: 0,
+        },
+        Case {
+            name: "three",
+            argument: b"\x1b3",
+            expected: "alpX",
+            bells: 1,
+        },
+        Case {
+            name: "four",
+            argument: b"\x1b4",
+            expected: "alpine X",
+            bells: 0,
+        },
+        Case {
+            name: "five",
+            argument: b"\x1b5",
+            expected: "alpha X",
+            bells: 0,
+        },
+        Case {
+            name: "zero",
+            argument: b"\x1b0",
+            expected: "alpX",
+            bells: 1,
+        },
+        Case {
+            name: "negative_one",
+            argument: b"\x1b-1",
+            expected: "alpha X",
+            bells: 0,
+        },
+        Case {
+            name: "negative_two",
+            argument: b"\x1b-2",
+            expected: "alpine X",
+            bells: 0,
+        },
+    ];
+    let old = [
+        Case {
+            name: "plain",
+            argument: b"",
+            expected: "alpha X",
+            bells: 0,
+        },
+        Case {
+            name: "one",
+            argument: b"\x1b1",
+            expected: "alpha X",
+            bells: 0,
+        },
+        Case {
+            name: "two",
+            argument: b"\x1b2",
+            expected: "alpine X",
+            bells: 0,
+        },
+        Case {
+            name: "three",
+            argument: b"\x1b3",
+            expected: "alX",
+            bells: 1,
+        },
+        Case {
+            name: "four",
+            argument: b"\x1b4",
+            expected: "alpha X",
+            bells: 0,
+        },
+        Case {
+            name: "five",
+            argument: b"\x1b5",
+            expected: "alpine X",
+            bells: 0,
+        },
+        Case {
+            name: "zero",
+            argument: b"\x1b0",
+            expected: "alX",
+            bells: 1,
+        },
+        Case {
+            name: "negative_one",
+            argument: b"\x1b-1",
+            expected: "alpine X",
+            bells: 0,
+        },
+        Case {
+            name: "negative_two",
+            argument: b"\x1b-2",
+            expected: "alpha X",
+            bells: 0,
+        },
+    ];
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::write(dir.path().join("alpha"), "").expect("write alpha");
+    fs::write(dir.path().join("alpine"), "").expect("write alpine");
+    let typed = format!("{}/al", dir.path().display());
+    let path_prefix = format!("{}/", dir.path().display());
+
+    for (command, cases) in [
+        ("menu-complete", &forward[..]),
+        ("menu-complete-backward", &backward[..]),
+        ("old-menu-complete", &old[..]),
+    ] {
+        let inputrc = format!("\"\\C-o\": {command}");
+        for case in cases {
+            let mut keys = typed.as_bytes().to_vec();
+            keys.extend_from_slice(case.argument);
+            keys.extend_from_slice(b"\x0fX\r");
+            let bash = run_bash_readline_with_bindings(&keys, &inputrc);
+            let sushline = run_sushline_harness_with_inputrc(&keys, &inputrc);
+            let tail = |output: &str| {
+                accepted_line(output)
+                    .and_then(|line| line.strip_prefix(&path_prefix).map(str::to_owned))
+            };
+            assert_eq!(
+                tail(&bash),
+                Some(case.expected.to_string()),
+                "{command}/{} Bash",
+                case.name
+            );
+            assert_eq!(
+                tail(&sushline),
+                Some(case.expected.to_string()),
+                "{command}/{} Sushline",
+                case.name
+            );
+            assert_eq!(
+                bell_count(&bash),
+                case.bells,
+                "{command}/{} Bash",
+                case.name
+            );
+            assert_eq!(
+                bell_count(&sushline),
+                case.bells,
+                "{command}/{} Sushline",
+                case.name
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn menu_completion_consumes_ansi_c_quote_suffixes_like_bash_5_3() {
     // Runtime-only Bash 5.3 PTY probes 6337f4fb9e244a6e952505d10e822711,
     // cfd0399fccaf49ba95e23bdd60e847a7, d50fd14b11104698aece7ecc8f08e661,

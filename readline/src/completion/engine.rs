@@ -21,6 +21,7 @@ where
         state: &mut EditorState,
         key: &[u8],
         mut completion_type: CompletionType,
+        old_menu_complete: bool,
         hooks: &mut impl Hooks,
     ) -> Result<(), ReadlineError> {
         if self.variable_is_on("disable-completion") {
@@ -47,6 +48,7 @@ where
                 state,
                 previous,
                 completion_type == CompletionType::MenuCompleteBackward,
+                old_menu_complete,
                 hooks,
             )?;
             return Ok(());
@@ -76,6 +78,7 @@ where
                     state,
                     response,
                     completion_type == CompletionType::MenuCompleteBackward,
+                    old_menu_complete,
                     &edit,
                     hooks,
                 )?;

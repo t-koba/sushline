@@ -1271,6 +1271,56 @@ fn empty_bracketed_paste_sets_mark_at_point_for_frame_and_eof() {
 }
 
 #[test]
+fn bracketed_paste_normalizes_cr_to_lf_in_complete_and_eof_payloads() {
+    let mut editor = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
+
+    let mut complete = EditorState::new(Prompt::new("> "), Some(b"prefix".to_vec()));
+    editor
+        .handle_bytes(&mut complete, b"\x1b[200~", &mut ())
+        .unwrap();
+    editor
+        .handle_bytes(&mut complete, b"a\rb", &mut ())
+        .unwrap();
+    assert_eq!(complete.buffer.as_bytes(), b"prefix");
+    assert_eq!(complete.paste.bracketed_paste_pending, b"a\nb");
+    editor
+        .handle_bytes(&mut complete, b"\x1b[201~", &mut ())
+        .unwrap();
+    assert_eq!(complete.buffer.as_bytes(), b"prefixa\nb");
+
+    let mut eof = EditorState::new(Prompt::new("> "), None);
+    editor
+        .handle_bytes(&mut eof, b"\x1b[200~", &mut ())
+        .unwrap();
+    editor.handle_bytes(&mut eof, b"a\rb", &mut ()).unwrap();
+    editor.finish_bracketed_paste(&mut eof);
+    assert_eq!(eof.buffer.as_bytes(), b"a\nb");
+}
+
+#[test]
+fn bracketed_paste_leaves_trailing_cr_outside_the_payload() {
+    // The custom CR binding must run after the paste marker, not be normalized.
+    let mut editor = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
+    editor
+        .load_inputrc_str(
+            "set enable-bracketed-paste on\nset bind-tty-special-chars off\n\"\\C-m\": self-insert",
+        )
+        .unwrap();
+    let mut state = EditorState::new(Prompt::new("> "), None);
+    editor
+        .handle_bytes(&mut state, b"\x1b[200~", &mut ())
+        .unwrap();
+
+    assert!(matches!(
+        editor
+            .handle_bytes(&mut state, b"a\x1b[201~\r", &mut ())
+            .unwrap(),
+        EditorOutcome::Continue
+    ));
+    assert_eq!(state.buffer.as_bytes(), b"a\r");
+}
+
+#[test]
 fn incomplete_bracketed_paste_flushes_before_propagating_read_error() {
     let terminal = MemoryTerminal::with_events_then_error(
         vec![
@@ -1340,7 +1390,7 @@ fn bracketed_paste_buffers_partial_data_until_the_split_terminator_completes() {
 }
 
 #[test]
-fn bracketed_paste_keeps_truncated_end_prefix_and_cr_pending() {
+fn bracketed_paste_normalizes_cr_while_preserving_truncated_end_prefix() {
     let mut editor = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
     let mut state = EditorState::new(Prompt::new("> "), None);
     for chunk in [b"\x1b[200~abc\x1b[201".as_slice(), b"\r", b"~"] {
@@ -1353,12 +1403,12 @@ fn bracketed_paste_keeps_truncated_end_prefix_and_cr_pending() {
         assert!(state.buffer.as_bytes().is_empty());
         assert!(!editor.terminal().out.contains("abc"));
     }
-    assert_eq!(state.paste.bracketed_paste_pending, b"abc\x1b[201\r~");
+    assert_eq!(state.paste.bracketed_paste_pending, b"abc\x1b[201\n~");
     editor
         .handle_bytes(&mut state, b"\x1b[201~", &mut ())
         .unwrap();
     assert!(!state.paste.bracketed_paste);
-    assert_eq!(state.buffer.as_bytes(), b"abc\x1b[201\r~");
+    assert_eq!(state.buffer.as_bytes(), b"abc\x1b[201\n~");
 }
 
 fn read_line_bytes_with_inputrc(input: &[u8], inputrc: &str) -> Vec<u8> {

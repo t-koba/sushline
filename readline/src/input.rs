@@ -9,6 +9,15 @@ use history::HistoryDirection;
 
 const BRACKETED_PASTE_END_SEQUENCE: &[u8] = b"\x1b[201~";
 
+// GNU Readline normalizes CR while collecting bracketed-paste input.
+fn normalize_bracketed_paste_carriage_returns(bytes: &mut [u8]) {
+    for byte in bytes {
+        if *byte == b'\r' {
+            *byte = b'\n';
+        }
+    }
+}
+
 impl<T> Editor<T>
 where
     T: TerminalIo,
@@ -141,6 +150,7 @@ where
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
         let mut combined = std::mem::take(&mut state.paste.bracketed_paste_pending);
+        let pending_len = combined.len();
         combined.extend_from_slice(bytes);
         let start = *state
             .paste
@@ -151,10 +161,13 @@ where
             .position(|window| window == BRACKETED_PASTE_END_SEQUENCE)
         else {
             // Do not expose or edit a partial paste before its complete end marker.
+            normalize_bracketed_paste_carriage_returns(&mut combined[pending_len..]);
             state.paste.bracketed_paste_pending = combined;
             return Ok(EditorOutcome::Continue);
         };
-        let payload = combined[..end_pos].to_vec();
+        let mut payload = combined[..end_pos].to_vec();
+        normalize_bracketed_paste_carriage_returns(&mut payload);
+        // Bytes after the end marker are ordinary input, not paste payload.
         let remainder = combined[end_pos + BRACKETED_PASTE_END_SEQUENCE.len()..].to_vec();
         if !payload.is_empty() {
             self.insert_literal(state, &payload, false);

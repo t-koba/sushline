@@ -3157,7 +3157,7 @@ fn bash_and_sushline_match_bracketed_paste_terminal_mode_matrix() {
     }
 }
 
-fn run_bracketed_paste_checkpoints(paste: &[u8]) -> (Vec<String>, Vec<String>) {
+fn run_bracketed_paste_checkpoints(paste: &[u8], include_hex: bool) -> (Vec<String>, Vec<String>) {
     use portable_pty::{CommandBuilder, PtySize};
     use std::fs;
 
@@ -3169,8 +3169,13 @@ fn run_bracketed_paste_checkpoints(paste: &[u8]) -> (Vec<String>, Vec<String>) {
     bash.env("LC_ALL", "C");
     bash.env("TERM", "xterm-256color");
     bash.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
+    let accepted_output = if include_hex {
+        r#"printf 'SUSHLINE_ACCEPTED:%s\nSUSHLINE_ACCEPTED_HEX:' "$line"; printf '%s' "$line" | od -An -tx1 | tr -d ' \n'; printf '\nSUSHLINE_DONE\n'"#
+    } else {
+        r#"printf 'SUSHLINE_ACCEPTED:%s\nSUSHLINE_DONE\n' "$line""#
+    };
     let script = format!(
-        r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\nSUSHLINE_DONE\n' "$line""#
+        r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; {accepted_output}"#
     );
     bash.args(["--noprofile", "--norc", "-i", "-c", &script]);
     let mut sushline = CommandBuilder::new("sh");
@@ -3179,6 +3184,9 @@ fn run_bracketed_paste_checkpoints(paste: &[u8]) -> (Vec<String>, Vec<String>) {
     sushline.env("SUSHLINE_INPUTRC", inputrc);
     sushline.env("SUSHLINE_PROMPT", READY_PROMPT);
     sushline.env("SUSHLINE_HISTORY", "");
+    if include_hex {
+        sushline.env("SUSHLINE_ACCEPTED_HEX", "");
+    }
     sushline.env("SUSHLINE_BIN", env!("CARGO_BIN_EXE_sushline-harness"));
     sushline.args(["-c", "\"$SUSHLINE_BIN\"; printf 'SUSHLINE_DONE\\n'"]);
     let size = PtySize {
@@ -3213,7 +3221,7 @@ fn run_bracketed_paste_checkpoints(paste: &[u8]) -> (Vec<String>, Vec<String>) {
 #[test]
 fn bash_and_sushline_insert_complete_bracketed_paste_before_enter() {
     let (bash_frames, sushline_frames) =
-        run_bracketed_paste_checkpoints(b"\x1b[200~abcdefghijklmnop\x1b[201~");
+        run_bracketed_paste_checkpoints(b"\x1b[200~abcdefghijklmnop\x1b[201~", false);
 
     for (name, frames) in [("Bash", &bash_frames), ("Sushline", &sushline_frames)] {
         assert!(
@@ -3233,8 +3241,11 @@ fn bash_and_sushline_insert_complete_bracketed_paste_before_enter() {
 }
 
 #[test]
-fn bash_and_sushline_complete_paste_without_accepting_but_handle_cr_differently() {
-    let (bash_frames, sushline_frames) = run_bracketed_paste_checkpoints(b"\x1b[200~a\rb\x1b[201~");
+fn bash_read_e_and_sushline_expose_bracketed_paste_cr_boundary() {
+    // In this fixture, Readline maps pasted CR to LF; Bash `read -e` reports
+    // only the first line while Sushline exposes the full editor byte buffer.
+    let (bash_frames, sushline_frames) =
+        run_bracketed_paste_checkpoints(b"\x1b[200~a\rb\x1b[201~", true);
 
     for (name, frames) in [("bash", &bash_frames), ("sushline", &sushline_frames)] {
         assert!(
@@ -3251,7 +3262,19 @@ fn bash_and_sushline_complete_paste_without_accepting_but_handle_cr_differently(
         .expect("Sushline accepted marker")
         .1;
     assert!(bash_line.starts_with("a\r\n"), "{bash_line:?}");
-    assert!(sushline_line.starts_with("a\rb\r\n"), "{sushline_line:?}");
+    assert!(sushline_line.starts_with("a\r\nb\r\n"), "{sushline_line:?}");
+    let accepted_hex = |frames: &[String]| {
+        frames[1]
+            .split_once("SUSHLINE_ACCEPTED_HEX:")
+            .expect("accepted line hex")
+            .1
+            .split(['\r', '\n'])
+            .next()
+            .unwrap()
+            .to_owned()
+    };
+    assert_eq!(accepted_hex(&bash_frames), "61");
+    assert_eq!(accepted_hex(&sushline_frames), "610a62");
 }
 
 #[test]

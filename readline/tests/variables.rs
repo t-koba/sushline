@@ -319,8 +319,8 @@ fn bracketed_paste_off_guards_mark_hold_and_lone_end() {
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
     assert_eq!(result, ReadlineResult::Line(b"Xa".to_vec()));
     assert!(!line.terminal().out.contains("\x1b[?2004h"));
-    // Sushline holds an unterminated begin and keeps the intermediate CR as
-    // paste payload; only the CR after the end marker accepts the line.
+    // Sushline normalizes an intermediate CR to LF inside the paste; only
+    // the CR after the end marker accepts the line.
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"\x1b[200~".to_vec()),
         TerminalEvent::Bytes(b"a".to_vec()),
@@ -333,7 +333,7 @@ fn bracketed_paste_off_guards_mark_hold_and_lone_end() {
     line.load_inputrc_str("set enable-bracketed-paste off")
         .unwrap();
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
-    assert_eq!(result, ReadlineResult::Line(vec![b'a', b'\r', b'b']));
+    assert_eq!(result, ReadlineResult::Line(vec![b'a', b'\n', b'b']));
     assert!(!line.terminal().out.contains("\x1b[?2004h"));
     // A lone unbound end marker rings once and redispatches its final `~`,
     // even with bracketed-paste terminal mode disabled.

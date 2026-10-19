@@ -1512,6 +1512,53 @@ fn history_expansion_honors_readline_backslash_inhibition() {
 }
 
 #[test]
+fn history_quote_modifiers_apply_once_after_the_modifier_chain() {
+    let mut history = History::new();
+    history.push("echo one two");
+    for (typed, expected) in [
+        ("!!:q:q", b"'echo one two'".as_slice()),
+        ("!!:x:x", b"'echo' 'one' 'two'".as_slice()),
+        ("!!:q:x", b"'echo' 'one' 'two'".as_slice()),
+        ("!!:x:q", b"'echo one two'".as_slice()),
+        ("^one^new^:q:x", b"'echo' 'new' 'two'".as_slice()),
+        ("^one^new^:x:q", b"'echo new two'".as_slice()),
+    ] {
+        assert_eq!(
+            expand_history(
+                typed.as_bytes(),
+                &history,
+                HistoryChars::parse("!^#"),
+                &HistoryExpansionPolicy::default(),
+                |_| false,
+            )
+            .unwrap(),
+            expected,
+            "{typed}"
+        );
+    }
+
+    history.clear();
+    history.push("echo /tmp/a.txt");
+    for (typed, expected) in [
+        ("!!:q:t", b"'a.txt'".as_slice()),
+        ("!!:t:q", b"'a.txt'".as_slice()),
+    ] {
+        assert_eq!(
+            expand_history(
+                typed.as_bytes(),
+                &history,
+                HistoryChars::parse("!^#"),
+                &HistoryExpansionPolicy::default(),
+                |_| false,
+            )
+            .unwrap(),
+            expected,
+            "{typed}"
+        );
+    }
+}
+
+#[test]
 fn history_expansion_preserves_quoted_history_words() {
     let mut history = History::new();
     history.push("printf \"two words\" $'ansi word' tail");

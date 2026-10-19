@@ -89,6 +89,19 @@ impl HistoryExpansion {
 
 type HistorySubstitution = (Vec<u8>, Vec<u8>);
 
+// `:q` and `:x` select a final mode; the last one applies after the chain.
+#[derive(Clone, Copy)]
+enum HistoryQuoteMode {
+    Whole,
+    EachWord,
+}
+
+#[derive(Default)]
+struct HistoryModifierStatus {
+    print_only: bool,
+    quote_mode: Option<HistoryQuoteMode>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 /// HistoryExpansionState.
 ///
@@ -202,7 +215,7 @@ pub fn expand_history_with_status_with_state(
     let mut idx = 0;
     let mut quote = policy.quote_state;
     let mut at_word_start = true;
-    let mut print_only = false;
+    let mut modifier_status = HistoryModifierStatus::default();
     // GNU Readline 8.3: a leading quick-substitution marker is not history
     // expansion while the embedder reports single-quote state.
     // GNU treats `^old^new^` as `!!:s^old^new^`, so any suffix after the
@@ -221,6 +234,7 @@ pub fn expand_history_with_status_with_state(
             .ok_or(HistoryExpansionError::SubstitutionFailed)?;
         let mut event = substituted;
         let mut next = next_after_fields;
+        modifier_status.quote_mode = None;
         while line.get(next) == Some(&b':') {
             next += 1;
             let (modified, next_after_modifier) = apply_history_modifier(
@@ -230,11 +244,12 @@ pub fn expand_history_with_status_with_state(
                 &mut state.last_substitution,
                 state.last_search.as_deref(),
                 policy,
-                &mut print_only,
+                &mut modifier_status,
             )?;
             event = modified;
             next = next_after_modifier;
         }
+        event = apply_history_quote_mode(event, modifier_status.quote_mode.take());
         at_word_start = event
             .last()
             .is_none_or(|byte| byte.is_ascii_whitespace() || policy.word_delimiters.contains(byte));
@@ -288,6 +303,7 @@ pub fn expand_history_with_status_with_state(
                 parsed_event.matched_word,
             )
         };
+        modifier_status.quote_mode = None;
         if line.get(next) == Some(&b':') {
             next += 1;
             let designator_start = next;
@@ -306,7 +322,7 @@ pub fn expand_history_with_status_with_state(
                     &mut state.last_substitution,
                     state.last_search.as_deref(),
                     policy,
-                    &mut print_only,
+                    &mut modifier_status,
                 )?;
                 event = modified;
                 next = next_after_modifier;
@@ -334,11 +350,12 @@ pub fn expand_history_with_status_with_state(
                 &mut state.last_substitution,
                 state.last_search.as_deref(),
                 policy,
-                &mut print_only,
+                &mut modifier_status,
             )?;
             event = modified;
             next = next_after_modifier;
         }
+        event = apply_history_quote_mode(event, modifier_status.quote_mode.take());
         at_word_start = event
             .last()
             .is_none_or(|byte| byte.is_ascii_whitespace() || policy.word_delimiters.contains(byte));
@@ -347,7 +364,7 @@ pub fn expand_history_with_status_with_state(
     }
     Ok(HistoryExpansion {
         line: out,
-        print_only,
+        print_only: modifier_status.print_only,
     })
 }
 
@@ -777,25 +794,23 @@ fn apply_history_modifier(
     last_substitution: &mut Option<HistorySubstitution>,
     last_event_search: Option<&[u8]>,
     policy: &HistoryExpansionPolicy,
-    print_only: &mut bool,
+    status: &mut HistoryModifierStatus,
 ) -> Result<(Vec<u8>, usize), HistoryExpansionError> {
     Ok(match input.get(idx).copied() {
         Some(b'h') => (history_head(line), idx + 1),
         Some(b't') => (history_tail(line), idx + 1),
         Some(b'r') => (history_root(line), idx + 1),
         Some(b'e') => (history_extension(line), idx + 1),
-        Some(b'q') => (quote_history_word(line), idx + 1),
-        Some(b'x') => (
-            join_words(
-                &split_history_quoting_words(line)
-                    .into_iter()
-                    .map(|word| quote_history_word(&word))
-                    .collect::<Vec<_>>(),
-            ),
-            idx + 1,
-        ),
+        Some(b'q') => {
+            status.quote_mode = Some(HistoryQuoteMode::Whole);
+            (line.to_vec(), idx + 1)
+        }
+        Some(b'x') => {
+            status.quote_mode = Some(HistoryQuoteMode::EachWord);
+            (line.to_vec(), idx + 1)
+        }
         Some(b'p') => {
-            *print_only = true;
+            status.print_only = true;
             (line.to_vec(), idx + 1)
         }
         Some(b's') => {
@@ -1430,6 +1445,19 @@ fn history_extension(value: &[u8]) -> Vec<u8> {
         .rposition(|byte| *byte == b'.')
         .map(|idx| value[idx..].to_vec())
         .unwrap_or_else(|| value.to_vec())
+}
+
+fn apply_history_quote_mode(line: Vec<u8>, mode: Option<HistoryQuoteMode>) -> Vec<u8> {
+    match mode {
+        Some(HistoryQuoteMode::Whole) => quote_history_word(&line),
+        Some(HistoryQuoteMode::EachWord) => join_words(
+            &split_history_quoting_words(&line)
+                .into_iter()
+                .map(|word| quote_history_word(&word))
+                .collect::<Vec<_>>(),
+        ),
+        None => line,
+    }
 }
 
 fn quote_history_word(value: &[u8]) -> Vec<u8> {

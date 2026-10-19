@@ -1,8 +1,9 @@
-//! Bash 5.3 PTY cases for editor history navigation, search, expansion, and
-//! persistence. Direct GNU History API fixtures are in `history/tests/history.rs`;
-//! keep that evidence distinct from runtime observations in `COMPATIBILITY.md`.
+//! Bash 5.3 runtime comparisons for editor history navigation, search,
+//! expansion, and persistence. PTY cases and `history -p` output are distinct
+//! evidence types from Rust History API tests; `COMPATIBILITY.md` scopes them.
 
 use super::pty::*;
+use history::expansion::{HistoryChars, HistoryExpansionPolicy, expand_history};
 use readline::History;
 use std::fs;
 use std::process::Command;
@@ -1179,6 +1180,59 @@ fn bash_readline_and_sushline_apply_same_history_quote_inhibit_policy() {
         accepted_line(&bash),
         "bash={bash}\nsushline={sushline}"
     );
+}
+
+#[test]
+fn bash_history_quote_modifiers_apply_once_after_the_modifier_chain() {
+    let inputrc = r#""\C-x\C-a": history-expand-line"#;
+    let word_history = ["echo one two"];
+    let path_history = ["echo /tmp/a.txt"];
+    let cases: &[(&str, &[&str], &str)] = &[
+        ("!!:q:q", &word_history, "'echo one two'"),
+        ("!!:x:x", &word_history, "'echo' 'one' 'two'"),
+        ("!!:q:x", &word_history, "'echo' 'one' 'two'"),
+        ("!!:x:q", &word_history, "'echo one two'"),
+        ("!!:q:t", &path_history, "'a.txt'"),
+        ("!!:t:q", &path_history, "'a.txt'"),
+    ];
+    for (typed, history, expected) in cases {
+        let keys = format!("{typed}\x18\x01\r");
+        let bash = run_bash_history_expand(typed, history);
+        let sushline =
+            run_sushline_harness_with_inputrc_and_history(keys.as_bytes(), inputrc, history);
+
+        assert_eq!(bash, *expected, "{typed}: Bash");
+        assert_eq!(
+            accepted_line(&sushline),
+            Some(bash.clone()),
+            "{typed}: Sushline"
+        );
+    }
+}
+
+#[test]
+fn bash_history_quick_substitution_quote_modes_apply_once_after_the_chain() {
+    let history_entries = ["echo one two"];
+    let mut history = History::new();
+    history.push(history_entries[0]);
+
+    for (typed, expected) in [
+        ("^one^new^:q:x", b"'echo' 'new' 'two'".as_slice()),
+        ("^one^new^:x:q", b"'echo new two'".as_slice()),
+    ] {
+        let bash = run_bash_history_expand(typed, &history_entries);
+        let expanded = expand_history(
+            typed.as_bytes(),
+            &history,
+            HistoryChars::parse("!^#"),
+            &HistoryExpansionPolicy::default(),
+            |_| false,
+        )
+        .unwrap();
+
+        assert_eq!(bash.as_bytes(), expected, "{typed}: Bash");
+        assert_eq!(expanded, expected, "{typed}: History API");
+    }
 }
 
 #[test]

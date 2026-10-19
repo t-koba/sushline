@@ -222,12 +222,13 @@ where
             } else {
                 state.buffer.backward_delete_char_bytes()
             };
-            if let Some(part) = part {
-                if forward {
-                    killed.extend(part);
-                } else {
-                    killed.splice(0..0, part);
-                }
+            let Some(part) = part else {
+                break;
+            };
+            if forward {
+                killed.extend(part);
+            } else {
+                killed.splice(0..0, part);
             }
         }
         if killed.is_empty() {
@@ -285,23 +286,32 @@ where
             }
             "forward-backward-delete-char" => {
                 state.record_undo();
-                let arg = state.take_numeric_arg().unwrap_or(1);
+                let numeric_arg = state.take_numeric_arg();
+                let arg = numeric_arg.unwrap_or(1);
                 let at_end = state.buffer.point() >= state.buffer.len_chars();
                 // Normal counts delete forward except at EOL; negative counts reverse it.
                 let forward = if arg < 0 { at_end } else { !at_end };
-                for _ in 0..arg.unsigned_abs() {
-                    // Unlike `backward-delete-char`, this command's backward
-                    // path deletes in overwrite mode too (measured against Bash).
-                    let deleted = if forward {
-                        state.buffer.delete_char()
+                let mut counted_kill = false;
+                if let Some(arg) = numeric_arg {
+                    let can_delete = if forward {
+                        state.buffer.point() < state.buffer.len_chars()
                     } else {
-                        state.buffer.backward_delete_char()
+                        state.buffer.point() > 0
                     };
-                    if !deleted {
-                        break;
+                    if arg != 0 && can_delete {
+                        // Using byte deletion preserves this command's measured
+                        // overwrite-mode behavior while saving counted text for yank.
+                        self.delete_chars_with_numeric_argument(state, arg, !at_end)?;
+                        counted_kill = true;
                     }
+                } else if forward {
+                    state.buffer.delete_char();
+                } else {
+                    state.buffer.backward_delete_char();
                 }
-                state.after_non_kill_command();
+                if !counted_kill {
+                    state.after_non_kill_command();
+                }
             }
             "insert-comment" => {
                 state.record_undo();

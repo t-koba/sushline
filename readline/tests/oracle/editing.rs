@@ -1309,6 +1309,59 @@ fn bash_readline_and_sushline_forward_backward_delete_char_numeric_arguments_mat
 }
 
 #[test]
+fn bash_readline_and_sushline_forward_backward_delete_char_counted_kills_for_yank() {
+    // Bash 5.3 PTY observations measure counted kill-ring restoration separately
+    // from accepted-line deletion, with uncounted interior and EOL controls.
+    let inputrc = r#""\C-o": forward-backward-delete-char"#;
+    for (name, keys, expected) in [
+        (
+            "interior_positive",
+            b"abcdef\x01\x06\x06\x1b3\x0f\x19\r".as_slice(),
+            "abcdef",
+        ),
+        (
+            "interior_negative",
+            b"abcdef\x01\x06\x06\x1b-1\x0f\x19\r".as_slice(),
+            "abcdef",
+        ),
+        (
+            "eol_positive",
+            b"abcdef\x1b3\x0f\x19\r".as_slice(),
+            "abcdef",
+        ),
+        (
+            "eol_negative",
+            b"abcdef\x1b-1\x0f\x19\r".as_slice(),
+            "abcdef",
+        ),
+        (
+            "zero",
+            b"abcdef\x01\x06\x06\x1b0\x0f\x19\r".as_slice(),
+            "abcdef",
+        ),
+        (
+            "interior_uncounted",
+            b"abcdef\x01\x06\x06\x0f\x19\r".as_slice(),
+            "abdef",
+        ),
+        ("eol_uncounted", b"abcdef\x0f\x19\r".as_slice(), "abcde"),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "Bash {name}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "Sushline {name}: {sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_forward_backward_delete_char_deletes_backward_in_overwrite_mode() {
     let inputrc = r#""\C-o": forward-backward-delete-char
 "\C-p": overwrite-mode"#;

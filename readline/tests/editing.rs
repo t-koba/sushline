@@ -173,6 +173,67 @@ fn numeric_backward_delete_char_kills_for_yank() {
 }
 
 #[test]
+fn numeric_delete_char_kills_for_yank() {
+    // Explicit positive count deletes forward and saves the text for yank.
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abcd".to_vec()),
+        TerminalEvent::Bytes(vec![0x01]),
+        TerminalEvent::Bytes(b"\x1b2\x04".to_vec()),
+        TerminalEvent::Bytes(b"\x19".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line("abcd".as_bytes().to_vec()));
+
+    // Explicit negative count deletes backward and saves the text for yank.
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abcd".to_vec()),
+        TerminalEvent::Bytes(b"\x02\x02".to_vec()),
+        TerminalEvent::Bytes(b"\x1b-\x04".to_vec()),
+        TerminalEvent::Bytes(b"\x19".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line("abcd".as_bytes().to_vec()));
+
+    // Consecutive counted kills concatenate in both directions before yank.
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abcd".to_vec()),
+        TerminalEvent::Bytes(vec![0x01]),
+        TerminalEvent::Bytes(b"\x1b1\x04\x1b1\x04".to_vec()),
+        TerminalEvent::Bytes(b"\x19".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line("abcd".as_bytes().to_vec()));
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abcd".to_vec()),
+        TerminalEvent::Bytes(b"\x1b-\x04\x1b-\x04".to_vec()),
+        TerminalEvent::Bytes(b"\x19".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line("abcd".as_bytes().to_vec()));
+
+    // Uncounted delete-char stays a plain deletion: yank finds no kill.
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abcd".to_vec()),
+        TerminalEvent::Bytes(vec![0x01]),
+        TerminalEvent::Bytes(vec![0x04]),
+        TerminalEvent::Bytes(b"\x19".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line("bcd".as_bytes().to_vec()));
+}
+
+#[test]
 fn byte_commands_move_over_utf8_codepoints_inside_grapheme_clusters() {
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes("e\u{301}x".as_bytes().to_vec()),

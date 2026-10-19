@@ -2614,6 +2614,36 @@ fn bash_readline_and_sushline_forward_delete_noop_rings_like_bash() {
 }
 
 #[test]
+fn bash_readline_and_sushline_numeric_delete_char_kills_for_yank() {
+    // Bash 5.3 PTY comparisons for counted forward/backward deletion and plain deletion.
+    for (desc, keys, expected) in [
+        (
+            "positive_count",
+            b"abcd\x01\x1b2\x04\x19\r".as_slice(),
+            "abcd",
+        ),
+        ("negative_count", b"abcd\x1b-\x04\x19\r".as_slice(), "abcd"),
+        (
+            "adjacent_forward_counts",
+            b"abcd\x01\x1b1\x04\x1b1\x04\x19\r".as_slice(),
+            "abcd",
+        ),
+        (
+            "adjacent_backward_counts",
+            b"abcd\x1b-\x04\x1b-\x04\x19\r".as_slice(),
+            "abcd",
+        ),
+        ("uncounted", b"abcd\x01\x04\x19\r".as_slice(), "bcd"),
+    ] {
+        let bash = run_bash_readline(keys);
+        let sushline = run_sushline_harness(keys);
+        let expected = Some(expected.to_string());
+        assert_eq!(accepted_line(&bash), expected.clone(), "{desc}: {bash}");
+        assert_eq!(accepted_line(&sushline), expected, "{desc}: {sushline}");
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_noop_transpose_words_rings_like_bash() {
     // transpose-words with nothing to swap rings once in the tested Bash 5.3
     // PTY fixtures; an explicit zero count and a successful swap stay

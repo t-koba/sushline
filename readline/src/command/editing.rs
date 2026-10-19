@@ -17,33 +17,7 @@ where
             EditCommand::BackwardDeleteChar => {
                 state.record_undo();
                 if let Some(arg) = state.take_numeric_arg() {
-                    let mut killed = Vec::new();
-                    let count = arg.unsigned_abs();
-                    if arg < 0 {
-                        for _ in 0..count {
-                            if let Some(part) = state.buffer.delete_char_bytes() {
-                                killed.extend(part);
-                            }
-                        }
-                        if killed.is_empty() {
-                            self.ding()?;
-                        }
-                        state.push_kill(killed, KillDirection::Forward, self.kill_append_allowed());
-                    } else {
-                        for _ in 0..count {
-                            if let Some(part) = state.buffer.backward_delete_char_bytes() {
-                                killed.splice(0..0, part);
-                            }
-                        }
-                        if killed.is_empty() {
-                            self.ding()?;
-                        }
-                        state.push_kill(
-                            killed,
-                            KillDirection::Backward,
-                            self.kill_append_allowed(),
-                        );
-                    }
+                    self.delete_chars_with_numeric_argument(state, arg, false)?;
                 } else if state.overwrite_mode {
                     state.buffer.backward_replace_char_with_space();
                     state.after_non_kill_command();
@@ -75,21 +49,14 @@ where
                     return Ok(EditorOutcome::Eof);
                 }
                 state.record_undo();
-                let count = state.take_numeric_arg().unwrap_or(1);
-                let mut deleted = false;
-                if count < 0 {
-                    for _ in 0..count.unsigned_abs() {
-                        deleted |= state.buffer.backward_delete_char();
-                    }
-                } else {
-                    for _ in 0..count.unsigned_abs() {
-                        deleted |= state.buffer.delete_char();
-                    }
-                }
-                if !deleted {
+                if let Some(arg) = state.take_numeric_arg() {
+                    self.delete_chars_with_numeric_argument(state, arg, true)?;
+                } else if !state.buffer.delete_char() {
                     self.ding()?;
+                    state.after_non_kill_command();
+                } else {
+                    state.after_non_kill_command();
                 }
-                state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::DeleteHorizontalSpace => {
@@ -238,6 +205,41 @@ where
             }
             _ => unreachable!("command group mismatch"),
         }
+    }
+
+    // Counted deletes are directional kills; uncounted `delete-char` is not.
+    fn delete_chars_with_numeric_argument(
+        &mut self,
+        state: &mut EditorState,
+        arg: i32,
+        nonnegative_is_forward: bool,
+    ) -> Result<(), ReadlineError> {
+        let forward = (arg >= 0) == nonnegative_is_forward;
+        let mut killed = Vec::new();
+        for _ in 0..arg.unsigned_abs() {
+            let part = if forward {
+                state.buffer.delete_char_bytes()
+            } else {
+                state.buffer.backward_delete_char_bytes()
+            };
+            if let Some(part) = part {
+                if forward {
+                    killed.extend(part);
+                } else {
+                    killed.splice(0..0, part);
+                }
+            }
+        }
+        if killed.is_empty() {
+            self.ding()?;
+        }
+        let direction = if forward {
+            KillDirection::Forward
+        } else {
+            KillDirection::Backward
+        };
+        state.push_kill(killed, direction, self.kill_append_allowed());
+        Ok(())
     }
 }
 

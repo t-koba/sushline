@@ -44,6 +44,16 @@ where
                     let count = state.take_numeric_arg().unwrap_or(1);
                     if count <= 0 {
                         state.after_non_kill_command();
+                        if count < 0 {
+                            // The tested Bash 5.3 direct-call path reports the
+                            // macro nesting diagnostic for a negative count.
+                            self.write_below_rendered_line(
+                                state,
+                                "readline: maximum macro execution nesting level exceeded",
+                            )?;
+                            self.write_tracked_newline(state)?;
+                            self.ding()?;
+                        }
                         return Ok(EditorOutcome::Continue);
                     }
                     state.macro_state.replaying_macro = true;

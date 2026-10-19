@@ -705,17 +705,23 @@ fn bash_and_sushline_apply_numeric_arguments_to_whole_keyboard_macro() {
             "Sushline {name}: {sushline:?}"
         );
         assert_eq!(bell_count(&bash), bash_bells, "Bash {name}: {bash:?}");
-        assert_eq!(bell_count(&sushline), 0, "Sushline {name}: {sushline:?}");
-        if name == "negative repetitions" {
-            assert!(
-                bash.contains("readline: maximum macro execution nesting level exceeded"),
-                "Bash {name}: {bash:?}"
-            );
-            assert!(
-                !sushline.contains("readline: maximum macro execution nesting level exceeded"),
-                "Sushline {name}: {sushline:?}"
-            );
-        }
+        assert_eq!(
+            bell_count(&sushline),
+            bash_bells,
+            "Sushline {name}: {sushline:?}"
+        );
+        let expected_diagnostics = usize::from(name == "negative repetitions");
+        let diagnostic = "readline: maximum macro execution nesting level exceeded";
+        assert_eq!(
+            bash.matches(diagnostic).count(),
+            expected_diagnostics,
+            "Bash {name}: {bash:?}"
+        );
+        assert_eq!(
+            sushline.matches(diagnostic).count(),
+            expected_diagnostics,
+            "Sushline {name}: {sushline:?}"
+        );
     }
 }
 

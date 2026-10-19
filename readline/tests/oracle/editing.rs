@@ -2296,6 +2296,30 @@ fn bash_readline_and_sushline_unix_word_rubout_numeric_arguments_match_bash_5_3(
 }
 
 #[test]
+fn bash_readline_and_sushline_unix_filename_rubout_numeric_arguments_match_bash_5_3() {
+    let inputrc = r#""\C-o": unix-filename-rubout"#;
+    let prefix = b"one/two three four\x01\x06\x06\x06\x06\x06\x06\x06";
+    let cases: &[(&str, &[u8], &str)] = &[
+        ("plain", b"", "one/ three fourtwoX"),
+        ("positive_two", b"\x1b2", " three fourone/twoX"),
+        ("explicit_zero", b"\x1b0", "one/ three fourtwoX"),
+        ("negative_one", b"\x1b-1", "one/ three fourtwoX"),
+    ];
+    for (name, argument, expected) in cases {
+        let mut keys = prefix.to_vec();
+        keys.extend_from_slice(argument);
+        keys.extend_from_slice(b"\x0f\x05\x19X\r");
+        let bash = run_bash_readline_with_bindings(&keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&keys, inputrc);
+        let expected = Some((*expected).to_string());
+        assert_eq!(accepted_line(&bash), expected, "{name}: Bash");
+        assert_eq!(accepted_line(&sushline), expected, "{name}: Sushline");
+        assert_eq!(bell_count(&bash), 0, "{name}: Bash");
+        assert_eq!(bell_count(&sushline), 0, "{name}: Sushline");
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_vi_counted_motion() {
     let keys = b"one two three\x1b03wX\r";
     let inputrc = "set editing-mode vi";

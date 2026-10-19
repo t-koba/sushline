@@ -708,6 +708,33 @@ fn unix_word_rubout_honors_positive_numeric_count() {
 }
 
 #[test]
+fn unix_filename_rubout_honors_positive_numeric_count() {
+    let inputrc = r#""\C-o": unix-filename-rubout"#;
+    let prefix = b"one/two three four\x01\x06\x06\x06\x06\x06\x06\x06";
+    let cases: &[(&str, &[u8], &str)] = &[
+        ("plain", b"", "one/ three fourtwoX"),
+        ("positive_two", b"\x1b2", " three fourone/twoX"),
+        ("explicit_zero", b"\x1b0", "one/ three fourtwoX"),
+        ("negative_one", b"\x1b-1", "one/ three fourtwoX"),
+    ];
+    for (name, argument, expected) in cases {
+        let mut keys = prefix.to_vec();
+        keys.extend_from_slice(argument);
+        keys.extend_from_slice(b"\x0f\x05\x19X\r");
+        let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(keys)]);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str(inputrc).unwrap();
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        assert_eq!(
+            result,
+            ReadlineResult::Line(expected.as_bytes().to_vec()),
+            "{name}"
+        );
+        assert_eq!(line.terminal().out.matches('\u{7}').count(), 0, "{name}");
+    }
+}
+
+#[test]
 fn editing_word_breaks_hook_controls_word_commands() {
     struct WordBreakHook;
 

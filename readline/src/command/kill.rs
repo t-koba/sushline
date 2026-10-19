@@ -234,7 +234,16 @@ where
             }
             "unix-filename-rubout" => {
                 state.record_undo();
-                let killed = state.buffer.backward_kill_filename_word();
+                let argument = state.take_numeric_arg().unwrap_or(1);
+                let count = if argument > 0 { argument as u32 } else { 1 };
+                let mut killed = Vec::new();
+                for _ in 0..count {
+                    let part = state.buffer.backward_kill_filename_word();
+                    if part.is_empty() {
+                        break;
+                    }
+                    killed.splice(0..0, part);
+                }
                 state.push_kill(killed, KillDirection::Backward, self.kill_append_allowed());
             }
             "vi-unix-word-rubout" => {

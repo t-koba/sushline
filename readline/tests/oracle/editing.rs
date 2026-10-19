@@ -1259,6 +1259,89 @@ fn bash_readline_and_sushline_accept_same_editing_mode_switch_commands() {
 }
 
 #[test]
+fn bash_readline_and_sushline_forward_backward_delete_char_numeric_arguments_match_bash_5_3() {
+    // Bash 5.3 PTY accepted-line observations at an interior point and EOL.
+    let inputrc = r#""\C-o": forward-backward-delete-char"#;
+    for (name, keys, expected) in [
+        (
+            "interior_positive",
+            b"abcdef\x01\x06\x06\x1b3\x0f\r".as_slice(),
+            "abf",
+        ),
+        (
+            "interior_zero",
+            b"abcdef\x01\x06\x06\x1b0\x0f\r".as_slice(),
+            "abcdef",
+        ),
+        (
+            "interior_negative",
+            b"abcdef\x01\x06\x06\x1b-1\x0f\r".as_slice(),
+            "acdef",
+        ),
+        (
+            "interior_overrun",
+            b"abcdef\x01\x06\x06\x1b5\x0f\r".as_slice(),
+            "ab",
+        ),
+        (
+            "interior_uncounted",
+            b"abcdef\x01\x06\x06\x0f\r".as_slice(),
+            "abdef",
+        ),
+        ("eol_positive", b"abcdef\x1b3\x0f\r".as_slice(), "abc"),
+        ("eol_zero", b"abcdef\x1b0\x0f\r".as_slice(), "abcdef"),
+        ("eol_negative", b"abcdef\x1b-1\x0f\r".as_slice(), "abcdef"),
+        ("eol_uncounted", b"abcdef\x0f\r".as_slice(), "abcde"),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "Bash {name}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "Sushline {name}: {sushline}"
+        );
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_forward_backward_delete_char_deletes_backward_in_overwrite_mode() {
+    let inputrc = r#""\C-o": forward-backward-delete-char
+"\C-p": overwrite-mode"#;
+    for (name, keys, expected) in [
+        (
+            "overwrite_mode_sanity",
+            b"abcd\x01\x10X\r".as_slice(),
+            "Xbcd",
+        ),
+        ("uncounted_eol", b"abcd\x10\x0f\r".as_slice(), "abc"),
+        ("counted_eol", b"abcd\x10\x1b2\x0f\r".as_slice(), "ab"),
+        (
+            "negative_interior",
+            b"abcd\x01\x06\x06\x10\x1b-1\x0f\r".as_slice(),
+            "acd",
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "Bash {name}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "Sushline {name}: {sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_tab_insert_numeric_arguments_match_bash_5_3() {
     // Bash 5.3 PTY comparison checks accepted bytes, not TAB display expansion.
     let inputrc = r#""\C-o": tab-insert"#;

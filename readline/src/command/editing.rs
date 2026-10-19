@@ -275,11 +275,20 @@ where
             }
             "forward-backward-delete-char" => {
                 state.record_undo();
-                if !state.buffer.delete_char() {
-                    if state.overwrite_mode {
-                        state.buffer.backward_replace_char_with_space();
+                let arg = state.take_numeric_arg().unwrap_or(1);
+                let at_end = state.buffer.point() >= state.buffer.len_chars();
+                // Normal counts delete forward except at EOL; negative counts reverse it.
+                let forward = if arg < 0 { at_end } else { !at_end };
+                for _ in 0..arg.unsigned_abs() {
+                    // Unlike `backward-delete-char`, this command's backward
+                    // path deletes in overwrite mode too (measured against Bash).
+                    let deleted = if forward {
+                        state.buffer.delete_char()
                     } else {
-                        state.buffer.backward_delete_char();
+                        state.buffer.backward_delete_char()
+                    };
+                    if !deleted {
+                        break;
                     }
                 }
                 state.after_non_kill_command();

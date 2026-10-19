@@ -87,7 +87,15 @@ impl EditorState {
         }
 
         let is_self_insert = matches!(binding, KeyBinding::Command(EditCommand::SelfInsert));
-        if is_self_insert && self.macro_state.last_recorded_self_insert {
+        // Consecutive typed self-inserts coalesce to the first byte, but
+        // bytes expanded from inputrc macros record in execution order:
+        // nested triggers and every insert byte stay in the definition, and
+        // the macro boundary breaks the typed run (measured Bash 5.3 PTY
+        // fixtures `"\C-o": "\C-pz"` / `"\C-p": "xy"`).
+        if is_self_insert
+            && self.macro_state.last_recorded_self_insert
+            && self.macro_state.inputrc_macro_depth == 0
+        {
             return;
         }
         if let Some(macro_bytes) = self.macro_state.keyboard_macro.as_mut() {
@@ -100,7 +108,7 @@ impl EditorState {
         if self.macro_state.keyboard_macro.is_none() || self.macro_state.replaying_macro {
             return;
         }
-        if self.macro_state.last_recorded_self_insert {
+        if self.macro_state.last_recorded_self_insert && self.macro_state.inputrc_macro_depth == 0 {
             return;
         }
         if let Some(macro_bytes) = self.macro_state.keyboard_macro.as_mut() {

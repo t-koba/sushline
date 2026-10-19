@@ -41,16 +41,21 @@ where
                 // prefix before any command in the expansion can consume it.
                 state.take_numeric_arg();
                 state.completion.menu_completion = None;
-                state.record_macro_insert_bytes(&text);
                 if state.macro_state.inputrc_macro_depth >= MAX_INPUTRC_MACRO_DEPTH {
                     return Ok(EditorOutcome::MacroOverflow);
                 }
-                let previous_replaying = state.macro_state.replaying_macro;
+                // Keyboard-macro recording captures nested inputrc expansions
+                // in execution order: the outer trigger is already recorded
+                // above, and the expansion below records nested triggers and
+                // every insert byte (typed runs still coalesce outside the
+                // expansion). Only keyboard-macro replay suppresses
+                // recording; inputrc depth only bypasses that coalescing.
                 state.macro_state.inputrc_macro_depth += 1;
-                state.macro_state.replaying_macro = true;
                 let result = self.handle_bytes(state, &text, hooks);
                 state.macro_state.inputrc_macro_depth -= 1;
-                state.macro_state.replaying_macro = previous_replaying;
+                if !state.macro_state.replaying_macro {
+                    state.macro_state.last_recorded_self_insert = false;
+                }
                 let outcome = result?;
                 match outcome {
                     EditorOutcome::MacroOverflow => {

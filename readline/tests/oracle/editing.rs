@@ -995,6 +995,65 @@ fn bash_readline_and_sushline_record_inputrc_macro_binding_same_way() {
 }
 
 #[test]
+fn bash_and_sushline_record_nested_inputrc_macro_in_execution_order() {
+    // Nested outer-over-inner inputrc macros record the outer trigger, the
+    // nested trigger, and every insert byte in execution order, so replaying
+    // inserts xyzxyxyz after the live xyz.
+    let inputrc = "\"\\C-o\": \"\\C-pz\"\n\"\\C-p\": \"xy\"\n";
+    let keys = b"\x18(\x0f\x18)\x18e\r";
+    let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+    for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+        assert_eq!(
+            accepted_line(output).as_deref(),
+            Some("xyzxyzxyxyz"),
+            "{editor}: {output:?}"
+        );
+        assert_eq!(bell_count(output), 0, "{editor}: {output:?}");
+    }
+}
+
+#[test]
+fn bash_and_sushline_record_nested_inputrc_macro_around_movement() {
+    // Beginning-of-line plus Q after the nested expansion stays in the
+    // definition in execution order, so replay inserts at the recorded point
+    // before returning to the line start for the second Q.
+    let inputrc = "\"\\C-o\": \"\\C-pz\"\n\"\\C-p\": \"xy\"\n";
+    let keys = b"\x18(\x0f\x01Q\x18)\x18e\r";
+    let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+    for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+        assert_eq!(
+            accepted_line(output).as_deref(),
+            Some("QQxyzxyxyzxyz"),
+            "{editor}: {output:?}"
+        );
+        assert_eq!(bell_count(output), 0, "{editor}: {output:?}");
+    }
+}
+
+#[test]
+fn bash_and_sushline_record_vi_change_from_inputrc_macro() {
+    // Measured Bash 5.3 PTY behavior: C-o's `iX ESC` expansion becomes the
+    // latest vi change, so dot repeats X rather than the earlier physical A.
+    let inputrc = "set editing-mode vi\nset keymap vi-command\n\"\\C-o\": \"iX\\C-[\"\n";
+    let keys = b"A\x1b\x0f.\r";
+    let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+    for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+        assert_eq!(
+            accepted_line(output).as_deref(),
+            Some("XXA"),
+            "{editor}: {output:?}"
+        );
+        assert_eq!(bell_count(output), 0, "{editor}: {output:?}");
+    }
+}
+
+#[test]
 fn bash_and_sushline_ignore_numeric_arguments_before_inputrc_macro_expansion() {
     let macros = [
         ("simple", r#""\C-xm": "ab""#, "abZ"),

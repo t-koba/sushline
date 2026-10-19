@@ -146,19 +146,42 @@ fn history_search_pos_matches_beginning_and_end_boundaries() {
 }
 
 #[test]
-fn history_search_pos_rejects_positions_beyond_end() {
+fn history_search_pos_beyond_end_falls_back_to_cursor() {
+    // GNU History's `history_search_pos` ignores a failed `history_set_pos`,
+    // leaving the search anchored at the pre-existing cursor.
     let mut h = History::new();
     h.push("needle first");
+    h.push("middle");
     h.push("needle last");
-    h.set_pos(0);
+    h.set_pos(1);
 
-    for direction in [HistoryDirection::Previous, HistoryDirection::Next] {
-        assert!(
-            h.history_search_pos("needle", direction, 3).is_none(),
-            "out-of-range positions fail closed instead of searching from the current cursor"
-        );
-    }
-    assert_eq!(h.where_history(), 0);
+    assert_eq!(
+        h.history_search_pos("needle", HistoryDirection::Previous, 99)
+            .map(|found| found.entry_index),
+        Some(0)
+    );
+    assert_eq!(
+        h.history_search_pos("needle", HistoryDirection::Next, 99)
+            .map(|found| found.entry_index),
+        Some(2)
+    );
+    assert!(
+        h.history_search_pos("missing", HistoryDirection::Next, usize::MAX)
+            .is_none()
+    );
+    assert_eq!(h.where_history(), 1);
+
+    h.set_pos(3);
+    assert_eq!(
+        h.history_search_pos("needle", HistoryDirection::Previous, 99)
+            .map(|found| found.entry_index),
+        Some(2)
+    );
+    assert!(
+        h.history_search_pos("needle", HistoryDirection::Next, 99)
+            .is_none()
+    );
+    assert_eq!(h.where_history(), 3);
 }
 
 #[test]

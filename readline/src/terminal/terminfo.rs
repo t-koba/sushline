@@ -83,12 +83,34 @@ fn load_terminfo_capabilities() -> Option<HashMap<&'static str, Vec<u8>>> {
 }
 
 fn find_terminfo_path(term: &str) -> Option<PathBuf> {
+    let terminfo = std::env::var("TERMINFO").ok();
+    let terminfo_dirs = std::env::var("TERMINFO_DIRS").ok();
+    let home = std::env::var("HOME").ok();
+    find_terminfo_path_with_env(
+        term,
+        terminfo.as_deref(),
+        terminfo_dirs.as_deref(),
+        home.as_deref(),
+    )
+}
+
+fn find_terminfo_path_with_env(
+    term: &str,
+    terminfo: Option<&str>,
+    terminfo_dirs: Option<&str>,
+    home: Option<&str>,
+) -> Option<PathBuf> {
     let first = term.as_bytes().first().copied()? as char;
     let mut roots = Vec::new();
-    if let Ok(root) = std::env::var("TERMINFO") {
+    if let Some(root) = terminfo {
         roots.push(PathBuf::from(root));
     }
-    if let Ok(dirs) = std::env::var("TERMINFO_DIRS") {
+    // Preserve ncurses-style precedence: explicit root, user database, then
+    // configured search directories.
+    if let Some(home) = home {
+        roots.push(PathBuf::from(home).join(".terminfo"));
+    }
+    if let Some(dirs) = terminfo_dirs {
         for dir in dirs.split(':') {
             roots.push(if dir.is_empty() {
                 PathBuf::from("/usr/share/terminfo")
@@ -96,9 +118,6 @@ fn find_terminfo_path(term: &str) -> Option<PathBuf> {
                 PathBuf::from(dir)
             });
         }
-    }
-    if let Ok(home) = std::env::var("HOME") {
-        roots.push(PathBuf::from(home).join(".terminfo"));
     }
     roots.extend([
         PathBuf::from("/usr/share/terminfo"),
@@ -299,14 +318,126 @@ const STANDARD_STRING_CAPS: &[(&str, usize)] = &[
 
 #[cfg(test)]
 mod tests {
-    use super::{DefaultCapabilities, default_capabilities_from_terminfo};
+    use super::{
+        DefaultCapabilities, default_capabilities_from_terminfo, find_terminfo_path_with_env,
+        parse_terminfo,
+    };
     use std::collections::HashMap;
+    use std::fs;
+    use std::path::{Path, PathBuf};
 
     fn caps(entries: &[(&'static str, &[u8])]) -> HashMap<&'static str, Vec<u8>> {
         entries
             .iter()
             .map(|(name, value)| (*name, value.to_vec()))
             .collect()
+    }
+
+    fn terminfo_entry(smkx: &[u8], rmkx: &[u8]) -> Vec<u8> {
+        let names = b"auditprec\0";
+        let mut string_offsets = vec![-1i16; 90];
+        let mut string_table = Vec::new();
+        string_offsets[88] = 0;
+        string_table.extend_from_slice(rmkx);
+        string_table.push(0);
+        string_offsets[89] = string_table.len() as i16;
+        string_table.extend_from_slice(smkx);
+        string_table.push(0);
+
+        let mut bytes = Vec::new();
+        for field in [
+            0x011au16,
+            names.len() as u16,
+            0,
+            0,
+            90,
+            string_table.len() as u16,
+        ] {
+            bytes.extend(field.to_le_bytes());
+        }
+        bytes.extend_from_slice(names);
+        for offset in string_offsets {
+            bytes.extend(offset.to_le_bytes());
+        }
+        bytes.extend_from_slice(&string_table);
+        bytes
+    }
+
+    fn write_entry(root: &Path, term: &str, smkx: &[u8], rmkx: &[u8]) -> PathBuf {
+        let entry = root
+            .join((term.as_bytes()[0] as char).to_string())
+            .join(term);
+        fs::create_dir_all(entry.parent().unwrap()).unwrap();
+        fs::write(&entry, terminfo_entry(smkx, rmkx)).unwrap();
+        entry
+    }
+
+    fn selected_capabilities(
+        term: &str,
+        terminfo: Option<&str>,
+        terminfo_dirs: Option<&str>,
+        home: Option<&str>,
+    ) -> HashMap<&'static str, Vec<u8>> {
+        let path = find_terminfo_path_with_env(term, terminfo, terminfo_dirs, home).unwrap();
+        parse_terminfo(&fs::read(path).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn user_terminfo_precedes_terminfo_dirs_but_explicit_terminfo_wins() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let dirs = temp.path().join("dirs");
+        let explicit = temp.path().join("explicit");
+        let missing_home = temp.path().join("missing-home");
+        let term = "auditprec";
+        write_entry(&home.join(".terminfo"), term, b"HOMEKEY", b"HOMEEND");
+        write_entry(&dirs, term, b"DIRSKEY", b"DIRSEND");
+        write_entry(&explicit, term, b"EXPLICITKEY", b"EXPLICITEND");
+
+        let home_caps = selected_capabilities(
+            term,
+            None,
+            Some(dirs.to_str().unwrap()),
+            Some(home.to_str().unwrap()),
+        );
+        assert_eq!(
+            home_caps.get("smkx").map(Vec::as_slice),
+            Some(&b"HOMEKEY"[..])
+        );
+        assert_eq!(
+            home_caps.get("rmkx").map(Vec::as_slice),
+            Some(&b"HOMEEND"[..])
+        );
+
+        let explicit_caps = selected_capabilities(
+            term,
+            Some(explicit.to_str().unwrap()),
+            Some(dirs.to_str().unwrap()),
+            Some(home.to_str().unwrap()),
+        );
+        assert_eq!(
+            explicit_caps.get("smkx").map(Vec::as_slice),
+            Some(&b"EXPLICITKEY"[..])
+        );
+        assert_eq!(
+            explicit_caps.get("rmkx").map(Vec::as_slice),
+            Some(&b"EXPLICITEND"[..])
+        );
+
+        let dirs_caps = selected_capabilities(
+            term,
+            None,
+            Some(dirs.to_str().unwrap()),
+            Some(missing_home.to_str().unwrap()),
+        );
+        assert_eq!(
+            dirs_caps.get("smkx").map(Vec::as_slice),
+            Some(&b"DIRSKEY"[..])
+        );
+        assert_eq!(
+            dirs_caps.get("rmkx").map(Vec::as_slice),
+            Some(&b"DIRSEND"[..])
+        );
     }
 
     #[test]

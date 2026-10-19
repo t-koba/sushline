@@ -399,3 +399,130 @@ mod terminal_signal_options {
         );
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn failed_restore_retains_termios_child_probe() {
+    if std::env::var("SUSHLINE_RESTORE_RETRY_PROBE").as_deref() != Ok("1") {
+        return;
+    }
+    use readline::{Terminal, TerminalIo};
+
+    fn termios_equal(first: &libc::termios, second: &libc::termios) -> bool {
+        first.c_iflag == second.c_iflag
+            && first.c_oflag == second.c_oflag
+            && first.c_cflag == second.c_cflag
+            && first.c_lflag == second.c_lflag
+            && first.c_cc == second.c_cc
+    }
+
+    unsafe {
+        let mut initial: libc::termios = std::mem::zeroed();
+        assert_eq!(
+            libc::tcgetattr(libc::STDIN_FILENO, &mut initial),
+            0,
+            "record initial termios"
+        );
+        let mut terminal = Terminal::new();
+        terminal.enter_raw_mode().unwrap();
+
+        // Raw mode must change the observable mode so the retry check below
+        // can distinguish a real restore from a discarded snapshot.
+        let mut raw: libc::termios = std::mem::zeroed();
+        assert_eq!(
+            libc::tcgetattr(libc::STDIN_FILENO, &mut raw),
+            0,
+            "record raw termios"
+        );
+        assert!(
+            !termios_equal(&initial, &raw),
+            "raw mode must change termios"
+        );
+
+        let pty_copy = libc::dup(libc::STDIN_FILENO);
+        assert!(pty_copy >= 0, "dup PTY stdin");
+        let null_fd = libc::open(c"/dev/null".as_ptr(), libc::O_RDWR);
+        assert!(null_fd >= 0, "open /dev/null");
+        assert_eq!(
+            libc::dup2(null_fd, libc::STDIN_FILENO),
+            libc::STDIN_FILENO,
+            "redirect stdin to /dev/null"
+        );
+        libc::close(null_fd);
+
+        assert!(
+            terminal.restore_mode().is_err(),
+            "restore on /dev/null must fail"
+        );
+
+        assert_eq!(
+            libc::dup2(pty_copy, libc::STDIN_FILENO),
+            libc::STDIN_FILENO,
+            "restore PTY stdin"
+        );
+        libc::close(pty_copy);
+
+        terminal.restore_mode().unwrap();
+
+        let mut current: libc::termios = std::mem::zeroed();
+        assert_eq!(
+            libc::tcgetattr(libc::STDIN_FILENO, &mut current),
+            0,
+            "record restored termios"
+        );
+        assert!(
+            termios_equal(&initial, &current),
+            "failed restore must retain the snapshot so the retry restores the original mode"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn failed_restore_can_be_retried() {
+    use std::os::fd::{FromRawFd, OwnedFd};
+
+    if std::env::var("SUSHLINE_RESTORE_RETRY_PROBE").as_deref() == Ok("1") {
+        return;
+    }
+    let mut master = -1;
+    let mut slave = -1;
+    let size = libc::winsize {
+        ws_row: 24,
+        ws_col: 80,
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    };
+    assert_eq!(
+        unsafe {
+            libc::openpty(
+                &mut master,
+                &mut slave,
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                &size,
+            )
+        },
+        0,
+        "open PTY for isolated restore probe"
+    );
+    let _master = unsafe { OwnedFd::from_raw_fd(master) };
+    let slave = unsafe { OwnedFd::from_raw_fd(slave) };
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "failed_restore_retains_termios_child_probe",
+            "--exact",
+            "--nocapture",
+        ])
+        .env("SUSHLINE_RESTORE_RETRY_PROBE", "1")
+        .stdin(std::process::Stdio::from(slave))
+        .output()
+        .expect("spawn isolated restore probe");
+    assert!(
+        output.status.success(),
+        "restore probe failed: {:?}\n{}\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

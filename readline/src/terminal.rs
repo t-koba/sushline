@@ -346,13 +346,16 @@ fn enable_readline_mode(saved: &mut Option<libc::termios>) -> io::Result<()> {
 
 #[cfg(unix)]
 fn restore_readline_mode(saved: &mut Option<libc::termios>) -> io::Result<()> {
-    let Some(termios) = saved.take() else {
+    let Some(termios) = saved.as_ref() else {
         return Ok(());
     };
-    let rc = unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &termios) };
+    // Retain the saved snapshot when the restore fails so a later retry can
+    // still restore the original mode instead of falsely succeeding.
+    let rc = unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, termios) };
     if rc != 0 {
         return Err(io::Error::last_os_error());
     }
+    *saved = None;
     Ok(())
 }
 

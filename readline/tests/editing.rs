@@ -1162,6 +1162,61 @@ fn transpose_chars_uses_counted_target_and_endpoint_rules() {
 }
 
 #[test]
+fn transpose_words_uses_counted_targets_and_signed_arguments() {
+    let cases: &[(&str, Option<usize>, &[u8], &str)] = &[
+        (
+            "one two three four",
+            Some(3),
+            b"\x1b2\x0fX\r",
+            "three two oneX four",
+        ),
+        (
+            "one two three four",
+            Some(3),
+            b"\x1b-1\x0fX\r",
+            "oneX two three four",
+        ),
+        (
+            "one two three four",
+            Some(7),
+            b"\x1b2\x0fX\r",
+            "one four three twoX",
+        ),
+        (
+            "one two three four",
+            None,
+            b"\x1b2\x0fX\r",
+            "one four three twoX",
+        ),
+        (
+            "one two three four",
+            None,
+            b"\x1b-1\x0fX\r",
+            "one two three fourX",
+        ),
+        (
+            "one two three four",
+            None,
+            b"\x1b0\x0fX\r",
+            "one two three fourX",
+        ),
+    ];
+    for (initial, position, command_keys, expected) in cases {
+        let mut keys = initial.as_bytes().to_vec();
+        if let Some(forward_chars) = position {
+            keys.push(0x01);
+            keys.extend(std::iter::repeat_n(0x06, *forward_chars));
+        }
+        keys.extend_from_slice(command_keys);
+        let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(keys)]);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str("\"\\C-o\": transpose-words").unwrap();
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        assert_eq!(result, ReadlineResult::Line(expected.as_bytes().to_vec()));
+    }
+}
+
+#[test]
 fn delete_horizontal_space_consumes_numeric_argument() {
     // M-2 M-\\ ignores its prefix and must not leak it: the following
     // backward-char moves one step, so Q lands before f.

@@ -159,13 +159,12 @@ where
                 state.record_undo();
                 let word_breaks = self.editing_word_breaks(hooks);
                 let count = state.take_numeric_arg().unwrap_or(1);
-                // An explicit zero count is a silent no-op like the other
-                // transpose command; otherwise ring only when no swap happened.
-                let mut swapped = false;
-                for _ in 0..count.unsigned_abs() {
-                    swapped |= state.buffer.transpose_words(word_breaks.as_deref());
-                }
-                if count != 0 && !swapped {
+                // The count selects one target pair rather than repeating
+                // adjacent word swaps; zero remains a silent no-op.
+                let transposed = state
+                    .buffer
+                    .transpose_words_by_count(count, word_breaks.as_deref());
+                if count != 0 && !transposed {
                     self.ding()?;
                 }
                 state.after_non_kill_command();

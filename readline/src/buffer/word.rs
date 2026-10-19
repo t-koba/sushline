@@ -458,6 +458,65 @@ impl LineBuffer {
         self.transpose_words_by(word_matcher(break_chars))
     }
 
+    pub(crate) fn transpose_words_by_count(
+        &mut self,
+        count: i32,
+        break_chars: Option<&str>,
+    ) -> bool {
+        if count == 0 {
+            return false;
+        }
+        let is_word = word_matcher(break_chars);
+        if count == 1 {
+            return self.transpose_words_by(is_word);
+        }
+
+        // Resolve both endpoints on a copy so an invalid selection leaves
+        // the original text and point unchanged.
+        let mut cursor = self.clone();
+        cursor.move_words_by_count(count, true, is_word);
+        let right_end = cursor.point;
+        cursor.move_words_by_count(1, false, is_word);
+        let right_start = cursor.point;
+        cursor.move_words_by_count(count, false, is_word);
+        let left_start = cursor.point;
+        cursor.move_words_by_count(1, true, is_word);
+        let left_end = cursor.point;
+
+        if left_start == right_start || right_start < left_end {
+            return false;
+        }
+
+        let left = self.bytes[left_start..left_end].to_vec();
+        let middle = self.bytes[left_end..right_start].to_vec();
+        let right = self.bytes[right_start..right_end].to_vec();
+        let mut replacement = Vec::with_capacity(right.len() + middle.len() + left.len());
+        replacement.extend_from_slice(&right);
+        replacement.extend_from_slice(&middle);
+        replacement.extend_from_slice(&left);
+        self.bytes.splice(left_start..right_end, replacement);
+        self.point = right_end;
+        true
+    }
+
+    fn move_words_by_count<F>(&mut self, count: i32, forward: bool, is_word: F)
+    where
+        F: Fn(char) -> bool + Copy,
+    {
+        // A negative count reverses the requested movement direction.
+        let move_forward = forward != count.is_negative();
+        for _ in 0..count.unsigned_abs() {
+            let moved = if move_forward {
+                self.forward_word_by(is_word)
+            } else {
+                self.backward_word_by(is_word)
+            };
+            if !moved {
+                break;
+            }
+        }
+    }
+
     fn transpose_words_by<F>(&mut self, is_word: F) -> bool
     where
         F: Fn(char) -> bool + Copy,

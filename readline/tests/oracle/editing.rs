@@ -571,6 +571,88 @@ fn bash_readline_and_sushline_accept_same_transpose_words_edit() {
 }
 
 #[test]
+fn bash_readline_and_sushline_transpose_words_numeric_arguments() {
+    // The inserted X exposes accepted-line cursor placement; display and bell
+    // behavior are not asserted by these numeric cases.
+    let inputrc = r#""\C-o": transpose-words"#;
+    type Case = (&'static str, Option<usize>, &'static [u8], &'static str);
+    let cases: &[Case] = &[
+        ("interior_plain", Some(3), b"", "two oneX three four"),
+        (
+            "interior_positive_2",
+            Some(3),
+            b"\x1b2",
+            "three two oneX four",
+        ),
+        (
+            "interior_positive_3",
+            Some(3),
+            b"\x1b3",
+            "four two three oneX",
+        ),
+        (
+            "interior_negative_1",
+            Some(3),
+            b"\x1b-1",
+            "oneX two three four",
+        ),
+        (
+            "interior_negative_2",
+            Some(3),
+            b"\x1b-2",
+            "oneX two three four",
+        ),
+        ("interior_zero", Some(3), b"\x1b0", "oneX two three four"),
+        (
+            "after_two_positive_2",
+            Some(7),
+            b"\x1b2",
+            "one four three twoX",
+        ),
+        (
+            "after_two_negative_1",
+            Some(7),
+            b"\x1b-1",
+            "one twoX three four",
+        ),
+        (
+            "after_three_negative_1",
+            Some(13),
+            b"\x1b-1",
+            "one two threeX four",
+        ),
+        ("eol_plain", None, b"", "one two four threeX"),
+        ("eol_positive_2", None, b"\x1b2", "one four three twoX"),
+        ("eol_positive_3", None, b"\x1b3", "four two three oneX"),
+        ("eol_negative_1", None, b"\x1b-1", "one two three fourX"),
+        ("eol_negative_2", None, b"\x1b-2", "one two three fourX"),
+        ("eol_zero", None, b"\x1b0", "one two three fourX"),
+    ];
+    for (name, position, argument, expected) in cases {
+        let mut keys = b"one two three four".to_vec();
+        if let Some(forward_chars) = position {
+            keys.push(0x01);
+            keys.extend(std::iter::repeat_n(0x06, *forward_chars));
+        }
+        keys.extend_from_slice(argument);
+        keys.extend_from_slice(b"\x0fX\r");
+        let bash = run_bash_readline_with_bindings(&keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&keys, inputrc);
+
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{name}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            Some(expected.to_string()),
+            "{name}: {sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_backward_kill_line_edit() {
     let keys = b"abc def\x1bb\x18\x7fX\r";
     let bash = run_bash_readline(keys);

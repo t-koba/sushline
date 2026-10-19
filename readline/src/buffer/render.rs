@@ -268,19 +268,28 @@ impl LineBuffer {
             // Byte-wise motion can rest inside a valid UTF-8 sequence. Record
             // each interior byte so point lookups stay exact; the rendered
             // bytes are unchanged, only the position table gains entries.
-            if renders_byte_split(ch, options.byte_oriented, options.utf8_locale) && next > idx + 1
-            {
-                let byte_len = next - idx;
-                for prefix_len in 1..byte_len {
-                    let prefix = byte_split_prefix(ch, prefix_len, options.output_meta);
-                    let mut row_k = start_row;
-                    let mut col_k = start_col;
-                    for rendered in prefix.chars() {
-                        let (added, next_col) = advance_cell(col_k, char_width(rendered), columns);
-                        row_k += added;
-                        col_k = next_col;
+            // UTF-8 scalar rendering keeps the scalar start (matching
+            // `render_text` and `horizontal_line`); byte-split rendering
+            // advances by the rendered prefix.
+            if next > idx + 1 {
+                if renders_byte_split(ch, options.byte_oriented, options.utf8_locale) {
+                    let byte_len = next - idx;
+                    for prefix_len in 1..byte_len {
+                        let prefix = byte_split_prefix(ch, prefix_len, options.output_meta);
+                        let mut row_k = start_row;
+                        let mut col_k = start_col;
+                        for rendered in prefix.chars() {
+                            let (added, next_col) =
+                                advance_cell(col_k, char_width(rendered), columns);
+                            row_k += added;
+                            col_k = next_col;
+                        }
+                        positions.push((idx + prefix_len, (row_k, col_k)));
                     }
-                    positions.push((idx + prefix_len, (row_k, col_k)));
+                } else {
+                    for interior in (idx + 1)..next {
+                        positions.push((interior, (start_row, start_col)));
+                    }
                 }
             }
             positions.push((next, (row, col)));

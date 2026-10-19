@@ -225,9 +225,53 @@ fn interior_point_keeps_bytes_and_maps_prefix_in_byte_split_modes() {
 }
 
 #[test]
+fn interior_utf8_scalar_point_maps_to_scalar_start_on_wrapped_line() {
+    // Internal coordinate consistency: interior bytes of a valid scalar
+    // share the scalar-start screen position, matching `render_text`.
+    let bytes = "abc中x".as_bytes().to_vec();
+    let options = RenderOptions::default();
+    let prompt_width = 2;
+    let columns = 4;
+
+    let mut at_start = LineBuffer::from_bytes(bytes.clone());
+    at_start.set_point(3);
+    let (start_rendered, start_width) = at_start.render_text(None, options.clone(), prompt_width);
+    let start_pos = at_start.rendered_position(3, prompt_width, columns, options.clone());
+    // Nonzero prompt with wrapping puts the scalar start on row 1.
+    assert_eq!(start_width, 3);
+    assert_eq!(start_pos, (1, 1));
+    let start_line = at_start.horizontal_line(None, options.clone(), prompt_width);
+    assert_eq!(start_line.point, start_width);
+
+    for point in [4, 5] {
+        let mut buffer = LineBuffer::from_bytes(bytes.clone());
+        buffer.set_point(point);
+        let (rendered, point_width) = buffer.render_text(None, options.clone(), prompt_width);
+        assert_eq!(rendered, start_rendered);
+        assert_eq!(rendered_string_to_bytes(&rendered), bytes);
+        assert_eq!(point_width, start_width);
+        let line = buffer.horizontal_line(None, options.clone(), prompt_width);
+        assert_eq!(line.point, start_line.point);
+        assert_eq!(
+            buffer.rendered_position(point, prompt_width, columns, options.clone()),
+            start_pos
+        );
+        let (total_row, row, col) =
+            buffer.rendered_rows_and_point(prompt_width, columns, options.clone());
+        assert_eq!((row, col), start_pos);
+        assert_eq!(total_row, 2);
+        assert_eq!(buffer.as_bytes(), bytes);
+
+        buffer.move_screen_line(prompt_width, columns, 1, options.clone());
+        assert_eq!(buffer.point(), bytes.len());
+        assert_eq!(buffer.as_bytes(), bytes);
+    }
+}
+
+#[test]
 fn interior_point_in_utf8_scalar_mode_keeps_bytes_at_unit_start() {
-    // UTF-8 `byte-oriented off` keeps scalar motion; an interior point is
-    // only reachable via byte commands and must not change rendered bytes.
+    // UTF-8 `byte-oriented off` keeps valid scalars intact; an interior byte
+    // point is only reachable via byte commands and must not change rendered bytes.
     let bytes = "中x".as_bytes().to_vec();
     let options = RenderOptions::default();
     let mut baseline = None;

@@ -8928,6 +8928,7 @@ fn quoted_directory_slashes_match_bash_5_3_for_completion_commands() {
     let home_path = home.to_string_lossy().into_owned();
     let env = [("HOME", home_path.as_str())];
 
+    let mut total_cases = 0;
     for command in ["complete", "complete-filename", "menu-complete"] {
         let skip_values: &[&str] = if command == "menu-complete" {
             &["off"]
@@ -8939,6 +8940,19 @@ fn quoted_directory_slashes_match_bash_5_3_for_completion_commands() {
                 let inputrc = format!(
                     "\"\\C-o\": {command}\nset mark-directories {mark_directories}\nset skip-completed-text {skip_completed_text}\nset menu-complete-display-prefix off\nset show-all-if-ambiguous off\nset page-completions off\nset completion-query-items 999"
                 );
+                // Every (quote, directory, cursor) case in this group shares the
+                // same inputrc, HOME, and cwd, so one Bash session (looped
+                // `read -e` with the per-edit Ctrl-G line-buffer probe) and one
+                // Sushline session (`SUSHLINE_READS`) cover the whole group.
+                // Each case keeps its exact expected-byte, Bash-vs-Sushline,
+                // and bell checks below; batching only reuses the PTY sessions.
+                struct BatchedCase {
+                    context: String,
+                    bash_keys: Vec<u8>,
+                    sushline_keys: Vec<u8>,
+                    expected: Vec<u8>,
+                }
+                let mut cases: Vec<BatchedCase> = Vec::new();
                 for quote in &quotes {
                     for directory in &directories {
                         for cursor in &cursors {
@@ -9002,29 +9016,168 @@ fn quoted_directory_slashes_match_bash_5_3_for_completion_commands() {
                                     }
                                 }
                             }
-                            let (bash, sushline) = run_filename_line_buffer_hex_pair_with_env(
-                                &cwd,
-                                &inputrc,
-                                &bash_keys,
-                                &sushline_keys,
-                                "set +H",
-                                &env,
-                            );
-                            assert_filename_line_buffer_bytes(
-                                &bash,
-                                &sushline,
-                                &expected,
-                                &format!(
+                            cases.push(BatchedCase {
+                                context: format!(
                                     "quoted directory slash command={command} skip={skip_completed_text} mark={mark_directories} quote={} directory={} cursor={}",
                                     quote.name, directory.name, cursor.name
                                 ),
-                            );
+                                bash_keys,
+                                sushline_keys,
+                                expected,
+                            });
                         }
                     }
+                }
+                let batch_len = cases.len();
+                total_cases += batch_len;
+                assert!(
+                    !cases.is_empty(),
+                    "empty batch for command={command} skip={skip_completed_text} mark={mark_directories}"
+                );
+                // One inputrc file per group; it matches none of the fixture
+                // prefixes, so every case sees the same completion candidates.
+                fs::write(cwd.join("inputrc"), &inputrc).expect("write inputrc");
+                let mut bash_script = String::from(
+                    r#"set +H; stty status undef dsusp undef lnext undef 2>/dev/null || true; bind -x '"\C-g": printf "BASH_READLINE_HEX:"; printf "%s" "$READLINE_LINE" | od -An -tx1 | tr -d " \n"; printf "\n"';"#,
+                );
+                for (index, _) in cases.iter().enumerate() {
+                    let read_idx = index + 1;
+                    bash_script.push_str(&format!(
+                        r#" IFS= read -r -e -p "SUSHLINE_READY>" line{read_idx}; printf 'BASH_DONE_{read_idx}:%s\n' "$line{read_idx}";"#
+                    ));
+                }
+                bash_script.push_str(" :");
+                let mut bash_command = portable_pty::CommandBuilder::new("bash");
+                bash_command.env("INPUTRC", cwd.join("inputrc").to_string_lossy().as_ref());
+                bash_command.env("LC_ALL", "C");
+                for (name, value) in &env {
+                    bash_command.env(name, value);
+                }
+                bash_command.args(["--noprofile", "--norc", "-i", "-c", &bash_script]);
+                let mut sushline_command =
+                    portable_pty::CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+                sushline_command.env("SUSHLINE_INPUTRC", &inputrc);
+                sushline_command.env("SUSHLINE_PROMPT", READY_PROMPT);
+                sushline_command.env("SUSHLINE_HISTORY", "");
+                sushline_command.env("SUSHLINE_ACCEPTED_HEX", "1");
+                sushline_command.env("SUSHLINE_READS", batch_len.to_string());
+                sushline_command.env("LC_ALL", "C");
+                for (name, value) in &env {
+                    sushline_command.env(name, value);
+                }
+                let size = portable_pty::PtySize {
+                    rows: 24,
+                    cols: 80,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                };
+                // Step each case's keys in as the previous read completes so a
+                // slow runner never overflows the PTY input buffer; the final
+                // marker only arrives after the last read completes.
+                let bash_steps: Vec<(&str, &[u8])> = cases
+                    .iter()
+                    .map(|case| (READY_PROMPT, case.bash_keys.as_slice()))
+                    .collect();
+                let bash_stop = format!("BASH_DONE_{batch_len}:");
+                let bash = run_pty_steps_in_dir_with_size_raw_until_count(
+                    bash_command,
+                    &bash_steps,
+                    &cwd,
+                    size,
+                    &bash_stop,
+                    1,
+                );
+                let sushline_steps: Vec<(&str, &[u8])> = cases
+                    .iter()
+                    .map(|case| (READY_PROMPT, case.sushline_keys.as_slice()))
+                    .collect();
+                let sushline = run_pty_steps_in_dir_with_size_raw_until_count(
+                    sushline_command,
+                    &sushline_steps,
+                    &cwd,
+                    size,
+                    "SUSHLINE_ACCEPTED_HEX:",
+                    batch_len,
+                );
+                fn hex_lines_after_marker_all<'a>(
+                    output: &'a [u8],
+                    marker: &[u8],
+                ) -> Vec<&'a [u8]> {
+                    let mut lines = Vec::new();
+                    let mut pos = 0;
+                    while pos + marker.len() <= output.len() {
+                        let Some(offset) = output[pos..]
+                            .windows(marker.len())
+                            .position(|window| window == marker)
+                        else {
+                            break;
+                        };
+                        let start = pos + offset + marker.len();
+                        let rest = &output[start..];
+                        let end = rest
+                            .iter()
+                            .position(|byte| matches!(byte, b'\r' | b'\n'))
+                            .unwrap_or(rest.len());
+                        lines.push(&rest[..end]);
+                        pos = start + end;
+                    }
+                    lines
+                }
+                fn decode_hex_line(hex: &[u8]) -> Option<Vec<u8>> {
+                    if !hex.len().is_multiple_of(2) {
+                        return None;
+                    }
+                    hex.chunks(2)
+                        .map(|pair| {
+                            let hi = match pair[0] {
+                                b'0'..=b'9' => Some(pair[0] - b'0'),
+                                b'a'..=b'f' => Some(pair[0] - b'a' + 10),
+                                _ => None,
+                            }?;
+                            let lo = match pair[1] {
+                                b'0'..=b'9' => Some(pair[1] - b'0'),
+                                b'a'..=b'f' => Some(pair[1] - b'a' + 10),
+                                _ => None,
+                            }?;
+                            Some((hi << 4) | lo)
+                        })
+                        .collect()
+                }
+                let bash_hexes = hex_lines_after_marker_all(&bash, b"BASH_READLINE_HEX:");
+                let sushline_hexes =
+                    hex_lines_after_marker_all(&sushline, b"SUSHLINE_ACCEPTED_HEX:");
+                assert_eq!(
+                    bash_hexes.len(),
+                    batch_len,
+                    "Bash hex count for command={command} skip={skip_completed_text} mark={mark_directories}"
+                );
+                assert_eq!(
+                    sushline_hexes.len(),
+                    batch_len,
+                    "Sushline hex count for command={command} skip={skip_completed_text} mark={mark_directories}"
+                );
+                let bash_bells = raw_bell_count(&bash);
+                let sushline_bells = raw_bell_count(&sushline);
+                for (index, case) in cases.iter().enumerate() {
+                    let context = &case.context;
+                    assert!(
+                        bash_hexes[index] == sushline_hexes[index],
+                        "Bash and Sushline line-buffer hex differed for {context}"
+                    );
+                    assert!(
+                        decode_hex_line(sushline_hexes[index]).as_deref()
+                            == Some(case.expected.as_slice()),
+                        "accepted bytes differed for {context}"
+                    );
+                    assert!(
+                        bash_bells == 0 && sushline_bells == 0,
+                        "unexpected completion bell for {context}"
+                    );
                 }
             }
         }
     }
+    assert_eq!(total_cases, 312, "all original quoted-directory cases ran");
 }
 
 #[cfg(unix)]

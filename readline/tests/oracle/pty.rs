@@ -990,15 +990,36 @@ pub(super) fn run_pty_steps_with_size_until(
 }
 
 fn run_pty_steps_with_size_until_raw(
-    mut command: CommandBuilder,
+    command: CommandBuilder,
     steps: &[(&str, &[u8])],
     size: PtySize,
     stop_marker: &str,
 ) -> Vec<u8> {
+    run_pty_steps_in_dir_with_size_raw_until_count(
+        command,
+        steps,
+        std::path::Path::new("/"),
+        size,
+        stop_marker,
+        1,
+    )
+}
+
+/// Cwd-aware multi-step PTY driver, shared by ordinary and batched oracle
+/// cases. Steps are written in order as their markers appear; success returns
+/// once `stop_marker` has appeared `stop_count` times with the final occurrence
+/// line-complete. The 15 s hang bound matches the other drivers.
+pub(super) fn run_pty_steps_in_dir_with_size_raw_until_count(
+    mut command: CommandBuilder,
+    steps: &[(&str, &[u8])],
+    cwd: &std::path::Path,
+    size: PtySize,
+    stop_marker: &str,
+    stop_count: usize,
+) -> Vec<u8> {
+    assert!(stop_count > 0, "stop marker count must be positive");
     command.env("TERM", "xterm-256color");
-    // portable-pty uses $HOME as the child cwd; the sandbox HOME may not
-    // exist (ENOENT on spawn), and oracle cases use absolute paths only.
-    command.cwd("/");
+    command.cwd(cwd);
     let pty_system = NativePtySystem::default();
     let pair = pty_system.openpty(size).expect("open pty");
 
@@ -1022,7 +1043,7 @@ fn run_pty_steps_with_size_until_raw(
             }
         }
     });
-    // Generous bound for a loaded runner; success returns on the marker far earlier.
+    // Same hang bound as the other drivers; batched groups stay far under it.
     let deadline = Instant::now() + Duration::from_secs(15);
     let mut out = Vec::new();
     let mut next_step = 0;
@@ -1040,7 +1061,7 @@ fn run_pty_steps_with_size_until_raw(
                     next_step += 1;
                     scan_start = out.len();
                 }
-                if stop_marker_line_complete(&out, stop_marker) {
+                if stop_marker_count_line_complete(&out, stop_marker, stop_count) {
                     break;
                 }
             }
@@ -1053,6 +1074,35 @@ fn run_pty_steps_with_size_until_raw(
     let _ = child.wait();
     let _ = reader_thread.join();
     out
+}
+
+fn stop_marker_count_line_complete(output: &[u8], marker: &str, count: usize) -> bool {
+    let needle = marker.as_bytes();
+    if needle.is_empty() {
+        return false;
+    }
+    let mut found = 0;
+    let mut pos = 0;
+    let mut last_start: Option<usize> = None;
+    while pos + needle.len() <= output.len() {
+        if let Some(offset) = find_bytes(&output[pos..], needle) {
+            let start = pos + offset;
+            found += 1;
+            if found == count {
+                last_start = Some(start);
+                break;
+            }
+            pos = start + needle.len();
+        } else {
+            break;
+        }
+    }
+    let Some(start) = last_start else {
+        return false;
+    };
+    output[start + needle.len()..]
+        .iter()
+        .any(|byte| matches!(byte, b'\r' | b'\n'))
 }
 
 pub(super) fn run_pty_after_prompt(

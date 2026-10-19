@@ -207,7 +207,7 @@ where
         }
     }
 
-    // Counted deletes are directional kills; uncounted `delete-char` is not.
+    // Explicitly counted deletes are directional kills; uncounted deletes are not.
     fn delete_chars_with_numeric_argument(
         &mut self,
         state: &mut EditorState,
@@ -265,26 +265,23 @@ where
                 state.paste.bracketed_paste_pending.clear();
             }
             "delete-char-or-list" => {
+                let mut counted_kill = false;
                 if state.buffer.point() >= state.buffer.len_chars() {
                     self.complete(state, key, CompletionType::PossibleCompletions, hooks)?;
                 } else {
                     state.record_undo();
-                    let arg = state.take_numeric_arg().unwrap_or(1);
-                    if arg > 0 {
-                        for _ in 0..arg as u32 {
-                            if !state.buffer.delete_char() {
-                                break;
-                            }
+                    if let Some(arg) = state.take_numeric_arg() {
+                        if arg != 0 {
+                            self.delete_chars_with_numeric_argument(state, arg, true)?;
+                            counted_kill = true;
                         }
                     } else {
-                        for _ in 0..arg.unsigned_abs() {
-                            if !state.buffer.backward_delete_char() {
-                                break;
-                            }
-                        }
+                        state.buffer.delete_char();
                     }
                 }
-                state.after_non_kill_command();
+                if !counted_kill {
+                    state.after_non_kill_command();
+                }
             }
             "forward-backward-delete-char" => {
                 state.record_undo();

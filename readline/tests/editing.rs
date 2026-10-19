@@ -252,6 +252,43 @@ fn delete_char_or_list_honors_numeric_argument() {
 }
 
 #[test]
+fn delete_char_or_list_counted_deletions_kill_for_yank() {
+    let inputrc = "\"\\C-o\": delete-char-or-list";
+    for (name, keys, expected) in [
+        (
+            "positive",
+            b"abcdef\x01\x06\x06\x1b3\x0f\x19\r".as_slice(),
+            "abcdef",
+        ),
+        (
+            "negative",
+            b"abcdef\x01\x06\x06\x1b-1\x0f\x19\r".as_slice(),
+            "abcdef",
+        ),
+        (
+            "zero",
+            b"abcdef\x01\x06\x06\x1b0\x0f\x19\r".as_slice(),
+            "abcdef",
+        ),
+        (
+            "uncounted",
+            b"abcdef\x01\x06\x06\x0f\x19\r".as_slice(),
+            "abdef",
+        ),
+    ] {
+        let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(keys.to_vec())]);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str(inputrc).unwrap();
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        assert_eq!(
+            result,
+            ReadlineResult::Line(expected.as_bytes().to_vec()),
+            "{name}"
+        );
+    }
+}
+
+#[test]
 fn numeric_delete_char_kills_for_yank() {
     // Explicit positive count deletes forward and saves the text for yank.
     let terminal = MemoryTerminal::with_events(vec![

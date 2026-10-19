@@ -9416,6 +9416,46 @@ fn bash_readline_and_sushline_delete_char_or_list_numeric_arguments_match_bash_5
 }
 
 #[test]
+fn bash_readline_and_sushline_delete_char_or_list_kill_ring_matches_bash_5_3() {
+    // Bash 5.3 PTY accepted-line observations isolate counted yank behavior;
+    // ordinary uncounted deletion remains a non-killing control.
+    let inputrc = r#""\C-o": delete-char-or-list"#;
+    for (name, keys, expected) in [
+        (
+            "positive_count",
+            b"abcdef\x01\x06\x06\x1b3\x0f\x19\r".as_slice(),
+            "abcdef",
+        ),
+        (
+            "negative_count",
+            b"abcdef\x01\x06\x06\x1b-1\x0f\x19\r".as_slice(),
+            "abcdef",
+        ),
+        (
+            "zero_count",
+            b"abcdef\x01\x06\x06\x1b0\x0f\x19\r".as_slice(),
+            "abcdef",
+        ),
+        (
+            "uncounted",
+            b"abcdef\x01\x06\x06\x0f\x19\r".as_slice(),
+            "abdef",
+        ),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        assert!(
+            accepted_line(&bash).as_deref() == Some(expected),
+            "Bash delete-char-or-list yank case failed: {name}"
+        );
+        assert!(
+            accepted_line(&sushline).as_deref() == Some(expected),
+            "Sushline delete-char-or-list yank case failed: {name}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_delete_char_or_list_matches_edit_and_list_cases() {
     let inputrc = r#""\C-o": delete-char-or-list"#;
     let bash = run_bash_readline_with_bindings(b"abc\x02\x0f\r", inputrc);

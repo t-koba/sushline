@@ -14,6 +14,9 @@ where
         match command {
             EditCommand::Abort => {
                 self.ding()?;
+                if state.macro_state.keyboard_macro.is_some() {
+                    state.abort_keyboard_macro_definition();
+                }
                 state.cancel_pending_command();
                 Ok(EditorOutcome::Continue)
             }

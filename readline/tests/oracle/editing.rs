@@ -854,6 +854,47 @@ fn bash_and_sushline_invalidate_macro_after_stray_end_kbd_macro() {
 }
 
 #[test]
+fn bash_and_sushline_abort_keyboard_macro_recording_on_abort() {
+    for (name, keys, expected, expected_bells) in [
+        (
+            "abort without a previous definition",
+            b"\x18(a\x07b\x18)\x18eZ\r".as_slice(),
+            "abZ",
+            Some(3),
+        ),
+        (
+            "abort after a previous definition",
+            b"\x18(a\x18)\x18(b\x07c\x18)\x18eZ\r".as_slice(),
+            "abcZ",
+            None,
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, "");
+        let sushline = run_sushline_harness_with_inputrc(keys, "");
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "Bash {name}: {bash:?}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "Sushline {name}: {sushline:?}"
+        );
+        if let Some(expected_bells) = expected_bells {
+            assert_eq!(bell_count(&bash), expected_bells, "Bash {name}: {bash}");
+            assert_eq!(
+                bell_count(&sushline),
+                expected_bells,
+                "Sushline {name}: {sushline}"
+            );
+        }
+        assert!(!bash.contains("maximum macro execution nesting level exceeded"));
+        assert!(!sushline.contains("maximum macro execution nesting level exceeded"));
+    }
+}
+
+#[test]
 fn bash_and_sushline_abort_active_recording_on_nested_start_kbd_macro() {
     // GNU `rl_start_kbd_macro` aborts when already defining
     // (`RL_STATE_MACRODEF`): the nested no-argument start rings once and

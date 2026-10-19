@@ -53,6 +53,23 @@ fn reads_basic_edited_line() {
 }
 
 #[test]
+fn copy_forward_word_excludes_skipped_leading_whitespace() {
+    let mut keys = b"one/two three four\x01".to_vec();
+    keys.extend_from_slice(&[0x06; 7]);
+    keys.extend_from_slice(b"\x0f\x05\x19X\r");
+    let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(keys)]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str(r#""\C-o": copy-forward-word"#)
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+
+    assert_eq!(
+        result,
+        ReadlineResult::Line(b"one/two three fourthreeX".to_vec())
+    );
+}
+
+#[test]
 fn supports_inputrc_macro_binding() {
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(vec![0x0f]),

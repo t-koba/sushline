@@ -280,6 +280,10 @@ impl LineBuffer {
                 }
                 start = prev;
             }
+        } else {
+            while self.char_at(start).is_some_and(char::is_whitespace) {
+                start = self.next_char_boundary(start);
+            }
         }
         self.forward_word_by(is_word);
         let end = self.point;

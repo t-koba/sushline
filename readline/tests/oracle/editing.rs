@@ -2092,6 +2092,22 @@ fn bash_readline_and_sushline_copy_commands_update_kill_ring_same_way() {
 }
 
 #[test]
+fn bash_readline_and_sushline_copy_forward_word_skips_leading_whitespace() {
+    let inputrc = r#""\C-o": copy-forward-word"#;
+    let mut keys = b"one/two three four\x01".to_vec();
+    keys.extend_from_slice(&[0x06; 7]);
+    keys.extend_from_slice(b"\x0f\x05\x19X\r");
+    let bash = run_bash_readline_with_inputrc_file(&keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(&keys, inputrc);
+    let expected = Some("one/two three fourthreeX".to_string());
+
+    assert_eq!(accepted_line(&bash), expected, "Bash");
+    assert_eq!(accepted_line(&sushline), expected, "Sushline");
+    assert_eq!(bell_count(&bash), 0, "Bash");
+    assert_eq!(bell_count(&sushline), 0, "Sushline");
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_character_search_commands() {
     for (command, keys) in [
         ("character-search", b"abcabc\x01\x0fcX\r".as_slice()),

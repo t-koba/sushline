@@ -659,6 +659,38 @@ fn negative_numeric_argument_reverses_motion_direction() {
 }
 
 #[test]
+fn unix_word_rubout_honors_positive_numeric_count() {
+    let inputrc = r#""\C-o": unix-word-rubout"#;
+    let prefix = b"one two three four\x01\x06\x06\x06\x06\x06\x06\x06";
+    type Case = (&'static str, &'static [u8], &'static [u8], &'static str);
+    let cases: &[Case] = &[
+        ("positive_two", b"\x1b2", b"\x0fX\r", "X three four"),
+        ("explicit_zero", b"\x1b0", b"\x0fX\r", "one X three four"),
+        ("negative_one", b"\x1b-1", b"\x0fX\r", "one X three four"),
+        (
+            "positive_two_yank_at_eol",
+            b"\x1b2",
+            b"\x0f\x05\x19X\r",
+            " three fourone twoX",
+        ),
+    ];
+    for (name, argument, suffix, expected) in cases {
+        let mut keys = prefix.to_vec();
+        keys.extend_from_slice(argument);
+        keys.extend_from_slice(suffix);
+        let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(keys)]);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str(inputrc).unwrap();
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        assert_eq!(
+            result,
+            ReadlineResult::Line(expected.as_bytes().to_vec()),
+            "{name}"
+        );
+    }
+}
+
+#[test]
 fn editing_word_breaks_hook_controls_word_commands() {
     struct WordBreakHook;
 

@@ -27,7 +27,16 @@ where
             }
             EditCommand::UnixWordRubout => {
                 state.record_undo();
-                let killed = state.buffer.unix_word_rubout();
+                let argument = state.take_numeric_arg().unwrap_or(1);
+                let count = if argument > 0 { argument as u32 } else { 1 };
+                let mut killed = Vec::new();
+                for _ in 0..count {
+                    let part = state.buffer.unix_word_rubout();
+                    if part.is_empty() {
+                        break;
+                    }
+                    killed.splice(0..0, part);
+                }
                 if killed.is_empty() {
                     self.ding()?;
                 }

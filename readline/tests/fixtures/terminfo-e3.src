@@ -1,0 +1,5 @@
+sushline-e3-test|Sushline E3 extended capability regression,
+    colors#8,
+    pairs#8,
+    initp=PAIR,
+    E3=SCROLL,

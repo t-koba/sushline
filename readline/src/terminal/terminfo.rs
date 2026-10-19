@@ -176,7 +176,8 @@ fn parse_extended_terminfo(
     let bool_count = read(offset);
     let num_count = read(offset + 2);
     let str_count = read(offset + 4);
-    let str_table_size = read(offset + 6);
+    // Field four counts names plus present string values, not table bytes.
+    let str_table_size = read(offset + 8);
     offset += 10;
     offset = offset.checked_add(bool_count)?;
     if !offset.is_multiple_of(2) {
@@ -193,12 +194,15 @@ fn parse_extended_terminfo(
     if string_table_end > bytes.len() {
         return None;
     }
+    // ncurses stores values first, then names. Name offsets are relative to
+    // that names subsection, not to the beginning of the whole string table.
+    // Absent/cancelled strings have no value bytes (including no NUL).
+    let mut names_start = string_table_start;
     for str_idx in 0..str_count {
-        let name_offset_pos = name_offsets_start + (bool_count + num_count + str_idx) * 2;
         let value_offset_pos = string_offsets_start + str_idx * 2;
-        let name =
-            terminfo_table_bytes(bytes, string_table_start, string_table_end, name_offset_pos)?;
-        if name != b"E3" {
+        let value_offset =
+            i16::from_le_bytes([bytes[value_offset_pos], bytes[value_offset_pos + 1]]);
+        if value_offset < 0 {
             continue;
         }
         let value = terminfo_table_bytes(
@@ -207,7 +211,23 @@ fn parse_extended_terminfo(
             string_table_end,
             value_offset_pos,
         )?;
-        caps.insert("E3", value);
+        names_start = names_start.checked_add(value.len().checked_add(1)?)?;
+    }
+    if names_start > string_table_end {
+        return None;
+    }
+    for str_idx in 0..str_count {
+        let name_offset_pos = name_offsets_start + (bool_count + num_count + str_idx) * 2;
+        let value_offset_pos = string_offsets_start + str_idx * 2;
+        let name = terminfo_table_bytes(bytes, names_start, string_table_end, name_offset_pos)?;
+        if name != b"E3" {
+            continue;
+        }
+        if let Some(value) =
+            terminfo_table_bytes(bytes, string_table_start, names_start, value_offset_pos)
+        {
+            caps.insert("E3", value.to_vec());
+        }
     }
     Some(())
 }
@@ -217,23 +237,24 @@ fn terminfo_table_bytes(
     table_start: usize,
     table_end: usize,
     offset_pos: usize,
-) -> Option<Vec<u8>> {
-    if offset_pos + 2 > bytes.len() {
+) -> Option<&[u8]> {
+    if offset_pos.checked_add(2)? > bytes.len() {
         return None;
     }
     let string_offset = i16::from_le_bytes([bytes[offset_pos], bytes[offset_pos + 1]]);
     if string_offset < 0 {
         return None;
     }
-    let start = table_start + string_offset as usize;
+    let start = table_start.checked_add(string_offset as usize)?;
     if start >= table_end {
         return None;
     }
-    let end = bytes[start..table_end]
+    let table = bytes.get(start..table_end)?;
+    let end = table
         .iter()
         .position(|byte| *byte == 0)
         .map(|end| start + end)?;
-    Some(bytes[start..end].to_vec())
+    Some(&bytes[start..end])
 }
 
 struct TerminfoHeader {
@@ -274,7 +295,6 @@ const STANDARD_STRING_CAPS: &[(&str, usize)] = &[
     ("flash", 45),
     ("rmkx", 88),
     ("smkx", 89),
-    ("E3", 300),
 ];
 
 #[cfg(test)]
@@ -287,6 +307,67 @@ mod tests {
             .iter()
             .map(|(name, value)| (*name, value.to_vec()))
             .collect()
+    }
+
+    #[test]
+    fn extended_e3_is_not_standard_initialize_pair() {
+        // Compiled with tic -x from the adjacent source; no runtime tic dependency.
+        let bytes = include_bytes!("../../tests/fixtures/terminfo-e3.bin");
+        let capabilities = super::parse_terminfo(bytes).unwrap();
+        assert_eq!(
+            capabilities.get("E3").map(Vec::as_slice),
+            Some(&b"SCROLL"[..])
+        );
+    }
+
+    #[test]
+    fn extended_names_follow_present_values_and_boolean_numeric_names() {
+        for num_size in [2, 4] {
+            let table = b"SCROLL\0flag\0number\0absent\0cancelled\0E3\0";
+            let mut bytes = Vec::new();
+            // One boolean, one number, three strings; five names + one value.
+            for field in [1u16, 1, 3, 6, table.len() as u16] {
+                bytes.extend(field.to_le_bytes());
+            }
+            bytes.extend([1, 0]); // Boolean and alignment.
+            bytes.extend(vec![0; num_size]);
+            for offset in [-1i16, -2, 0, 0, 5, 12, 19, 29] {
+                bytes.extend(offset.to_le_bytes());
+            }
+            bytes.extend(table);
+            let mut capabilities = HashMap::new();
+            super::parse_extended_terminfo(&bytes, 0, num_size, &mut capabilities).unwrap();
+            assert_eq!(
+                capabilities.get("E3").map(Vec::as_slice),
+                Some(&b"SCROLL"[..])
+            );
+        }
+    }
+
+    #[test]
+    fn extended_e3_absent_cancelled_and_malformed_values_are_not_exposed() {
+        for value_offset in [-1i16, -2, 100] {
+            let mut bytes = Vec::new();
+            for field in [0u16, 0, 1, 1, 3] {
+                bytes.extend(field.to_le_bytes());
+            }
+            bytes.extend(value_offset.to_le_bytes());
+            bytes.extend(0i16.to_le_bytes()); // Name offset.
+            bytes.extend(b"E3\0");
+            let mut capabilities = HashMap::new();
+            super::parse_extended_terminfo(&bytes, 0, 2, &mut capabilities);
+            assert!(!capabilities.contains_key("E3"));
+        }
+    }
+
+    #[test]
+    fn truncated_extended_fixture_never_exposes_e3_or_initialize_pair() {
+        let bytes = include_bytes!("../../tests/fixtures/terminfo-e3.bin");
+        for end in 0..bytes.len() {
+            if let Some(capabilities) = super::parse_terminfo(&bytes[..end]) {
+                assert!(!capabilities.contains_key("E3"), "prefix length {end}");
+            }
+        }
     }
 
     #[test]

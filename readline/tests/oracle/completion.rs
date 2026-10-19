@@ -2170,6 +2170,56 @@ fn bash_readline_and_sushline_accept_same_shell_transpose_words() {
 }
 
 #[test]
+fn bash_readline_and_sushline_shell_transpose_words_numeric_arguments() {
+    // X exposes accepted-line cursor placement; display and bell behavior are
+    // not asserted for these numeric fallback-path cases.
+    let inputrc = r#""\C-o": shell-transpose-words"#;
+    type Case = (&'static str, Option<usize>, &'static [u8], &'static str);
+    let cases: &[Case] = &[
+        ("interior_plain", Some(3), b"", "two oneX three four"),
+        (
+            "interior_positive_2",
+            Some(3),
+            b"\x1b2",
+            "three two oneX four",
+        ),
+        (
+            "interior_negative_1",
+            Some(3),
+            b"\x1b-1",
+            "oneX two three four",
+        ),
+        ("interior_zero", Some(3), b"\x1b0", "oneX two three four"),
+        ("eol_plain", None, b"", "one two four threeX"),
+        ("eol_positive_2", None, b"\x1b2", "one four three twoX"),
+        ("eol_negative_1", None, b"\x1b-1", "one two three fourX"),
+        ("eol_zero", None, b"\x1b0", "one two three fourX"),
+    ];
+    for (name, position, argument, expected) in cases {
+        let mut keys = b"one two three four".to_vec();
+        if let Some(forward_chars) = position {
+            keys.push(0x01);
+            keys.extend(std::iter::repeat_n(0x06, *forward_chars));
+        }
+        keys.extend_from_slice(argument);
+        keys.extend_from_slice(b"\x0fX\r");
+        let bash = run_bash_readline_with_bindings(&keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&keys, inputrc);
+
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{name}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            Some(expected.to_string()),
+            "{name}: {sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_complete_filename_ignoring_case() {
     let dir = tempfile::tempdir().expect("tempdir");
     let file = dir.path().join("AlphaFile");

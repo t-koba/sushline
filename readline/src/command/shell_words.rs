@@ -72,14 +72,72 @@ pub(super) fn transpose_shell_words(buffer: &mut LineBuffer, hooks: &mut impl Ho
         return false;
     };
 
-    let line = buffer.as_bytes();
-    let left = line[left_start..left_end].to_vec();
-    let middle = line[left_end..right_start].to_vec();
-    let right = line[right_start..right_end].to_vec();
-    let mut replacement = Vec::with_capacity(right.len() + middle.len() + left.len());
-    replacement.extend_from_slice(&right);
-    replacement.extend_from_slice(&middle);
-    replacement.extend_from_slice(&left);
-    buffer.replace_range_bytes(left_start, right_end, &replacement);
-    true
+    buffer.transpose_word_ranges(left_start, left_end, right_start, right_end)
+}
+
+pub(super) fn transpose_shell_words_by_count(
+    buffer: &mut LineBuffer,
+    hooks: &mut impl Hooks,
+    count: i32,
+) -> bool {
+    if count == 0 {
+        return false;
+    }
+    if count == 1 {
+        return transpose_shell_words(buffer, hooks);
+    }
+    let spans =
+        hook_token_spans(buffer.as_bytes(), hooks).unwrap_or_else(|| buffer.command_word_spans());
+    transpose_word_spans_by_count(buffer, &spans, count)
+}
+
+fn transpose_word_spans_by_count(
+    buffer: &mut LineBuffer,
+    spans: &[(usize, usize)],
+    count: i32,
+) -> bool {
+    let mut point = buffer.point();
+    move_word_spans_by_count(&mut point, spans, count, true);
+    let right_end = point;
+    move_word_spans_by_count(&mut point, spans, 1, false);
+    let right_start = point;
+    move_word_spans_by_count(&mut point, spans, count, false);
+    let left_start = point;
+    move_word_spans_by_count(&mut point, spans, 1, true);
+    let left_end = point;
+
+    if left_start == right_start || right_start < left_end {
+        return false;
+    }
+    buffer.transpose_word_ranges(left_start, left_end, right_start, right_end)
+}
+
+fn move_word_spans_by_count(
+    point: &mut usize,
+    spans: &[(usize, usize)],
+    count: i32,
+    forward: bool,
+) {
+    let move_forward = forward != count.is_negative();
+    for _ in 0..count.unsigned_abs() {
+        let next_point = if move_forward {
+            spans
+                .iter()
+                .find(|(_, end)| *point < *end)
+                .map(|(_, end)| *end)
+        } else {
+            spans
+                .iter()
+                .rev()
+                .find(|(start, _)| *start < *point)
+                .map(|(start, _)| *start)
+        };
+        let Some(next_point) = next_point else {
+            break;
+        };
+        if next_point == *point {
+            break;
+        }
+        *point = next_point;
+    }
 }

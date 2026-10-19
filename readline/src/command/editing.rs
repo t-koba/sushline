@@ -361,9 +361,8 @@ where
             }
             "shell-transpose-words" => {
                 state.record_undo();
-                repeat(state, |state| {
-                    shell_words::transpose_shell_words(&mut state.buffer, hooks);
-                });
+                let count = state.take_numeric_arg().unwrap_or(1);
+                shell_words::transpose_shell_words_by_count(&mut state.buffer, hooks, count);
                 state.after_non_kill_command();
             }
             "spell-correct-word" => {

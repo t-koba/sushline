@@ -595,6 +595,56 @@ fn shell_word_commands_use_hook_token_spans() {
 }
 
 #[test]
+fn shell_transpose_words_uses_counted_hook_spans() {
+    struct ColonTokenHook;
+
+    impl Hooks for ColonTokenHook {
+        fn shell_word_spans(&mut self, line: &[u8]) -> Option<Vec<(usize, usize)>> {
+            let mut spans = Vec::new();
+            let mut start = None;
+            for (idx, byte) in line.iter().copied().enumerate() {
+                if matches!(byte, b':' | b' ') {
+                    if let Some(start) = start.take() {
+                        spans.push((start, idx));
+                    }
+                } else {
+                    start.get_or_insert(idx);
+                }
+            }
+            if let Some(start) = start {
+                spans.push((start, line.len()));
+            }
+            Some(spans)
+        }
+    }
+
+    type Case = (&'static [u8], Option<usize>, &'static [u8], &'static str);
+    let cases: &[Case] = &[
+        (b"aa:bb:cc:dd", None, b"\x1b2\x0fX\r", "aa:dd:cc:bbX"),
+        (b"aa:bb:cc:dd", Some(2), b"\x1b2\x0fX\r", "cc:bb:aaX:dd"),
+        (b"aa:bb:cc:dd", Some(2), b"\x1b-1\x0fX\r", "aaX:bb:cc:dd"),
+        (b"aa:bb:cc:dd", None, b"\x1b-1\x0fX\r", "aa:bb:cc:ddX"),
+        (b"aa:bb:cc:dd", None, b"\x1b0\x0fX\r", "aa:bb:cc:ddX"),
+    ];
+    for (initial, position, command_keys, expected) in cases {
+        let mut keys = initial.to_vec();
+        if let Some(forward_chars) = position {
+            keys.push(0x01);
+            keys.extend(std::iter::repeat_n(0x06, *forward_chars));
+        }
+        keys.extend_from_slice(command_keys);
+        let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(keys)]);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str("\"\\C-o\": shell-transpose-words")
+            .unwrap();
+        let result = line
+            .read_line(Prompt::new("> "), &mut ColonTokenHook)
+            .unwrap();
+        assert_eq!(result, ReadlineResult::Line(expected.as_bytes().to_vec()));
+    }
+}
+
+#[test]
 fn negative_numeric_argument_reverses_motion_direction() {
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"ab".to_vec()),

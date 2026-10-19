@@ -548,6 +548,45 @@ impl LineBuffer {
         true
     }
 
+    pub(crate) fn command_word_spans(&self) -> Vec<(usize, usize)> {
+        let mut spans = Vec::new();
+        let mut from = 0;
+        while let Some((start, end)) = self.next_command_word_bounds_from(from) {
+            if end <= from {
+                break;
+            }
+            spans.push((start, end));
+            from = end;
+        }
+        spans
+    }
+
+    pub(crate) fn transpose_word_ranges(
+        &mut self,
+        left_start: usize,
+        left_end: usize,
+        right_start: usize,
+        right_end: usize,
+    ) -> bool {
+        if left_start >= left_end
+            || left_end > right_start
+            || right_start >= right_end
+            || right_end > self.bytes.len()
+        {
+            return false;
+        }
+        let left = self.bytes[left_start..left_end].to_vec();
+        let middle = self.bytes[left_end..right_start].to_vec();
+        let right = self.bytes[right_start..right_end].to_vec();
+        let mut replacement = Vec::with_capacity(right.len() + middle.len() + left.len());
+        replacement.extend_from_slice(&right);
+        replacement.extend_from_slice(&middle);
+        replacement.extend_from_slice(&left);
+        self.bytes.splice(left_start..right_end, replacement);
+        self.point = right_end;
+        true
+    }
+
     /// Transpose command words.
     pub fn transpose_command_words(&mut self) -> bool {
         let Some((left_start, left_end)) = self.previous_command_word_bounds(self.point) else {

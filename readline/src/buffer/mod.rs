@@ -425,26 +425,39 @@ impl LineBuffer {
 
     /// Transpose chars.
     pub fn transpose_chars(&mut self) -> bool {
+        self.transpose_chars_by_count(1)
+    }
+
+    /// Apply counted character transposition at point.
+    pub(crate) fn transpose_chars_by_count(&mut self, count: i32) -> bool {
         let bounds = self.grapheme_boundaries();
-        if bounds.len() < 3 || self.point == 0 {
+        if count == 0 || bounds.len() < 3 {
             return false;
         }
-        let right_end = if self.point == self.bytes.len() {
-            self.point
+        let grapheme_count = bounds.len() - 1;
+        let at_end = self.point == self.bytes.len();
+        let (left_index, right_index) = if at_end {
+            (grapheme_count - 2, grapheme_count - 1)
+        } else if count > 0 {
+            let point_index = bounds
+                .partition_point(|boundary| *boundary <= self.point)
+                .saturating_sub(1);
+            let Some(left_index) = point_index.checked_sub(1) else {
+                return false;
+            };
+            let distance = count as usize - 1;
+            let right_index = point_index.saturating_add(distance).min(grapheme_count - 1);
+            (left_index, right_index)
         } else {
-            self.next_grapheme_boundary(self.point)
-        };
-        let right_start = self.prev_grapheme_boundary_checked(right_end).unwrap_or(0);
-        let left_start = self
-            .prev_grapheme_boundary_checked(right_start)
-            .unwrap_or(0);
-        if left_start == right_start {
             return false;
-        }
-        let left = self.bytes[left_start..right_start].to_vec();
-        let right = self.bytes[right_start..right_end].to_vec();
-        let mut replacement = Vec::with_capacity(left.len() + right.len());
-        replacement.extend_from_slice(&right);
+        };
+        let left_start = bounds[left_index];
+        let left_end = bounds[left_index + 1];
+        let right_end = bounds[right_index + 1];
+        let left = self.bytes[left_start..left_end].to_vec();
+        let following = self.bytes[left_end..right_end].to_vec();
+        let mut replacement = Vec::with_capacity(following.len() + left.len());
+        replacement.extend_from_slice(&following);
         replacement.extend_from_slice(&left);
         self.bytes.splice(left_start..right_end, replacement);
         self.point = right_end;

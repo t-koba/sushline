@@ -121,6 +121,7 @@ fn negative_arguments_match_readline_line_kill_case_and_transpose_rules() {
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
     assert_eq!(result, ReadlineResult::Line("foo BAR".as_bytes().to_vec()));
 
+    // A sign-only negative argument at EOL transposes the final pair.
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"ab".to_vec()),
         TerminalEvent::Bytes(b"\x1b-\x14".to_vec()),
@@ -128,7 +129,7 @@ fn negative_arguments_match_readline_line_kill_case_and_transpose_rules() {
     ]);
     let mut line = Editor::new(Config::default(), terminal, History::new());
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
-    assert_eq!(result, ReadlineResult::Line("ab".as_bytes().to_vec()));
+    assert_eq!(result, ReadlineResult::Line("ba".as_bytes().to_vec()));
 }
 
 #[test]
@@ -1110,6 +1111,54 @@ fn yank_with_empty_ring_bells_and_preserves_line() {
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
     assert_eq!(result, ReadlineResult::Line(Vec::new()));
     assert!(line.terminal().out.contains('\x07'), "empty yank must bell");
+}
+
+#[test]
+fn transpose_chars_uses_counted_target_and_endpoint_rules() {
+    // MemoryTerminal cases complement the paired PTY fixtures by exercising
+    // the editor's numeric target and cursor movement locally.
+    let cases: &[(&str, &[u8], &[u8], &str)] = &[
+        (
+            "one two three four",
+            b"\x01\x06\x06\x06",
+            b"\x1b2\x0fX\r",
+            "on teXwo three four",
+        ),
+        (
+            "one two three four",
+            b"\x01\x06\x06\x06",
+            b"\x1b-1\x0fX\r",
+            "oneX two three four",
+        ),
+        (
+            "one two three four",
+            b"",
+            b"\x1b-1\x0fX\r",
+            "one two three foruX",
+        ),
+        (
+            "one two three four",
+            b"",
+            b"\x1b0\x0fX\r",
+            "one two three fourX",
+        ),
+        (
+            "abcdefghij",
+            b"\x01\x06\x06\x06\x06\x06\x06\x06\x06",
+            b"\x1b4\x0fX\r",
+            "abcdefgijhX",
+        ),
+    ];
+    for (initial, point_keys, command_keys, expected) in cases {
+        let mut keys = initial.as_bytes().to_vec();
+        keys.extend_from_slice(point_keys);
+        keys.extend_from_slice(command_keys);
+        let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(keys)]);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str("\"\\C-o\": transpose-chars").unwrap();
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        assert_eq!(result, ReadlineResult::Line(expected.as_bytes().to_vec()));
+    }
 }
 
 #[test]

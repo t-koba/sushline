@@ -438,6 +438,125 @@ fn bash_readline_and_sushline_accept_same_case_word_edits() {
 }
 
 #[test]
+fn bash_readline_and_sushline_transpose_chars_numeric_arguments() {
+    // These paired Bash 5.3 PTY cases assert accepted lines only; they do not
+    // claim redisplay or bell parity beyond the separate no-op fixtures.
+    let inputrc = r#""\C-o": transpose-chars"#;
+    type Case = (
+        &'static str,
+        &'static str,
+        &'static [u8],
+        &'static [u8],
+        &'static str,
+    );
+    let cases: &[Case] = &[
+        (
+            "interior_plain",
+            "one two three four",
+            b"\x01\x06\x06\x06",
+            b"",
+            "on eXtwo three four",
+        ),
+        (
+            "interior_positive_2",
+            "one two three four",
+            b"\x01\x06\x06\x06",
+            b"\x1b2",
+            "on teXwo three four",
+        ),
+        (
+            "interior_positive_3",
+            "one two three four",
+            b"\x01\x06\x06\x06",
+            b"\x1b3",
+            "on tweXo three four",
+        ),
+        (
+            "interior_negative_1",
+            "one two three four",
+            b"\x01\x06\x06\x06",
+            b"\x1b-1",
+            "oneX two three four",
+        ),
+        (
+            "interior_zero",
+            "one two three four",
+            b"\x01\x06\x06\x06",
+            b"\x1b0",
+            "oneX two three four",
+        ),
+        (
+            "eol_plain",
+            "one two three four",
+            b"",
+            b"",
+            "one two three foruX",
+        ),
+        (
+            "eol_positive_2",
+            "one two three four",
+            b"",
+            b"\x1b2",
+            "one two three foruX",
+        ),
+        (
+            "eol_sign_only_negative",
+            "one two three four",
+            b"",
+            b"\x1b-",
+            "one two three foruX",
+        ),
+        (
+            "eol_negative_1",
+            "one two three four",
+            b"",
+            b"\x1b-1",
+            "one two three foruX",
+        ),
+        (
+            "eol_negative_2",
+            "one two three four",
+            b"",
+            b"\x1b-2",
+            "one two three foruX",
+        ),
+        (
+            "eol_zero",
+            "one two three four",
+            b"",
+            b"\x1b0",
+            "one two three fourX",
+        ),
+        (
+            "positive_count_clamped_at_end",
+            "abcdefghij",
+            b"\x01\x06\x06\x06\x06\x06\x06\x06\x06",
+            b"\x1b4",
+            "abcdefgijhX",
+        ),
+    ];
+    for (name, line, point_keys, argument, expected) in cases {
+        let mut keys = line.as_bytes().to_vec();
+        keys.extend_from_slice(point_keys);
+        keys.extend_from_slice(argument);
+        keys.extend_from_slice(b"\x0fX\r");
+        let bash = run_bash_readline_with_bindings(&keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&keys, inputrc);
+
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{name}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            Some(expected.to_string()),
+            "{name}: {sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_transpose_words_edit() {
     let keys = b"one two\x1bt\r";
     let bash = run_bash_readline(keys);

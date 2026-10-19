@@ -145,11 +145,10 @@ where
             }
             EditCommand::TransposeChars => {
                 let count = state.take_numeric_arg().unwrap_or(1);
-                // An explicit zero count is a silent no-op; a negative count
-                // keeps the historical silent no-op.
-                if count > 0 {
+                if count != 0 {
                     state.record_undo();
-                    if !state.buffer.transpose_chars() {
+                    let transposed = state.buffer.transpose_chars_by_count(count);
+                    if count > 0 && !transposed {
                         self.ding()?;
                     }
                 }

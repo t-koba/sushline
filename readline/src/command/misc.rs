@@ -17,6 +17,11 @@ where
                 if state.macro_state.keyboard_macro.is_some() {
                     state.abort_keyboard_macro_definition();
                 }
+                // Abort invalidates the completed definition in both the
+                // active-recording and no-recording cases so a following call
+                // cannot replay stale bytes. The helper above deliberately
+                // preserves it for nested-start handling.
+                state.macro_state.last_keyboard_macro = None;
                 state.cancel_pending_command();
                 if state.macro_state.inputrc_macro_depth > 0 {
                     return Ok(EditorOutcome::MacroAborted);

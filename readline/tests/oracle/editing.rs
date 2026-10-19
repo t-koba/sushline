@@ -860,13 +860,13 @@ fn bash_and_sushline_abort_keyboard_macro_recording_on_abort() {
             "abort without a previous definition",
             b"\x18(a\x07b\x18)\x18eZ\r".as_slice(),
             "abZ",
-            Some(3),
+            3,
         ),
         (
             "abort after a previous definition",
             b"\x18(a\x18)\x18(b\x07c\x18)\x18eZ\r".as_slice(),
             "abcZ",
-            None,
+            3,
         ),
     ] {
         let bash = run_bash_readline_with_inputrc_file(keys, "");
@@ -881,16 +881,45 @@ fn bash_and_sushline_abort_keyboard_macro_recording_on_abort() {
             Some(expected),
             "Sushline {name}: {sushline:?}"
         );
-        if let Some(expected_bells) = expected_bells {
-            assert_eq!(bell_count(&bash), expected_bells, "Bash {name}: {bash}");
-            assert_eq!(
-                bell_count(&sushline),
-                expected_bells,
-                "Sushline {name}: {sushline}"
-            );
-        }
+        assert_eq!(bell_count(&bash), expected_bells, "Bash {name}: {bash}");
+        assert_eq!(
+            bell_count(&sushline),
+            expected_bells,
+            "Sushline {name}: {sushline}"
+        );
         assert!(!bash.contains("maximum macro execution nesting level exceeded"));
         assert!(!sushline.contains("maximum macro execution nesting level exceeded"));
+    }
+}
+
+#[test]
+fn bash_and_sushline_abort_invalidates_previous_keyboard_macro() {
+    // Measured Bash 5.3 PTY fixtures: Abort clears the completed definition
+    // whether it interrupts an active recording or runs with no recording, so
+    // the following call has no definition to replay.
+    for (name, keys, expected) in [
+        (
+            "abort active recording after a previous definition",
+            b"\x18(a\x18)\x18(b\x07\x18eZ\r".as_slice(),
+            "abZ",
+        ),
+        (
+            "abort without an active recording after a previous definition",
+            b"\x18(a\x18)\x07\x18eZ\r".as_slice(),
+            "aZ",
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, "");
+        let sushline = run_sushline_harness_with_inputrc(keys, "");
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{editor} {name}: {output:?}"
+            );
+            assert_eq!(bell_count(output), 2, "{editor} {name}: {output}");
+            assert!(!output.contains("maximum macro execution nesting level exceeded"));
+        }
     }
 }
 

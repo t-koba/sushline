@@ -700,7 +700,7 @@ mod tests {
     }
 
     #[test]
-    fn cs8_clears_istrip_and_inpck_while_cs7_preserves() {
+    fn synthetic_cs8_clears_istrip_and_inpck_while_cs7_preserves() {
         unsafe {
             let mut cs8: libc::termios = std::mem::zeroed();
             cs8.c_cflag = libc::CS8;
@@ -716,7 +716,7 @@ mod tests {
             assert_ne!(
                 cs7.c_iflag & libc::ISTRIP,
                 0,
-                "CS7 keeps ISTRIP (narrower than GNU meta case)"
+                "synthetic CS7 keeps ISTRIP in this helper"
             );
         }
     }

@@ -211,26 +211,16 @@ pub fn expand_history_with_status_with_state(
     if policy.quick_substitution
         && policy.quote_state != Some(b'\'')
         && line.first() == Some(&quick)
-        && let Some(old_end) = line[1..]
-            .iter()
-            .position(|byte| *byte == quick)
-            .map(|idx| idx + 1)
+        && let Some((old, new, next_after_fields)) = parse_quick_substitution(line, quick)
         && let Some(last) = history.entries().last()
     {
-        let (new_end, has_closing) =
-            match line[old_end + 1..].iter().position(|byte| *byte == quick) {
-                Some(pos) => (old_end + 1 + pos, true),
-                None => (line.len(), false),
-            };
-        let old = line[1..old_end].to_vec();
-        let new = line[old_end + 1..new_end].to_vec();
         // GNU records the parsed pair before attempting replacement, so a
         // no-match failure replaces stale memory for later `&`/empty-old.
         state.last_substitution = Some((old.clone(), new.clone()));
         let substituted = replace_once_checked(&last.line_bytes, &old, &new)
             .ok_or(HistoryExpansionError::SubstitutionFailed)?;
         let mut event = substituted;
-        let mut next = if has_closing { new_end + 1 } else { new_end };
+        let mut next = next_after_fields;
         while line.get(next) == Some(&b':') {
             next += 1;
             let (modified, next_after_modifier) = apply_history_modifier(
@@ -359,6 +349,50 @@ pub fn expand_history_with_status_with_state(
         line: out,
         print_only,
     })
+}
+
+/// Parse leading quick-substitution fields with escape handling.
+///
+/// Scans the fields after a leading `quick` marker. A backslash followed by
+/// `quick` emits the marker as field data; any other backslash is preserved
+/// literally. Returns the decoded `old`/`new` fields and the index just past
+/// the scanned fields (including a closing marker when present). Returns
+/// `None` when the old-field terminator is missing, leaving the line to normal
+/// expansion handling. Ordinary `:s` parsing is unchanged.
+fn parse_quick_substitution(line: &[u8], quick: u8) -> Option<(Vec<u8>, Vec<u8>, usize)> {
+    debug_assert_eq!(line.first(), Some(&quick));
+    let mut old = Vec::new();
+    let mut idx = 1;
+    let old_delimiter = loop {
+        match line.get(idx).copied() {
+            None => break None,
+            Some(b'\\') if line.get(idx + 1) == Some(&quick) => {
+                old.push(quick);
+                idx += 2;
+            }
+            Some(byte) if byte == quick => break Some(idx),
+            Some(byte) => {
+                old.push(byte);
+                idx += 1;
+            }
+        }
+    }?;
+    idx = old_delimiter + 1;
+    let mut new = Vec::new();
+    loop {
+        match line.get(idx).copied() {
+            None => return Some((old, new, idx)),
+            Some(b'\\') if line.get(idx + 1) == Some(&quick) => {
+                new.push(quick);
+                idx += 2;
+            }
+            Some(byte) if byte == quick => return Some((old, new, idx + 1)),
+            Some(byte) => {
+                new.push(byte);
+                idx += 1;
+            }
+        }
+    }
 }
 
 fn is_escaped_history_expansion(line: &[u8], idx: usize) -> bool {

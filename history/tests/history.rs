@@ -2326,6 +2326,45 @@ fn quick_substitution_processes_suffix_modifiers_and_further_expansion() {
 }
 
 #[test]
+fn quick_substitution_honors_escaped_delimiters() {
+    // GNU libhistory experiment 399d1d1b3a4a41e8a28adb79d1c13546: only a
+    // backslash followed by the active quick marker escapes the delimiter and
+    // emits the marker as field data; other backslashes are preserved.
+    let histchars = HistoryChars::parse("!^#");
+    let policy = HistoryExpansionPolicy::default();
+
+    let mut history = History::new();
+    history.push("echo old^part");
+    assert_eq!(
+        expand_history(b"^old\\^part^new^", &history, histchars, &policy, |_| false).unwrap(),
+        b"echo new".to_vec(),
+    );
+
+    let mut history = History::new();
+    history.push("echo old");
+    assert_eq!(
+        expand_history(b"^old^new\\^part^", &history, histchars, &policy, |_| false).unwrap(),
+        b"echo new^part".to_vec(),
+    );
+
+    // GNU libhistory experiment 2aae18ed91614a5084148ff5a7873df9 confirms
+    // backslashes before ordinary bytes remain data in either field.
+    let mut history = History::new();
+    history.push("echo old");
+    assert_eq!(
+        expand_history(br"^old^new\z^", &history, histchars, &policy, |_| false).unwrap(),
+        br"echo new\z".to_vec(),
+    );
+
+    let mut history = History::new();
+    history.push(r"echo f\oo");
+    assert_eq!(
+        expand_history(br"^f\oo^BAR^", &history, histchars, &policy, |_| false).unwrap(),
+        b"echo BAR".to_vec(),
+    );
+}
+
+#[test]
 fn timestamped_reads_strip_leading_blanks_and_drop_blank_only_gaps() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");

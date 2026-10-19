@@ -136,6 +136,20 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::StartKbdMacro => {
+                // GNU `rl_start_kbd_macro` aborts when already defining
+                // (`RL_STATE_MACRODEF`): ring once, drop the partial
+                // definition, and consume the pending argument without
+                // starting a fresh definition. A prior completed definition
+                // stays intact; the measured nonempty nested-start fixture
+                // leaves the following end stray and the call without a
+                // definition. Explicit-argument appends only apply when not
+                // already recording.
+                if state.macro_state.keyboard_macro.is_some() {
+                    self.ding()?;
+                    state.abort_keyboard_macro_definition();
+                    state.cancel_pending_command();
+                    return Ok(EditorOutcome::Continue);
+                }
                 // Readline appends and replays the previous macro for an explicit
                 // count or sign argument, but not for a universal-argument prefix.
                 let append_previous = state.numeric_arg.is_some() && !state.numeric_arg_universal;

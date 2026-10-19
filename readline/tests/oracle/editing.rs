@@ -854,6 +854,29 @@ fn bash_and_sushline_invalidate_macro_after_stray_end_kbd_macro() {
 }
 
 #[test]
+fn bash_and_sushline_abort_active_recording_on_nested_start_kbd_macro() {
+    // GNU `rl_start_kbd_macro` aborts when already defining
+    // (`RL_STATE_MACRODEF`): the nested no-argument start rings once and
+    // drops the partial `a` definition, so the following end is stray
+    // (rings once and invalidates) and the call has no definition (rings
+    // once). The `b` between the nested start and end stays outside any
+    // definition.
+    let keys = b"\x18(a\x18(b\x18)\x18eZ\r";
+    let bash = run_bash_readline_with_inputrc_file(keys, "");
+    let sushline = run_sushline_harness_with_inputrc(keys, "");
+
+    for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+        assert_eq!(
+            accepted_line(output).as_deref(),
+            Some("abZ"),
+            "{editor}: {output:?}"
+        );
+        assert_eq!(bell_count(output), 3, "{editor}: {output}");
+        assert!(!output.contains("maximum macro execution nesting level exceeded"));
+    }
+}
+
+#[test]
 fn bash_and_sushline_ring_once_when_calling_last_macro_without_a_definition() {
     for keys in [b"\x18eZ\r".as_slice(), b"\x1b3\x18eZ\r".as_slice()] {
         let bash = run_bash_readline_with_inputrc_file(keys, "");

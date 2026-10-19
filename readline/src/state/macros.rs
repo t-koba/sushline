@@ -21,6 +21,22 @@ pub(crate) struct MacroState {
 }
 
 impl EditorState {
+    /// Discard an active keyboard-macro definition without promoting it.
+    ///
+    /// GNU `rl_start_kbd_macro` calls `_rl_abort_internal()` when invoked
+    /// while already defining (`RL_STATE_MACRODEF`); the partial definition
+    /// is dropped and the completed definition, if any, is left intact.
+    pub(crate) fn abort_keyboard_macro_definition(&mut self) {
+        self.macro_state.keyboard_macro = None;
+        self.macro_state.last_recorded_self_insert = false;
+        self.macro_state.numeric_arg_recording_start = None;
+    }
+
+    /// Start a fresh keyboard-macro definition.
+    ///
+    /// The caller handles the active-recording case via
+    /// [`Self::abort_keyboard_macro_definition`]; this helper only resets to
+    /// a fresh (or appended) definition when not already recording.
     pub(crate) fn start_keyboard_macro(&mut self, append_previous: bool) -> Option<Vec<u8>> {
         let previous_macro = append_previous
             .then(|| self.macro_state.last_keyboard_macro.clone())

@@ -9162,7 +9162,9 @@ fn quoted_directory_slashes_match_bash_5_3_for_completion_commands() {
                     let context = &case.context;
                     assert!(
                         bash_hexes[index] == sushline_hexes[index],
-                        "Bash and Sushline line-buffer hex differed for {context}"
+                        "Bash and Sushline line-buffer hex differed for {context}: Bash={}, Sushline={}",
+                        String::from_utf8_lossy(bash_hexes[index]),
+                        String::from_utf8_lossy(sushline_hexes[index]),
                     );
                     assert!(
                         decode_hex_line(sushline_hexes[index]).as_deref()

@@ -10330,3 +10330,72 @@ fn bash_readline_and_sushline_complete_same_user_and_host_fallbacks() {
         "bash={bash}\nsushline={sushline}"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn closed_and_reopened_double_quote_filename_completion_matches_bash_5_3() {
+    // Fixture-scoped Bash 5.3 runtime observations for a single `safe-one`
+    // candidate, not GNU source proof. X is typed after C-o so the accepted
+    // line exposes both the completed spelling and point.
+    let root = tempfile::tempdir().expect("temp completion root");
+    let home = root.path().join("home");
+    fs::create_dir(&home).expect("create fixture HOME");
+    let home_path = home.to_string_lossy().into_owned();
+    let env = [("HOME", home_path.as_str())];
+    let inputrc = "\"\\C-o\": complete-filename\nset mark-directories off\nset show-all-if-ambiguous off\nset completion-query-items 999\nset page-completions off";
+    for (fixture, prefix, expected_line, expected_bells) in [
+        (
+            "closed-double-quote",
+            b"echo \"safe\"-".as_slice(),
+            "echo safe-one X",
+            0,
+        ),
+        (
+            "reopened-double-quote",
+            b"echo \"sa\"\"fe-".as_slice(),
+            "echo \"sa\"\"fe-X",
+            1,
+        ),
+        (
+            "closed-single-quote-control",
+            b"echo 'safe'-".as_slice(),
+            "echo safe-one X",
+            0,
+        ),
+        (
+            "reopened-single-quote-control",
+            b"echo 'sa''fe-".as_slice(),
+            "echo 'sa''fe-X",
+            1,
+        ),
+    ] {
+        let cwd = root.path().join(fixture);
+        fs::create_dir(&cwd).expect("create fixture cwd");
+        fs::write(cwd.join("safe-one"), b"").expect("write fixture file");
+        let mut keys = prefix.to_vec();
+        keys.extend_from_slice(b"\x0fX\r");
+        let bash = run_bash_readline_with_inputrc_file_and_env_in_dir(&keys, inputrc, &env, &cwd);
+        let sushline = run_sushline_harness_with_inputrc_and_env_in_dir(&keys, inputrc, &env, &cwd);
+        let expected = Some(expected_line.to_string());
+        assert_eq!(
+            accepted_line(&bash),
+            expected,
+            "Bash line for {fixture}\n{bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            expected,
+            "Sushline line for {fixture}\n{sushline}"
+        );
+        assert_eq!(
+            bell_count(&bash),
+            expected_bells,
+            "Bash bells for {fixture}\n{bash}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            expected_bells,
+            "Sushline bells for {fixture}\n{sushline}"
+        );
+    }
+}

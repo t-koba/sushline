@@ -61,7 +61,7 @@ impl CompletionEdit {
         let raw = self.line.get(self.start..self.end)?;
         let (_, quote, opening) = dequote_completion_word_with_opening(raw);
         let opening = opening.filter(|opening| *opening > 0)?;
-        if quote != Some('\'') || opening + 1 == raw.len() {
+        if !matches!(quote, Some('\'' | '"')) || opening + 1 == raw.len() {
             return None;
         }
         Some(FilenameSegment {
@@ -131,10 +131,10 @@ pub(super) fn dequote_completion_word_bytes(raw: &[u8]) -> (Vec<u8>, Option<char
 fn dequote_completion_word_with_opening(raw: &[u8]) -> (Vec<u8>, Option<char>, Option<usize>) {
     let ansi_c_quote = raw.starts_with(b"$'");
     let mut idx = if ansi_c_quote { 2 } else { 0 };
-    // A plain single-quoted word can continue through unquoted escaped bytes
+    // A plain single- or double-quoted word can continue through unquoted escaped bytes
     // and reopened quotes. Its quote at point, not its first delimiter, governs
     // both filename requoting and decoding the right-hand suffix.
-    let track_quote_transitions = raw.first() == Some(&b'\'');
+    let track_quote_transitions = matches!(raw.first().copied(), Some(b'\'' | b'"'));
     let mut quote = if ansi_c_quote {
         Some('\'')
     } else {
@@ -186,7 +186,7 @@ fn dequote_completion_word_with_opening(raw: &[u8]) -> (Vec<u8>, Option<char>, O
         }
         out.push(byte);
     }
-    // A pending unquoted escape after a single-quoted segment has no filename
+    // A pending unquoted escape after a quoted segment has no filename
     // byte yet. In particular, point between the backslash and apostrophe must
     // still match candidates for the decoded prefix, not a literal backslash.
     if escaped && !track_quote_transitions {

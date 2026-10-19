@@ -33,15 +33,21 @@ pub(super) fn run_bash_readline_with_bindings(keys: &[u8], bindings: &str) -> St
 }
 
 pub(super) fn run_bash_interactive_after_ctrl_c() -> String {
+    // Unique prompts prevent partial-line redisplay from releasing the next PTY step.
     let mut command = CommandBuilder::new("bash");
-    command.env("PS1", READY_PROMPT);
+    command.env("PS1", "SUSHLINE_READY1>");
+    command.env("__sushline_prompt_count", "0");
+    command.env(
+        "PROMPT_COMMAND",
+        "__sushline_prompt_count=$((__sushline_prompt_count + 1)); PS1=\"SUSHLINE_READY${__sushline_prompt_count}>\"",
+    );
     command.args(["--noprofile", "--norc", "-i"]);
     run_pty_steps_until(
         command,
         &[
-            (READY_PROMPT, b"abc\x03".as_slice()),
+            ("SUSHLINE_READY1>", b"abc\x03".as_slice()),
             (
-                READY_PROMPT,
+                "SUSHLINE_READY2>",
                 b"printf 'SUSHLINE_ACCEPTED:%s\\n' ok\r".as_slice(),
             ),
         ],
@@ -516,15 +522,16 @@ pub(super) fn run_sushline_harness_until(keys: &[u8], inputrc: &str, stop_marker
 pub(super) fn run_sushline_harness_after_ctrl_c() -> String {
     let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
     command.env("SUSHLINE_INPUTRC", "");
-    command.env("SUSHLINE_PROMPT", READY_PROMPT);
+    command.env("SUSHLINE_PROMPT", "SUSHLINE_READY");
+    command.env("SUSHLINE_NUMBERED_PROMPTS", "1");
     command.env("SUSHLINE_HISTORY", "");
     command.env("SUSHLINE_READS", "2");
     command.env("SUSHLINE_CONTINUE_ON_INTERRUPT", "1");
     run_pty_steps_until(
         command,
         &[
-            (READY_PROMPT, b"abc\x03".as_slice()),
-            (READY_PROMPT, b"ok\r".as_slice()),
+            ("SUSHLINE_READY1:", b"abc\x03".as_slice()),
+            ("SUSHLINE_READY2:", b"ok\r".as_slice()),
         ],
         "SUSHLINE_ACCEPTED_2:",
     )

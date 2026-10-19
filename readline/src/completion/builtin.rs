@@ -271,6 +271,27 @@ pub(super) fn system_host_names_bytes() -> Vec<Vec<u8>> {
         .collect()
 }
 
+fn known_host_names_in_line_bytes(line: &[u8]) -> impl Iterator<Item = &[u8]> {
+    let line = trim_ascii(line);
+    let host_list: &[u8] = if line.is_empty() || line.starts_with(b"#") || line.starts_with(b"|") {
+        &[]
+    } else {
+        let mut fields = line
+            .split(u8::is_ascii_whitespace)
+            .filter(|field| !field.is_empty());
+        let first = fields.next().unwrap_or(&[]);
+        if first == b"@cert-authority" || first == b"@revoked" {
+            fields.next().unwrap_or(&[])
+        } else {
+            first
+        }
+    };
+    host_list
+        .split(|byte| *byte == b',')
+        .map(trim_ascii)
+        .filter(|host| !host.is_empty() && !host.starts_with(b"["))
+}
+
 pub(super) fn known_host_names_bytes() -> Vec<Vec<u8>> {
     let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
         return Vec::new();
@@ -281,21 +302,7 @@ pub(super) fn known_host_names_bytes() -> Vec<Vec<u8>> {
     };
     let mut hosts = Vec::new();
     for line in source.split(|byte| *byte == b'\n') {
-        let line = trim_ascii(line);
-        if line.is_empty() || line.starts_with(b"#") || line.starts_with(b"|") {
-            continue;
-        }
-        let Some(first) = line
-            .split(u8::is_ascii_whitespace)
-            .find(|field| !field.is_empty())
-        else {
-            continue;
-        };
-        for host in first.split(|byte| *byte == b',') {
-            let host = trim_ascii(host);
-            if host.is_empty() || host.starts_with(b"[") {
-                continue;
-            }
+        for host in known_host_names_in_line_bytes(line) {
             hosts.push(host.to_vec());
         }
     }
@@ -362,5 +369,50 @@ mod tests {
     #[test]
     fn hosts_line_ignores_full_line_comment() {
         assert!(hosts_in_line(b"# localhost myhost comment prose").is_empty());
+    }
+
+    fn known_hosts_in_line(line: &[u8]) -> Vec<Vec<u8>> {
+        known_host_names_in_line_bytes(line)
+            .map(|host| host.to_vec())
+            .collect()
+    }
+
+    #[test]
+    fn known_hosts_line_splits_plain_comma_separated_hosts() {
+        assert_eq!(
+            known_hosts_in_line(b"alpha,beta ssh-rsa AAAAB3NzaC1"),
+            vec![b"alpha".to_vec(), b"beta".to_vec(),]
+        );
+    }
+
+    #[test]
+    fn known_hosts_cert_authority_marker_supplies_host_list() {
+        assert_eq!(
+            known_hosts_in_line(b"@cert-authority gamma,delta ssh-rsa AAAAB3NzaC1"),
+            vec![b"gamma".to_vec(), b"delta".to_vec(),]
+        );
+    }
+
+    #[test]
+    fn known_hosts_revoked_marker_supplies_host_list() {
+        assert_eq!(
+            known_hosts_in_line(b"@revoked epsilon ssh-rsa AAAAB3NzaC1"),
+            vec![b"epsilon".to_vec(),]
+        );
+    }
+
+    #[test]
+    fn known_hosts_marked_line_without_host_field_yields_no_candidates() {
+        assert!(known_hosts_in_line(b"@cert-authority").is_empty());
+        assert!(known_hosts_in_line(b"@revoked").is_empty());
+    }
+
+    #[test]
+    fn known_hosts_line_keeps_hashed_and_bracketed_filtering() {
+        assert!(known_hosts_in_line(b"|1|salt|hash ssh-rsa AAAAB3NzaC1").is_empty());
+        assert_eq!(
+            known_hosts_in_line(b"@revoked plain,[10.0.0.1]:2222 ssh-rsa AAAAB3NzaC1"),
+            vec![b"plain".to_vec(),]
+        );
     }
 }

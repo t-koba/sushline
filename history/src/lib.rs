@@ -467,7 +467,9 @@ impl History {
             .map(|(idx, entry)| (idx, entry.line_bytes.clone()))
     }
 
-    /// Search containing forward index bytes.
+    /// Search forward for a containing byte substring, exclusive of `after`.
+    /// `None` starts at index zero; indexes at or beyond the last entry yield
+    /// no match.
     pub fn search_containing_forward_index_bytes(
         &self,
         needle: &[u8],
@@ -477,7 +479,7 @@ impl History {
             return None;
         }
         let start = after
-            .map(|idx| idx + 1)
+            .map(|idx| idx.saturating_add(1))
             .unwrap_or(0)
             .min(self.entries.len());
         self.entries[start..]

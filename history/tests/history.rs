@@ -362,6 +362,39 @@ fn searches_history_by_substring() {
 }
 
 #[test]
+fn forward_index_substring_search_handles_after_boundaries_without_overflow() {
+    let mut h = History::new();
+    h.push("needle first");
+    h.push("middle");
+    h.push("needle last");
+
+    assert_eq!(
+        h.search_containing_forward_index_bytes(b"needle", None),
+        Some((0, b"needle first".to_vec()))
+    );
+    assert_eq!(
+        h.search_containing_forward_index_bytes(b"needle", Some(0)),
+        Some((2, b"needle last".to_vec()))
+    );
+    assert!(
+        h.search_containing_forward_index_bytes(b"needle", Some(2))
+            .is_none()
+    );
+    assert!(
+        h.search_containing_forward_index_bytes(b"needle", Some(3))
+            .is_none()
+    );
+    assert!(
+        h.search_containing_forward_index_bytes(b"needle", Some(usize::MAX))
+            .is_none()
+    );
+    assert!(
+        h.search_containing_forward_index_bytes(b"", Some(usize::MAX))
+            .is_none()
+    );
+}
+
+#[test]
 fn reads_writes_appends_and_truncates_history_files() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");

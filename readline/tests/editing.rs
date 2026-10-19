@@ -1161,6 +1161,22 @@ fn undo_multi_byte_literal_opens_own_entry() {
 }
 
 #[test]
+fn tab_insert_honors_numeric_argument() {
+    for (keys, expected) in [
+        (b"a\x1b3\x0fb\r".as_slice(), "a\t\t\tb"),
+        (b"a\x1b0\x0fb\r".as_slice(), "ab"),
+        (b"a\x1b-\x0fb\r".as_slice(), "ab"),
+        (b"a\x0fb\r".as_slice(), "a\tb"),
+    ] {
+        let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(keys.to_vec())]);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str("\"\\C-o\": tab-insert").unwrap();
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        assert_eq!(result, ReadlineResult::Line(expected.as_bytes().to_vec()));
+    }
+}
+
+#[test]
 fn undo_tab_insert_extends_single_byte_entry() {
     // `tab-insert` records a single-byte insert, so `ab` + tab stays in one
     // entry and a single undo clears all three columns.

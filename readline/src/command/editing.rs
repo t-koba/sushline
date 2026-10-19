@@ -359,8 +359,13 @@ where
                 state.after_non_kill_command();
             }
             "tab-insert" => {
-                state.record_insert_undo(true);
-                state.buffer.insert_char('\t');
+                let raw = state.take_numeric_arg().unwrap_or(1);
+                // Like `self-insert`, negative repeat counts insert nothing.
+                let count: u32 = if raw < 0 { 0 } else { raw as u32 };
+                state.record_insert_undo(count == 1);
+                for _ in 0..count {
+                    state.buffer.insert_char('\t');
+                }
                 state.after_self_insert();
             }
             "tilde-expand" | "vi-tilde-expand" => {

@@ -1259,6 +1259,31 @@ fn bash_readline_and_sushline_accept_same_editing_mode_switch_commands() {
 }
 
 #[test]
+fn bash_readline_and_sushline_tab_insert_numeric_arguments_match_bash_5_3() {
+    // Bash 5.3 PTY comparison checks accepted bytes, not TAB display expansion.
+    let inputrc = r#""\C-o": tab-insert"#;
+    for (name, keys, expected) in [
+        ("positive", b"a\x1b3\x0fb\r".as_slice(), "a\t\t\tb"),
+        ("zero", b"a\x1b0\x0fb\r".as_slice(), "ab"),
+        ("negative", b"a\x1b-\x0fb\r".as_slice(), "ab"),
+        ("uncounted", b"a\x0fb\r".as_slice(), "a\tb"),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "Bash {name}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "Sushline {name}: {sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_numeric_self_insert() {
     let keys = b"\x1b3x\r";
     let bash = run_bash_readline(keys);

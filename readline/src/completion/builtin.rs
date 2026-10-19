@@ -226,6 +226,11 @@ fn passwd_user_name_bytes(line: &[u8]) -> Option<&[u8]> {
 }
 
 fn host_names_in_line_bytes(line: &[u8]) -> impl Iterator<Item = &[u8]> {
+    let end = line
+        .iter()
+        .position(|byte| *byte == b'#')
+        .unwrap_or(line.len());
+    let line = &line[..end];
     line.split(u8::is_ascii_whitespace)
         .filter(|field| !field.is_empty())
         .skip(1)
@@ -334,4 +339,28 @@ pub(crate) fn glob_complete_bytes(
         }
     }
     filenames_response(candidates)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hosts_in_line(line: &[u8]) -> Vec<Vec<u8>> {
+        host_names_in_line_bytes(line)
+            .map(|host| host.to_vec())
+            .collect()
+    }
+
+    #[test]
+    fn hosts_line_discards_inline_comment_words() {
+        assert_eq!(
+            hosts_in_line(b"127.0.0.1 localhost myhost alias # comment prose words"),
+            vec![b"localhost".to_vec(), b"myhost".to_vec(), b"alias".to_vec(),]
+        );
+    }
+
+    #[test]
+    fn hosts_line_ignores_full_line_comment() {
+        assert!(hosts_in_line(b"# localhost myhost comment prose").is_empty());
+    }
 }

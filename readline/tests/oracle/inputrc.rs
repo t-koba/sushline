@@ -654,6 +654,39 @@ fn bash_readline_and_sushline_apply_binding_before_non_utf8_inputrc_comment() {
 }
 
 #[test]
+fn bash_and_sushline_respect_raw_inputrc_key_conditionals() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    let mut inputrc = b"set convert-meta off\nset input-meta on\nset meta-flag off\n".to_vec();
+    inputrc.extend_from_slice(b"$if version < 0.0\n\"");
+    inputrc.push(0xff);
+    inputrc.extend_from_slice(b"\": beginning-of-line\n\"\\377\": beginning-of-line\n$else\n\"");
+    inputrc.push(0xfe);
+    inputrc.extend_from_slice(b"\": end-of-line\n$endif\n");
+    fs::write(&path, inputrc).expect("write conditional inputrc");
+
+    let inactive_keys = [0xff, b'X', b'\r'];
+    let bash = run_bash_readline_with_inputrc_path(&inactive_keys, &path);
+    let sushline = run_sushline_harness_with_inputrc_path(&inactive_keys, &path);
+    assert_eq!(accepted_line(&bash).as_deref(), Some("\u{fffd}X"), "{bash}");
+    assert_eq!(
+        accepted_line(&sushline).as_deref(),
+        Some("\u{fffd}X"),
+        "{sushline}"
+    );
+
+    let active_else_keys = [b"abc".as_slice(), &[0xfe, b'X', b'\r']].concat();
+    let bash = run_bash_readline_with_inputrc_path(&active_else_keys, &path);
+    let sushline = run_sushline_harness_with_inputrc_path(&active_else_keys, &path);
+    assert_eq!(accepted_line(&bash).as_deref(), Some("abcX"), "{bash}");
+    assert_eq!(
+        accepted_line(&sushline).as_deref(),
+        Some("abcX"),
+        "{sushline}"
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_match_raw_0xff_inputrc_key_and_escape() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("inputrc");

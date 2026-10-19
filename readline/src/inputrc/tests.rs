@@ -524,6 +524,38 @@ fn binds_raw_non_utf8_byte_inside_double_quoted_key() {
 }
 
 #[test]
+fn raw_non_utf8_key_respects_inactive_nested_conditionals() {
+    let mut bytes = b"$if version < 0.0\n".to_vec();
+    bytes.push(b'"');
+    bytes.push(0xff);
+    bytes.extend_from_slice(b"\": beginning-of-line\n\"\\377\": beginning-of-line\n");
+    bytes.extend_from_slice(b"$if version >= 0.0\n\"");
+    bytes.push(0xfe);
+    bytes.extend_from_slice(b"\": beginning-of-line\n$else\n\"");
+    bytes.push(0xfc);
+    bytes.extend_from_slice(b"\": beginning-of-line\n$endif\n$else\n\"");
+    bytes.push(0xfd);
+    bytes.extend_from_slice(b"\": end-of-line\n$endif\n");
+
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    InputrcParser::new()
+        .parse_bytes(&bytes, &Config::default(), &mut keymap, &mut variables)
+        .unwrap();
+
+    for key in [0xff, 0xfe, 0xfc] {
+        assert_eq!(
+            keymap.lookup(KeyMapName::EmacsStandard, &[key]),
+            Some(&KeyBinding::Command(EditCommand::SelfInsert))
+        );
+    }
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, &[0xfd]),
+        Some(&KeyBinding::Command(EditCommand::EndOfLine))
+    );
+}
+
+#[test]
 fn raw_non_utf8_key_does_not_salvage_invalid_binding_values() {
     let mut invalid_command = b"\"".to_vec();
     invalid_command.push(0xff);

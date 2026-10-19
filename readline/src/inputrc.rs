@@ -145,10 +145,14 @@ impl InputrcParser {
             let decoded = match std::str::from_utf8(trimmed_bytes) {
                 Ok(decoded) => decoded,
                 Err(_) => {
-                    // A raw byte inside a double-quoted binding key binds as
-                    // that key byte (measured for `0xFF`); other invalid
-                    // bytes stay on the rejection path below.
-                    if try_bind_raw_quoted_key(trimmed_bytes, ctx) {
+                    // This fast path runs before directive dispatch, so it
+                    // must respect the active conditional itself. A raw byte
+                    // inside a double-quoted key binds as that byte (measured
+                    // for `0xFF`); other invalid bytes stay on the rejection
+                    // path below.
+                    if *active_stack.last().unwrap_or(&true)
+                        && try_bind_raw_quoted_key(trimmed_bytes, ctx)
+                    {
                         continue;
                     }
                     // GNU accepts a complete binding command or quoted

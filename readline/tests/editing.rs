@@ -70,6 +70,84 @@ fn copy_forward_word_excludes_skipped_leading_whitespace() {
 }
 
 #[test]
+fn copy_word_commands_honor_signed_numeric_arguments() {
+    let cases: &[(&str, &str, &[u8], &str, usize)] = &[
+        (
+            "backward plain",
+            "copy-backward-word",
+            b"",
+            "one/two three fourtwoX",
+            0,
+        ),
+        (
+            "backward positive two",
+            "copy-backward-word",
+            b"\x1b2",
+            "one/two three fourone/twoX",
+            0,
+        ),
+        (
+            "backward negative one",
+            "copy-backward-word",
+            b"\x1b-1",
+            "one/two three fourthreeX",
+            0,
+        ),
+        (
+            "backward zero",
+            "copy-backward-word",
+            b"\x1b0",
+            "one/two three fourX",
+            1,
+        ),
+        (
+            "forward positive two",
+            "copy-forward-word",
+            b"\x1b2",
+            "one/two three fourthree fourX",
+            0,
+        ),
+        (
+            "forward negative one",
+            "copy-forward-word",
+            b"\x1b-1",
+            "one/two three fourtwoX",
+            0,
+        ),
+        (
+            "forward zero",
+            "copy-forward-word",
+            b"\x1b0",
+            "one/two three fourX",
+            1,
+        ),
+    ];
+
+    for (name, command, argument, expected, expected_bells) in cases {
+        let mut keys = b"one/two three four\x01".to_vec();
+        keys.extend_from_slice(&[0x06; 7]);
+        keys.extend_from_slice(argument);
+        keys.extend_from_slice(b"\x0f\x05\x19X\r");
+        let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(keys)]);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str(&format!(r#""\C-o": {command}"#))
+            .unwrap();
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+
+        assert_eq!(
+            result,
+            ReadlineResult::Line(expected.as_bytes().to_vec()),
+            "{name}"
+        );
+        assert_eq!(
+            line.terminal().out.matches('\u{7}').count(),
+            *expected_bells,
+            "{name}"
+        );
+    }
+}
+
+#[test]
 fn supports_inputrc_macro_binding() {
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(vec![0x0f]),

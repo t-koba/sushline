@@ -2091,6 +2091,76 @@ fn bash_readline_and_sushline_copy_commands_update_kill_ring_same_way() {
 }
 
 #[test]
+fn bash_readline_and_sushline_copy_word_commands_honor_signed_numeric_arguments() {
+    let cases: &[(&str, &[u8], &str, &str, usize)] = &[
+        (
+            "copy-backward-word plain",
+            b"",
+            "copy-backward-word",
+            "one/two three fourtwoX",
+            0,
+        ),
+        (
+            "copy-backward-word M-2",
+            b"\x1b2",
+            "copy-backward-word",
+            "one/two three fourone/twoX",
+            0,
+        ),
+        (
+            "copy-backward-word M--1",
+            b"\x1b-1",
+            "copy-backward-word",
+            "one/two three fourthreeX",
+            0,
+        ),
+        (
+            "copy-backward-word M-0",
+            b"\x1b0",
+            "copy-backward-word",
+            "one/two three fourX",
+            1,
+        ),
+        (
+            "copy-forward-word M-2",
+            b"\x1b2",
+            "copy-forward-word",
+            "one/two three fourthree fourX",
+            0,
+        ),
+        (
+            "copy-forward-word M--1",
+            b"\x1b-1",
+            "copy-forward-word",
+            "one/two three fourtwoX",
+            0,
+        ),
+        (
+            "copy-forward-word M-0",
+            b"\x1b0",
+            "copy-forward-word",
+            "one/two three fourX",
+            1,
+        ),
+    ];
+    for (name, argument, command, expected, expected_bells) in cases {
+        let mut keys = b"one/two three four\x01".to_vec();
+        keys.extend_from_slice(&[0x06; 7]);
+        keys.extend_from_slice(argument);
+        keys.extend_from_slice(b"\x0f\x05\x19X\r");
+        let inputrc = format!(r#""\C-o": {command}"#);
+        let bash = run_bash_readline_with_bindings(&keys, &inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&keys, &inputrc);
+        let expected = Some((*expected).to_string());
+
+        assert_eq!(accepted_line(&bash), expected, "{name}: Bash");
+        assert_eq!(accepted_line(&sushline), expected, "{name}: Sushline");
+        assert_eq!(bell_count(&bash), *expected_bells, "{name}: Bash");
+        assert_eq!(bell_count(&sushline), *expected_bells, "{name}: Sushline");
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_copy_forward_word_skips_leading_whitespace() {
     let inputrc = r#""\C-o": copy-forward-word"#;
     let mut keys = b"one/two three four\x01".to_vec();

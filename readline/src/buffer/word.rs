@@ -242,6 +242,36 @@ impl LineBuffer {
         self.copy_backward_word_by(word_matcher(break_chars))
     }
 
+    pub(crate) fn copy_backward_words_by_count(
+        &self,
+        count: u32,
+        break_chars: Option<&str>,
+    ) -> Vec<u8> {
+        if count == 0 {
+            return Vec::new();
+        }
+
+        let is_word = word_matcher(break_chars);
+        let point = self.point;
+        let mut end = point;
+        if self.char_at(point).is_some_and(is_word) {
+            while let Some(ch) = self.char_at(end) {
+                if !is_word(ch) {
+                    break;
+                }
+                end = self.next_char_boundary(end);
+            }
+        }
+
+        let mut cursor = self.clone();
+        for _ in 0..count {
+            if !cursor.backward_word_by(is_word) {
+                break;
+            }
+        }
+        self.range_bytes(cursor.point, end)
+    }
+
     fn copy_backward_word_by<F>(&mut self, is_word: F) -> Vec<u8>
     where
         F: Fn(char) -> bool + Copy,
@@ -265,6 +295,49 @@ impl LineBuffer {
     /// Copy forward word.
     pub fn copy_forward_word(&mut self, break_chars: Option<&str>) -> Vec<u8> {
         self.copy_forward_word_by(word_matcher(break_chars))
+    }
+
+    pub(crate) fn copy_forward_words_by_count(
+        &self,
+        count: u32,
+        break_chars: Option<&str>,
+    ) -> Vec<u8> {
+        if count == 0 {
+            return Vec::new();
+        }
+
+        let is_word = word_matcher(break_chars);
+        let point = self.point;
+        let mut start = point;
+        if self.char_at(point).is_some_and(is_word) {
+            while let Some((prev, ch)) = self.prev_char(start) {
+                if !is_word(ch) {
+                    break;
+                }
+                start = prev;
+            }
+        } else {
+            while self.char_at(start).is_some_and(char::is_whitespace) {
+                start = self.next_char_boundary(start);
+            }
+        }
+
+        let mut cursor = point;
+        let mut end = point;
+        let mut copied_any = false;
+        for _ in 0..count {
+            let Some((_, word_end)) = self.next_word_bounds_by(cursor, is_word) else {
+                break;
+            };
+            cursor = word_end;
+            end = word_end;
+            copied_any = true;
+        }
+        if copied_any {
+            self.range_bytes(start, end)
+        } else {
+            Vec::new()
+        }
     }
 
     fn copy_forward_word_by<F>(&mut self, is_word: F) -> Vec<u8>

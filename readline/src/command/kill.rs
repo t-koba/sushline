@@ -159,15 +159,27 @@ where
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
         match command {
-            "copy-backward-word" => {
+            "copy-backward-word" | "copy-forward-word" => {
+                let argument = state.take_numeric_arg().unwrap_or(1);
+                let count = argument.unsigned_abs();
+                let backward = (command == "copy-backward-word") != argument.is_negative();
                 let word_breaks = self.editing_word_breaks(hooks);
-                let text = state.buffer.copy_backward_word(word_breaks.as_deref());
-                state.push_kill(text, KillDirection::Backward, self.kill_append_allowed());
-            }
-            "copy-forward-word" => {
-                let word_breaks = self.editing_word_breaks(hooks);
-                let text = state.buffer.copy_forward_word(word_breaks.as_deref());
-                state.push_kill(text, KillDirection::Forward, self.kill_append_allowed());
+                let (text, direction) = if backward {
+                    (
+                        state
+                            .buffer
+                            .copy_backward_words_by_count(count, word_breaks.as_deref()),
+                        KillDirection::Backward,
+                    )
+                } else {
+                    (
+                        state
+                            .buffer
+                            .copy_forward_words_by_count(count, word_breaks.as_deref()),
+                        KillDirection::Forward,
+                    )
+                };
+                state.push_kill(text, direction, self.kill_append_allowed());
             }
             "insert-last-argument" | "yank-last-arg" => {
                 state.record_undo();

@@ -185,7 +185,7 @@ fn bash_readline_and_sushline_expand_current_home_named_user_when_traversable() 
 }
 
 #[test]
-fn bash_and_sushline_nested_inputrc_depth_is_a_scoped_deviation() {
+fn bash_and_sushline_accept_nested_inputrc_depth_17() {
     let dir = tempfile::tempdir().expect("tempdir");
     let chain = (0..17)
         .map(|depth| dir.path().join(format!("chain-{depth}.inputrc")))
@@ -220,8 +220,7 @@ fn bash_and_sushline_nested_inputrc_depth_is_a_scoped_deviation() {
     assert_eq!(accepted_line(&bash_17).as_deref(), Some("Xabc"));
 
     let sushline_17 = run_sushline_harness_with_inputrc_path(keys, &main_at_depth_17);
-    assert!(sushline_17.contains("SUSHLINE_INPUTRC_FILE_ERROR"));
-    assert!(sushline_17.contains("inputrc include depth exceeded"));
+    assert_eq!(accepted_line(&sushline_17).as_deref(), Some("Xabc"));
 }
 
 #[test]

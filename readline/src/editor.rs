@@ -18,14 +18,18 @@ use std::io;
 use std::path::Path;
 use std::time::Duration;
 
+/// Outcome of one [`Editor::read_line`] call.
 #[derive(Debug, Clone, PartialEq, Eq)]
-/// ReadlineResult.
 pub enum ReadlineResult {
-    /// Line.
+    /// A line accepted by the user.
     Line(Vec<u8>),
-    /// Interrupted.
+    /// The active read was interrupted before accepting a line, such as by Ctrl-C.
+    ///
+    /// With the built-in [`crate::Terminal`] on Unix, a caught `SIGINT` is echoed
+    /// and returned as this result after terminal restoration instead of being
+    /// re-raised. The embedder decides whether to retry or propagate it.
     Interrupted,
-    /// Eof.
+    /// End-of-file was reached before a line was accepted.
     Eof,
 }
 

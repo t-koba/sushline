@@ -133,7 +133,9 @@ impl Terminal {
     /// Disabling it leaves these process-wide dispositions to the embedder,
     /// which can report pending signals through `Hooks::check_signals`.
     /// This is built-in `Terminal` policy, not policy for custom [`TerminalIo`]
-    /// implementations, and does not change the editor's SIGINT result policy.
+    /// implementations. A caught `SIGINT` is returned as
+    /// [`crate::ReadlineResult::Interrupted`] after terminal restoration, not
+    /// re-raised.
     pub fn set_catch_signals(&mut self, catch: bool) {
         self.catch_signals = catch;
     }

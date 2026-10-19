@@ -289,7 +289,7 @@ fn known_host_names_in_line_bytes(line: &[u8]) -> impl Iterator<Item = &[u8]> {
     host_list
         .split(|byte| *byte == b',')
         .map(trim_ascii)
-        .filter(|host| !host.is_empty() && !host.starts_with(b"["))
+        .filter(|host| !host.is_empty() && !host.starts_with(b"[") && !host.starts_with(b"|"))
 }
 
 pub(super) fn known_host_names_bytes() -> Vec<Vec<u8>> {
@@ -410,6 +410,10 @@ mod tests {
     #[test]
     fn known_hosts_line_keeps_hashed_and_bracketed_filtering() {
         assert!(known_hosts_in_line(b"|1|salt|hash ssh-rsa AAAAB3NzaC1").is_empty());
+        assert!(
+            known_hosts_in_line(b"@cert-authority |1|salt|hash ssh-rsa AAAAB3NzaC1").is_empty()
+        );
+        assert!(known_hosts_in_line(b"@revoked |1|salt|hash ssh-rsa AAAAB3NzaC1").is_empty());
         assert_eq!(
             known_hosts_in_line(b"@revoked plain,[10.0.0.1]:2222 ssh-rsa AAAAB3NzaC1"),
             vec![b"plain".to_vec(),]

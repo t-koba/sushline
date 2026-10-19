@@ -459,7 +459,11 @@ where
             } else {
                 continue;
             };
+            let sequence = crate::keymap::KeySequence::new(vec![byte]);
             for map in self.tty_special_binding_maps() {
+                if self.keymap.is_user_binding(map, &sequence) {
+                    continue;
+                }
                 let binding = if command_name == "end-of-file"
                     && matches!(map, KeyMapName::ViCommand | KeyMapName::ViInsert)
                 {
@@ -467,8 +471,7 @@ where
                 } else {
                     KeyBinding::Command(command)
                 };
-                self.keymap
-                    .bind(map, crate::keymap::KeySequence::new(vec![byte]), binding);
+                self.keymap.bind(map, sequence.clone(), binding);
             }
         }
     }

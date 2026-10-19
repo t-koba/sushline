@@ -116,10 +116,11 @@ fn csi_skip_commands_consume_terminal_escape_sequence() {
 fn less_common_variables_have_observable_side_effects() {
     let mut terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"ab".to_vec()),
-        TerminalEvent::Bytes(vec![0x08]),
+        TerminalEvent::Bytes(vec![0x10]),
         TerminalEvent::Bytes(b"\r".to_vec()),
     ]);
-    terminal.tty_special = vec![(0x08, "backward-delete-char")];
+    // C-p normally selects previous history; this synthetic tty setting makes it delete.
+    terminal.tty_special = vec![(0x10, "backward-delete-char")];
     let mut line = Editor::new(Config::default(), terminal, History::new());
     line.load_inputrc_str("set bind-tty-special-chars on")
         .unwrap();
@@ -151,33 +152,34 @@ fn less_common_variables_have_observable_side_effects() {
 }
 
 #[test]
-fn tty_special_bindings_win_over_prior_user_bindings_while_on() {
-    // Decided policy: with bind-tty-special-chars on, the tty byte rebinds
-    // each read and wins over an inputrc user binding for the same byte.
-    // The user binding is a macro so the control case proves it parsed:
-    // without tty metadata the same byte inserts `Q`.
+fn tty_special_bindings_preserve_prior_user_bindings_while_on() {
+    // With bind-tty-special-chars on, an explicit inputrc binding for the
+    // same byte wins over the terminal-special refresh.
     let mut terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"ab".to_vec()),
-        TerminalEvent::Bytes(vec![0x08]),
+        TerminalEvent::Bytes(vec![0x10]),
         TerminalEvent::Bytes(b"\r".to_vec()),
     ]);
-    terminal.tty_special = vec![(0x08, "backward-delete-char")];
+    terminal.tty_special = vec![(0x10, "backward-delete-char")];
     let mut line = Editor::new(Config::default(), terminal, History::new());
-    line.load_inputrc_str("set bind-tty-special-chars on\n\"\\C-h\": \"Q\"")
-        .unwrap();
-    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
-    assert_eq!(result, ReadlineResult::Line("a".as_bytes().to_vec()));
-
-    let terminal = MemoryTerminal::with_events(vec![
-        TerminalEvent::Bytes(b"ab".to_vec()),
-        TerminalEvent::Bytes(vec![0x08]),
-        TerminalEvent::Bytes(b"\r".to_vec()),
-    ]);
-    let mut line = Editor::new(Config::default(), terminal, History::new());
-    line.load_inputrc_str("set bind-tty-special-chars on\n\"\\C-h\": \"Q\"")
+    line.load_inputrc_str("set bind-tty-special-chars on\n\"\\C-p\": \"Q\"")
         .unwrap();
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
     assert_eq!(result, ReadlineResult::Line("abQ".as_bytes().to_vec()));
+
+    // Control without a user binding: synthetic C-p is normally history
+    // navigation, but the tty special binding makes it delete the prior byte.
+    let mut terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"ab".to_vec()),
+        TerminalEvent::Bytes(vec![0x10]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    terminal.tty_special = vec![(0x10, "backward-delete-char")];
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set bind-tty-special-chars on")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line("a".as_bytes().to_vec()));
 }
 
 #[test]

@@ -104,7 +104,7 @@ impl<'a> BindApi<'a> {
         command: impl Into<String>,
     ) -> Result<(), BindError> {
         let seq = KeySequence::parse(key).map_err(BindError::from)?;
-        self.keymap.bind(
+        self.keymap.bind_user(
             self.target_map,
             seq,
             KeyBinding::ApplicationCommand(command.into()),

@@ -2,7 +2,7 @@ mod commands;
 mod emacs;
 mod parse;
 mod vi;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 pub(crate) use commands::{
@@ -449,6 +449,7 @@ pub enum KeyBinding {
 pub struct KeyMap {
     maps: BTreeMap<KeyMapName, BTreeMap<KeySequence, KeyBinding>>,
     current: KeyMapName,
+    user_keys: BTreeSet<(KeyMapName, KeySequence)>,
 }
 
 impl Default for KeyMap {
@@ -456,6 +457,7 @@ impl Default for KeyMap {
         Self {
             maps: BTreeMap::new(),
             current: KeyMapName::EmacsStandard,
+            user_keys: BTreeSet::new(),
         }
     }
 }
@@ -473,11 +475,30 @@ impl KeyMap {
     }
 
     /// Bind.
+    ///
+    /// Low-level binding used for built-in defaults and terminal-special
+    /// refreshes; it does not mark the key as an explicit user override.
     pub fn bind(&mut self, map: KeyMapName, key: KeySequence, binding: KeyBinding) {
         self.maps
             .entry(map.canonical())
             .or_default()
             .insert(key, binding);
+    }
+
+    /// Bind user.
+    ///
+    /// Explicit user binding from inputrc or the bind API. The key is
+    /// remembered per map so terminal-special refreshes preserve it.
+    pub(crate) fn bind_user(&mut self, map: KeyMapName, key: KeySequence, binding: KeyBinding) {
+        self.user_keys.insert((map.canonical(), key.clone()));
+        self.bind(map, key, binding);
+    }
+
+    /// Is user binding.
+    ///
+    /// Whether the key was explicitly bound or unbound by the user in this map.
+    pub(crate) fn is_user_binding(&self, map: KeyMapName, key: &KeySequence) -> bool {
+        self.user_keys.contains(&(map.canonical(), key.clone()))
     }
 
     /// Lookup.
@@ -557,16 +578,35 @@ impl KeyMap {
     }
 
     /// Unbind key.
+    ///
+    /// Explicit user removal; the key stays protected from terminal-special
+    /// refreshes even when no binding existed.
     pub fn unbind_key(&mut self, map: KeyMapName, key: &KeySequence) -> Option<KeyBinding> {
+        self.user_keys.insert((map.canonical(), key.clone()));
         self.maps
             .get_mut(&map.canonical())
             .and_then(|bindings| bindings.remove(key))
     }
 
     /// Unbind command.
+    ///
+    /// Explicit user removal; removed keys stay protected from
+    /// terminal-special refreshes.
     pub fn unbind_command(&mut self, command: &str) -> usize {
         let mut removed = 0;
-        for bindings in self.maps.values_mut() {
+        for (map, bindings) in self.maps.iter_mut() {
+            let removed_here: Vec<KeySequence> = bindings
+                .iter()
+                .filter(|(_, binding)| match binding {
+                    KeyBinding::Command(bound) => command_name_matches(bound.as_str(), command),
+                    KeyBinding::NamedCommand(bound) => command_name_matches(bound, command),
+                    _ => false,
+                })
+                .map(|(seq, _)| seq.clone())
+                .collect();
+            for seq in removed_here {
+                self.user_keys.insert((*map, seq));
+            }
             let before = bindings.len();
             bindings.retain(|_, binding| match binding {
                 KeyBinding::Command(bound) => !command_name_matches(bound.as_str(), command),
@@ -579,10 +619,26 @@ impl KeyMap {
     }
 
     /// Unbind command in map.
+    ///
+    /// Explicit user removal; removed keys stay protected from
+    /// terminal-special refreshes.
     pub fn unbind_command_in_map(&mut self, map: KeyMapName, command: &str) -> usize {
-        let Some(bindings) = self.maps.get_mut(&map.canonical()) else {
+        let canonical = map.canonical();
+        let Some(bindings) = self.maps.get_mut(&canonical) else {
             return 0;
         };
+        let removed_here: Vec<KeySequence> = bindings
+            .iter()
+            .filter(|(_, binding)| match binding {
+                KeyBinding::Command(bound) => command_name_matches(bound.as_str(), command),
+                KeyBinding::NamedCommand(bound) => command_name_matches(bound, command),
+                _ => false,
+            })
+            .map(|(seq, _)| seq.clone())
+            .collect();
+        for seq in removed_here {
+            self.user_keys.insert((canonical, seq));
+        }
         let before = bindings.len();
         bindings.retain(|_, binding| match binding {
             KeyBinding::Command(bound) => !command_name_matches(bound.as_str(), command),

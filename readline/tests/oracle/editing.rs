@@ -58,9 +58,9 @@ fn bash_and_sushline_ctrl_c_return_to_next_prompt_without_partial_line() {
 }
 
 #[test]
-fn bash_and_sushline_tty_special_binding_precedence_is_a_scoped_deviation() {
+fn bash_and_sushline_del_inputrc_macro_precedence_matches_with_tty_binding_on_and_off() {
     let keys = b"ab\x7f\r";
-    for (enabled, sushline_expected) in [("on", "a"), ("off", "abQ")] {
+    for enabled in ["on", "off"] {
         let inputrc = format!("set bind-tty-special-chars {enabled}\n\"\\x7f\": \"Q\"\n");
         let bash = run_bash_readline_with_inputrc_file(keys, &inputrc);
         let sushline = run_sushline_harness_with_inputrc(keys, &inputrc);
@@ -68,7 +68,7 @@ fn bash_and_sushline_tty_special_binding_precedence_is_a_scoped_deviation() {
         assert_eq!(accepted_line(&bash).as_deref(), Some("abQ"));
         assert_eq!(
             accepted_line(&sushline).as_deref(),
-            Some(sushline_expected),
+            Some("abQ"),
             "bind-tty-special-chars {enabled}"
         );
     }
@@ -78,41 +78,24 @@ fn bash_and_sushline_tty_special_binding_precedence_is_a_scoped_deviation() {
 #[test]
 fn bash_and_sushline_tty_special_binding_precedence_covers_tty_specials() {
     let cases = [
-        (
-            "kill",
-            b"ab\x15X\r".as_slice(),
-            "\"\\C-u\": \"Q\"",
-            "abQX",
-            "X",
-        ),
+        ("kill", b"ab\x15X\r".as_slice(), "\"\\C-u\": \"Q\"", "abQX"),
         (
             "word erase",
             b"alpha beta\x17X\r".as_slice(),
             "\"\\C-w\": \"Q\"",
             "alpha betaQX",
-            "alpha X",
         ),
-        (
-            "eof",
-            b"ab\x04X\r".as_slice(),
-            "\"\\C-d\": \"Q\"",
-            "abQX",
-            "abX",
-        ),
+        ("eof", b"ab\x04X\r".as_slice(), "\"\\C-d\": \"Q\"", "abQX"),
     ];
-    for (label, keys, binding, bash_expected, sushline_expected) in cases {
+    for (label, keys, binding, expected) in cases {
         let inputrc = format!("set bind-tty-special-chars on\n{binding}\n");
         let bash = run_bash_readline_with_inputrc_file(keys, &inputrc);
         let sushline = run_sushline_harness_with_inputrc(keys, &inputrc);
 
-        assert_eq!(
-            accepted_line(&bash).as_deref(),
-            Some(bash_expected),
-            "{label}"
-        );
+        assert_eq!(accepted_line(&bash).as_deref(), Some(expected), "{label}");
         assert_eq!(
             accepted_line(&sushline).as_deref(),
-            Some(sushline_expected),
+            Some(expected),
             "{label}"
         );
     }

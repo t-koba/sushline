@@ -392,7 +392,7 @@ pub fn parse_binding_line_in_map(
     } else {
         return Err(format!("unknown readline command: {value}"));
     };
-    keymap.bind(map, seq, binding);
+    keymap.bind_user(map, seq, binding);
     Ok(())
 }
 

@@ -70,10 +70,12 @@ impl InputrcParser {
     ///
     /// Byte-tolerant entry for inputrc content that may contain non-UTF-8
     /// bytes. Blank lines and `#` comments are detected before UTF-8 decoding
-    /// so valid lines survive invalid bytes elsewhere;
-    /// eight-bit sequences should use `\\nnn`/`\\xHH` escapes. Complete
-    /// UTF-8 binding keys and command/macro values survive invalid trailing
-    /// bytes; invalid bytes in binding syntax and other line types are skipped.
+    /// so valid lines survive invalid bytes elsewhere. `\\nnn`/`\\xHH`
+    /// escapes remain the portable form; the measured raw-byte path accepts a
+    /// bare `0xFF` inside a double-quoted binding key. Complete UTF-8
+    /// binding keys and command/macro values survive invalid trailing bytes;
+    /// invalid bytes in set directives, command names, quoted
+    /// macro/value bodies, and other line types are skipped.
     pub fn parse_bytes(
         &self,
         source: &[u8],
@@ -137,11 +139,17 @@ impl InputrcParser {
             let decoded = match std::str::from_utf8(trimmed_bytes) {
                 Ok(decoded) => decoded,
                 Err(_) => {
+                    // A raw byte inside a double-quoted binding key binds as
+                    // that key byte (measured for `0xFF`); other invalid
+                    // bytes stay on the rejection path below.
+                    if try_bind_raw_quoted_key(trimmed_bytes, ctx) {
+                        continue;
+                    }
                     // GNU accepts a complete binding command or quoted
                     // macro and ignores trailing text. Keep invalid bytes
                     // out of key/value syntax; do not apply this rule to set
                     // directives or other inputrc lines.
-                    let Some(prefix_end) = binding_value_prefix_end(trimmed_bytes) else {
+                    let Some((_, prefix_end)) = binding_value_prefix_bounds(trimmed_bytes) else {
                         continue;
                     };
                     let Ok(decoded) = std::str::from_utf8(&trimmed_bytes[..prefix_end]) else {
@@ -271,7 +279,48 @@ fn split_inputrc_lines(source: &[u8]) -> impl Iterator<Item = &[u8]> {
     parts.into_iter()
 }
 
-fn binding_value_prefix_end(line: &[u8]) -> Option<usize> {
+/// Bind a double-quoted key containing raw non-UTF-8 bytes.
+///
+/// Normalize non-UTF-8 bytes in a bare double-quoted key to octal escapes and
+/// reuse the regular binding parser for command and macro semantics. Keys
+/// containing backslash syntax stay on the old skip path.
+fn try_bind_raw_quoted_key(line: &[u8], ctx: &mut ParseContext<'_>) -> bool {
+    let Some((colon, prefix_end)) = binding_value_prefix_bounds(line) else {
+        return false;
+    };
+    let key = trim_ascii(&line[..colon]);
+    if key.len() < 2 || !key.starts_with(b"\"") || !key.ends_with(b"\"") {
+        return false;
+    }
+    if quoted_value_end(key) != Some(key.len()) {
+        return false;
+    }
+    let inner = &key[1..key.len() - 1];
+    if std::str::from_utf8(inner).is_ok() || inner.contains(&b'\\') {
+        return false;
+    }
+    let Ok(value) = std::str::from_utf8(&line[colon..prefix_end]) else {
+        return false;
+    };
+
+    let mut normalized = String::with_capacity(key.len() + value.len());
+    normalized.push('"');
+    for byte in inner {
+        if byte.is_ascii() {
+            normalized.push(*byte as char);
+        } else {
+            normalized.push('\\');
+            normalized.push((b'0' + (byte >> 6)) as char);
+            normalized.push((b'0' + ((byte >> 3) & 0x07)) as char);
+            normalized.push((b'0' + (byte & 0x07)) as char);
+        }
+    }
+    normalized.push('"');
+    normalized.push_str(value);
+    parse_binding_line_in_map(&normalized, ctx.keymap, *ctx.binding_map, ctx.variables).is_ok()
+}
+
+fn binding_value_prefix_bounds(line: &[u8]) -> Option<(usize, usize)> {
     let trimmed = trim_ascii(line);
     if trimmed.starts_with(b"$")
         || (trimmed.len() > 3
@@ -307,8 +356,6 @@ fn binding_value_prefix_end(line: &[u8]) -> Option<usize> {
         }
     }
     let colon = colon?;
-    std::str::from_utf8(trim_ascii(&line[..colon])).ok()?;
-
     let after_colon = &line[colon + 1..];
     let leading = after_colon
         .iter()
@@ -317,14 +364,17 @@ fn binding_value_prefix_end(line: &[u8]) -> Option<usize> {
     let command_start = colon + 1 + leading;
     let value = &line[command_start..];
     if matches!(value.first(), Some(b'"' | b'\'')) {
-        return Some(command_start + quoted_value_end(value)?);
+        return Some((colon, command_start + quoted_value_end(value)?));
     }
-    let command_len = value.iter().position(|byte| byte.is_ascii_whitespace())?;
+    let command_len = value
+        .iter()
+        .position(|byte| byte.is_ascii_whitespace())
+        .unwrap_or(value.len());
     if command_len == 0 {
         return None;
     }
     std::str::from_utf8(&value[..command_len]).ok()?;
-    Some(command_start + command_len)
+    Some((colon, command_start + command_len))
 }
 
 fn quoted_value_end(value: &[u8]) -> Option<usize> {

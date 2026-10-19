@@ -450,6 +450,67 @@ fn parses_quoted_macros_before_non_utf8_trailing_bytes() {
 }
 
 #[test]
+fn binds_raw_non_utf8_byte_inside_double_quoted_key() {
+    // Measured Bash 5.3 PTY case: a single raw `0xFF` inside a
+    // double-quoted key binds as that key byte; the ASCII `\377` form
+    // remains supported by the regular UTF-8 parser.
+    let mut bytes = b"\"".to_vec();
+    bytes.push(0xff);
+    bytes.extend_from_slice(b"\": beginning-of-line\n");
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    InputrcParser::new()
+        .parse_bytes(&bytes, &Config::default(), &mut keymap, &mut variables)
+        .unwrap();
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, &[0xff]),
+        Some(&KeyBinding::Command(EditCommand::BeginningOfLine))
+    );
+    // Escaped `\377` still binds the same byte through the `str` path.
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    InputrcParser::new()
+        .parse_str(
+            "\"\\377\": beginning-of-line\n",
+            &Config::default(),
+            &mut keymap,
+            &mut variables,
+        )
+        .unwrap();
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, &[0xff]),
+        Some(&KeyBinding::Command(EditCommand::BeginningOfLine))
+    );
+}
+
+#[test]
+fn raw_non_utf8_key_does_not_salvage_invalid_binding_values() {
+    let mut invalid_command = b"\"".to_vec();
+    invalid_command.push(0xff);
+    invalid_command.extend_from_slice(b"\": beginning-of-line");
+    invalid_command.push(0xff);
+    invalid_command.push(b'\n');
+
+    let mut invalid_macro = b"\"".to_vec();
+    invalid_macro.push(0xff);
+    invalid_macro.extend_from_slice(b"\": \"before ");
+    invalid_macro.push(0xff);
+    invalid_macro.extend_from_slice(b" after\"\n");
+
+    for bytes in [invalid_command, invalid_macro] {
+        let mut keymap = KeyMap::emacs_default();
+        let mut variables = Variables::new();
+        InputrcParser::new()
+            .parse_bytes(&bytes, &Config::default(), &mut keymap, &mut variables)
+            .unwrap();
+        assert_eq!(
+            keymap.lookup(KeyMapName::EmacsStandard, &[0xff]),
+            Some(&KeyBinding::Command(EditCommand::SelfInsert))
+        );
+    }
+}
+
+#[test]
 fn does_not_salvage_invalid_bytes_inside_a_quoted_macro() {
     let mut bytes = br##""\C-q": "before "##.to_vec();
     bytes.push(0xff);

@@ -654,7 +654,7 @@ fn bash_readline_and_sushline_apply_binding_before_non_utf8_inputrc_comment() {
 }
 
 #[test]
-fn raw_non_utf8_inputrc_key_is_a_documented_deviation_but_escape_matches() {
+fn bash_readline_and_sushline_match_raw_0xff_inputrc_key_and_escape() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("inputrc");
     let prefix = b"set convert-meta off\nset input-meta on\nset meta-flag off\n";
@@ -670,7 +670,7 @@ fn raw_non_utf8_inputrc_key_is_a_documented_deviation_but_escape_matches() {
     assert_eq!(accepted_line(&bash), Some("Xabc".to_string()), "{bash}");
     assert_eq!(
         accepted_line(&sushline),
-        Some("abc\u{fffd}X".to_string()),
+        Some("Xabc".to_string()),
         "{sushline}"
     );
 

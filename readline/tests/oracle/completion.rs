@@ -1,9 +1,11 @@
-//! Completion compatibility cases: command and filename completion, quoting,
+//! Completion compatibility cases for command/filename completion, quoting,
 //! insertion, menu/listing, options, and tested locale behavior. Bash 5.3 PTY
-//! comparisons guard only the fixtures described by the completion rows in
-//! `COMPATIBILITY.md`. This module also hosts the named shell-word movement,
-//! kill, and transpose PTY fixtures cited by the `COMPATIBILITY.md` Moving,
-//! Text Editing, and Killing rows
+//! evidence includes Bash-only oracle observations and Bash/Sushline comparisons;
+//! claims remain fixture-scoped, with current boundaries in `COMPATIBILITY.md`.
+//! This is not GNU API/source proof or broad Bash builtin compatibility.
+//! This module also hosts shell-word
+//! movement, kill, and transpose fixtures cited by the Moving, Text Editing, and
+//! Killing rows:
 //! (`bash_readline_and_sushline_accept_same_named_command_word_motion`,
 //! `bash_readline_and_sushline_accept_same_command_word_motion_over_metacharacters`,
 //! `bash_readline_and_sushline_accept_same_shell_kill_word`, and

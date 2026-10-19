@@ -1,3 +1,7 @@
+//! Inputrc compatibility cases for variables, bindings, conditionals, includes,
+//! raw key bytes, and macro expansion. Bash 5.3 PTY observations are limited to
+//! the specific parser/configuration fixtures described in `COMPATIBILITY.md`.
+
 use super::pty::*;
 use std::fs;
 

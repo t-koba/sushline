@@ -1,3 +1,7 @@
+//! Horizontal-scroll compatibility cases compare screen/cursor outcomes across
+//! tested widths, input batches, and locales. The replay helper is a partial
+//! screen model, so claims remain limited to the fixtures in `COMPATIBILITY.md`.
+
 use super::pty::*;
 use portable_pty::{CommandBuilder, PtySize};
 use unicode_width::UnicodeWidthChar;

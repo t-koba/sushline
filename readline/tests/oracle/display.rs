@@ -1,3 +1,7 @@
+//! Terminal/display compatibility cases for prompt widths, redisplay and cursor
+//! outcomes, and terminal-mode sequences. Evidence is limited to the tested
+//! Bash 5.3 PTY fixtures and backend; it is not full renderer-byte parity.
+
 use super::pty::*;
 use portable_pty::PtySize;
 

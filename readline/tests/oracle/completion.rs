@@ -1,3 +1,8 @@
+//! Completion compatibility cases: command and filename completion, quoting,
+//! insertion, menu/listing, options, and tested locale behavior. Bash 5.3 PTY
+//! comparisons guard only the fixtures described by the completion rows in
+//! `COMPATIBILITY.md`.
+
 use super::pty::*;
 use std::fs;
 

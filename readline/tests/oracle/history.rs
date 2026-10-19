@@ -1,3 +1,7 @@
+//! Bash 5.3 PTY cases for editor history navigation, search, expansion, and
+//! persistence. Direct GNU History API fixtures are in `history/tests/history.rs`;
+//! keep that evidence distinct from runtime observations in `COMPATIBILITY.md`.
+
 use super::pty::*;
 use readline::History;
 use std::fs;

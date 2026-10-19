@@ -1,3 +1,6 @@
+//! Shared Bash/Sushline PTY setup used by the oracle groups; these helpers are
+//! test infrastructure and do not assert an independent compatibility claim.
+
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use std::fs;
 use std::io::{Read, Write};

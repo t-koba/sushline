@@ -1,3 +1,8 @@
+//! Editing compatibility cases for key dispatch, movement/insertion, signals,
+//! paste, numeric arguments, and keyboard macros. This broad group spans several
+//! fixture-scoped claims in `COMPATIBILITY.md` and may need finer grouping if a
+//! later risk audit demonstrates useful separation.
+
 use super::pty::*;
 use std::fs;
 

@@ -9464,6 +9464,43 @@ fn bash_readline_and_sushline_tilde_expand_preserves_spacing() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn bash_readline_and_sushline_tilde_expand_preserves_named_user_slashes() {
+    // Bash 5.3 PTY runtime evidence for the available local account only;
+    // skip when no matching local passwd entry has an existing UTF-8 home.
+    let Some((username, home)) = current_account_home() else {
+        return;
+    };
+    let Ok(home) = home.into_os_string().into_string() else {
+        return;
+    };
+
+    for command in ["tilde-expand", "vi-tilde-expand"] {
+        let inputrc = format!("\"\\C-o\": {command}");
+        for (name, typed_suffix, expected_suffix) in [
+            ("bare", "", "X"),
+            ("subpath", "/sub", "/subX"),
+            ("trailing_slash", "/", "/X"),
+            ("double_slash", "//", "//X"),
+        ] {
+            let keys = format!("~{username}{typed_suffix}\x0fX\r");
+            let expected = format!("{home}{expected_suffix}");
+            let bash = run_bash_readline_with_bindings(keys.as_bytes(), &inputrc);
+            let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), &inputrc);
+
+            assert!(
+                accepted_line(&bash).as_deref() == Some(expected.as_str()),
+                "Bash named-user tilde case failed: {command}, {name}"
+            );
+            assert!(
+                accepted_line(&sushline).as_deref() == Some(expected.as_str()),
+                "Sushline named-user tilde case failed: {command}, {name}"
+            );
+        }
+    }
+}
+
 #[test]
 fn bash_readline_and_sushline_complete_home_tilde_filenames_with_expansion_setting() {
     // Bash 5.3 PTY runtime evidence for these filename-completion forms only;

@@ -459,7 +459,7 @@ fn expand_tilde_word(word: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
     let mut home = user_home_dir(user)?;
-    if !suffix.is_empty() {
+    if slash.is_some() {
         home.push(b'/');
         home.extend_from_slice(suffix);
     }

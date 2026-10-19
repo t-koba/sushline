@@ -1074,6 +1074,54 @@ fn yank_with_empty_ring_consumes_numeric_argument() {
     assert!(line.terminal().out.contains('\x07'), "empty yank must bell");
 }
 
+#[cfg(unix)]
+fn current_account_name_and_home() -> Option<(String, Vec<u8>)> {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+    let uid = unsafe { libc::geteuid() };
+    let passwd = std::fs::read("/etc/passwd").ok()?;
+    passwd.split(|byte| *byte == b'\n').find_map(|line| {
+        let fields = line.split(|byte| *byte == b':').collect::<Vec<_>>();
+        if fields.len() < 6
+            || std::str::from_utf8(fields[2])
+                .ok()?
+                .parse::<libc::uid_t>()
+                .ok()?
+                != uid
+        {
+            return None;
+        }
+        let name = std::str::from_utf8(fields[0]).ok()?.to_string();
+        let home = std::path::PathBuf::from(std::ffi::OsString::from_vec(fields[5].to_vec()));
+        home.is_dir()
+            .then(|| (name, home.as_os_str().as_bytes().to_vec()))
+    })
+}
+
+#[cfg(unix)]
+#[test]
+fn tilde_expand_preserves_named_user_trailing_slash() {
+    let Some((username, home)) = current_account_name_and_home() else {
+        return;
+    };
+    let mut expected = home;
+    expected.extend_from_slice(b"/X");
+    let mut keys = format!("~{username}/").into_bytes();
+    keys.extend_from_slice(b"\x0fX\r");
+
+    for command in ["tilde-expand", "vi-tilde-expand"] {
+        let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(keys.clone())]);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str(&format!("\"\\C-o\": {command}"))
+            .unwrap();
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        assert!(
+            matches!(result, ReadlineResult::Line(actual) if actual == expected),
+            "{command} must preserve the explicitly typed slash"
+        );
+    }
+}
+
 #[test]
 fn ignored_prefix_commands_consume_numeric_argument() {
     // One probe per ignored-argument class (movement/kill/history/editing):

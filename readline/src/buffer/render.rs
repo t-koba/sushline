@@ -212,7 +212,7 @@ impl LineBuffer {
         } else {
             current_row.saturating_add(rows as usize)
         };
-        let mut best = None;
+        let mut best: Option<(usize, usize)> = None;
         for (idx, (row, col)) in positions {
             if row != target_row {
                 continue;
@@ -221,9 +221,17 @@ impl LineBuffer {
                 self.point = idx;
                 return;
             }
-            best = Some(idx);
+            // Lower-column fallback keeps the nearest cell: interior bytes
+            // of a valid scalar share the scalar-start cell, so only a
+            // strictly nearer column replaces the candidate. This retains
+            // the first byte index at each cell, which `screen_positions`
+            // orders as the scalar boundary.
+            match best {
+                Some((best_col, _)) if col <= best_col => {}
+                _ => best = Some((col, idx)),
+            }
         }
-        if let Some(idx) = best {
+        if let Some((_, idx)) = best {
             self.point = idx;
         }
     }

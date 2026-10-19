@@ -293,3 +293,18 @@ fn interior_point_in_utf8_scalar_mode_keeps_bytes_at_unit_start() {
     assert!(widths[3] > widths[0], "widths={widths:?}");
     assert!(widths[4] > widths[3], "widths={widths:?}");
 }
+
+#[test]
+fn vertical_move_down_lands_on_scalar_boundary() {
+    // Interior bytes share the scalar-start cell for coordinate lookup;
+    // the lower-column fallback must keep the first index at that cell,
+    // which is the scalar boundary, so editing keeps the scalar intact.
+    let bytes = "a中".as_bytes().to_vec();
+    let mut buffer = LineBuffer::from_bytes(bytes.clone());
+    buffer.set_point(0);
+    buffer.move_screen_line(1, 2, 1, RenderOptions::default());
+    assert_eq!(buffer.point(), 1);
+    buffer.insert_char('X');
+    assert_eq!(buffer.as_bytes(), "aX中".as_bytes());
+    assert_eq!(std::str::from_utf8(buffer.as_bytes()).unwrap(), "aX中");
+}

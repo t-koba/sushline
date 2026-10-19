@@ -86,8 +86,16 @@ fn main() -> ExitCode {
         .unwrap_or(1)
         .max(1);
     let continue_on_interrupt = std::env::var_os("SUSHLINE_CONTINUE_ON_INTERRUPT").is_some();
+    // Opt in to a distinct readiness marker for each read. A redisplay repeats
+    // the current prompt, so a shared prompt cannot frame batched PTY input.
+    let numbered_prompts = std::env::var_os("SUSHLINE_NUMBERED_PROMPTS").is_some();
     for read_idx in 1..=reads {
-        match line.read_line(Prompt::new(prompt.clone()), &mut hooks) {
+        let read_prompt = if numbered_prompts {
+            format!("{prompt}{read_idx}:")
+        } else {
+            prompt.clone()
+        };
+        match line.read_line(Prompt::new(read_prompt), &mut hooks) {
             Ok(ReadlineResult::Line(bytes)) => {
                 if reads == 1 {
                     println!("SUSHLINE_ACCEPTED:{}", String::from_utf8_lossy(&bytes));

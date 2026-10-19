@@ -1006,9 +1006,11 @@ fn run_pty_steps_with_size_until_raw(
 }
 
 /// Cwd-aware multi-step PTY driver, shared by ordinary and batched oracle
-/// cases. Steps are written in order as their markers appear; success returns
-/// once `stop_marker` has appeared `stop_count` times with the final occurrence
-/// line-complete. The 15 s hang bound matches the other drivers.
+/// cases. Steps are written in order as their markers appear. For batched
+/// reads, use a distinct prompt per read: redisplay can repeat the current
+/// prompt, so another occurrence of a shared prompt is not a new-read barrier.
+/// Success returns once `stop_marker` has appeared `stop_count` times with the
+/// final occurrence line-complete. The 15 s hang bound matches the other drivers.
 pub(super) fn run_pty_steps_in_dir_with_size_raw_until_count(
     mut command: CommandBuilder,
     steps: &[(&str, &[u8])],
@@ -1053,13 +1055,9 @@ pub(super) fn run_pty_steps_in_dir_with_size_raw_until_count(
         match rx.recv_timeout(Duration::from_millis(20)) {
             Ok(chunk) => {
                 out.extend_from_slice(&chunk);
-                if next_step < steps.len()
-                    && find_bytes(&out[scan_start..], steps[next_step].0.as_bytes()).is_some()
-                {
-                    writer.write_all(steps[next_step].1).expect("write keys");
+                if let Some(keys) = take_pty_step(&out, steps, &mut next_step, &mut scan_start) {
+                    writer.write_all(keys).expect("write keys");
                     writer.flush().expect("flush keys");
-                    next_step += 1;
-                    scan_start = out.len();
                 }
                 if stop_marker_count_line_complete(&out, stop_marker, stop_count) {
                     break;
@@ -1074,6 +1072,20 @@ pub(super) fn run_pty_steps_in_dir_with_size_raw_until_count(
     let _ = child.wait();
     let _ = reader_thread.join();
     out
+}
+
+// Isolate step selection so framing can be tested with exact PTY read chunks.
+fn take_pty_step<'a>(
+    output: &[u8],
+    steps: &[(&str, &'a [u8])],
+    next_step: &mut usize,
+    scan_start: &mut usize,
+) -> Option<&'a [u8]> {
+    let (marker, keys) = steps.get(*next_step)?;
+    find_bytes(&output[*scan_start..], marker.as_bytes())?;
+    *next_step += 1;
+    *scan_start = output.len();
+    Some(keys)
 }
 
 fn stop_marker_count_line_complete(output: &[u8], marker: &str, count: usize) -> bool {
@@ -1411,4 +1423,42 @@ fn checkpoint_barrier_excludes_post_bell_bytes_and_survives_split_output() {
         checkpoint_before_bell(&mut output, start).as_deref(),
         Some("promptredisplayabort redisplaynext")
     );
+}
+
+#[test]
+fn numbered_step_markers_ignore_redisplay_and_split_accepted_hex() {
+    let steps = [
+        ("SUSHLINE_READY>1:", b"first\r".as_slice()),
+        ("SUSHLINE_READY>2:", b"second\r".as_slice()),
+    ];
+    let next_read = b"\r\nSUSHLINE_READY>2:";
+    // Exercise every boundary, including CR/LF and inside the next prompt.
+    for split in 0..=next_read.len() {
+        let mut output = b"SUSHLINE_READY>1:".to_vec();
+        let (mut step, mut start) = (0, 0);
+        assert_eq!(
+            take_pty_step(&output, &steps, &mut step, &mut start),
+            Some(steps[0].1)
+        );
+        // A redraw arrives separately, followed by an accepted hex payload
+        // whose newline has not arrived yet. A shared prompt would send the
+        // second edit here, allowing its tty echo into that same hex line.
+        for chunk in [
+            b"\rSUSHLINE_READY>1:first".as_slice(),
+            b"\r\nSUSHLINE_ACCEPTED_HEX:6669727374",
+        ] {
+            output.extend_from_slice(chunk);
+            assert_eq!(take_pty_step(&output, &steps, &mut step, &mut start), None);
+        }
+        output.extend_from_slice(&next_read[..split]);
+        let sent = take_pty_step(&output, &steps, &mut step, &mut start);
+        assert_eq!(sent, (split == next_read.len()).then_some(steps[1].1));
+        output.extend_from_slice(&next_read[split..]);
+        assert_eq!(
+            take_pty_step(&output, &steps, &mut step, &mut start),
+            (split != next_read.len()).then_some(steps[1].1)
+        );
+        assert_eq!(take_pty_step(&output, &steps, &mut step, &mut start), None);
+        assert_eq!(step, steps.len());
+    }
 }

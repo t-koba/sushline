@@ -9043,7 +9043,7 @@ fn quoted_directory_slashes_match_bash_5_3_for_completion_commands() {
                 for (index, _) in cases.iter().enumerate() {
                     let read_idx = index + 1;
                     bash_script.push_str(&format!(
-                        r#" IFS= read -r -e -p "SUSHLINE_READY>" line{read_idx}; printf 'BASH_DONE_{read_idx}:%s\n' "$line{read_idx}";"#
+                        r#" IFS= read -r -e -p "{READY_PROMPT}{read_idx}:" line{read_idx}; printf 'BASH_DONE_{read_idx}:%s\n' "$line{read_idx}";"#
                     ));
                 }
                 bash_script.push_str(" :");
@@ -9061,6 +9061,7 @@ fn quoted_directory_slashes_match_bash_5_3_for_completion_commands() {
                 sushline_command.env("SUSHLINE_HISTORY", "");
                 sushline_command.env("SUSHLINE_ACCEPTED_HEX", "1");
                 sushline_command.env("SUSHLINE_READS", batch_len.to_string());
+                sushline_command.env("SUSHLINE_NUMBERED_PROMPTS", "1");
                 sushline_command.env("LC_ALL", "C");
                 for (name, value) in &env {
                     sushline_command.env(name, value);
@@ -9071,12 +9072,18 @@ fn quoted_directory_slashes_match_bash_5_3_for_completion_commands() {
                     pixel_width: 0,
                     pixel_height: 0,
                 };
-                // Step each case's keys in as the previous read completes so a
-                // slow runner never overflows the PTY input buffer; the final
-                // marker only arrives after the last read completes.
+                // A shared prompt can reappear during redisplay of the current
+                // edit, before its accepted-hex line (and even its newline) is
+                // printed. Only the next read's distinct prompt is readiness to
+                // send more input; otherwise canonical-mode echo can contaminate
+                // the previous result. Never use output-idle timing as a barrier.
+                let prompts: Vec<String> = (1..=batch_len)
+                    .map(|read_idx| format!("{READY_PROMPT}{read_idx}:"))
+                    .collect();
                 let bash_steps: Vec<(&str, &[u8])> = cases
                     .iter()
-                    .map(|case| (READY_PROMPT, case.bash_keys.as_slice()))
+                    .zip(&prompts)
+                    .map(|(case, prompt)| (prompt.as_str(), case.bash_keys.as_slice()))
                     .collect();
                 let bash_stop = format!("BASH_DONE_{batch_len}:");
                 let bash = run_pty_steps_in_dir_with_size_raw_until_count(
@@ -9089,7 +9096,8 @@ fn quoted_directory_slashes_match_bash_5_3_for_completion_commands() {
                 );
                 let sushline_steps: Vec<(&str, &[u8])> = cases
                     .iter()
-                    .map(|case| (READY_PROMPT, case.sushline_keys.as_slice()))
+                    .zip(&prompts)
+                    .map(|(case, prompt)| (prompt.as_str(), case.sushline_keys.as_slice()))
                     .collect();
                 let sushline = run_pty_steps_in_dir_with_size_raw_until_count(
                     sushline_command,

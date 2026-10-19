@@ -1360,3 +1360,56 @@ fn bracketed_paste_keeps_truncated_end_prefix_and_cr_pending() {
     assert!(!state.paste.bracketed_paste);
     assert_eq!(state.buffer.as_bytes(), b"abc\x1b[201\r~");
 }
+
+fn read_line_bytes_with_inputrc(input: &[u8], inputrc: &str) -> Vec<u8> {
+    let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(input.to_vec())]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    if !inputrc.is_empty() {
+        line.load_inputrc_str(inputrc).unwrap();
+    }
+    match line.read_line(Prompt::new("> "), &mut ()).unwrap() {
+        ReadlineResult::Line(bytes) => bytes,
+        other => panic!("expected accepted line, got {other:?}"),
+    }
+}
+
+#[test]
+fn character_motion_with_byte_oriented_on_steps_single_bytes() {
+    // Byte-oriented motion steps UTF-8 constituent bytes: 中 is e4 b8 ad,
+    // x is 78, Y is 59. Two backward bytes from the end rest at 2, so Y
+    // lands inside the sequence; two forward bytes from the start rest at
+    // the same offset. Both directions yield e4 b8 59 ad 78.
+    let backward = "中x\x02\x02Y\r".as_bytes();
+    assert_eq!(
+        read_line_bytes_with_inputrc(backward, "set byte-oriented on"),
+        vec![0xe4, 0xb8, 0x59, 0xad, 0x78]
+    );
+    let forward = "中x\x01\x06\x06Y\r".as_bytes();
+    assert_eq!(
+        read_line_bytes_with_inputrc(forward, "set byte-oriented on"),
+        vec![0xe4, 0xb8, 0x59, 0xad, 0x78]
+    );
+}
+
+#[test]
+fn character_motion_in_utf8_without_byte_oriented_preserves_current_motion() {
+    // UTF-8 `byte-oriented off` keeps the current character motion for this fixture: two backward steps
+    // from the end reach the start (Y中x) and two forward steps from the
+    // start reach the end (中xY). This is the retained behavior when the
+    // locale is UTF-8; the C-locale bytewise case is covered by the PTY
+    // oracle with `LC_ALL=C` in the child process.
+    let probe = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
+    if !probe.variables.utf8_locale() {
+        return;
+    }
+    let backward = "中x\x02\x02Y\r".as_bytes();
+    assert_eq!(
+        read_line_bytes_with_inputrc(backward, "set byte-oriented off"),
+        vec![0x59, 0xe4, 0xb8, 0xad, 0x78]
+    );
+    let forward = "中x\x01\x06\x06Y\r".as_bytes();
+    assert_eq!(
+        read_line_bytes_with_inputrc(forward, "set byte-oriented off"),
+        vec![0xe4, 0xb8, 0xad, 0x78, 0x59]
+    );
+}

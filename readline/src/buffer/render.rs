@@ -89,6 +89,39 @@ pub(super) fn display_char(
     }
 }
 
+/// Whether `ch` renders as a per-byte expansion under these options: a valid
+/// non-ASCII scalar with byte-oriented mode or a non-UTF-8 locale.
+fn renders_byte_split(ch: char, byte_oriented: bool, utf8_locale: bool) -> bool {
+    !ch.is_ascii() && private_byte_value(ch).is_none() && (byte_oriented || !utf8_locale)
+}
+
+/// Display prefix for the first `prefix_len` bytes of `ch`'s UTF-8 encoding
+/// under byte-split rendering. The caller guarantees the byte-split case and
+/// `prefix_len <= ch.len_utf8()`; the full-length prefix equals the
+/// whole-character `display_char` expansion, so rendered bytes never change.
+fn byte_split_prefix(ch: char, prefix_len: usize, output_meta: bool) -> String {
+    let mut buf = [0; 4];
+    let bytes = ch.encode_utf8(&mut buf).as_bytes().to_vec();
+    bytes[..prefix_len.min(bytes.len())]
+        .iter()
+        .map(|byte| {
+            if output_meta {
+                private_byte_char(*byte).to_string()
+            } else {
+                format!("\\{byte:03o}")
+            }
+        })
+        .collect()
+}
+
+/// Cell width of a byte-split prefix without changing rendered bytes.
+fn byte_split_prefix_width(ch: char, prefix_len: usize, output_meta: bool) -> usize {
+    byte_split_prefix(ch, prefix_len, output_meta)
+        .chars()
+        .map(char_width)
+        .sum()
+}
+
 pub(crate) fn append_bytes_lossless(out: &mut String, bytes: &[u8]) {
     for byte in bytes {
         if byte.is_ascii() {
@@ -209,6 +242,8 @@ impl LineBuffer {
         let mut abs_col = prompt_width;
         positions.push((0, (row, col)));
         for (idx, ch) in self.decoded_char_indices() {
+            let start_row = row;
+            let start_col = col;
             let display = display_char(
                 ch,
                 options.output_meta,
@@ -229,7 +264,26 @@ impl LineBuffer {
                 col = next;
                 abs_col += char_width(rendered);
             }
-            positions.push((self.next_char_boundary(idx), (row, col)));
+            let next = self.next_char_boundary(idx);
+            // Byte-wise motion can rest inside a valid UTF-8 sequence. Record
+            // each interior byte so point lookups stay exact; the rendered
+            // bytes are unchanged, only the position table gains entries.
+            if renders_byte_split(ch, options.byte_oriented, options.utf8_locale) && next > idx + 1
+            {
+                let byte_len = next - idx;
+                for prefix_len in 1..byte_len {
+                    let prefix = byte_split_prefix(ch, prefix_len, options.output_meta);
+                    let mut row_k = start_row;
+                    let mut col_k = start_col;
+                    for rendered in prefix.chars() {
+                        let (added, next_col) = advance_cell(col_k, char_width(rendered), columns);
+                        row_k += added;
+                        col_k = next_col;
+                    }
+                    positions.push((idx + prefix_len, (row_k, col_k)));
+                }
+            }
+            positions.push((next, (row, col)));
         }
         positions
     }
@@ -252,6 +306,19 @@ impl LineBuffer {
             }
             if idx == self.point {
                 line.point = line.width;
+            } else {
+                let next = self.next_char_boundary(idx);
+                if self.point > idx && self.point < next {
+                    // Interior of a valid sequence: UTF-8 scalar mode keeps
+                    // the cell start; byte-split mode advances by the rendered
+                    // prefix so the cursor sits between the constituent bytes.
+                    line.point = line.width
+                        + if renders_byte_split(ch, options.byte_oriented, options.utf8_locale) {
+                            byte_split_prefix_width(ch, self.point - idx, options.output_meta)
+                        } else {
+                            0
+                        };
+                }
             }
             // Keep horizontal mode on one row even for quoted newlines.
             let display = if ch == '\n' {
@@ -304,6 +371,20 @@ impl LineBuffer {
             }
             if idx == self.point {
                 point_width = width;
+            } else {
+                let next = self.next_char_boundary(idx);
+                if self.point > idx && self.point < next {
+                    // Interior of a valid sequence without changing rendered
+                    // bytes: UTF-8 scalar mode keeps the unit start (only
+                    // reachable via byte commands); byte-split mode advances
+                    // by the rendered prefix.
+                    point_width = width
+                        + if renders_byte_split(ch, options.byte_oriented, options.utf8_locale) {
+                            byte_split_prefix_width(ch, self.point - idx, options.output_meta)
+                        } else {
+                            0
+                        };
+                }
             }
             if ch == '\n' {
                 let display = display_char(

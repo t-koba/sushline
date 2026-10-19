@@ -204,38 +204,69 @@ fn bash_readline_and_sushline_accept_same_wide_character_edit() {
 }
 
 #[test]
-fn bash_and_sushline_c_locale_multibyte_motion_is_scoped_difference() {
-    // This is PTY runtime evidence for the tested Bash settings, not GNU source proof.
-    let keys = "中x\x02\x02\r".as_bytes();
-    let inputrc = "set input-meta on\nset output-meta on\nset convert-meta off\nset meta-flag off\nset byte-oriented off\n";
-    let env = [("LC_ALL", "C")];
-    let bash = run_bash_readline_with_inputrc_file_and_env(keys, inputrc, &env);
-    let sushline = run_sushline_harness_with_inputrc_and_env(keys, inputrc, &env);
+fn bash_and_sushline_c_locale_backward_char_is_bytewise() {
+    assert_character_motion_bytes("中x\x02\x02Y\r".as_bytes(), "59e4b8ad78");
+}
 
-    assert_eq!(accepted_line(&bash), Some("中x".to_string()), "{bash}");
-    assert_eq!(
-        accepted_line(&sushline),
-        Some("中x".to_string()),
-        "{sushline}"
-    );
-    assert!(
-        bash.contains("中x\x08\x08"),
-        "expected two single backspaces immediately after input; {bash}"
-    );
+#[test]
+fn bash_and_sushline_c_locale_forward_char_is_bytewise() {
+    assert_character_motion_bytes("中x\x01\x06\x06Y\r".as_bytes(), "e4b8ad7859");
+}
 
-    // C-locale rendering emits 中's three UTF-8 bytes, while editing moves
-    // over it as one scalar. These output positions do not assert a physical
-    // terminal width for the glyph.
-    let after_first_motion = format!("{READY_PROMPT}中x\u{1b}[K\u{1b}[19G");
-    let after_second_motion = format!("{READY_PROMPT}中x\u{1b}[K\u{1b}[16G");
-    assert!(
-        sushline.contains(&after_first_motion),
-        "expected redraw cursor after 中 following first Ctrl-B; {sushline}"
+fn assert_character_motion_bytes(keys: &[u8], scalar_hex: &str) {
+    // Bash 5.3 PTY runtime evidence only, not GNU source/API evidence or
+    // physical glyph width: two steps and Y insert e4 b8 59 ad 78 in byte
+    // mode, versus Y中x (backward) / 中xY (forward) in UTF-8 scalar mode.
+    // Hex markers avoid losing the invalid UTF-8 created by bytewise insertion.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    let bash_script = format!(
+        r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'BASH_ACCEPTED_HEX:%s\n' "$(printf '%s' "$line" | od -An -v -tx1 | tr -d ' \n')""#
     );
-    assert!(
-        sushline.contains(&after_second_motion),
-        "expected redraw cursor at prompt end following second Ctrl-B; {sushline}"
-    );
+    for locale in ["C", "C.UTF-8"] {
+        if locale == "C.UTF-8" && !c_utf8_locale_available() {
+            eprintln!("skipping C.UTF-8 character-motion cases: locale unavailable");
+            continue;
+        }
+        for byte_oriented in ["off", "on"] {
+            let inputrc = format!(
+                "set input-meta on\nset output-meta on\nset convert-meta off\nset meta-flag off\nset byte-oriented {byte_oriented}\n"
+            );
+            fs::write(&path, &inputrc).expect("write inputrc");
+            let mut bash_command = portable_pty::CommandBuilder::new("bash");
+            bash_command.env("INPUTRC", path.to_string_lossy().as_ref());
+            bash_command.env("LC_ALL", locale);
+            bash_command.args(["--noprofile", "--norc", "-i", "-c", &bash_script]);
+            let bash = run_pty_until(bash_command, keys, "BASH_ACCEPTED_HEX:");
+
+            let mut sushline_command =
+                portable_pty::CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+            sushline_command.env("SUSHLINE_INPUTRC", &inputrc);
+            sushline_command.env("SUSHLINE_PROMPT", READY_PROMPT);
+            sushline_command.env("SUSHLINE_HISTORY", "");
+            sushline_command.env("SUSHLINE_ACCEPTED_HEX", "1");
+            sushline_command.env("LC_ALL", locale);
+            let sushline = run_pty_until(sushline_command, keys, "SUSHLINE_ACCEPTED_HEX:");
+
+            let expected = if locale == "C.UTF-8" && byte_oriented == "off" {
+                scalar_hex
+            } else {
+                "e4b859ad78"
+            };
+            // Both markers must exist and independently match the expected
+            // ASCII hex; equality of two absent or lossy lines cannot pass.
+            for (output, marker) in [
+                (&bash, "BASH_ACCEPTED_HEX:"),
+                (&sushline, "SUSHLINE_ACCEPTED_HEX:"),
+            ] {
+                assert_eq!(
+                    accepted_line_after_marker(output, marker).as_deref(),
+                    Some(expected),
+                    "LC_ALL={locale}, byte-oriented={byte_oriented}, keys={keys:?}; {output}"
+                );
+            }
+        }
+    }
 }
 
 #[test]

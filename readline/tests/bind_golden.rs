@@ -683,17 +683,18 @@ fn compatibility_document_classifies_editor_bind_and_history_coverage() {
         .lines()
         .filter(|line| line.starts_with('|') && line.contains("| Known deviation |"))
         .collect::<Vec<_>>();
-    for expected in [
-        "| Cell width and locale |",
-        "| Signal install/catch/reraise |",
-    ] {
-        assert!(
-            known_deviation_rows
-                .iter()
-                .any(|row| row.starts_with(expected)),
-            "COMPATIBILITY.md must retain the {expected} deviation"
-        );
-    }
+    assert!(
+        known_deviation_rows
+            .iter()
+            .any(|row| row.starts_with("| Signal install/catch/reraise |")),
+        "COMPATIBILITY.md must retain the | Signal install/catch/reraise | deviation"
+    );
+    assert!(documented_rows.lines().any(|line| {
+        line.starts_with("| Cell width and locale |")
+            && line.contains("| Compatible |")
+            && line.contains("Bash 5.3")
+            && line.contains("PTY runtime")
+    }));
     assert!(documented_rows.lines().any(|line| {
         line.starts_with("| Unwrapped ANSI in prompts |")
             && line.contains("| Implemented |")

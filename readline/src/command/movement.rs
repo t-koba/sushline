@@ -1,4 +1,5 @@
 use super::*;
+use crate::variables::BoolVariable;
 
 impl<T> Editor<T>
 where
@@ -30,7 +31,8 @@ where
         match command {
             EditCommand::BackwardChar => {
                 let op_start = state.take_vi_operator();
-                if !move_by_char(state, false) {
+                let bytewise = self.char_motion_is_bytewise();
+                if !move_by_char(state, false, bytewise) {
                     self.ding()?;
                 }
                 self.finish_vi_motion_operator(state, op_start, key, false);
@@ -76,7 +78,8 @@ where
             }
             EditCommand::ForwardChar => {
                 let op_start = state.take_vi_operator();
-                if !move_by_char(state, true) {
+                let bytewise = self.char_motion_is_bytewise();
+                if !move_by_char(state, true, bytewise) {
                     self.ding()?;
                 }
                 self.finish_vi_motion_operator(state, op_start, key, false);
@@ -116,6 +119,16 @@ impl<T> Editor<T>
 where
     T: TerminalIo,
 {
+    /// Character motion steps a single byte when `byte-oriented` is on or
+    /// the locale is non-UTF-8 (measured Bash 5.3 `LC_ALL=C` PTY behavior);
+    /// otherwise it keeps UTF-8 scalar/grapheme motion.
+    fn char_motion_is_bytewise(&self) -> bool {
+        char_motion_is_bytewise(
+            self.flag(BoolVariable::ByteOriented),
+            self.variables.utf8_locale(),
+        )
+    }
+
     pub(super) fn apply_named_movement_command(
         &mut self,
         state: &mut EditorState,
@@ -182,16 +195,28 @@ where
     }
 }
 
+/// Whether character motion steps bytes rather than UTF-8 scalars/graphemes.
+/// Pure helper so the locale/setting policy is unit-testable without a PTY.
+fn char_motion_is_bytewise(byte_oriented: bool, utf8_locale: bool) -> bool {
+    byte_oriented || !utf8_locale
+}
+
 /// Move point by characters honoring a signed numeric argument, like
 /// `repeat_signed`: a negative argument moves the opposite way. Returns
 /// false when the count is nonzero and any step could not move, in which
 /// case the caller rings once (blocked movement rings in the tested Bash
 /// fixtures); a zero count or a fully satisfied count stays silent.
-fn move_by_char(state: &mut EditorState, forward: bool) -> bool {
+fn move_by_char(state: &mut EditorState, forward: bool, bytewise: bool) -> bool {
     let arg = state.take_numeric_arg().unwrap_or(1);
     for _ in 0..arg.unsigned_abs() {
         let stepped = if forward != (arg < 0) {
-            state.buffer.move_forward()
+            if bytewise {
+                state.buffer.move_forward_byte()
+            } else {
+                state.buffer.move_forward()
+            }
+        } else if bytewise {
+            state.buffer.move_backward_byte()
         } else {
             state.buffer.move_backward()
         };
@@ -200,4 +225,17 @@ fn move_by_char(state: &mut EditorState, forward: bool) -> bool {
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::char_motion_is_bytewise;
+
+    #[test]
+    fn char_motion_steps_bytes_unless_utf8_without_byte_oriented() {
+        assert!(!char_motion_is_bytewise(false, true));
+        assert!(char_motion_is_bytewise(true, true));
+        assert!(char_motion_is_bytewise(false, false));
+        assert!(char_motion_is_bytewise(true, false));
+    }
 }

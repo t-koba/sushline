@@ -167,3 +167,85 @@ fn tab_basis_agrees_after_newline_and_in_horizontal_line() {
     assert_eq!(visible, "a       b");
     assert_eq!(point_width, 9);
 }
+
+#[test]
+fn interior_point_keeps_bytes_and_maps_prefix_in_byte_split_modes() {
+    // This checks the logical byte-split render model, not physical glyph width.
+    let bytes = b"\xe4\xb8\xadx";
+    for (byte_oriented, utf8_locale) in [(false, false), (true, false), (true, true)] {
+        for output_meta in [true, false] {
+            let options = RenderOptions {
+                byte_oriented,
+                utf8_locale,
+                output_meta,
+                ..RenderOptions::default()
+            };
+            let expected_bytes: &[u8] = if output_meta {
+                bytes
+            } else {
+                br"\344\270\255x"
+            };
+            let expected_widths = if output_meta {
+                [0, 1, 2, 3, 4]
+            } else {
+                [0, 4, 8, 12, 13]
+            };
+            for (point, expected_width) in expected_widths.into_iter().enumerate() {
+                let mut buffer = LineBuffer::from_bytes(bytes.to_vec());
+                buffer.set_point(point);
+                let (rendered, point_width) = buffer.render_text(None, options.clone(), 1);
+                assert_eq!(rendered_string_to_bytes(&rendered), expected_bytes);
+                assert_eq!(point_width, expected_width);
+
+                let line = buffer.horizontal_line(None, options.clone(), 1);
+                let (visible, visible_point) =
+                    crate::display::horizontal::HorizontalViewport::default().layout(&line, 80);
+                assert_eq!(rendered_string_to_bytes(&visible), expected_bytes);
+                assert_eq!(line.point, expected_width);
+                assert_eq!(visible_point, expected_width);
+
+                for columns in [2, 80] {
+                    let expected_position = (
+                        (1 + expected_width) / columns,
+                        (1 + expected_width) % columns,
+                    );
+                    let (total_row, row, col) =
+                        buffer.rendered_rows_and_point(1, columns, options.clone());
+                    assert_eq!((row, col), expected_position);
+                    assert_eq!(total_row, (1 + expected_bytes.len()) / columns);
+                    assert_eq!(
+                        buffer.rendered_position(point, 1, columns, options.clone()),
+                        expected_position
+                    );
+                }
+                assert_eq!(buffer.as_bytes(), bytes);
+            }
+        }
+    }
+}
+
+#[test]
+fn interior_point_in_utf8_scalar_mode_keeps_bytes_at_unit_start() {
+    // UTF-8 `byte-oriented off` keeps scalar motion; an interior point is
+    // only reachable via byte commands and must not change rendered bytes.
+    let bytes = "中x".as_bytes().to_vec();
+    let options = RenderOptions::default();
+    let mut baseline = None;
+    let mut widths = Vec::new();
+    for point in 0..=bytes.len() {
+        let mut buffer = LineBuffer::from_bytes(bytes.clone());
+        buffer.set_point(point);
+        let (rendered, point_width) = buffer.render_text(None, options.clone(), 0);
+        let rendered_bytes = rendered_string_to_bytes(&rendered);
+        if let Some(first) = &baseline {
+            assert_eq!(&rendered_bytes, first, "point={point}");
+        } else {
+            baseline = Some(rendered_bytes);
+        }
+        widths.push(point_width);
+    }
+    assert_eq!(widths[1], widths[0], "widths={widths:?}");
+    assert_eq!(widths[2], widths[0], "widths={widths:?}");
+    assert!(widths[3] > widths[0], "widths={widths:?}");
+    assert!(widths[4] > widths[3], "widths={widths:?}");
+}

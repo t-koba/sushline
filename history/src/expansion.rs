@@ -279,25 +279,25 @@ pub fn expand_history_with_status_with_state(
             idx += 1;
             continue;
         }
-        if line.get(idx + 1) == Some(&b'#') {
-            idx += 2;
-            let prefix = out.clone();
-            out.extend_from_slice(&prefix);
-            at_word_start = prefix.last().is_none_or(|byte| {
-                byte.is_ascii_whitespace() || policy.word_delimiters.contains(byte)
-            });
-            continue;
-        }
-        let Some(parsed_event) =
-            parse_history_event(line, idx + 1, history, histchars, policy, state)?
-        else {
-            out.push(byte);
-            idx += 1;
-            continue;
+        // GNU `!#` expands to the current output prefix and passes its
+        // suffix through the same word-designator/modifier handling as
+        // other events; without a suffix it re-emits the prefix unchanged.
+        let (mut event, mut next, matched_word) = if line.get(idx + 1) == Some(&b'#') {
+            (out.clone(), idx + 2, None)
+        } else {
+            let Some(parsed_event) =
+                parse_history_event(line, idx + 1, history, histchars, policy, state)?
+            else {
+                out.push(byte);
+                idx += 1;
+                continue;
+            };
+            (
+                parsed_event.line,
+                parsed_event.next_index,
+                parsed_event.matched_word,
+            )
         };
-        let mut event = parsed_event.line;
-        let mut next = parsed_event.next_index;
-        let matched_word = parsed_event.matched_word;
         if line.get(next) == Some(&b':') {
             next += 1;
             let designator_start = next;

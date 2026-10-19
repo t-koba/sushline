@@ -1170,6 +1170,37 @@ fn history_expansion_supports_line_so_far_status_and_policy() {
 }
 
 #[test]
+fn history_expansion_current_line_event_supports_shared_suffixes() {
+    // GNU libhistory experiment 17a07a322bfb4d238c646834fb691b82 with prior
+    // history `prior event`: the `!#` suffix flows through the shared
+    // word-designator/modifier path.
+    let mut history = History::new();
+    history.push("prior event");
+    let policy = HistoryExpansionPolicy::default();
+    for (input, expected) in [
+        (
+            b"echo a b !#:q".as_slice(),
+            b"echo a b 'echo a b '".as_slice(),
+        ),
+        (b"echo a b !#:0".as_slice(), b"echo a b echo".as_slice()),
+        (
+            b"echo a b !#:s/a/X/".as_slice(),
+            b"echo a b echo X b ".as_slice(),
+        ),
+        (b"echo a b !#:$".as_slice(), b"echo a b b".as_slice()),
+    ] {
+        assert_eq!(
+            expand_history(input, &history, HistoryChars::parse("!^#"), &policy, |_| {
+                false
+            },)
+            .unwrap(),
+            expected,
+            "input={input:?}"
+        );
+    }
+}
+
+#[test]
 fn history_expansion_tracks_escaped_quotes_in_context() {
     let mut history = History::new();
     history.push("echo previous");

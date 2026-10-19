@@ -940,20 +940,31 @@ fn read_history_substitution_part(
     amp_replacement: Option<&[u8]>,
 ) -> (Vec<u8>, usize) {
     let mut part = Vec::new();
-    let mut escaped = false;
     while let Some(byte) = input.get(idx).copied() {
-        idx += 1;
-        if escaped {
-            part.push(byte);
-            escaped = false;
-            continue;
+        if byte == delimiter {
+            idx += 1;
+            break;
         }
         if byte == b'\\' {
-            escaped = true;
+            match input.get(idx + 1).copied() {
+                None => {
+                    part.push(b'\\');
+                    idx += 1;
+                }
+                Some(next) if next == delimiter => {
+                    part.push(delimiter);
+                    idx += 2;
+                }
+                Some(b'&') if amp_replacement.is_some() => {
+                    part.push(b'&');
+                    idx += 2;
+                }
+                Some(_) => {
+                    part.push(b'\\');
+                    idx += 1;
+                }
+            }
             continue;
-        }
-        if byte == delimiter {
-            break;
         }
         if byte == b'&'
             && let Some(replacement) = amp_replacement
@@ -962,9 +973,7 @@ fn read_history_substitution_part(
         } else {
             part.push(byte);
         }
-    }
-    if escaped {
-        part.push(b'\\');
+        idx += 1;
     }
     (part, idx)
 }

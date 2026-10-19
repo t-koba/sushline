@@ -2985,3 +2985,97 @@ fn history_expansion_failed_substitution_replaces_memory() {
         Err(HistoryExpansionError::SubstitutionFailed),
     );
 }
+
+#[test]
+fn history_expansion_preserves_backslashes_before_ordinary_bytes() {
+    // GNU libhistory.so.8: with slash and colon delimiters, only
+    // `\<delimiter>` escapes the delimiter; only replacement-side `\&`
+    // is a literal ampersand. Other backslashes (including doubled ones) are
+    // preserved, while bare replacement `&` still expands the old text.
+    let histchars = HistoryChars::parse("!^#");
+    let policy = HistoryExpansionPolicy::default();
+    let expand = |event: &[u8], expansion: &[u8]| {
+        let mut history = History::new();
+        history.push(std::str::from_utf8(event).unwrap());
+        expand_history(expansion, &history, histchars, &policy, |_| false)
+    };
+
+    // Replacement `\z` and `\q` preserve the slash.
+    assert_eq!(
+        expand(b"echo foo", b"!!:s/foo/\\z/").unwrap(),
+        b"echo \\z".to_vec(),
+    );
+    assert_eq!(
+        expand(b"echo foo", b"!!:s/foo/\\q/").unwrap(),
+        b"echo \\q".to_vec(),
+    );
+    // `\\z` preserves both slashes.
+    assert_eq!(
+        expand(b"echo foo", b"!!:s/foo/\\\\z/").unwrap(),
+        b"echo \\\\z".to_vec(),
+    );
+    // Replacement `\&` is a literal `&`; bare `&` expands the old text.
+    assert_eq!(
+        expand(b"echo foo", b"!!:s/foo/\\&/").unwrap(),
+        b"echo &".to_vec(),
+    );
+    assert_eq!(
+        expand(b"echo foo", b"!!:s/foo/&/").unwrap(),
+        b"echo foo".to_vec(),
+    );
+    assert_eq!(
+        expand(b"echo foo", b"!!:s/foo/[&]/").unwrap(),
+        b"echo [foo]".to_vec(),
+    );
+    assert_eq!(
+        expand(b"echo foo", b"!!:s/foo/[\\&]/").unwrap(),
+        b"echo [&]".to_vec(),
+    );
+    // Escaped delimiter is literal delimiter data in either field.
+    assert_eq!(
+        expand(b"echo a/b", b"!!:s/a\\/b/X/").unwrap(),
+        b"echo X".to_vec(),
+    );
+    assert_eq!(
+        expand(b"echo foo", b"!!:s/foo/a\\/b/").unwrap(),
+        b"echo a/b".to_vec(),
+    );
+    // Only the active delimiter is special: with `:` delimiters a backslash
+    // before `/` is preserved, and with `/` delimiters one before `:` is.
+    assert_eq!(
+        expand(b"echo foo", b"!!:s:foo:\\/:").unwrap(),
+        b"echo \\/".to_vec(),
+    );
+    assert_eq!(
+        expand(b"echo foo", b"!!:s/foo/\\:/").unwrap(),
+        b"echo \\:".to_vec(),
+    );
+    // An escaped active colon stays data, and a backslash can itself be the delimiter.
+    assert_eq!(
+        expand(b"echo foo", b"!!:s:foo:\\::").unwrap(),
+        b"echo :".to_vec(),
+    );
+    assert_eq!(
+        expand(b"echo foo", b"!!:s\\foo\\X\\").unwrap(),
+        b"echo X".to_vec(),
+    );
+    // Search-side ordinary escapes are preserved: `f\oo` matches a literal
+    // backslash entry, not `foo`.
+    assert_eq!(
+        expand(b"echo f\\oo", b"!!:s/f\\oo/BAR/").unwrap(),
+        b"echo BAR".to_vec(),
+    );
+    assert_eq!(
+        expand(b"echo foo", b"!!:s/f\\oo/BAR/"),
+        Err(HistoryExpansionError::SubstitutionFailed),
+    );
+    // Search-side `\&` is ordinary and preserved, not a literal `&`.
+    assert_eq!(
+        expand(b"echo a&b", b"!!:s/\\&/X/"),
+        Err(HistoryExpansionError::SubstitutionFailed),
+    );
+    assert_eq!(
+        expand(b"echo a\\&b", b"!!:s/\\&/X/").unwrap(),
+        b"echo aXb".to_vec(),
+    );
+}

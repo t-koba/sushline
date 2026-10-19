@@ -74,6 +74,20 @@ where
                             Ok(EditorOutcome::MacroOverflow)
                         }
                     }
+                    EditorOutcome::MacroAborted => {
+                        if state.macro_state.inputrc_macro_depth == 0 {
+                            // Abort already rang once; discard the remaining
+                            // active macro suffixes without another bell or
+                            // diagnostic and keep physical bytes queued by
+                            // the caller. Only the buffered key prefix can
+                            // belong to the discarded macro suffix.
+                            state.input.pending_key.clear();
+                            state.input.prefix_meta_command_len = 0;
+                            Ok(EditorOutcome::Continue)
+                        } else {
+                            Ok(EditorOutcome::MacroAborted)
+                        }
+                    }
                     outcome => Ok(outcome),
                 }
             }

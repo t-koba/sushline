@@ -865,3 +865,43 @@ fn bash_and_sushline_bound_indirect_inputrc_macro_recursion() {
         assert_eq!(bell_count(output), 1, "{output}");
     }
 }
+
+#[test]
+fn bash_and_sushline_abort_discards_remaining_inputrc_macro_expansion() {
+    let inputrc = "\"\\C-t\": \"a\\C-gb\"\n";
+    let keys = b"\x14Z\r";
+    let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+    for output in [&bash, &sushline] {
+        assert_eq!(accepted_line(output).as_deref(), Some("aZ"), "{output}");
+        assert_eq!(bell_count(output), 1, "{output}");
+        assert_eq!(
+            output
+                .matches("readline: maximum macro execution nesting level exceeded")
+                .count(),
+            0,
+            "{output}"
+        );
+    }
+}
+
+#[test]
+fn bash_and_sushline_abort_discards_nested_inputrc_macro_expansions() {
+    let inputrc = "\"\\C-t\": \"a\\C-oZ\"\n\"\\C-o\": \"b\\C-gc\"\n";
+    let keys = b"\x14X\r";
+    let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+    for output in [&bash, &sushline] {
+        assert_eq!(accepted_line(output).as_deref(), Some("abX"), "{output}");
+        assert_eq!(bell_count(output), 1, "{output}");
+        assert_eq!(
+            output
+                .matches("readline: maximum macro execution nesting level exceeded")
+                .count(),
+            0,
+            "{output}"
+        );
+    }
+}

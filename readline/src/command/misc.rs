@@ -18,6 +18,9 @@ where
                     state.abort_keyboard_macro_definition();
                 }
                 state.cancel_pending_command();
+                if state.macro_state.inputrc_macro_depth > 0 {
+                    return Ok(EditorOutcome::MacroAborted);
+                }
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::AcceptLine => {

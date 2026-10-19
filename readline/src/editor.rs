@@ -416,7 +416,9 @@ where
     ) -> Result<ReadlineResult, ReadlineError> {
         self.save_persistent_state(state);
         match outcome {
-            EditorOutcome::Continue | EditorOutcome::MacroOverflow => {
+            EditorOutcome::Continue
+            | EditorOutcome::MacroOverflow
+            | EditorOutcome::MacroAborted => {
                 unreachable!("continue outcomes are handled in the read loop")
             }
             EditorOutcome::Accepted(bytes) => {
@@ -707,6 +709,8 @@ pub(crate) enum EditorOutcome {
     Eof,
     /// Inputrc macro nesting limit reached; unwinds active macro suffixes.
     MacroOverflow,
+    /// Abort inside an inputrc macro; unwinds active macro suffixes.
+    MacroAborted,
 }
 
 #[cfg(test)]

@@ -1932,6 +1932,49 @@ fn history_tokenize_matches_gnu_nested_command_delimiter_scanning() {
 }
 
 #[test]
+fn history_tokenize_keeps_here_string_redirections_together() {
+    let policy = HistoryExpansionPolicy::default();
+    assert_eq!(
+        history_tokenize(b"echo 3<<<value", &policy),
+        vec![b"echo".to_vec(), b"3<<<".to_vec(), b"value".to_vec()],
+    );
+    assert_eq!(
+        history_tokenize(b"echo <<<value", &policy),
+        vec![b"echo".to_vec(), b"<<<".to_vec(), b"value".to_vec()],
+    );
+    // GNU libhistory experiment 2d4373f5f4eb4578b36f89fbcbcd9cc1 keeps
+    // an ampersand following the operator outside the `<<<` redirection word.
+    assert_eq!(
+        history_tokenize(b"echo 3<<<&1", &policy),
+        vec![
+            b"echo".to_vec(),
+            b"3<<<".to_vec(),
+            b"&".to_vec(),
+            b"1".to_vec()
+        ],
+    );
+
+    let mut history = History::new();
+    history.push("echo 3<<<value tail");
+    let histchars = HistoryChars::parse("!^#");
+    for (typed, expected) in [
+        ("!!:1", b"3<<<".as_slice()),
+        ("!!:2", b"value".as_slice()),
+        ("!!:$", b"tail".as_slice()),
+    ] {
+        assert_eq!(
+            expand_history(typed.as_bytes(), &history, histchars, &policy, |_| false,).unwrap(),
+            expected.to_vec(),
+            "{typed}"
+        );
+    }
+    assert_eq!(
+        history_arg_extract(1, 2, b"echo 3<<<value tail", &policy),
+        Some(b"3<<< value".to_vec()),
+    );
+}
+
+#[test]
 fn history_expansion_exposes_helper_functions() {
     let policy = HistoryExpansionPolicy::default();
     let line = b"echo arr=(one two) | sed 's/ /_/g'";

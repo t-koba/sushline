@@ -1160,10 +1160,17 @@ fn history_redirection_word_len(line: &[u8], idx: usize) -> Option<usize> {
         return None;
     }
     cursor += 1;
+    let mut here_string = false;
     if line.get(cursor) == Some(&first) {
         cursor += 1;
+        // Here-strings use three `<` bytes; keep the full operator together
+        // with either a bare word or an IO-number prefix.
+        if first == b'<' && line.get(cursor) == Some(&b'<') {
+            cursor += 1;
+            here_string = true;
+        }
     }
-    if line.get(cursor) == Some(&b'&') {
+    if !here_string && line.get(cursor) == Some(&b'&') {
         cursor += 1;
         while line.get(cursor).is_some_and(u8::is_ascii_digit) {
             cursor += 1;

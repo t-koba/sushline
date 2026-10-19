@@ -558,6 +558,52 @@ fn menu_completion_numeric_exhaustion_rings_and_old_menu_keeps_prefix() {
 }
 
 #[test]
+fn repeated_numeric_menu_prefix_exhaustion_rings_once_per_action() {
+    let cases: &[(&str, &[u8], &str)] = &[
+        ("menu-complete", b"\x1b3", "alpX"),
+        ("menu-complete", b"\x1b0", "alpX"),
+        ("menu-complete-backward", b"\x1b3", "alpX"),
+        ("menu-complete-backward", b"\x1b0", "alpX"),
+        ("old-menu-complete", b"\x1b3", "alX"),
+        ("old-menu-complete", b"\x1b0", "alX"),
+    ];
+    for (command, argument, expected) in cases {
+        let mut keys = b"al".to_vec();
+        keys.extend_from_slice(argument);
+        keys.push(0x0f);
+        keys.extend_from_slice(argument);
+        keys.extend_from_slice(b"\x0fX\r");
+        let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(keys)]);
+        let mut hooks = OptionCompletion {
+            options: CompletionOptions {
+                nospace: true,
+                ..Default::default()
+            },
+            candidates: vec![
+                CompletionCandidate {
+                    replacement: b"alpha".to_vec(),
+                    display: None,
+                },
+                CompletionCandidate {
+                    replacement: b"alpine".to_vec(),
+                    display: None,
+                },
+            ],
+        };
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str(&format!("\"\\C-o\": {command}"))
+            .unwrap();
+        let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+        assert_eq!(
+            result,
+            ReadlineResult::Line(expected.as_bytes().to_vec()),
+            "{command}"
+        );
+        assert_eq!(line.terminal().out.matches('\u{7}').count(), 2, "{command}");
+    }
+}
+
+#[test]
 fn menu_complete_display_prefix_is_first_menu_choice() {
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"a".to_vec()),

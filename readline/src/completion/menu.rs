@@ -278,7 +278,8 @@ where
             response: response.clone(),
         });
         state.completion.last_completion = Some(response);
-        if ring_on_prefix {
+        // Active cycles already ring when menu_complete_display wraps to the prefix.
+        if ring_on_prefix && context.previous_match_index.is_none() {
             self.ding()?;
         }
         Ok(())

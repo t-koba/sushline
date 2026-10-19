@@ -8201,6 +8201,47 @@ fn bash_readline_and_sushline_menu_completion_numeric_exhaustion_matches_bash_5_
 
 #[cfg(unix)]
 #[test]
+fn bash_readline_and_sushline_repeated_menu_prefix_exhaustion_rings_once_per_action() {
+    let cases: &[(&str, &[u8], &str)] = &[
+        ("menu-complete", b"\x1b3", "alpX"),
+        ("menu-complete", b"\x1b0", "alpX"),
+        ("menu-complete-backward", b"\x1b3", "alpX"),
+        ("menu-complete-backward", b"\x1b0", "alpX"),
+        ("old-menu-complete", b"\x1b3", "alX"),
+        ("old-menu-complete", b"\x1b0", "alX"),
+    ];
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::write(dir.path().join("alpha"), "").expect("write alpha");
+    fs::write(dir.path().join("alpine"), "").expect("write alpine");
+    let typed = format!("{}/al", dir.path().display());
+    let path_prefix = format!("{}/", dir.path().display());
+
+    for (command, argument, expected) in cases {
+        let inputrc = format!("\"\\C-o\": {command}");
+        let mut keys = typed.as_bytes().to_vec();
+        keys.extend_from_slice(argument);
+        keys.push(0x0f);
+        keys.extend_from_slice(argument);
+        keys.extend_from_slice(b"\x0fX\r");
+        let bash = run_bash_readline_with_bindings(&keys, &inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&keys, &inputrc);
+        let tail = |output: &str| {
+            accepted_line(output)
+                .and_then(|line| line.strip_prefix(&path_prefix).map(str::to_owned))
+        };
+        assert_eq!(tail(&bash).as_deref(), Some(*expected), "{command} Bash");
+        assert_eq!(
+            tail(&sushline).as_deref(),
+            Some(*expected),
+            "{command} Sushline"
+        );
+        assert_eq!(bell_count(&bash), 2, "{command} Bash");
+        assert_eq!(bell_count(&sushline), 2, "{command} Sushline");
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn menu_completion_consumes_ansi_c_quote_suffixes_like_bash_5_3() {
     // Runtime-only Bash 5.3 PTY probes 6337f4fb9e244a6e952505d10e822711,
     // cfd0399fccaf49ba95e23bdd60e847a7, d50fd14b11104698aece7ecc8f08e661,

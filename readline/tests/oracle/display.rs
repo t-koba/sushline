@@ -41,7 +41,7 @@ fn bash_readline_and_sushline_accept_same_edit_under_narrow_terminal() {
 
 #[cfg(unix)]
 #[test]
-fn unwrapped_ansi_prompt_redisplay_differs_from_bash_markers_only_in_bash() {
+fn unwrapped_ansi_prompt_redisplay_counts_unmarked_escapes() {
     use portable_pty::CommandBuilder;
     use std::fs;
 
@@ -85,6 +85,15 @@ fn unwrapped_ansi_prompt_redisplay_differs_from_bash_markers_only_in_bash() {
     let bash_bare_redraw = bash_bare.split("\u{1f}BASHDONE").next().unwrap();
     let bash_marked_redraw = bash_marked.split("\u{1f}BASHDONE").next().unwrap();
     assert_ne!(bash_bare_redraw, bash_marked_redraw);
+    // The final C-e redraw re-emits the last wrapped row. The 23-byte
+    // command ends at logical column 4 with the bare 11-column prompt,
+    // versus column 5 with the explicitly hidden, 2-column prompt.
+    // This is Bash 5.3 PTY runtime evidence, not a source/API assertion.
+    assert!(bash_bare_redraw.contains("\rE\\n'\r\n"), "{bash_bare:?}");
+    assert!(
+        bash_marked_redraw.contains("\rNE\\n'\r\n"),
+        "{bash_marked:?}"
+    );
 
     let run_sushline = |prompt: &str| {
         let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
@@ -106,10 +115,9 @@ fn unwrapped_ansi_prompt_redisplay_differs_from_bash_markers_only_in_bash() {
         sushline_marked.contains("SUSHLINE_ACCEPTED:"),
         "{sushline_marked:?}"
     );
-    assert_eq!(
-        accepted_line(&sushline_bare),
-        accepted_line(&sushline_marked)
-    );
+    let expected = Some("printf '\\x1fBASHDONE\\n'".to_string());
+    assert_eq!(accepted_line(&sushline_bare), expected);
+    assert_eq!(accepted_line(&sushline_marked), expected);
     assert!(sushline_bare.contains(visible_prompt), "{sushline_bare:?}");
     assert!(
         sushline_marked.contains(visible_prompt),
@@ -117,7 +125,21 @@ fn unwrapped_ansi_prompt_redisplay_differs_from_bash_markers_only_in_bash() {
     );
     let sushline_bare_redraw = sushline_bare.split("SUSHLINE_ACCEPTED:").next().unwrap();
     let sushline_marked_redraw = sushline_marked.split("SUSHLINE_ACCEPTED:").next().unwrap();
-    assert_eq!(sushline_bare_redraw, sushline_marked_redraw);
+    assert_ne!(sushline_bare_redraw, sushline_marked_redraw);
+    // Sushline repaints rather than using Bash's incremental bytes. Check
+    // the corresponding C-a and C-e logical columns (CSI G is one-based),
+    // not equality of the two implementations' complete output streams.
+    for (redraw, start, end) in [(sushline_bare_redraw, 2, 5), (sushline_marked_redraw, 3, 6)] {
+        assert!(
+            redraw.contains(&format!("\x1b[K\x1b[2A\x1b[{start}G")),
+            "{redraw:?}"
+        );
+        let before_accept = redraw.split("\x1b[?2004l").next().unwrap();
+        assert!(
+            before_accept.ends_with(&format!("\x1b[{end}G\r\r\n")),
+            "{redraw:?}"
+        );
+    }
 }
 
 #[test]

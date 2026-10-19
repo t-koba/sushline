@@ -685,7 +685,6 @@ fn compatibility_document_classifies_editor_bind_and_history_coverage() {
         .collect::<Vec<_>>();
     for expected in [
         "| Cell width and locale |",
-        "| Unwrapped ANSI in prompts |",
         "| Signal install/catch/reraise |",
     ] {
         assert!(
@@ -695,6 +694,12 @@ fn compatibility_document_classifies_editor_bind_and_history_coverage() {
             "COMPATIBILITY.md must retain the {expected} deviation"
         );
     }
+    assert!(documented_rows.lines().any(|line| {
+        line.starts_with("| Unwrapped ANSI in prompts |")
+            && line.contains("| Implemented |")
+            && line.contains("Bash 5.3")
+            && line.contains("PTY runtime")
+    }));
     assert!(documented_rows.lines().any(|line| {
         line.starts_with("| Completion redraw of invalid filename bytes |")
             && line.contains("| Compatible |")

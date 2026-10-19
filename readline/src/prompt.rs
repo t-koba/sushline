@@ -1,4 +1,4 @@
-use crate::width::last_line_width;
+use crate::width::char_width;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Prompt.
@@ -94,15 +94,19 @@ impl From<&[u8]> for Prompt {
 
 fn strip_readline_markers(raw: &str) -> (String, usize) {
     let mut visible = String::new();
-    let mut measurable = String::new();
+    let mut width = 0;
     parse_prompt(raw, |ch, hidden| {
         visible.push(ch);
         // Newlines still break lines even inside hidden regions.
-        if ch == '\n' || !hidden {
-            measurable.push(ch);
+        if ch == '\n' {
+            width = 0;
+        } else if !hidden {
+            // Prompt accounting is not rendered-output measurement: only
+            // explicit nonprinting spans hide escape bytes. In the Bash 5.3
+            // LC_ALL=C CSI fixture, ESC itself counts as one logical column.
+            width += if ch == '\x1b' { 1 } else { char_width(ch) };
         }
     });
-    let width = last_line_width(&measurable);
     (visible, width)
 }
 

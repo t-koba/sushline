@@ -40,14 +40,36 @@ fn complex_sush_prompt_ignores_nonprinting_ansi_and_counts_emoji_width() {
 }
 
 #[test]
-fn unwrapped_ansi_prompt_is_forgiving_zero_width() {
-    let prompt = Prompt::new("\x1b[31mhi");
-    assert_eq!(prompt.visible(), "\x1b[31mhi");
-    assert_eq!(prompt.width(), 2);
+fn unwrapped_csi_prompt_counts_escape_bytes_unless_explicitly_hidden() {
+    let bare = Prompt::new("\x1b[31mP>\x1b[0m");
+    assert_eq!(bare.visible(), "\x1b[31mP>\x1b[0m");
+    assert_eq!(bare.width(), 11);
+    for raw in [
+        "\x01\x1b[31m\x02P>\x01\x1b[0m\x02",
+        r"\[\e[31m\]P>\[\e[0m\]",
+    ] {
+        let marked = Prompt::new(raw);
+        assert_eq!(marked.visible(), bare.visible());
+        assert_eq!(marked.width(), 2);
+    }
+    for raw in [r"\e[31mP>\e[0m", r"\033[31mP>\033[0m"] {
+        let decoded = Prompt::new(raw);
+        assert_eq!(decoded.visible(), bare.visible());
+        assert_eq!(decoded.width(), bare.width());
+    }
+    // Actual terminal output still occupies only two cells, with no wrap.
+    assert_eq!(crate::width::visible_width(bare.visible()), 2);
     assert_eq!(
-        prompt.width(),
-        crate::width::visible_width(prompt.visible())
+        crate::width::measured_rows_for_output(bare.visible(), 10),
+        (0, false)
     );
+}
+
+#[test]
+fn unwrapped_csi_accounting_uses_only_the_last_prompt_line() {
+    assert_eq!(Prompt::new("\x1b[31mfirst\x1b[0m\nP>").width(), 2);
+    assert_eq!(Prompt::new("first\n\x1b[31mP>\x1b[0m").width(), 11);
+    assert_eq!(Prompt::new("first\x01hidden\n\x02P>").width(), 2);
 }
 
 #[test]

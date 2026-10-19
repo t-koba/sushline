@@ -32,11 +32,17 @@ impl InputrcError {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 /// InputrcParser.
 pub struct InputrcParser {
     max_include_depth: usize,
     readline_version: String,
+}
+
+impl Default for InputrcParser {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl InputrcParser {

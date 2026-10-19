@@ -238,6 +238,46 @@ fn parses_gnu_style_conditions_and_trailing_function_text() {
 }
 
 #[test]
+fn default_matches_new_for_includes() {
+    let dir = tempfile::tempdir().unwrap();
+    let include = dir.path().join("included.inputrc");
+    fs::write(&include, "set completion-ignore-case on").unwrap();
+    let source = format!("$include \"{}\"", include.display());
+
+    for parser in [InputrcParser::new(), InputrcParser::default()] {
+        let mut keymap = KeyMap::emacs_default();
+        let mut variables = Variables::new();
+        parser
+            .parse_str(&source, &Config::default(), &mut keymap, &mut variables)
+            .unwrap();
+        assert!(variables.is_on("completion-ignore-case"));
+    }
+}
+
+#[test]
+fn default_matches_new_for_version_predicates() {
+    let source = r#"
+        $if version >= 8.0
+        z: beginning-of-line
+        $else
+        z: end-of-line
+        $endif
+    "#;
+
+    for parser in [InputrcParser::new(), InputrcParser::default()] {
+        let mut keymap = KeyMap::emacs_default();
+        let mut variables = Variables::new();
+        parser
+            .parse_str(source, &Config::default(), &mut keymap, &mut variables)
+            .unwrap();
+        assert_eq!(
+            keymap.lookup(KeyMapName::EmacsStandard, b"z"),
+            Some(&KeyBinding::Command(EditCommand::BeginningOfLine))
+        );
+    }
+}
+
+#[test]
 fn ignores_active_include_read_errors() {
     let mut keymap = KeyMap::emacs_default();
     let mut variables = Variables::new();

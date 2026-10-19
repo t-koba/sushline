@@ -1,7 +1,11 @@
 //! Editing compatibility cases for key dispatch, movement/insertion, signals,
 //! paste, numeric arguments, and keyboard macros. This broad group spans several
 //! fixture-scoped claims in `COMPATIBILITY.md` and may need finer grouping if a
-//! later risk audit demonstrates useful separation.
+//! later risk audit demonstrates useful separation. The named shell-word
+//! movement/kill/transpose fixtures cited by the `COMPATIBILITY.md`
+//! shell-forward-word, shell-backward-word, shell-transpose-words,
+//! shell-kill-word, and shell-backward-kill-word rows live in `completion.rs`,
+//! not in this group.
 
 use super::pty::*;
 use std::fs;

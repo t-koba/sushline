@@ -350,11 +350,13 @@ impl LineBuffer {
                 )
             };
             let width = display.chars().map(char_width).sum();
-            line.push_cell(display, width);
+            let bytes = self.next_char_boundary(idx) - idx;
+            line.push_buffer_cell(display, width, bytes);
         }
         if self.point == self.bytes.len() {
             line.point = line.width;
         }
+        line.point_bytes = self.point;
         if region.is_some_and(|(_, end)| end == self.bytes.len()) {
             line.push_hidden(bytes_lossless(options.active_region_end.as_ref()));
         }

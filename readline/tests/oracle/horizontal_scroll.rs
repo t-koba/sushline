@@ -316,10 +316,15 @@ fn bash_readline_and_sushline_horizontal_scroll_exposes_unwrapped_ansi_prompt_wi
 }
 
 #[test]
-fn bash_readline_and_sushline_horizontal_scroll_records_wide_character_clipping() {
+fn bash_and_sushline_horizontal_scroll_agree_on_a_wide_character_tail() {
     if !c_utf8_locale_available() {
         return;
     }
+    // The window is measured in bytes on both sides, so the wide glyph is
+    // clipped as a whole. GNU's batched path shows the last 51 bytes, while
+    // Sushline's bytewise path keeps the tail visible: the built-in
+    // terminal reads one byte per event, and that batching difference is
+    // covered on its own.
     let text = format!("{}中{}", "a".repeat(24), "b".repeat(64));
     let steps = vec![text.into_bytes()];
     let bash = checkpoints_with_locale(true, 80, "P>", &steps, "C.UTF-8");
@@ -332,7 +337,7 @@ fn bash_readline_and_sushline_horizontal_scroll_records_wide_character_clipping(
     );
     assert_eq!(
         sushline.last(),
-        Some(&(format!("< {}", "b".repeat(64)), 66)),
+        Some(&(format!("<{}", "b".repeat(64)), 65)),
         "Sushline"
     );
 }
@@ -585,38 +590,26 @@ fn bash_and_sushline_horizontal_scroll_bytewise_window_counts_bytes() {
     if !c_utf8_locale_available() {
         return;
     }
-    // GNU counts the scroll offset in bytes in every path. The bytewise path
-    // scrolls to keep the cursor at the window's right edge, so an ASCII
-    // tail fills the screen, while a multibyte tail leaves about 50 columns
-    // visible and can leave the cursor inside the window. Sushline counts
-    // columns, so its bytewise window keeps the wider ASCII-like window for
-    // a narrow multibyte tail.
+    // GNU counts the scroll offset in bytes in every path, and so does
+    // Sushline. The bytewise path scrolls to keep the cursor at the window's
+    // right edge, so an ASCII tail fills the screen, while a multibyte tail
+    // leaves about 50 columns visible and can leave the cursor inside the
+    // window.
     let base = "0123456789".repeat(10);
     let window = |start: usize, tail: &str| format!("<{}{tail}", &base[start..]);
-    let cases: [(&str, String, usize, String, usize); 4] = [
-        ("e", window(25, "e"), 77, window(25, "e"), 77),
-        (
-            "e\u{301}",
-            window(51, "e\u{301}"),
-            51,
-            window(51, "e\u{301}"),
-            51,
-        ),
-        ("\u{e9}", window(51, "\u{e9}"), 51, window(25, "\u{e9}"), 77),
-        ("\u{b7}", window(51, "\u{b7}"), 51, window(25, "\u{b7}"), 77),
+    let cases: [(&str, String, usize); 4] = [
+        ("e", window(25, "e"), 77),
+        ("e\u{301}", window(51, "e\u{301}"), 51),
+        ("\u{e9}", window(51, "\u{e9}"), 51),
+        ("\u{b7}", window(51, "\u{b7}"), 51),
     ];
-    for (tail, gnu_screen, gnu_column, sushline_screen, sushline_column) in cases {
+    for (tail, expected_screen, expected_column) in cases {
         let text = format!("{base}{tail}");
         let steps: Vec<Vec<u8>> = text.as_bytes().iter().map(|byte| vec![*byte]).collect();
         for bash in [true, false] {
             let frames = checkpoints_with_locale(bash, 80, "P>", &steps, "C.UTF-8");
             let (screen, column) = frames.last().cloned().expect("checkpoint");
-            let (expected_screen, expected_column) = if bash {
-                (&gnu_screen, gnu_column)
-            } else {
-                (&sushline_screen, sushline_column)
-            };
-            assert_eq!(screen, *expected_screen, "tail={tail:?} bash={bash}");
+            assert_eq!(screen, expected_screen, "tail={tail:?} bash={bash}");
             assert_eq!(column, expected_column, "tail={tail:?} bash={bash}");
         }
     }

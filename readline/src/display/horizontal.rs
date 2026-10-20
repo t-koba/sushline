@@ -6,6 +6,9 @@ use std::ops::Range;
 
 #[derive(Debug, Default)]
 pub(crate) struct HorizontalViewport {
+    /// The scrolled-off buffer bytes: the visible text starts here.
+    offset: usize,
+    /// The cell margin that precedes the visible text.
     margin: usize,
     visible: Range<usize>,
 }
@@ -16,12 +19,16 @@ pub(crate) struct DisplayLine {
     prefix: String,
     pub(crate) width: usize,
     pub(crate) point: usize,
+    /// The cursor's byte offset in the buffer text.
+    pub(crate) point_bytes: usize,
 }
 
 #[derive(Debug)]
 struct Unit {
     text: String,
     width: usize,
+    /// The buffer bytes the unit covers; zero for prompt and hidden text.
+    bytes: usize,
     hidden: bool,
 }
 
@@ -34,6 +41,19 @@ impl DisplayLine {
         self.units.push(Unit {
             text,
             width,
+            bytes: 0,
+            hidden: false,
+        });
+        self.width += width;
+    }
+
+    /// A buffer character: it scrolls with the window, so it carries the
+    /// bytes it covers.
+    pub(crate) fn push_buffer_cell(&mut self, text: String, width: usize, bytes: usize) {
+        self.units.push(Unit {
+            text,
+            width,
+            bytes,
             hidden: false,
         });
         self.width += width;
@@ -46,6 +66,7 @@ impl DisplayLine {
             self.units.push(Unit {
                 text,
                 width: 0,
+                bytes: 0,
                 hidden: true,
             });
         }
@@ -102,6 +123,7 @@ impl DisplayLine {
         self.units.push(Unit {
             text,
             width,
+            bytes: 0,
             hidden: true,
         });
         self.width += width;
@@ -120,6 +142,7 @@ impl DisplayLine {
             self.finish_prompt_line(&other.prefix);
         }
         self.point = self.width + other.point;
+        self.point_bytes = other.point_bytes;
         self.width += other.width;
         self.units.extend(other.units);
     }
@@ -131,7 +154,7 @@ impl HorizontalViewport {
         // placement should trigger automatic wrapping in horizontal mode.
         let capacity = columns.saturating_sub(1);
         if capacity == 0 {
-            self.margin = 0;
+            self.offset = 0;
             self.visible = 0..0;
             return (line.prefix.clone(), 0);
         }
@@ -142,18 +165,28 @@ impl HorizontalViewport {
         // merely fitting the row, or moving point below the activation edge,
         // must not discard a scrolled window. Scroll roughly a third of the
         // screen; a large jump (or batch) differs from repeated small steps.
+        let scroll = (2 * third).min(capacity);
+        let margin = self.margin;
         if line.width <= columns.saturating_sub(4) {
-            self.margin = 0;
-        } else if line.point <= self.margin + third {
+            self.set_margin(line, 0);
+        } else if line.point <= margin + third {
             // At 80 columns, the normalized margin is 50: Bash keeps it at
             // logical points 79/78/77, but restores the prompt at point 76.
-            self.margin = if line.point < edge {
-                0
-            } else {
-                line.point.saturating_sub(third)
-            };
-        } else if line.point - self.margin >= edge {
-            self.margin = line.point.saturating_sub((2 * third).min(capacity));
+            self.set_margin(
+                line,
+                if line.point < edge {
+                    0
+                } else {
+                    line.point - third
+                },
+            );
+        } else if line.point_bytes - self.offset >= edge - 1 {
+            // GNU counts the scroll offset in bytes, so a multibyte tail
+            // scrolls further than its cell width alone suggests.
+            self.set_offset(line, line.point_bytes.saturating_sub(scroll - 1));
+        } else if line.point - margin >= edge {
+            // The cursor left the window: show the end of the line.
+            self.set_margin(line, line.point - scroll);
         }
         let left = usize::from(self.margin > 0);
         let right = usize::from(line.width > self.margin + capacity && capacity > left);
@@ -196,6 +229,52 @@ impl HorizontalViewport {
             out.push('>');
         }
         (out, line.point.saturating_sub(self.margin).min(capacity))
+    }
+
+    /// Set the cell margin and the byte offset that matches it.
+    fn set_margin(&mut self, line: &DisplayLine, margin: usize) {
+        self.margin = margin;
+        self.offset = if margin == 0 {
+            0
+        } else {
+            self.offset_at_cell(line, margin + 1)
+        };
+    }
+
+    /// Set the byte offset and the cell margin that matches it.
+    fn set_offset(&mut self, line: &DisplayLine, offset: usize) {
+        self.offset = offset;
+        self.margin = self.margin_at_offset(line);
+    }
+
+    /// The cell margin that precedes the buffer text at the offset. An
+    /// offset inside a character clips that character, so the output stays
+    /// valid UTF-8 where GNU splits the sequence.
+    fn margin_at_offset(&self, line: &DisplayLine) -> usize {
+        let mut cell: usize = 0;
+        let mut bytes: usize = 0;
+        for unit in &line.units {
+            if unit.bytes > 0 && bytes >= self.offset {
+                return cell.saturating_sub(1);
+            }
+            cell += unit.width;
+            bytes += unit.bytes;
+        }
+        cell.saturating_sub(1)
+    }
+
+    /// The byte offset of the buffer text at `cell`.
+    fn offset_at_cell(&self, line: &DisplayLine, cell: usize) -> usize {
+        let mut col: usize = 0;
+        let mut bytes: usize = 0;
+        for unit in &line.units {
+            if unit.bytes > 0 && col >= cell {
+                return bytes;
+            }
+            col += unit.width;
+            bytes += unit.bytes;
+        }
+        bytes
     }
 
     /// Map a one-cell logical target in the last layout, excluding clipped

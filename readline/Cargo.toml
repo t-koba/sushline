@@ -12,7 +12,9 @@ default = ["oracle"]
 oracle = []
 
 [dependencies]
-history = { path = "../history" }
+# The version requirement lets the crate be packaged: a path dependency
+# without a version cannot be published.
+history = { path = "../history", version = "0.1.0" }
 libc = "0.2"
 unicode-width = "0.1"
 

@@ -117,7 +117,12 @@ jobs:
           cc -o /tmp/readline_probe /tmp/readline_probe.c -lreadline
           echo "" | /tmp/readline_probe || true
           cat /tmp/readline_probe.report
-          dpkg-query -W -f='readline_package_version=${Version}\n' libreadline-dev
+          version=$(dpkg-query -W -f='${Version}' libreadline-dev)
+          echo "readline_package_version=$version"
+          case "$version" in
+            8.2-*) ;;
+            *) echo "::warning::the runner image's Readline is $version; the compatibility row's claim was observed on 8.2" ;;
+          esac
           # The claim: the library writes its prompt to standard output.
           grep -qx 'prompt_in_stdout=1' /tmp/readline_probe.report
       - name: Run the oracle suite

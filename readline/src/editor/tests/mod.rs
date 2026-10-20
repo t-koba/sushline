@@ -17,6 +17,7 @@ use ::history::expansion::{
 use std::collections::VecDeque;
 
 mod completion;
+mod display;
 mod history;
 mod lifecycle;
 mod signals;
@@ -194,6 +195,11 @@ struct MemoryTerminal {
     read_error: Option<io::Error>,
     out: String,
     diagnostics: String,
+    /// Whether the diagnostic sink is the terminal's own screen.
+    ///
+    /// The diagnostics go to a separate buffer by default, so they do not
+    /// reach the screen the display model tracks.
+    diagnostics_on_screen: bool,
     columns: u16,
     tty_special: Vec<(u8, &'static str)>,
     meta_enabled: Vec<bool>,
@@ -210,6 +216,7 @@ impl MemoryTerminal {
             read_error: None,
             out: String::new(),
             diagnostics: String::new(),
+            diagnostics_on_screen: false,
             columns: 80,
             tty_special: Vec::new(),
             meta_enabled: Vec::new(),
@@ -252,8 +259,16 @@ impl TerminalIo for MemoryTerminal {
     }
 
     fn write_diagnostic(&mut self, text: &str) -> io::Result<()> {
-        self.diagnostics.push_str(text);
+        if self.diagnostics_on_screen {
+            self.out.push_str(text);
+        } else {
+            self.diagnostics.push_str(text);
+        }
         Ok(())
+    }
+
+    fn diagnostics_use_terminal(&self) -> bool {
+        self.diagnostics_on_screen
     }
 
     fn write_bytes(&mut self, bytes: &[u8]) -> io::Result<()> {

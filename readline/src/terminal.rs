@@ -60,6 +60,19 @@ pub trait TerminalIo {
     fn write_diagnostic(&mut self, text: &str) -> io::Result<()> {
         self.write(text)
     }
+    /// Reports whether the diagnostic sink writes to the terminal's own
+    /// screen.
+    ///
+    /// The editor redraws the rendered line in place and tracks the
+    /// terminal's cursor rows, so it must know whether a diagnostic
+    /// consumed terminal rows. The default is `true`, matching the default
+    /// [`Self::write_diagnostic`], which writes to the terminal output
+    /// stream. A backend whose diagnostic sink is a different stream must
+    /// report `false`; the editor then leaves the display untouched by the
+    /// diagnostic instead of redrawing it at the wrong row.
+    fn diagnostics_use_terminal(&self) -> bool {
+        true
+    }
     /// Writes bytes to the terminal.
     fn write_bytes(&mut self, bytes: &[u8]) -> io::Result<()>;
     /// Flushes pending terminal output.
@@ -247,6 +260,22 @@ impl TerminalIo for Terminal {
         stderr.flush()
     }
 
+    fn diagnostics_use_terminal(&self) -> bool {
+        // The built-in terminal writes diagnostics to standard error, so
+        // they land on the terminal's screen only when standard error and
+        // standard output are the same device.
+        #[cfg(unix)]
+        {
+            same_device(libc::STDOUT_FILENO, libc::STDERR_FILENO)
+        }
+        #[cfg(not(unix))]
+        {
+            // The built-in terminal has no live operations off Unix, and
+            // both streams reach the console there.
+            true
+        }
+    }
+
     fn write_bytes(&mut self, bytes: &[u8]) -> io::Result<()> {
         self.stdout.write_all(bytes)
     }
@@ -312,6 +341,29 @@ impl TerminalIo for Terminal {
     fn tty_special_bindings(&self) -> Vec<(u8, &'static str)> {
         tty_special_bindings()
     }
+}
+
+/// Reports whether two file descriptors name the same device and inode.
+///
+/// Two descriptors for the same terminal share its screen, so a diagnostic
+/// written through one of them moves the cursor the other one tracks.
+#[cfg(unix)]
+fn same_device(left: libc::c_int, right: libc::c_int) -> bool {
+    let mut left_stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+    let mut right_stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+    // SAFETY: `fstat` fills the buffer it is given on success, and both
+    // pointers come from initialized `MaybeUninit` storage.
+    let described = unsafe {
+        libc::fstat(left, left_stat.as_mut_ptr()) == 0
+            && libc::fstat(right, right_stat.as_mut_ptr()) == 0
+    };
+    if !described {
+        return false;
+    }
+    // SAFETY: both `fstat` calls reported success, so both buffers hold a
+    // `stat` value.
+    let (left_stat, right_stat) = unsafe { (left_stat.assume_init(), right_stat.assume_init()) };
+    left_stat.st_dev == right_stat.st_dev && left_stat.st_ino == right_stat.st_ino
 }
 
 #[cfg(unix)]

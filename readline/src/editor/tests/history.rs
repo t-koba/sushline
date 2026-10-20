@@ -96,5 +96,12 @@ fn history_expansion_reports_event_and_word_errors() {
     let mut hooks = TestHistoryHook;
     let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
     assert_eq!(result, ReadlineResult::Line("!missing".as_bytes().to_vec()));
-    assert!(line.terminal.out.contains("!missing: event not found"));
+    // The failure is error text, so it goes to the diagnostic sink instead
+    // of the display stream.
+    assert!(
+        line.terminal
+            .diagnostics
+            .contains("!missing: event not found\n")
+    );
+    assert!(!line.terminal.out.contains("!missing: event not found"));
 }

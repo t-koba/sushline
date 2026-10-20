@@ -257,17 +257,27 @@ where
     ///
     /// The message and its terminator go to the terminal's diagnostic sink,
     /// which the built-in terminal points at standard error like GNU
-    /// Readline.
+    /// Readline. A sink that is not the terminal's own screen leaves the
+    /// display untouched: the message consumes no terminal row, so the next
+    /// redisplay starts at the rendered line again instead of erasing what
+    /// the terminal already showed above it.
     pub(crate) fn write_diagnostic_below_rendered_line(
         &mut self,
         state: &mut EditorState,
         text: &str,
     ) -> io::Result<()> {
-        self.move_below_rendered_line(state)?;
+        let on_terminal = self.terminal.diagnostics_use_terminal();
+        if on_terminal {
+            self.move_below_rendered_line(state)?;
+        }
         self.terminal.write_diagnostic(text)?;
         self.terminal.write_diagnostic("\n")?;
-        self.note_tracked_output(state, text);
-        state.display.rendered_cursor_row = state.display.rendered_cursor_row.saturating_add(1);
+        if on_terminal {
+            // The message reached the terminal's screen, so its rows moved
+            // the cursor the display model tracks.
+            self.note_tracked_output(state, text);
+            state.display.rendered_cursor_row = state.display.rendered_cursor_row.saturating_add(1);
+        }
         Ok(())
     }
 

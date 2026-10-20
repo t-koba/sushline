@@ -4,6 +4,7 @@
 //! an independent compatibility claim.
 
 mod completion;
+mod diagnostics;
 mod display;
 mod editing;
 mod history;
@@ -11,3 +12,4 @@ mod horizontal_scroll;
 pub(super) mod host;
 mod inputrc;
 pub(super) mod pty;
+pub(super) mod screen;

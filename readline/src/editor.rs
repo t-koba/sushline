@@ -698,14 +698,17 @@ where
         }
     }
 
+    /// Report a history expansion failure.
+    ///
+    /// The message is error text, so it goes to the diagnostic sink like the
+    /// other error families. GNU's shell reports the same failure on
+    /// standard error.
     pub(crate) fn report_history_expansion_message(
         &mut self,
         state: &mut EditorState,
         message: &str,
     ) -> Result<(), ReadlineError> {
-        self.move_below_rendered_line(state)?;
-        self.write_tracked(state, message)?;
-        self.write_tracked_newline(state)?;
+        self.write_diagnostic_below_rendered_line(state, message)?;
         self.terminal.flush()?;
         Ok(())
     }

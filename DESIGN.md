@@ -152,12 +152,19 @@ backend is provided. Tests and embedders can provide their own `TerminalIo`
 implementation, including an in-memory terminal for editor behavior tests
 without a real TTY.
 
-The editor reports the inputrc diagnostics and the readline error messages
-through `TerminalIo::write_diagnostic`; those two families are the only
-readline error messages the library writes. The built-in terminal writes them
-to standard error, like GNU Readline, so an embedder's standard output stays
-free of them; a custom backend keeps the default of writing the diagnostics to
-its own output stream.
+Every error text the editor writes goes through `TerminalIo::write_diagnostic`:
+the inputrc diagnostics, the readline error messages, and the history
+expansion failure message. The built-in terminal writes them to standard
+error, like GNU Readline, so an embedder's standard output stays free of
+them; a custom backend keeps the default of writing the diagnostics to its own
+output stream.
+
+A diagnostic that reaches the terminal's own screen moves the terminal
+cursor, so the display model follows it. `TerminalIo::diagnostics_use_terminal`
+reports whether the diagnostic sink is that screen; the built-in terminal
+compares standard error with standard output. A diagnostic written to another
+stream leaves the display untouched, so the next redisplay starts at the
+rendered line again instead of erasing what the terminal already showed.
 
 The built-in `Terminal` has independent pre-read signal policies:
 `set_catch_signals(bool)` selects the eight non-`SIGWINCH` signals and

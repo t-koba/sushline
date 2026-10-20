@@ -179,6 +179,31 @@ pub(super) fn run_bash_history_expand(expansion: &str, history: &[&str]) -> Stri
         .to_string()
 }
 
+/// The shell's own error text for a failing history expansion, with the
+/// two streams separated.
+pub(super) fn run_bash_history_expand_failure(expansion: &str, history: &[&str]) -> String {
+    let history_commands = history
+        .iter()
+        .map(|entry| format!("history -s {}", shell_single_quote(entry)))
+        .collect::<Vec<_>>()
+        .join("; ");
+    require_oracle_host();
+    let output = Command::new("bash")
+        .args([
+            "--noprofile",
+            "--norc",
+            "-i",
+            "-c",
+            &format!(
+                "set +H; {history_commands}; history -p {}",
+                shell_single_quote(expansion)
+            ),
+        ])
+        .output()
+        .expect("bash must be available for history oracle tests");
+    String::from_utf8_lossy(&output.stderr).to_string()
+}
+
 pub(super) fn run_bash_readline_with_term(
     keys: &[u8],
     inputrc: &str,

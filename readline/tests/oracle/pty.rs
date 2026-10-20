@@ -33,7 +33,29 @@ pub(super) fn run_bash_readline_with_bindings(keys: &[u8], bindings: &str) -> St
     run_bash_readline_with_bindings_and_history(keys, bindings, &[])
 }
 
+/// Runs the GNU host's interrupt case, retrying a host race.
+///
+/// GNU Readline re-raises the interrupt for the shell, and the shell's
+/// handler can land in the startup of its next session, so the host
+/// sometimes exits instead of showing the next prompt. That race belongs to
+/// the host: Sushline's editor returns the interrupt without re-raising it.
+/// The case therefore retries the host run and keeps the last output when
+/// every attempt fails.
 pub(super) fn run_bash_interactive_after_ctrl_c() -> String {
+    let mut output = String::new();
+    for _ in 0..BASH_INTERRUPT_ATTEMPTS {
+        output = run_bash_interactive_after_ctrl_c_once();
+        if output.contains("SUSHLINE_READY2>") && output.contains("SUSHLINE_ACCEPTED:ok") {
+            return output;
+        }
+    }
+    output
+}
+
+/// Attempts for the GNU host run of the interrupt case.
+const BASH_INTERRUPT_ATTEMPTS: usize = 5;
+
+fn run_bash_interactive_after_ctrl_c_once() -> String {
     // Unique prompts prevent partial-line redisplay from releasing the next PTY step.
     let mut command = CommandBuilder::new("bash");
     command.env("PS1", "SUSHLINE_READY1>");

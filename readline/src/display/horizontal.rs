@@ -194,13 +194,11 @@ impl HorizontalViewport {
             // The cursor's byte position in the whole line reached the edge:
             // the window starts, and the last bytes of the line stay visible.
             self.set_offset(line, line.point_bytes.saturating_sub(scroll - 1));
-        } else if line.point_bytes - self.offset >= edge - 1 {
-            // GNU counts the scroll offset in bytes, so a multibyte tail
-            // scrolls further than its cell width alone suggests.
+        } else if self.offset > 0 && line.point_bytes - self.offset >= edge - 1 {
+            // The window exists and the cursor left it: GNU counts the
+            // scroll offset in bytes, so a multibyte tail scrolls further
+            // than its cell width alone suggests.
             self.set_offset(line, line.point_bytes.saturating_sub(scroll - 1));
-        } else if line.point - margin >= edge {
-            // The cursor left the window: show the end of the line.
-            self.set_margin(line, line.point - scroll);
         }
         let left = usize::from(self.margin > 0);
         let right = usize::from(line.width > self.margin + capacity && capacity > left);

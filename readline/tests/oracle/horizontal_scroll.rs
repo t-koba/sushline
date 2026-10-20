@@ -712,18 +712,20 @@ fn bash_and_sushline_horizontal_scroll_starts_the_window_on_the_byte_edge_with_a
     }
     // GNU measures the edge on the last prompt line, so a prompt with a
     // first line scrolls on the same byte as the single-line prompt: the
-    // window opens at the 76th text byte in both cases.
-    let prompt = "one\nP>";
-    for (bytes, column) in [(75usize, 77usize), (76, 52)] {
-        let text = "a".repeat(bytes);
-        let steps: Vec<Vec<u8>> = text.as_bytes().iter().map(|byte| vec![*byte]).collect();
-        for bash in [true, false] {
-            let frames = checkpoints_with_locale(bash, 80, prompt, &steps, "C.UTF-8");
-            let (screen, cursor) = frames.last().cloned().expect("checkpoint");
-            assert_eq!(
-                cursor, column,
-                "bytes={bytes} bash={bash} screen={screen:?}"
-            );
+    // window opens at the 76th text byte in both cases. A prompt whose last
+    // line is empty measures the same edge, one byte later.
+    for (prompt, edge) in [("one\nP>", 76usize), ("P>\n", 78)] {
+        for (bytes, column) in [(edge - 1, 77), (edge, 52)] {
+            let text = "a".repeat(bytes);
+            let steps: Vec<Vec<u8>> = text.as_bytes().iter().map(|byte| vec![*byte]).collect();
+            for bash in [true, false] {
+                let frames = checkpoints_with_locale(bash, 80, prompt, &steps, "C.UTF-8");
+                let (screen, cursor) = frames.last().cloned().expect("checkpoint");
+                assert_eq!(
+                    cursor, column,
+                    "prompt={prompt:?} bytes={bytes} bash={bash} screen={screen:?}"
+                );
+            }
         }
     }
 }

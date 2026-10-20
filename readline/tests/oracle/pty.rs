@@ -33,27 +33,48 @@ pub(super) fn run_bash_readline_with_bindings(keys: &[u8], bindings: &str) -> St
     run_bash_readline_with_bindings_and_history(keys, bindings, &[])
 }
 
-/// Runs the GNU host's interrupt case, retrying a host race.
+/// Runs the GNU host's interrupt case, retrying a host hang.
 ///
 /// GNU Readline re-raises the interrupt for the shell, and the shell's
 /// handler can land in the startup of its next session, so the host
-/// sometimes exits instead of showing the next prompt. That race belongs to
-/// the host: Sushline's editor returns the interrupt without re-raising it.
-/// The case therefore retries the host run and keeps the last output when
-/// every attempt fails.
+/// sometimes waits instead of showing the next prompt. The host then
+/// reaches no stop marker and the driver waits for its bound. That race
+/// belongs to the host: Sushline's editor returns the interrupt without
+/// re-raising it. The case therefore retries the host run, accepts only a
+/// run that shows everything the case asserts, and reports the attempts it
+/// made.
 pub(super) fn run_bash_interactive_after_ctrl_c() -> String {
     let mut output = String::new();
-    for _ in 0..BASH_INTERRUPT_ATTEMPTS {
+    for attempt in 1..=BASH_INTERRUPT_ATTEMPTS {
         output = run_bash_interactive_after_ctrl_c_once();
-        if output.contains("SUSHLINE_READY2>") && output.contains("SUSHLINE_ACCEPTED:ok") {
+        if bash_interrupt_run_is_complete(&output) {
+            if attempt > 1 {
+                eprintln!("the GNU host run needed {attempt} attempts");
+            }
             return output;
         }
+        eprintln!("the GNU host run attempt {attempt} did not reach the next prompt");
     }
     output
 }
 
 /// Attempts for the GNU host run of the interrupt case.
 const BASH_INTERRUPT_ATTEMPTS: usize = 5;
+
+/// The markers the interrupt case asserts about the host run.
+const BASH_INTERRUPT_MARKERS: [&str; 4] = [
+    "^C",
+    "SUSHLINE_READY1>^C",
+    "SUSHLINE_READY2>",
+    "SUSHLINE_ACCEPTED:ok",
+];
+
+/// Whether the host run shows everything the interrupt case asserts.
+fn bash_interrupt_run_is_complete(output: &str) -> bool {
+    BASH_INTERRUPT_MARKERS
+        .iter()
+        .all(|marker| output.contains(marker))
+}
 
 fn run_bash_interactive_after_ctrl_c_once() -> String {
     // Unique prompts prevent partial-line redisplay from releasing the next PTY step.
@@ -65,7 +86,7 @@ fn run_bash_interactive_after_ctrl_c_once() -> String {
         "__sushline_prompt_count=$((__sushline_prompt_count + 1)); PS1=\"SUSHLINE_READY${__sushline_prompt_count}>\"",
     );
     command.args(["--noprofile", "--norc", "-i"]);
-    run_pty_steps_until(
+    run_pty_steps_until_with_timeout(
         command,
         &[
             ("SUSHLINE_READY1>", b"abc\x03".as_slice()),
@@ -75,8 +96,19 @@ fn run_bash_interactive_after_ctrl_c_once() -> String {
             ),
         ],
         "SUSHLINE_ACCEPTED:ok",
+        INTERRUPT_HANG_BOUND,
     )
 }
+
+/// The hang bound the step drivers use.
+pub(super) const PTY_HANG_BOUND: Duration = Duration::from_secs(15);
+
+/// The hang bound for the interrupt case.
+///
+/// The host reaches its second prompt in a fraction of a second, so a
+/// shorter bound keeps a host that waits from taking the whole suite's
+/// budget.
+const INTERRUPT_HANG_BOUND: Duration = Duration::from_secs(5);
 
 pub(super) fn run_bash_readline_eof_with_inputrc(keys: &[u8], inputrc: &str) -> String {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -1130,7 +1162,31 @@ fn run_pty_steps_with_size_until_raw(
         size,
         stop_marker,
         1,
+        PTY_HANG_BOUND,
     )
+}
+
+/// Runs a command under a PTY with a bounded wait, in steps.
+pub(super) fn run_pty_steps_until_with_timeout(
+    command: CommandBuilder,
+    steps: &[(&str, &[u8])],
+    stop_marker: &str,
+    timeout: Duration,
+) -> String {
+    lossy_output(&run_pty_steps_in_dir_with_size_raw_until_count(
+        command,
+        steps,
+        std::path::Path::new("/"),
+        PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        },
+        stop_marker,
+        1,
+        timeout,
+    ))
 }
 
 /// Cwd-aware multi-step PTY driver, shared by ordinary and batched oracle
@@ -1146,6 +1202,7 @@ pub(super) fn run_pty_steps_in_dir_with_size_raw_until_count(
     size: PtySize,
     stop_marker: &str,
     stop_count: usize,
+    timeout: Duration,
 ) -> Vec<u8> {
     assert!(stop_count > 0, "stop marker count must be positive");
     require_oracle_host();
@@ -1175,7 +1232,7 @@ pub(super) fn run_pty_steps_in_dir_with_size_raw_until_count(
         }
     });
     // Same hang bound as the other drivers; batched groups stay far under it.
-    let deadline = Instant::now() + Duration::from_secs(15);
+    let deadline = Instant::now() + timeout;
     let mut out = Vec::new();
     let mut next_step = 0;
     let mut scan_start = 0;

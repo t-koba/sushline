@@ -3407,6 +3407,7 @@ fn assert_batched_completion_cases(
         size,
         &bash_stop,
         1,
+        super::pty::PTY_HANG_BOUND,
     );
     let sushline_steps: Vec<(&str, &[u8])> = cases
         .iter()
@@ -3420,6 +3421,7 @@ fn assert_batched_completion_cases(
         size,
         "SUSHLINE_ACCEPTED_HEX:",
         batch_len,
+        super::pty::PTY_HANG_BOUND,
     );
     let bash_hexes = hex_lines_after_marker_all(&bash, b"BASH_READLINE_HEX:");
     let sushline_hexes = hex_lines_after_marker_all(&sushline, b"SUSHLINE_ACCEPTED_HEX:");

@@ -12,7 +12,15 @@ jobs:
           components: rustfmt, clippy
       - name: Install pinned bash 5.3 oracle
         run: |
-          curl -fsSL https://ftp.gnu.org/gnu/bash/bash-5.3.tar.gz -o /tmp/bash-5.3.tar.gz
+          curl -fsSL \
+            --connect-timeout 20 \
+            --max-time 300 \
+            --retry 5 \
+            --retry-connrefused \
+            --retry-delay 2 \
+            --retry-max-time 240 \
+            -o /tmp/bash-5.3.tar.gz \
+            https://ftp.gnu.org/gnu/bash/bash-5.3.tar.gz
           tar -xzf /tmp/bash-5.3.tar.gz -C /tmp
           cd /tmp/bash-5.3
           ./configure

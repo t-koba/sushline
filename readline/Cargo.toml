@@ -5,6 +5,12 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Pure Rust Readline-style line editing foundation for Sush"
 
+[features]
+default = ["oracle"]
+# Enables the test targets that observe GNU Bash at runtime. The feature only
+# gates test targets; it does not change the library.
+oracle = []
+
 [dependencies]
 history = { path = "../history" }
 libc = "0.2"
@@ -17,3 +23,13 @@ tempfile = "3"
 [[bin]]
 name = "sushline-harness"
 path = "src/bin/sushline-harness.rs"
+
+[[test]]
+name = "oracle"
+path = "tests/oracle.rs"
+required-features = ["oracle"]
+
+[[test]]
+name = "bind_golden"
+path = "tests/bind_golden.rs"
+required-features = ["oracle"]

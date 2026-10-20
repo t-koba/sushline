@@ -7,6 +7,7 @@
 //! shell-kill-word, and shell-backward-kill-word rows live in `completion.rs`,
 //! not in this group.
 
+use super::host::require_oracle_host;
 use super::pty::*;
 use std::fs;
 
@@ -40,6 +41,7 @@ fn bash_and_sushline_ctrl_c_signal_path_wins_over_inputrc_macro() {
 
 #[test]
 fn sushline_ctrl_c_signal_interrupts_readline_without_io_error() {
+    require_oracle_host();
     let sushline = run_sushline_harness_until(b"abc\x03", "", "SUSHLINE_INTERRUPTED");
 
     assert!(sushline.contains("^C"), "{sushline}");
@@ -1388,6 +1390,7 @@ fn bash_and_sushline_ignore_numeric_arguments_before_inputrc_macro_expansion() {
 
 #[test]
 fn sushline_keyboard_macro_call_while_recording_does_not_recurse() {
+    require_oracle_host();
     for (keys, expected) in [
         (b"\x18(a\x18e\x18)\x18e\r".as_slice(), "a"),
         (b"\x18(a\x18)\x18(\x18eB\x18)\x18e\r".as_slice(), "aB"),
@@ -1418,6 +1421,7 @@ fn bash_readline_and_sushline_accept_same_execute_named_command() {
 
 #[test]
 fn sushline_prefix_meta_inputrc_extension_preserves_literal_fallback() {
+    require_oracle_host();
     let inputrc = "set convert-meta off\nset force-meta-prefix off\n\"\\C-o\": prefix-meta\n\"\\M-a\": beginning-of-line";
     let keys = b"abc\x0faX\r";
     let sushline = run_sushline_harness_with_inputrc(keys, inputrc);

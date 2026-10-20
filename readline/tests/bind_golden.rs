@@ -6,11 +6,15 @@ use readline::{
     BindQuery, Config, Editor, History, KeyMapName, TerminalEvent, TerminalIo, TerminalSize,
 };
 
+#[path = "oracle/host.rs"]
+mod host;
+
 fn editor() -> Editor<DummyTerminal> {
     Editor::new(Config::default(), DummyTerminal, History::new())
 }
 
 fn bash_oracle_command() -> Command {
+    host::require_oracle_host();
     let mut command = Command::new("bash");
     command.env("TERM", "xterm-256color");
     command
@@ -19,6 +23,7 @@ fn bash_oracle_command() -> Command {
 fn bash_oracle_command_with_inherited_term() -> Command {
     // Use the test process's TERM for comparisons against Sushline defaults,
     // while isolating the oracle from developer-specific inputrc settings.
+    host::require_oracle_host();
     let mut command = Command::new("bash");
     command.env("INPUTRC", "/dev/null");
     command

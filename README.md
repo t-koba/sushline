@@ -43,6 +43,17 @@ let _ = editor.read_line(Prompt::new("> "), &mut ());
 - [`COMPATIBILITY.md`](COMPATIBILITY.md): baseline and scope.
 - [`DESIGN.md`](DESIGN.md): structure and embedding API.
 
+## Testing
+
+`cargo test --workspace` runs the unit tests and the PTY oracle suite. The
+oracle suite compares Sushline against GNU Bash 5.3 observed at runtime, so it
+requires GNU Bash 5.3 on `PATH`; on any other host the suite reports the
+mismatch once and stops without producing compatibility evidence.
+
+The Bash-hosted test targets are behind the `oracle` feature of the `readline`
+crate, which is on by default. `cargo test --workspace --no-default-features`
+skips them and runs the remaining tests on any host.
+
 ## License
 
 Licensed under either of Apache License, Version 2.0 or MIT license at your

@@ -2,7 +2,16 @@ name: ci
 
 on: [push, pull_request]
 
+env:
+  # The oracle host is pinned by digest, not only by URL: the tarball is
+  # verified before it is built, and the build is cached under the same
+  # digest.
+  BASH_ORACLE_VERSION: "5.3"
+  BASH_ORACLE_SHA256: 0d5cd86965f869a26cf64f4b71be7b96f90a3ba8b3d74e27e8e9d9d5550f31ba
+
 jobs:
+  # The Rust checks do not need the oracle host, so a network fault in the
+  # host download cannot hide them.
   check:
     runs-on: ubuntu-latest
     steps:
@@ -10,24 +19,50 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Install pinned bash 5.3 oracle
-        run: |
-          curl -fsSL \
-            --connect-timeout 20 \
-            --max-time 300 \
-            --retry 5 \
-            --retry-connrefused \
-            --retry-delay 2 \
-            --retry-max-time 240 \
-            -o /tmp/bash-5.3.tar.gz \
-            https://ftp.gnu.org/gnu/bash/bash-5.3.tar.gz
-          tar -xzf /tmp/bash-5.3.tar.gz -C /tmp
-          cd /tmp/bash-5.3
-          ./configure
-          make -j$(nproc)
-          sudo make install
-          echo "/usr/local/bin" >> "$GITHUB_PATH"
-          /usr/local/bin/bash --version
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - run: cargo test --workspace --locked
+      - run: cargo test --workspace --locked --no-default-features
+
+  oracle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache the pinned bash oracle host
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/sushline/bash-oracle
+          key: bash-${{ runner.os }}-${{ env.BASH_ORACLE_VERSION }}-${{ env.BASH_ORACLE_SHA256 }}
+      - name: Install the pinned bash oracle host
+        run: |
+          set -euo pipefail
+          prefix="$HOME/.cache/sushline/bash-oracle"
+          if [ ! -x "$prefix/bin/bash" ]; then
+            # Bash needs the Readline headers to build the line editor the
+            # oracle suite observes.
+            sudo apt-get install -y libreadline-dev
+            curl -fsSL \
+              --connect-timeout 20 \
+              --max-time 300 \
+              --retry 5 \
+              --retry-connrefused \
+              --retry-delay 2 \
+              --retry-max-time 240 \
+              -o /tmp/bash-$BASH_ORACLE_VERSION.tar.gz \
+              https://ftp.gnu.org/gnu/bash/bash-$BASH_ORACLE_VERSION.tar.gz
+            echo "$BASH_ORACLE_SHA256  /tmp/bash-$BASH_ORACLE_VERSION.tar.gz" | sha256sum --check --strict
+            tar -xzf /tmp/bash-$BASH_ORACLE_VERSION.tar.gz -C /tmp
+            cd /tmp/bash-$BASH_ORACLE_VERSION
+            ./configure --prefix="$prefix"
+            make -j"$(nproc)"
+            make install
+          fi
+          "$prefix/bin/bash" --version
+          # A Bash without Readline would silently produce empty evidence.
+          "$prefix/bin/bash" --norc -c 'bind -v' | grep -q '^set editing-mode emacs$'
+      - name: Run the oracle suite
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.cache/sushline/bash-oracle/bin:$PATH"
+          bash --version
+          cargo test --locked -p readline --test oracle --test bind_golden

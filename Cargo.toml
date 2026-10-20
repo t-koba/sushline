@@ -11,7 +11,9 @@ resolver = "3"
 
 [dependencies]
 history = { path = "history" }
-readline = { path = "readline" }
+# The default features of `readline` only gate its Bash-hosted test targets,
+# so the facade opts out of them and keeps the dependency surface explicit.
+readline = { path = "readline", default-features = false }
 
 [profile.release]
 opt-level = 3

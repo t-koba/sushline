@@ -1,6 +1,7 @@
 //! Shared Bash/Sushline PTY setup used by the oracle groups; these helpers are
 //! test infrastructure and do not assert an independent compatibility claim.
 
+use super::host::require_oracle_host;
 use portable_pty::{CommandBuilder, ExitStatus, NativePtySystem, PtySize, PtySystem};
 use std::fs;
 use std::io::{Read, Write};
@@ -98,6 +99,7 @@ pub(super) fn run_bash_history_expand(expansion: &str, history: &[&str]) -> Stri
         .map(|entry| format!("history -s {}", shell_single_quote(entry)))
         .collect::<Vec<_>>()
         .join("; ");
+    require_oracle_host();
     let output = Command::new("bash")
         .args([
             "--noprofile",
@@ -770,6 +772,7 @@ pub(super) fn run_sushline_harness_with_canonical_paste_eof(suffix: &[u8]) -> St
 
 #[cfg(target_os = "linux")]
 fn run_pty_with_canonical_paste_eof(mut command: CommandBuilder, suffix: &[u8]) -> String {
+    require_oracle_host();
     command.env("TERM", "xterm-256color");
     command.cwd("/");
     let pty_system = NativePtySystem::default();
@@ -963,6 +966,7 @@ pub(super) fn run_pty_until_exit(
     mut command: CommandBuilder,
     size: PtySize,
 ) -> (String, Option<ExitStatus>) {
+    require_oracle_host();
     command.env("TERM", "xterm-256color");
     command.cwd("/");
     let pair = NativePtySystem::default().openpty(size).expect("open pty");
@@ -1122,6 +1126,7 @@ pub(super) fn run_pty_steps_in_dir_with_size_raw_until_count(
     stop_count: usize,
 ) -> Vec<u8> {
     assert!(stop_count > 0, "stop marker count must be positive");
+    require_oracle_host();
     command.env("TERM", "xterm-256color");
     command.cwd(cwd);
     let pty_system = NativePtySystem::default();
@@ -1295,6 +1300,7 @@ fn run_pty_with_size_until_after_prompt_inner_raw<F: FnOnce()>(
     stop_marker: &str,
     mut after_prompt: Option<F>,
 ) -> Vec<u8> {
+    require_oracle_host();
     let pty_system = NativePtySystem::default();
     let pair = pty_system.openpty(size).expect("open pty");
 
@@ -1451,6 +1457,7 @@ pub(super) fn run_pty_checkpoints_raw(
     steps: &[Vec<u8>],
     size: PtySize,
 ) -> Vec<Vec<u8>> {
+    require_oracle_host();
     command.env("TERM", "xterm-256color");
     command.cwd("/");
     let pair = NativePtySystem::default().openpty(size).expect("open pty");
@@ -1527,6 +1534,7 @@ fn checkpoint_before_bell_raw(output: &mut Vec<u8>, scan_start: usize) -> Option
 
 #[test]
 fn checkpoint_barrier_excludes_post_bell_bytes_and_survives_split_output() {
+    require_oracle_host();
     let mut output = b"prompt".to_vec();
     let start = output.len();
     for chunk in [b"re".as_slice(), b"display"] {
@@ -1549,6 +1557,7 @@ fn checkpoint_barrier_excludes_post_bell_bytes_and_survives_split_output() {
 
 #[test]
 fn numbered_step_markers_ignore_redisplay_and_split_accepted_hex() {
+    require_oracle_host();
     let steps = [
         ("SUSHLINE_READY>1:", b"first\r".as_slice()),
         ("SUSHLINE_READY>2:", b"second\r".as_slice()),

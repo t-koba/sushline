@@ -2,6 +2,7 @@
 //! expansion, and persistence. PTY cases and `history -p` output are distinct
 //! evidence types from Rust History API tests; `COMPATIBILITY.md` scopes them.
 
+use super::host::require_oracle_host;
 use super::pty::*;
 use history::expansion::{HistoryChars, HistoryExpansionPolicy, expand_history};
 use readline::History;
@@ -1394,6 +1395,7 @@ fn bash_history_timestamp_file_records_load_as_sushline_timestamps() {
         "HISTFILE={}; HISTTIMEFORMAT='%s '; history -s 'echo one'; history -s 'printf two'; history -w",
         shell_single_quote(&path.to_string_lossy())
     );
+    require_oracle_host();
     let output = Command::new("bash")
         .args(["--noprofile", "--norc", "-c", &command])
         .output()

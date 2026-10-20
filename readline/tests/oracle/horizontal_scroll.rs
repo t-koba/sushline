@@ -154,6 +154,13 @@ fn checkpoint_outputs_with_locale(
     let dir = tempfile::tempdir().unwrap();
     let command = horizontal_scroll_command(bash, prompt, dir.path(), locale);
     let wait_prompt = prompt.replace(['\x01', '\x02'], "");
+    // A prompt with several lines is awaited on its last line, the one the
+    // editor draws on.
+    let wait_prompt = wait_prompt
+        .rsplit('\n')
+        .next()
+        .unwrap_or(wait_prompt.as_str())
+        .to_owned();
     run_pty_checkpoints(
         command,
         &wait_prompt,
@@ -679,11 +686,11 @@ fn bash_and_sushline_horizontal_scroll_differ_on_a_bytewise_wide_tail() {
     if !c_utf8_locale_available() {
         return;
     }
-    // The bytewise path with a wide tail: GNU's cursor column is byte-based
-    // and lands at 49, while Sushline's is cell-based and lands at 52, so
-    // the two editors put the cursor in different columns. GNU's frame
-    // carries the glyph followed by invalid bytes, Sushline's keeps the
-    // tail's characters whole.
+    // The bytewise path with a wide tail: the two editors show different
+    // amounts of the line, GNU 46 leading digits against Sushline's 49, and
+    // their cursor columns, 49 and 52, follow from that difference. GNU's
+    // rendered row shows the glyph followed by two replacement cells, while
+    // Sushline's keeps the tail's characters whole.
     let base = "0123456789".repeat(10);
     let text = format!("{base}\u{4e2d}");
     let steps: Vec<Vec<u8>> = text.as_bytes().iter().map(|byte| vec![*byte]).collect();
@@ -695,4 +702,28 @@ fn bash_and_sushline_horizontal_scroll_differ_on_a_bytewise_wide_tail() {
         Some(52),
         "Sushline cursor"
     );
+}
+
+#[test]
+fn bash_and_sushline_horizontal_scroll_starts_the_window_on_the_byte_edge_with_a_multiline_prompt()
+{
+    if !c_utf8_locale_available() {
+        return;
+    }
+    // GNU measures the edge on the last prompt line, so a prompt with a
+    // first line scrolls on the same byte as the single-line prompt: the
+    // window opens at the 76th text byte in both cases.
+    let prompt = "one\nP>";
+    for (bytes, column) in [(75usize, 77usize), (76, 52)] {
+        let text = "a".repeat(bytes);
+        let steps: Vec<Vec<u8>> = text.as_bytes().iter().map(|byte| vec![*byte]).collect();
+        for bash in [true, false] {
+            let frames = checkpoints_with_locale(bash, 80, prompt, &steps, "C.UTF-8");
+            let (screen, cursor) = frames.last().cloned().expect("checkpoint");
+            assert_eq!(
+                cursor, column,
+                "bytes={bytes} bash={bash} screen={screen:?}"
+            );
+        }
+    }
 }

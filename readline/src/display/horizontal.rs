@@ -141,6 +141,9 @@ impl DisplayLine {
         }
         self.prefix.push_str(suffix);
         self.width = 0;
+        // The scroll edge belongs to the last prompt line, so the bytes of
+        // the finished lines do not count towards it.
+        self.prompt_bytes = 0;
     }
 
     pub(crate) fn append(&mut self, other: Self) {

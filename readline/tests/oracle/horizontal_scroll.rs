@@ -674,10 +674,11 @@ fn bash_and_sushline_horizontal_scroll_differ_on_a_bytewise_wide_tail() {
     if !c_utf8_locale_available() {
         return;
     }
-    // The bytewise path with a wide tail: GNU's window holds the last 51
-    // bytes and its edge falls inside the glyph, so the frame carries the
-    // glyph's trailing bytes, while Sushline keeps the tail's characters
-    // whole and lands the cursor further right.
+    // The bytewise path with a wide tail: GNU's cursor column is byte-based
+    // and lands at 49, while Sushline's is cell-based and lands at 52, so
+    // the two editors put the cursor in different columns. GNU's frame
+    // carries the glyph followed by invalid bytes, Sushline's keeps the
+    // tail's characters whole.
     let base = "0123456789".repeat(10);
     let text = format!("{base}\u{4e2d}");
     let steps: Vec<Vec<u8>> = text.as_bytes().iter().map(|byte| vec![*byte]).collect();

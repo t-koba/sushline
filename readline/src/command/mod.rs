@@ -68,7 +68,7 @@ where
                             // dispatch state and leave other state intact.
                             state.input.pending_key.clear();
                             state.input.prefix_meta_command_len = 0;
-                            self.write_below_rendered_line(
+                            self.write_diagnostic_below_rendered_line(
                                 state,
                                 "readline: maximum macro execution nesting level exceeded",
                             )?;

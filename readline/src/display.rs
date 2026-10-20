@@ -253,6 +253,21 @@ where
         self.write_tracked(state, text)
     }
 
+    /// Write a readline error message below the rendered line.
+    ///
+    /// The message goes to the terminal's diagnostic sink, which the built-in
+    /// terminal points at standard error like GNU Readline.
+    pub(crate) fn write_diagnostic_below_rendered_line(
+        &mut self,
+        state: &mut EditorState,
+        text: &str,
+    ) -> io::Result<()> {
+        self.move_below_rendered_line(state)?;
+        self.terminal.write_diagnostic(text)?;
+        self.note_tracked_output(state, text);
+        Ok(())
+    }
+
     pub(crate) fn move_below_rendered_line(&mut self, state: &mut EditorState) -> io::Result<()> {
         let rows_down = state
             .display

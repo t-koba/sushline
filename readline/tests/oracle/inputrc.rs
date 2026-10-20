@@ -1111,6 +1111,63 @@ fn bash_and_sushline_bound_direct_inputrc_macro_recursion() {
 }
 
 #[test]
+fn bash_and_sushline_write_the_macro_nesting_diagnostic_to_standard_error() {
+    // GNU writes the readline error message to standard error, so an
+    // embedder's standard output stays free of it.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    fs::write(&path, "\"\\C-o\": \"x\\C-oS\"\n").expect("write inputrc");
+    let keys = b"\x0fZ\r";
+    let message = "readline: maximum macro execution nesting level exceeded";
+
+    let bash_stderr = dir.path().join("bash-stderr");
+    let mut bash = CommandBuilder::new("bash");
+    bash.args([
+        "-c",
+        &format!(
+            "exec 2>{}; exec bash --noprofile --norc -i -c {}",
+            shell_single_quote(&bash_stderr.display().to_string()),
+            shell_single_quote(&format!(
+                "printf \"{READY_PROMPT}\"; IFS= read -r -e line; printf \"SUSHLINE_ACCEPTED:%s\\n\" \"$line\""
+            )),
+        ),
+    ]);
+    bash.env("INPUTRC", path.to_string_lossy().as_ref());
+    let bash_output = run_pty(bash, keys);
+    let bash_diagnostics = fs::read_to_string(&bash_stderr).unwrap_or_default();
+
+    let sushline_stderr = dir.path().join("sushline-stderr");
+    let mut sushline = CommandBuilder::new("bash");
+    sushline.args([
+        "-c",
+        &format!(
+            "exec 2>{}; exec {}",
+            shell_single_quote(&sushline_stderr.display().to_string()),
+            shell_single_quote(env!("CARGO_BIN_EXE_sushline-harness")),
+        ),
+    ]);
+    sushline.env("SUSHLINE_INPUTRC_FILE", path.to_string_lossy().as_ref());
+    sushline.env("SUSHLINE_PROMPT", READY_PROMPT);
+    sushline.env("SUSHLINE_HISTORY", "");
+    let sushline_output = run_pty(sushline, keys);
+    let sushline_diagnostics = fs::read_to_string(&sushline_stderr).unwrap_or_default();
+
+    assert!(
+        bash_diagnostics.contains(message),
+        "bash stderr: {bash_diagnostics}"
+    );
+    assert!(
+        sushline_diagnostics.contains(message),
+        "sushline stderr: {sushline_diagnostics}"
+    );
+    assert!(!bash_output.contains(message), "bash output: {bash_output}");
+    assert!(
+        !sushline_output.contains(message),
+        "sushline output: {sushline_output}"
+    );
+}
+
+#[test]
 fn bash_and_sushline_bound_indirect_inputrc_macro_recursion() {
     let inputrc = "\"\\C-o\": \"x\\C-p\"\n\"\\C-p\": \"\\C-o\"\n";
     // Single-batch input proves the physical suffix survives the unwind.

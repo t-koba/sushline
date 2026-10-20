@@ -47,7 +47,7 @@ where
                         if count < 0 {
                             // The tested Bash 5.3 direct-call path reports the
                             // macro nesting diagnostic for a negative count.
-                            self.write_below_rendered_line(
+                            self.write_diagnostic_below_rendered_line(
                                 state,
                                 "readline: maximum macro execution nesting level exceeded",
                             )?;
@@ -102,7 +102,7 @@ where
                 }
                 if count <= 0 {
                     state.macro_state.last_keyboard_macro = None;
-                    self.write_below_rendered_line(
+                    self.write_diagnostic_below_rendered_line(
                         state,
                         "readline: maximum macro execution nesting level exceeded",
                     )?;

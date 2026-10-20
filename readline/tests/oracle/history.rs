@@ -2284,10 +2284,9 @@ fn bash_readline_and_sushline_negative_yank_word_number_rings_like_bash() {
 #[test]
 fn bash_reports_a_failing_history_expansion_on_standard_error() {
     // The shell's own history expansion reports the failure on standard
-    // error and writes nothing to standard output. GNU's readline
-    // `history-expand-line` command, which is the interaction the editor
-    // mirrors, leaves the line unchanged and reports nothing at all, so the
-    // editor's expansion has no GNU counterpart to match.
+    // error and writes nothing to standard output. The Bash host's
+    // `history-expand-line` function, the interaction the editor mirrors,
+    // leaves the line unchanged and reports the failure on the same stream.
     let (stdout, stderr) = run_bash_history_expand_failure("!missing", &["echo one"]);
     assert!(stdout.is_empty(), "bash stdout: {stdout}");
     assert!(

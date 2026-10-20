@@ -98,6 +98,56 @@ where
         self.handle_key_dispatch(state, bytes, hooks)
     }
 
+    /// Dispatch keyboard-macro bytes one at a time.
+    ///
+    /// GNU Readline keeps macro bytes in the input stream, so a macro that
+    /// accepts a line continues in the next prompt. Dispatching one byte at
+    /// a time keeps the exact remainder when a macro ends the current read.
+    pub(super) fn dispatch_macro_bytes(
+        &mut self,
+        state: &mut EditorState,
+        bytes: &[u8],
+        hooks: &mut impl Hooks,
+    ) -> Result<(EditorOutcome, Vec<u8>), ReadlineError> {
+        let mut rest = bytes;
+        let mut outcome = EditorOutcome::Continue;
+        while !rest.is_empty() {
+            let (byte, tail) = rest.split_at(1);
+            rest = tail;
+            let result = self.handle_bytes(state, byte, hooks)?;
+            if !matches!(result, EditorOutcome::Continue) {
+                outcome = result;
+                break;
+            }
+        }
+        Ok((outcome, rest.to_vec()))
+    }
+
+    /// Replay keyboard-macro bytes.
+    ///
+    /// The replay suppresses recording, and a macro that ends the current
+    /// read continues in the next prompt, like GNU Readline, which keeps
+    /// the macro bytes in the input stream.
+    pub(super) fn replay_macro_bytes(
+        &mut self,
+        state: &mut EditorState,
+        bytes: &[u8],
+        hooks: &mut impl Hooks,
+    ) -> Result<EditorOutcome, ReadlineError> {
+        let previous_replaying = state.macro_state.replaying_macro;
+        state.macro_state.replaying_macro = true;
+        let result = self.dispatch_macro_bytes(state, bytes, hooks);
+        state.macro_state.replaying_macro = previous_replaying;
+        let (outcome, remainder) = result?;
+        if !matches!(outcome, EditorOutcome::Continue) {
+            // The read ended inside the replay. GNU keeps the remaining
+            // macro bytes in the input stream and continues them in the
+            // next prompt.
+            self.pending_macro_replay = remainder;
+        }
+        Ok(outcome)
+    }
+
     fn handle_meta_prefix(
         &mut self,
         state: &mut EditorState,

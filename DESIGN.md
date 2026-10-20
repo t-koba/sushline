@@ -102,7 +102,7 @@ active line.
 
 `EditorState` holds per-line runtime state: the line buffer, pending key bytes,
 numeric argument, mark, undo stack, search state, completion state,
-vi state, keyboard macro recording/replay flags, bracketed paste state,
+vi state, keyboard macro replay flags, bracketed paste state,
 display state, and the original line, plus per-line kill/yank flags and yank
 ranges. This keeps mutable
 editing state scoped to the active read while allowing keymaps, variables,
@@ -118,9 +118,11 @@ unseeded `&` and unseeded `!??`; failed searches keep the remembered needle.
 Killed text itself is `Editor`-owned: the kill-ring contents persist across
 reads while each new read resets yank ranges and last-command flags, so kills
 do not coalesce across prompts and `yank-pop` needs a fresh `yank`. The last
-recorded keyboard macro is likewise `Editor`-owned while in-progress recording
-and replay flags stay per-line, so `call-last-kbd-macro` replays across reads
-and a new recording starts fresh each read. Completed incremental and
+recorded keyboard macro and an unfinished keyboard-macro recording are
+likewise `Editor`-owned, so `call-last-kbd-macro` replays across reads and a
+recording started at one prompt continues at the next, like GNU Readline.
+Replay flags stay per-line, and a macro replay that accepts a line keeps its
+remaining bytes for the next prompt. Completed incremental and
 non-incremental history-search memories (each query and direction, plus the
 non-incremental match position used by `-again`) are likewise `Editor`-owned
 and persist independently across reads; emacs and vi non-incremental search

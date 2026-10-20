@@ -73,6 +73,8 @@ where
     pub(crate) history_expansion_state: HistoryExpansionState,
     pub(crate) kill_ring: Vec<Vec<u8>>,
     pub(crate) last_keyboard_macro: Option<Vec<u8>>,
+    pub(crate) keyboard_macro_recording: Option<Vec<u8>>,
+    pub(crate) pending_macro_replay: Vec<u8>,
     pub(crate) last_incremental_search: Option<Vec<u8>>,
     pub(crate) last_incremental_search_direction: Option<SearchDirection>,
     pub(crate) last_non_incremental_search: Option<Vec<u8>>,
@@ -121,6 +123,8 @@ where
             history_expansion_state: HistoryExpansionState::new(),
             kill_ring: Vec::new(),
             last_keyboard_macro: None,
+            keyboard_macro_recording: None,
+            pending_macro_replay: Vec::new(),
             last_incremental_search: None,
             last_incremental_search_direction: None,
             last_non_incremental_search: None,
@@ -240,8 +244,12 @@ where
         // and vi state live on `Editor` across reads while active searches,
         // pending operators, counts,
         // marks, and insert recording stay per-line in the fresh state.
+        // An unfinished keyboard-macro recording also lives on `Editor`:
+        // GNU Readline keeps recording across prompts, so a definition
+        // started in one read continues in the next.
         state.kill.kill_ring = self.kill_ring.clone();
         state.macro_state.last_keyboard_macro = self.last_keyboard_macro.clone();
+        state.macro_state.keyboard_macro = self.keyboard_macro_recording.clone();
         state.search.last_incremental_search = self.last_incremental_search.clone();
         state.search.last_incremental_search_direction = self.last_incremental_search_direction;
         state.search.last_non_incremental_search = self.last_non_incremental_search.clone();
@@ -256,6 +264,7 @@ where
     fn save_persistent_state(&mut self, state: &EditorState) {
         self.kill_ring = state.kill.kill_ring.clone();
         self.last_keyboard_macro = state.macro_state.last_keyboard_macro.clone();
+        self.keyboard_macro_recording = state.macro_state.keyboard_macro.clone();
         self.last_incremental_search = state.search.last_incremental_search.clone();
         self.last_incremental_search_direction = state.search.last_incremental_search_direction;
         self.last_non_incremental_search = state.search.last_non_incremental_search.clone();
@@ -296,6 +305,18 @@ where
         let mut state = EditorState::new(prompt, self.pending_initial_line.take());
         self.restore_persistent_state(&mut state);
         self.render(&mut state)?;
+
+        // A keyboard-macro replay that accepted a line continues in this
+        // prompt, like GNU Readline, which keeps the macro bytes in the
+        // input stream across the accept-line that ended the previous read.
+        if !self.pending_macro_replay.is_empty() {
+            let remaining = std::mem::take(&mut self.pending_macro_replay);
+            let outcome = self.replay_macro_bytes(&mut state, &remaining, hooks)?;
+            if !matches!(outcome, EditorOutcome::Continue) {
+                return self.finish_outcome(&mut state, outcome);
+            }
+            self.render(&mut state)?;
+        }
 
         loop {
             if let Some(signal) = hooks.check_signals() {

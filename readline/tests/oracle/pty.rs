@@ -444,6 +444,27 @@ pub(super) fn run_bash_readline_two_reads_with_inputrc_file_and_history(
     run_pty_until(command, keys, "SUSHLINE_ACCEPTED_2:")
 }
 
+pub(super) fn run_bash_readline_three_reads_with_inputrc_file(
+    keys: &[u8],
+    inputrc: &str,
+) -> String {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    fs::write(&path, inputrc).expect("write inputrc");
+    let mut command = CommandBuilder::new("bash");
+    command.env("INPUTRC", path.to_string_lossy().as_ref());
+    command.args([
+        "--noprofile",
+        "--norc",
+        "-i",
+        "-c",
+        &format!(
+            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line1; printf 'SUSHLINE_ACCEPTED_1:%s\n' "$line1"; IFS= read -r -e -p "{READY_PROMPT}" line2; printf 'SUSHLINE_ACCEPTED_2:%s\n' "$line2"; IFS= read -r -e -p "{READY_PROMPT}" line3; printf 'SUSHLINE_ACCEPTED_3:%s\n' "$line3""#
+        ),
+    ]);
+    run_pty_until(command, keys, "SUSHLINE_ACCEPTED_3:")
+}
+
 pub(super) fn run_bash_readline_with_bindings_and_history(
     keys: &[u8],
     bindings: &str,
@@ -671,6 +692,15 @@ pub(super) fn run_sushline_harness_two_reads_with_inputrc_and_history(
     command.env("SUSHLINE_HISTORY", history.join("\n"));
     command.env("SUSHLINE_READS", "2");
     run_pty_until(command, keys, "SUSHLINE_ACCEPTED_2:")
+}
+
+pub(super) fn run_sushline_harness_three_reads_with_inputrc(keys: &[u8], inputrc: &str) -> String {
+    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    command.env("SUSHLINE_INPUTRC", inputrc);
+    command.env("SUSHLINE_PROMPT", READY_PROMPT);
+    command.env("SUSHLINE_HISTORY", "");
+    command.env("SUSHLINE_READS", "3");
+    run_pty_until(command, keys, "SUSHLINE_ACCEPTED_3:")
 }
 
 /// Drive Bash at a real interactive prompt (no `-c`): seed history, read

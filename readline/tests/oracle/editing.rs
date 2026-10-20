@@ -317,6 +317,67 @@ fn bash_readline_and_sushline_keep_last_macro_across_reads() {
 }
 
 #[test]
+fn bash_readline_and_sushline_keep_keyboard_macro_recording_across_prompts() {
+    // GNU Readline keeps an unfinished keyboard-macro recording across
+    // prompts: the definition started in the first read continues in the
+    // next one, and the accept-line that ended the first read is part of
+    // the recorded macro.
+    let keys = b"\x18(ABC\rDEF\x18)\x18e\r";
+    let bash = run_bash_readline_two_reads_with_inputrc_file_and_history(keys, "", &[]);
+    let sushline = run_sushline_harness_two_reads_with_inputrc_and_history(keys, "", &[]);
+
+    for number in 1..=2 {
+        assert_eq!(
+            accepted_numbered_line(&sushline, number),
+            accepted_numbered_line(&bash, number),
+            "read {number}\nbash={bash}\nsushline={sushline}"
+        );
+    }
+    assert_eq!(
+        accepted_numbered_line(&bash, 1),
+        Some("ABC".to_string()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_numbered_line(&bash, 2),
+        Some("DEFA".to_string()),
+        "{bash}"
+    );
+}
+
+#[test]
+fn bash_readline_and_sushline_continue_keyboard_macro_replay_across_prompts() {
+    // GNU Readline keeps macro bytes in the input stream, so a replay that
+    // accepts a line continues in the next prompt.
+    let keys = b"\x18(ABC\rDEF\x18)\x18e\r\r";
+    let bash = run_bash_readline_three_reads_with_inputrc_file(keys, "");
+    let sushline = run_sushline_harness_three_reads_with_inputrc(keys, "");
+
+    for number in 1..=3 {
+        assert_eq!(
+            accepted_numbered_line(&sushline, number),
+            accepted_numbered_line(&bash, number),
+            "read {number}\nbash={bash}\nsushline={sushline}"
+        );
+    }
+    assert_eq!(
+        accepted_numbered_line(&bash, 1),
+        Some("ABC".to_string()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_numbered_line(&bash, 2),
+        Some("DEFA".to_string()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_numbered_line(&bash, 3),
+        Some("D".to_string()),
+        "{bash}"
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_keep_killed_text_across_reads() {
     let keys = b"abc\x15\r\x19\r";
     let bash = run_bash_readline_two_reads_with_inputrc_file_and_history(keys, "", &[]);

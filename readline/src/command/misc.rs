@@ -56,19 +56,16 @@ where
                         }
                         return Ok(EditorOutcome::Continue);
                     }
-                    state.macro_state.replaying_macro = true;
-                    let outcome = (|| -> Result<EditorOutcome, ReadlineError> {
+                    (|| -> Result<EditorOutcome, ReadlineError> {
                         let mut outcome = EditorOutcome::Continue;
                         for _ in 0..count as u32 {
-                            outcome = self.handle_bytes(state, &macro_bytes, hooks)?;
+                            outcome = self.replay_macro_bytes(state, &macro_bytes, hooks)?;
                             if !matches!(outcome, EditorOutcome::Continue) {
                                 break;
                             }
                         }
                         Ok(outcome)
-                    })();
-                    state.macro_state.replaying_macro = false;
-                    outcome
+                    })()
                 } else {
                     self.ding()?;
                     state.after_non_kill_command();
@@ -178,9 +175,15 @@ where
                 let previous_macro = state.start_keyboard_macro(append_previous);
                 state.after_non_kill_command();
                 if let Some(macro_bytes) = previous_macro {
-                    let outcome = self.handle_bytes(state, &macro_bytes, hooks);
+                    // The replayed bytes belong to the new definition, so
+                    // this dispatch keeps recording them like GNU Readline.
+                    let (outcome, remainder) =
+                        self.dispatch_macro_bytes(state, &macro_bytes, hooks)?;
+                    if !matches!(outcome, EditorOutcome::Continue) {
+                        self.pending_macro_replay = remainder;
+                    }
                     state.macro_state.last_recorded_self_insert = false;
-                    outcome
+                    Ok(outcome)
                 } else {
                     Ok(EditorOutcome::Continue)
                 }

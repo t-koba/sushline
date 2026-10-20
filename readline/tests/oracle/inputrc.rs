@@ -188,11 +188,11 @@ fn bash_readline_and_sushline_write_inputrc_diagnostics_to_standard_error() {
         path.display()
     );
     assert!(
-        bash_diagnostics.contains(&expected),
+        bash_diagnostics.contains(&format!("{expected}\n")),
         "bash stderr: {bash_diagnostics}"
     );
     assert!(
-        sushline_diagnostics.contains(&expected),
+        sushline_diagnostics.contains(&format!("{expected}\n")),
         "sushline stderr: {sushline_diagnostics}"
     );
     assert!(
@@ -1153,11 +1153,11 @@ fn bash_and_sushline_write_the_macro_nesting_diagnostic_to_standard_error() {
     let sushline_diagnostics = fs::read_to_string(&sushline_stderr).unwrap_or_default();
 
     assert!(
-        bash_diagnostics.contains(message),
+        bash_diagnostics.contains(&format!("{message}\n")),
         "bash stderr: {bash_diagnostics}"
     );
     assert!(
-        sushline_diagnostics.contains(message),
+        sushline_diagnostics.contains(&format!("{message}\n")),
         "sushline stderr: {sushline_diagnostics}"
     );
     assert!(!bash_output.contains(message), "bash output: {bash_output}");

@@ -51,7 +51,6 @@ where
                                 state,
                                 "readline: maximum macro execution nesting level exceeded",
                             )?;
-                            self.write_tracked_newline(state)?;
                             self.ding()?;
                         }
                         return Ok(EditorOutcome::Continue);
@@ -106,7 +105,6 @@ where
                         state,
                         "readline: maximum macro execution nesting level exceeded",
                     )?;
-                    self.write_tracked_newline(state)?;
                     self.ding()?;
                     return Ok(EditorOutcome::Continue);
                 }

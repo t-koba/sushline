@@ -255,8 +255,9 @@ where
 
     /// Write a readline error message below the rendered line.
     ///
-    /// The message goes to the terminal's diagnostic sink, which the built-in
-    /// terminal points at standard error like GNU Readline.
+    /// The message and its terminator go to the terminal's diagnostic sink,
+    /// which the built-in terminal points at standard error like GNU
+    /// Readline.
     pub(crate) fn write_diagnostic_below_rendered_line(
         &mut self,
         state: &mut EditorState,
@@ -264,7 +265,9 @@ where
     ) -> io::Result<()> {
         self.move_below_rendered_line(state)?;
         self.terminal.write_diagnostic(text)?;
+        self.terminal.write_diagnostic("\n")?;
         self.note_tracked_output(state, text);
+        state.display.rendered_cursor_row = state.display.rendered_cursor_row.saturating_add(1);
         Ok(())
     }
 

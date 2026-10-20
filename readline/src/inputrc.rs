@@ -16,6 +16,22 @@ pub struct InputrcError {
     pub message: String,
 }
 
+/// A non-fatal inputrc problem that GNU Readline reports while parsing.
+///
+/// GNU Readline prints these diagnostics and keeps reading the file, so a
+/// typo in one `set` directive does not discard the rest of the inputrc.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InputrcDiagnostic {
+    /// File the directive came from, when the inputrc was read from disk.
+    pub path: Option<PathBuf>,
+    /// Line number in that file.
+    pub line: usize,
+    /// Variable name as written in the directive.
+    pub variable: String,
+    /// Message text, like GNU Readline's diagnostic.
+    pub message: String,
+}
+
 struct ParseContext<'a> {
     config: &'a Config,
     keymap: &'a mut KeyMap,
@@ -61,7 +77,7 @@ impl InputrcParser {
         config: &Config,
         keymap: &mut KeyMap,
         variables: &mut Variables,
-    ) -> Result<(), InputrcError> {
+    ) -> Result<Vec<InputrcDiagnostic>, InputrcError> {
         let mut binding_map = keymap.current();
         let mut ctx = ParseContext {
             config,
@@ -69,7 +85,9 @@ impl InputrcParser {
             variables,
             binding_map: &mut binding_map,
         };
-        self.parse_bytes_inner(source.as_bytes(), &mut ctx, 0)
+        let mut diagnostics = Vec::new();
+        self.parse_bytes_inner(source.as_bytes(), &mut ctx, 0, None, &mut diagnostics)?;
+        Ok(diagnostics)
     }
 
     /// Parse bytes.
@@ -88,7 +106,7 @@ impl InputrcParser {
         config: &Config,
         keymap: &mut KeyMap,
         variables: &mut Variables,
-    ) -> Result<(), InputrcError> {
+    ) -> Result<Vec<InputrcDiagnostic>, InputrcError> {
         let mut binding_map = keymap.current();
         let mut ctx = ParseContext {
             config,
@@ -96,7 +114,9 @@ impl InputrcParser {
             variables,
             binding_map: &mut binding_map,
         };
-        self.parse_bytes_inner(source, &mut ctx, 0)
+        let mut diagnostics = Vec::new();
+        self.parse_bytes_inner(source, &mut ctx, 0, None, &mut diagnostics)?;
+        Ok(diagnostics)
     }
 
     /// Parse file.
@@ -106,7 +126,7 @@ impl InputrcParser {
         config: &Config,
         keymap: &mut KeyMap,
         variables: &mut Variables,
-    ) -> Result<(), InputrcError> {
+    ) -> Result<Vec<InputrcDiagnostic>, InputrcError> {
         let bytes =
             fs::read(path).map_err(|e| InputrcError::new(0, format!("{}: {e}", path.display())))?;
         let mut binding_map = keymap.current();
@@ -116,7 +136,9 @@ impl InputrcParser {
             variables,
             binding_map: &mut binding_map,
         };
-        self.parse_bytes_inner(&bytes, &mut ctx, 0)
+        let mut diagnostics = Vec::new();
+        self.parse_bytes_inner(&bytes, &mut ctx, 0, Some(path), &mut diagnostics)?;
+        Ok(diagnostics)
     }
 
     fn parse_bytes_inner(
@@ -124,6 +146,8 @@ impl InputrcParser {
         source: &[u8],
         ctx: &mut ParseContext<'_>,
         include_depth: usize,
+        path: Option<&Path>,
+        diagnostics: &mut Vec<InputrcDiagnostic>,
     ) -> Result<(), InputrcError> {
         if include_depth > self.max_include_depth {
             return Err(InputrcError::new(0, "inputrc include depth exceeded"));
@@ -215,7 +239,13 @@ impl InputrcParser {
                         let Ok(included) = fs::read(&path) else {
                             continue;
                         };
-                        self.parse_bytes_inner(&included, ctx, include_depth + 1)?;
+                        self.parse_bytes_inner(
+                            &included,
+                            ctx,
+                            include_depth + 1,
+                            Some(&path),
+                            diagnostics,
+                        )?;
                     }
                     Some("include") => {}
                     Some(_) => {}
@@ -232,18 +262,20 @@ impl InputrcParser {
                 .get(..3)
                 .filter(|prefix| prefix.eq_ignore_ascii_case("set"))
                 .and_then(|_| line.get(3..))
-                .filter(|after| after.starts_with(char::is_whitespace))
+                .filter(|after| after.is_empty() || after.starts_with(char::is_whitespace))
             {
                 let rest = after.trim_start_matches(char::is_whitespace);
-                if rest.is_empty() {
-                    continue;
-                }
                 let mut parts = rest.splitn(2, char::is_whitespace);
-                let Some(name) = parts.next() else {
-                    continue;
-                };
+                let name = parts.next().unwrap_or("");
                 let value = parts.next().unwrap_or("").trim();
-                apply_variable(ctx.keymap, ctx.variables, name, value);
+                if let Some(message) = apply_variable(ctx.keymap, ctx.variables, name, value) {
+                    diagnostics.push(InputrcDiagnostic {
+                        path: path.map(Path::to_path_buf),
+                        line: line_no,
+                        variable: name.to_string(),
+                        message,
+                    });
+                }
                 if name.eq_ignore_ascii_case("keymap")
                     && let Some(map) = KeyMapName::parse(value)
                 {
@@ -461,25 +493,62 @@ fn variable_is_on(variables: &Variables, name: &str) -> bool {
 }
 
 /// Apply variable.
-pub fn apply_variable(keymap: &mut KeyMap, variables: &mut Variables, name: &str, value: &str) {
+/// Apply a `set` directive.
+///
+/// Returns GNU Readline's diagnostic when the directive names an unknown
+/// variable or an invalid value for a variable that GNU validates; the
+/// directive is then ignored like GNU ignores it.
+pub fn apply_variable(
+    keymap: &mut KeyMap,
+    variables: &mut Variables,
+    name: &str,
+    value: &str,
+) -> Option<String> {
     let canonical_name = name.to_ascii_lowercase();
-    let Some(normalized) = normalize_variable_value(&canonical_name, value) else {
-        return;
-    };
+    if !is_known_set_variable(&canonical_name) {
+        return Some("unknown variable name".to_string());
+    }
+    if let Some(message) = invalid_set_value(&canonical_name, value) {
+        return Some(message);
+    }
+    let normalized = normalize_variable_value(&canonical_name, value)?;
     let byte_value = normalize_variable_value_bytes(&canonical_name, value);
     if canonical_name == "editing-mode" {
         match normalized.as_str() {
             "vi" => keymap.set_current(KeyMapName::ViInsert),
             "emacs" => keymap.set_current(KeyMapName::EmacsStandard),
-            _ => return,
+            _ => return None,
         }
     } else if canonical_name == "keymap" && KeyMapName::parse(&normalized).is_none() {
-        return;
+        return None;
     }
     variables.insert(canonical_name.clone(), normalized);
     if let Some(bytes) = byte_value {
         variables.insert_bytes(canonical_name, bytes);
     }
+    None
+}
+
+/// True when GNU Readline 8.3 accepts the variable in a `set` directive.
+fn is_known_set_variable(name: &str) -> bool {
+    READLINE_BOOLEAN_VARIABLES.contains(&name) || SET_VARIABLE_NAMES.contains(&name)
+}
+
+/// GNU Readline's diagnostic for a value that its variable rejects.
+///
+/// Only `bell-style`, `editing-mode`, and `keymap` validate their value;
+/// the other variables accept any value.
+fn invalid_set_value(name: &str, value: &str) -> Option<String> {
+    let normalized = value.to_ascii_lowercase();
+    let invalid = match name {
+        "bell-style" => {
+            !value.is_empty() && !matches!(normalized.as_str(), "none" | "visible" | "audible")
+        }
+        "editing-mode" => !matches!(normalized.as_str(), "emacs" | "vi"),
+        "keymap" => KeyMapName::parse(value).is_none(),
+        _ => false,
+    };
+    invalid.then(|| format!("could not set value to `{value}'"))
 }
 
 fn eval_condition(
@@ -739,6 +808,26 @@ fn decode_inputrc_bytes(value: &str, meta_prefix: bool) -> Result<Vec<u8>, Strin
     let keyseq = KeySequence::parse_with_meta(&format!("\"{inner}\""), meta_prefix)?;
     Ok(keyseq.bytes().to_vec())
 }
+
+/// Non-boolean variables GNU Readline 8.3 accepts in a `set` directive,
+/// plus Sushline's own string variables.
+const SET_VARIABLE_NAMES: &[&str] = &[
+    "active-region-end-color",
+    "active-region-start-color",
+    "bell-style",
+    "comment-begin",
+    "completion-display-width",
+    "completion-prefix-display-length",
+    "completion-query-items",
+    "editing-mode",
+    "emacs-mode-string",
+    "history-size",
+    "isearch-terminators",
+    "keymap",
+    "keyseq-timeout",
+    "vi-cmd-mode-string",
+    "vi-ins-mode-string",
+];
 
 const READLINE_BOOLEAN_VARIABLES: &[&str] = &[
     "bind-tty-special-chars",

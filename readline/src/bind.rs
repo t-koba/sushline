@@ -164,7 +164,8 @@ impl<'a> BindApi<'a> {
                             self.keymap,
                             self.variables,
                         )
-                        .map_err(BindError::from)?;
+                        .map_err(BindError::from)
+                        .map(|_| ())?;
                 }
                 "-m" => {
                     idx += 1;

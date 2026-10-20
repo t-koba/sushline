@@ -206,6 +206,14 @@ policy, key-sequence timeout, and automatic history insertion policy. Runtime
 inputrc reloads update the same keymap and variable state used by the read
 loop.
 
+The inputrc parser separates fatal problems from the non-fatal diagnostics
+that GNU Readline prints and keeps reading past. A `set` directive that names
+an unknown variable, or a value that GNU Readline rejects, is reported as an
+`InputrcDiagnostic` and ignored, so the rest of the file still applies. The
+editor prints those diagnostics before the next prompt, like GNU Readline
+prints them while it starts up, and keeps them available through
+`Editor::inputrc_diagnostics`.
+
 ## Completion Boundary
 
 Completion uses structured request and response values. `CompletionRequest`

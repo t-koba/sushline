@@ -2,7 +2,7 @@ use crate::bind::BindApi;
 use crate::buffer::LineBuffer;
 use crate::config::{Config, InputrcPath};
 use crate::hooks::{HistoryExpansionContext, Hooks};
-use crate::inputrc::{InputrcParser, discover_inputrc_path};
+use crate::inputrc::{InputrcDiagnostic, InputrcParser, discover_inputrc_path};
 use crate::keymap::{EditCommand, KeyBinding, KeyMap, KeyMapName};
 use crate::prompt::Prompt;
 use crate::state::*;
@@ -59,6 +59,20 @@ impl From<io::Error> for ReadlineError {
     }
 }
 
+/// Format an inputrc diagnostic like GNU Readline's startup message.
+fn format_inputrc_diagnostic(diagnostic: &InputrcDiagnostic) -> String {
+    let mut text = String::from("readline: ");
+    if let Some(path) = &diagnostic.path {
+        text.push_str(&path.display().to_string());
+        text.push_str(": ");
+    }
+    text.push_str(&format!(
+        "line {}: {}: {}",
+        diagnostic.line, diagnostic.variable, diagnostic.message
+    ));
+    text
+}
+
 /// Editor.
 pub struct Editor<T>
 where
@@ -83,6 +97,8 @@ where
     pub(crate) last_char_search: Option<(CharSearchMode, char)>,
     pub(crate) last_vi_change: Option<Vec<u8>>,
     initial_inputrc_error: Option<String>,
+    inputrc_diagnostics: Vec<InputrcDiagnostic>,
+    inputrc_report_pending: bool,
     pending_input: VecDeque<u8>,
 }
 
@@ -133,6 +149,8 @@ where
             last_char_search: None,
             last_vi_change: None,
             initial_inputrc_error: None,
+            inputrc_diagnostics: Vec::new(),
+            inputrc_report_pending: false,
             pending_input: VecDeque::new(),
         }
     }
@@ -179,17 +197,51 @@ where
 
     /// Load inputrc str.
     pub fn load_inputrc_str(&mut self, source: &str) -> Result<(), ReadlineError> {
-        InputrcParser::new()
+        let diagnostics = InputrcParser::new()
             .parse_str(source, &self.config, &mut self.keymap, &mut self.variables)
-            .map_err(|e| ReadlineError::Inputrc(format!("line {}: {}", e.line, e.message)))
+            .map_err(|e| ReadlineError::Inputrc(format!("line {}: {}", e.line, e.message)))?;
+        self.set_inputrc_diagnostics(diagnostics);
+        Ok(())
     }
 
     /// Load inputrc file.
     pub fn load_inputrc_file(&mut self, path: &Path) -> Result<(), ReadlineError> {
-        InputrcParser::new()
+        let diagnostics = InputrcParser::new()
             .parse_file(path, &self.config, &mut self.keymap, &mut self.variables)
             .map_err(|e| ReadlineError::Inputrc(format!("line {}: {}", e.line, e.message)))?;
+        self.set_inputrc_diagnostics(diagnostics);
         self.config.inputrc_path = InputrcPath::Path(path.to_path_buf());
+        Ok(())
+    }
+
+    /// Inputrc diagnostics.
+    ///
+    /// The non-fatal problems of the last inputrc load, in the order GNU
+    /// Readline reports them. The editor also prints them before the next
+    /// prompt, like GNU Readline prints them while it starts up.
+    pub fn inputrc_diagnostics(&self) -> &[InputrcDiagnostic] {
+        &self.inputrc_diagnostics
+    }
+
+    fn set_inputrc_diagnostics(&mut self, diagnostics: Vec<InputrcDiagnostic>) {
+        self.inputrc_report_pending = !diagnostics.is_empty();
+        self.inputrc_diagnostics = diagnostics;
+    }
+
+    /// Print the pending inputrc diagnostics, like GNU Readline's startup
+    /// messages, and keep them available through
+    /// [`Self::inputrc_diagnostics`].
+    fn report_inputrc_diagnostics(&mut self) -> Result<(), ReadlineError> {
+        if !self.inputrc_report_pending {
+            return Ok(());
+        }
+        self.inputrc_report_pending = false;
+        for diagnostic in &self.inputrc_diagnostics {
+            self.terminal
+                .write(&format_inputrc_diagnostic(diagnostic))?;
+            self.terminal.write("\r\n")?;
+        }
+        self.terminal.flush()?;
         Ok(())
     }
 
@@ -304,6 +356,7 @@ where
         self.reset_runtime_keymap_for_new_line();
         let mut state = EditorState::new(prompt, self.pending_initial_line.take());
         self.restore_persistent_state(&mut state);
+        self.report_inputrc_diagnostics()?;
         self.render(&mut state)?;
 
         // A keyboard-macro replay that accepted a line continues in this

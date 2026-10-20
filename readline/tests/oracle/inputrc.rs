@@ -26,6 +26,41 @@ set completion-ignore-case maybe
 }
 
 #[test]
+fn bash_readline_and_sushline_report_invalid_set_directives() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    fs::write(
+        &path,
+        "set bell-style no-such-style\nset no-such-variable on\n\"\\C-o\": beginning-of-line\n",
+    )
+    .expect("write inputrc");
+    let keys = b"abc\x0fX\r";
+    let bash = run_bash_readline_with_inputrc_path(keys, &path);
+    let sushline = run_sushline_harness_with_inputrc_path(keys, &path);
+
+    for expected in [
+        format!(
+            "readline: {}: line 1: bell-style: could not set value to `no-such-style'",
+            path.display()
+        ),
+        format!(
+            "readline: {}: line 2: no-such-variable: unknown variable name",
+            path.display()
+        ),
+    ] {
+        assert!(bash.contains(&expected), "bash={bash}");
+        assert!(sushline.contains(&expected), "sushline={sushline}");
+    }
+    // The binding after the invalid directives still applies.
+    assert_eq!(accepted_line(&bash), Some("Xabc".to_string()), "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        Some("Xabc".to_string()),
+        "{sushline}"
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_load_same_absolute_inputrc_include() {
     let dir = tempfile::tempdir().expect("tempdir");
     let main = dir.path().join("inputrc");

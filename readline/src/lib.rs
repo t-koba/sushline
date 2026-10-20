@@ -38,7 +38,7 @@ pub use hooks::{
     CommandContext, Edit, HistoryExpansionContext, Hooks, LineExpansionContext, QuoteContext,
     SpellCorrectionContext,
 };
-pub use inputrc::{InputrcError, InputrcParser};
+pub use inputrc::{InputrcDiagnostic, InputrcError, InputrcParser};
 pub use keymap::KeyMapName;
 pub use prompt::Prompt;
 pub use terminal::{Terminal, TerminalEvent, TerminalIo, TerminalSize};

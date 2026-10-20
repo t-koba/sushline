@@ -2,6 +2,36 @@ use super::*;
 use crate::config::Config;
 
 #[test]
+fn reports_invalid_set_directives_like_gnu_readline() {
+    let config = Config::default();
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+
+    let diagnostics = InputrcParser::new()
+        .parse_str(
+            "set bell-style no-such-style\nset no-such-variable on\nset editing-mode vi\n",
+            &config,
+            &mut keymap,
+            &mut variables,
+        )
+        .unwrap();
+
+    assert_eq!(diagnostics.len(), 2);
+    assert_eq!(diagnostics[0].line, 1);
+    assert_eq!(diagnostics[0].variable, "bell-style");
+    assert_eq!(
+        diagnostics[0].message,
+        "could not set value to `no-such-style'"
+    );
+    assert!(diagnostics[0].path.is_none());
+    assert_eq!(diagnostics[1].line, 2);
+    assert_eq!(diagnostics[1].variable, "no-such-variable");
+    assert_eq!(diagnostics[1].message, "unknown variable name");
+    // The valid directive after the invalid ones still applies.
+    assert_eq!(keymap.current(), KeyMapName::ViInsert);
+}
+
+#[test]
 fn sushline_vi_register_command_is_opt_in_for_inputrc_bindings() {
     let config = Config::default();
     let mut keymap = KeyMap::emacs_default();

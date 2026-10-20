@@ -725,6 +725,16 @@ fn bash_and_sushline_horizontal_scroll_starts_the_window_on_the_byte_edge_with_a
                     cursor, column,
                     "prompt={prompt:?} bytes={bytes} bash={bash} screen={screen:?}"
                 );
+                if prompt == "one\nP>" && bytes == edge {
+                    // The prompt's last line carries text, so under a UTF-8
+                    // locale GNU leaves its second cell on the row while
+                    // Sushline repaints the window.
+                    if bash {
+                        assert_eq!(screen, format!("<>{}", "a".repeat(50)));
+                    } else {
+                        assert_eq!(screen, format!("<{}", "a".repeat(51)));
+                    }
+                }
             }
         }
     }

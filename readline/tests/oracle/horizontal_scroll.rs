@@ -513,3 +513,34 @@ fn bash_and_sushline_checkpoint_barriers_follow_complete_key_redisplay() {
         assert!(outputs.iter().all(|out| !out.contains('\x07')));
     }
 }
+
+#[test]
+fn bash_horizontal_scroll_window_holds_the_last_line_bytes() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+    // GNU Readline measures the horizontal-scroll window in bytes: at 80
+    // columns the visible text is the last 51 bytes of the line, and the
+    // cursor sits one column past the window's column width. A multibyte
+    // tail therefore shows fewer columns than the byte count, and the
+    // window starts later in the line than a column-based window would.
+    let base = "0123456789".repeat(10);
+    let cases: [(&str, usize, usize); 5] = [
+        ("e", 50, 52),
+        ("e\u{301}", 52, 50),
+        ("\u{e9}", 51, 51),
+        ("\u{b7}", 51, 51),
+        ("\u{4e2d}", 52, 51),
+    ];
+    for (tail, start, cursor) in cases {
+        let text = format!("{base}{tail}");
+        let frames = checkpoints_with_locale(true, 80, "P>", &[text.into_bytes()], "C.UTF-8");
+        let (screen, col) = frames.last().cloned().expect("checkpoint");
+        assert_eq!(
+            screen,
+            format!("<{}{}", &base[start..], tail),
+            "tail={tail:?}"
+        );
+        assert_eq!(col, cursor, "tail={tail:?}");
+    }
+}

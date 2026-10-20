@@ -496,3 +496,50 @@ fn redisplay_renders_control_characters_visibly() {
     assert_eq!(result, ReadlineResult::Line("\x01".as_bytes().to_vec()));
     assert!(line.terminal().out.contains("^A"));
 }
+
+#[test]
+fn horizontal_scroll_mode_measures_the_window_in_columns() {
+    // Sushline measures the horizontal-scroll window in columns, while GNU
+    // Readline measures it in bytes: a multibyte tail keeps one or two
+    // columns more text in the window and leaves the cursor that many
+    // columns further right than GNU's. The oracle test
+    // `bash_horizontal_scroll_window_holds_the_last_line_bytes` records the
+    // GNU side of the same fixtures.
+    let base = "0123456789".repeat(10);
+    let cases: [(&str, usize, usize); 5] = [
+        ("e", 50, 52),
+        ("e\u{301}", 50, 52),
+        ("\u{e9}", 50, 52),
+        ("\u{b7}", 50, 52),
+        ("\u{4e2d}", 51, 52),
+    ];
+    for (tail, start, cursor) in cases {
+        let text = format!("{base}{tail}");
+        let mut terminal = MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(text.clone().into_bytes()),
+            TerminalEvent::Bytes(vec![b'\r']),
+        ]);
+        terminal.columns = 80;
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str("set horizontal-scroll-mode on")
+            .unwrap();
+        assert_eq!(
+            line.read_line(Prompt::new("P>"), &mut ()).unwrap(),
+            ReadlineResult::Line(text.into_bytes())
+        );
+        assert!(
+            line.terminal()
+                .out
+                .contains(&format!("<{}{}", &base[start..], tail)),
+            "tail={tail:?}"
+        );
+        // Two column moves per redisplay: return to origin, then place point.
+        // The prompt render moves to its end first; the redisplay after the
+        // batched input then returns to the origin and places the point.
+        assert_eq!(
+            usize::from(line.terminal().moved_columns[3]),
+            cursor,
+            "tail={tail:?}"
+        );
+    }
+}

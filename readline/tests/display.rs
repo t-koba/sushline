@@ -499,12 +499,13 @@ fn redisplay_renders_control_characters_visibly() {
 
 #[test]
 fn horizontal_scroll_mode_measures_the_window_in_columns() {
-    // Sushline measures the horizontal-scroll window in columns, while GNU
-    // Readline measures it in bytes: a multibyte tail keeps one or two
-    // columns more text in the window and leaves the cursor that many
-    // columns further right than GNU's. The oracle test
-    // `bash_horizontal_scroll_window_holds_the_last_line_bytes` records the
-    // GNU side of the same fixtures.
+    // The display layer measures the horizontal-scroll window in columns,
+    // while GNU Readline measures it in bytes: on the batched path a
+    // multibyte tail keeps one or two columns more text in the window and
+    // leaves the cursor that many columns further right than GNU's. The
+    // oracle test `bash_horizontal_scroll_window_holds_the_last_line_bytes`
+    // records the GNU side of the same fixtures. The built-in terminal
+    // reads one byte per event, so the end-to-end difference is larger.
     let base = "0123456789".repeat(10);
     let cases: [(&str, usize, usize); 5] = [
         ("e", 50, 52),

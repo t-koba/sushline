@@ -991,6 +991,18 @@ pub(super) fn run_pty_until_exit(
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
+    // The child has exited, but the reader may still hold chunks that the
+    // loop did not receive, so the channel is drained until the reader ends.
+    if child.try_wait().ok().flatten().is_some() {
+        let drain_deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < drain_deadline {
+            match rx.recv_timeout(Duration::from_millis(50)) {
+                Ok(chunk) => out.extend_from_slice(&chunk),
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+    }
     // The reader stops at the end of the output, which can precede the
     // child's exit, so the status is polled for a short while.
     let mut status = child.try_wait().ok().flatten();

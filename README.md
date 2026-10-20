@@ -8,8 +8,9 @@ public API is designed for Rust embedders.
 
 The compatibility target is GNU Readline 8.3 patch level 0 and the GNU
 History Library behavior in that baseline. PTY oracle probes use GNU Bash 5.3
-as a runtime host for Readline/History behavior; these are Bash runtime
-observations, not proof of the Readline version reported by other host tooling.
+as a runtime host for Readline/History behavior, and the oracle harness checks
+that host version; these are Bash runtime observations, not proof of the
+Readline version reported by other host tooling.
 Bash language, shell runtime, and builtin compatibility are not Sushline goals.
 Sushline is an independent Rust implementation and does not include Readline
 source code.

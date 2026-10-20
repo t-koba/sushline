@@ -6,10 +6,12 @@ inside a line editor or history component.
 
 The compatibility target is GNU Readline 8.3 patch level 0 and GNU History
 Library behavior, limited to Sushline's Rust editor and history APIs. Oracle
-comparisons use GNU Bash 5.3 with bundled Readline 8.3 as a host. Bash language,
-shell runtime, and builtin compatibility are not goals. The C ABI is out of
-scope. Claims below are limited to the cited oracle tests and their asserted
-fixtures; test modules are pointers to that evidence, not claims of complete
+comparisons use GNU Bash 5.3 as a host, and the oracle harness checks that
+version; the Readline library that host links is not asserted, so the oracle
+evidence is Bash runtime observation rather than proof of a Readline version.
+Bash language, shell runtime, and builtin compatibility are not goals. The C
+ABI is out of scope. Claims below are limited to the cited oracle tests and
+their asserted fixtures; test modules are pointers to that evidence, not claims of complete
 feature coverage.
 
 ## Status Legend

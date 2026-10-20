@@ -668,3 +668,25 @@ fn bash_horizontal_scroll_starts_the_window_on_the_byte_edge() {
         assert_eq!(cursor, column, "prompt={prompt:?} tail={tail:?}");
     }
 }
+
+#[test]
+fn bash_and_sushline_horizontal_scroll_differ_on_a_bytewise_wide_tail() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+    // The bytewise path with a wide tail: GNU's window holds the last 51
+    // bytes and its edge falls inside the glyph, so the frame carries the
+    // glyph's trailing bytes, while Sushline keeps the tail's characters
+    // whole and lands the cursor further right.
+    let base = "0123456789".repeat(10);
+    let text = format!("{base}\u{4e2d}");
+    let steps: Vec<Vec<u8>> = text.as_bytes().iter().map(|byte| vec![*byte]).collect();
+    let bash = checkpoints_with_locale(true, 80, "P>", &steps, "C.UTF-8");
+    let sushline = checkpoints_with_locale(false, 80, "P>", &steps, "C.UTF-8");
+    assert_eq!(bash.last().map(|frame| frame.1), Some(49), "GNU cursor");
+    assert_eq!(
+        sushline.last().map(|frame| frame.1),
+        Some(52),
+        "Sushline cursor"
+    );
+}

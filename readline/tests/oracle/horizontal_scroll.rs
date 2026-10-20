@@ -702,6 +702,18 @@ fn bash_and_sushline_horizontal_scroll_differ_on_a_bytewise_wide_tail() {
         Some(52),
         "Sushline cursor"
     );
+    // The two editors show different amounts of the line: GNU leaves the
+    // glyph's trailing bytes on the row, Sushline keeps the glyph whole.
+    let (bash_screen, _) = bash.last().expect("GNU frame");
+    let (sushline_screen, _) = sushline.last().expect("Sushline frame");
+    assert_eq!(
+        bash_screen, "<1234567890123456789012345678901234567890123456中\u{fffd}\u{fffd}",
+        "GNU row"
+    );
+    assert_eq!(
+        sushline_screen, "<1234567890123456789012345678901234567890123456789中",
+        "Sushline row"
+    );
 }
 
 #[test]
@@ -734,6 +746,10 @@ fn bash_and_sushline_horizontal_scroll_starts_the_window_on_the_byte_edge_with_a
                     } else {
                         assert_eq!(screen, format!("<{}", "a".repeat(51)));
                     }
+                    // Under the C locale the rows agree.
+                    let frames = checkpoints_with_locale(bash, 80, prompt, &steps, "C");
+                    let (screen, _) = frames.last().expect("frame");
+                    assert_eq!(screen, &format!("<{}", "a".repeat(51)), "C locale");
                 }
             }
         }

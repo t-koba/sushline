@@ -3,7 +3,7 @@
 //! the specific parser/configuration fixtures described in `COMPATIBILITY.md`.
 
 use super::pty::*;
-use portable_pty::CommandBuilder;
+use portable_pty::{CommandBuilder, PtySize};
 use std::fs;
 use std::path::Path;
 
@@ -202,6 +202,65 @@ fn bash_readline_and_sushline_write_inputrc_diagnostics_to_standard_error() {
     assert!(
         !sushline_output.contains("readline:"),
         "sushline output: {sushline_output}"
+    );
+}
+
+#[test]
+fn bash_dies_with_a_segmentation_fault_on_a_cyclic_inputrc_include() {
+    // In an interactive terminal GNU's shell dies before the first prompt
+    // when the inputrc includes itself, while Sushline fails the inputrc
+    // load with the depth-limit error.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    fs::write(&path, format!("$include {}\n", path.display())).expect("write inputrc");
+    let size = PtySize {
+        rows: 24,
+        cols: 80,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+
+    // The shell reports the signal death of its child as 128 + SIGSEGV, so
+    // the trailing exit keeps the shell from replacing itself with the child.
+    let mut bash = CommandBuilder::new("bash");
+    bash.args([
+        "-c",
+        &format!(
+            "bash --noprofile --norc -i -c {}; exit $?",
+            // The prompt is split so that the shell's report of the command
+            // line does not contain the marker the case looks for.
+            shell_single_quote("IFS= read -r -e -p \"SUSHLINE\"\"_READY>\" line")
+        ),
+    ]);
+    bash.env("INPUTRC", path.to_string_lossy().as_ref());
+    let (output, status) = run_pty_until_exit(bash, size);
+    assert!(
+        !output.contains(READY_PROMPT),
+        "GNU must not reach the prompt: {output}"
+    );
+    assert_eq!(
+        status.as_ref().map(|status| status.exit_code()),
+        Some(139),
+        "GNU must die from SIGSEGV: {status:?}"
+    );
+
+    let mut sushline = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    sushline.env("SUSHLINE_INPUTRC_FILE", path.to_string_lossy().as_ref());
+    sushline.env("SUSHLINE_PROMPT", READY_PROMPT);
+    sushline.env("SUSHLINE_HISTORY", "");
+    let (output, status) = run_pty_until_exit(sushline, size);
+    assert!(
+        !output.contains(READY_PROMPT),
+        "Sushline must not reach the prompt: {output}"
+    );
+    assert!(
+        output.contains("inputrc include depth exceeded"),
+        "Sushline must report the depth limit: {output}"
+    );
+    assert_eq!(
+        status.as_ref().map(|status| status.exit_code()),
+        Some(1),
+        "Sushline must fail the load: {status:?}"
     );
 }
 

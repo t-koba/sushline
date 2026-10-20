@@ -1,7 +1,7 @@
 //! Shared Bash/Sushline PTY setup used by the oracle groups; these helpers are
 //! test infrastructure and do not assert an independent compatibility claim.
 
-use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
+use portable_pty::{CommandBuilder, ExitStatus, NativePtySystem, PtySize, PtySystem};
 use std::fs;
 use std::io::{Read, Write};
 use std::process::Command;
@@ -953,6 +953,56 @@ pub(super) fn run_pty_in_dir_with_size_raw_until(
     command.env("TERM", "xterm-256color");
     command.cwd(cwd);
     run_pty_with_size_until_after_prompt_inner_raw(command, keys, size, stop_marker, None::<fn()>)
+}
+
+/// Run a command under a PTY until it exits, and report its exit status.
+///
+/// The command is expected to exit on its own, so the helper waits for no
+/// prompt and for no stop marker.
+pub(super) fn run_pty_until_exit(
+    mut command: CommandBuilder,
+    size: PtySize,
+) -> (String, Option<ExitStatus>) {
+    command.env("TERM", "xterm-256color");
+    command.cwd("/");
+    let pair = NativePtySystem::default().openpty(size).expect("open pty");
+    let mut child = pair.slave.spawn_command(command).expect("spawn command");
+    drop(pair.slave);
+    let mut reader = pair.master.try_clone_reader().expect("pty reader");
+    let (tx, rx) = mpsc::channel();
+    let reader_thread = thread::spawn(move || {
+        let mut buf = [0_u8; 1024];
+        while let Ok(n) = reader.read(&mut buf) {
+            if n == 0 || tx.send(buf[..n].to_vec()).is_err() {
+                break;
+            }
+        }
+    });
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut out = Vec::new();
+    while Instant::now() < deadline {
+        match rx.recv_timeout(Duration::from_millis(50)) {
+            Ok(chunk) => out.extend_from_slice(&chunk),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if child.try_wait().ok().flatten().is_some() {
+                    break;
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+    // The reader stops at the end of the output, which can precede the
+    // child's exit, so the status is polled for a short while.
+    let mut status = child.try_wait().ok().flatten();
+    let status_deadline = Instant::now() + Duration::from_secs(5);
+    while status.is_none() && Instant::now() < status_deadline {
+        thread::sleep(Duration::from_millis(20));
+        status = child.try_wait().ok().flatten();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = reader_thread.join();
+    (String::from_utf8_lossy(&out).to_string(), status)
 }
 
 pub(super) fn run_pty_with_size(command: CommandBuilder, keys: &[u8], size: PtySize) -> String {

@@ -22,6 +22,25 @@ fn variables_api_exposes_variables_without_map_leakage() {
 }
 
 #[test]
+fn inputrc_diagnostics_use_the_terminal_output_stream_by_default() {
+    // A custom backend keeps the trait's default: the inputrc diagnostics go
+    // to the terminal output stream instead of a separate sink.
+    let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(vec![b'\r'])]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set bell-style no-such-style")
+        .unwrap();
+    line.read_line(Prompt::new("> "), &mut ()).unwrap();
+
+    assert!(
+        line.terminal()
+            .out
+            .contains("could not set value to `no-such-style'"),
+        "{}",
+        line.terminal().out
+    );
+}
+
+#[test]
 fn meta_input_conversion_is_chunk_invariant_and_gated() {
     // A backend may deliver the same byte stream in one chunk or several.
     for events in [

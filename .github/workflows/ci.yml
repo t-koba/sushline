@@ -72,6 +72,51 @@ jobs:
           "$prefix/bin/bash" --version
           # A Bash without Readline would silently produce empty evidence.
           "$prefix/bin/bash" --norc -c 'bind -v' | grep -q '^set editing-mode emacs$'
+      - name: Report the installed Readline default
+        run: |
+          set -euo pipefail
+          # The compatibility row's output-stream claim rests on a Readline
+          # observation. This probe repeats it against the library the runner
+          # installed and reports what it saw, so the claim is checked in CI
+          # without a C fixture in the repository.
+          cat > /tmp/readline_probe.c <<'PROBE'
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <string.h>
+
+          extern FILE *rl_outstream;
+          extern char *readline(const char *);
+
+          int main(void) {
+              FILE *report = fopen("/tmp/readline_probe.report", "w");
+              if (!report) {
+                  return 1;
+              }
+              setvbuf(report, NULL, _IONBF, 0);
+              fprintf(report, "rl_outstream_is_stdout=%d\n", rl_outstream == stdout);
+              freopen("/tmp/readline_probe.out", "w", stdout);
+              freopen("/tmp/readline_probe.err", "w", stderr);
+              char *line = readline("probe> ");
+              free(line);
+              fflush(stdout);
+              fflush(stderr);
+              char buffer[512];
+              size_t read = 0;
+              FILE *out = fopen("/tmp/readline_probe.out", "r");
+              if (out) {
+                  read = fread(buffer, 1, sizeof(buffer) - 1, out);
+                  fclose(out);
+              }
+              buffer[read] = '\0';
+              fprintf(report, "prompt_in_stdout=%d\n", strstr(buffer, "probe>") != NULL);
+              fclose(report);
+              return 0;
+          }
+          PROBE
+          cc -o /tmp/readline_probe /tmp/readline_probe.c -lreadline
+          echo "" | /tmp/readline_probe || true
+          cat /tmp/readline_probe.report
+          dpkg-query -W -f='readline_package_version=${Version}\n' libreadline-dev
       - name: Run the oracle suite
         run: |
           set -euo pipefail

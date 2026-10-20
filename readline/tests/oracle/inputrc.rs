@@ -4,6 +4,7 @@
 
 use super::pty::*;
 use std::fs;
+use std::path::Path;
 
 #[test]
 fn bash_readline_and_sushline_ignore_same_invalid_inputrc_variables() {
@@ -58,6 +59,78 @@ fn bash_readline_and_sushline_report_invalid_set_directives() {
         Some("Xabc".to_string()),
         "{sushline}"
     );
+}
+
+#[test]
+fn bash_readline_and_sushline_report_the_same_set_value_diagnostics() {
+    // The variables whose values GNU Readline validates, each with the
+    // values GNU accepts and rejects, plus the directive spellings and the
+    // bare `set` form.
+    const VARIABLES: &[&str] = &["bell-style", "comment-begin", "editing-mode", "keymap"];
+    const VALUES: &[&str] = &[
+        "",
+        "on",
+        "off",
+        "1",
+        "0",
+        "none",
+        "visible",
+        "audible",
+        "vi",
+        "emacs",
+        "bogus",
+        "bogus extra",
+        "NONE",
+    ];
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    let mut inputrc = String::new();
+    for variable in VARIABLES {
+        for value in VALUES {
+            inputrc.push_str(&format!("set {variable} {value}\n"));
+        }
+    }
+    inputrc.push_str("set\nSET BELL-STYLE NO-SUCH-STYLE\nSeT bell-style bogus\n");
+    fs::write(&path, &inputrc).expect("write inputrc");
+
+    let keys = b"abc\r";
+    let bash = run_bash_readline_with_inputrc_path(keys, &path);
+    let sushline = run_sushline_harness_with_inputrc_path(keys, &path);
+
+    let bash_diagnostics = reported_inputrc_diagnostics(&bash, &path);
+    let sushline_diagnostics = reported_inputrc_diagnostics(&sushline, &path);
+    assert!(!bash_diagnostics.is_empty(), "{bash}");
+    assert_eq!(bash_diagnostics, sushline_diagnostics, "{sushline}");
+    assert_eq!(accepted_line(&bash).as_deref(), Some("abc"), "{bash}");
+    assert_eq!(
+        accepted_line(&sushline).as_deref(),
+        Some("abc"),
+        "{sushline}"
+    );
+}
+
+/// The `readline: <path>: line <n>: <variable>: <message>` diagnostics in an
+/// output stream, as (line, text) pairs.
+fn reported_inputrc_diagnostics(output: &str, path: &Path) -> Vec<(u32, String)> {
+    let prefix = format!("readline: {}: line ", path.display());
+    let mut diagnostics = Vec::new();
+    for line in output.split('\n') {
+        let Some(rest) = line
+            .find(&prefix)
+            .map(|index| &line[index + prefix.len()..])
+        else {
+            continue;
+        };
+        let Some((number, rest)) = rest.split_once(':') else {
+            continue;
+        };
+        let Ok(number) = number.trim().parse::<u32>() else {
+            continue;
+        };
+        diagnostics.push((number, rest.trim().trim_end_matches('\r').to_string()));
+    }
+    diagnostics
 }
 
 #[test]

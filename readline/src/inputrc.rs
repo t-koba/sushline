@@ -514,11 +514,10 @@ pub fn apply_variable(
     let normalized = normalize_variable_value(&canonical_name, value)?;
     let byte_value = normalize_variable_value_bytes(&canonical_name, value);
     if canonical_name == "editing-mode" {
-        match normalized.as_str() {
-            "vi" => keymap.set_current(KeyMapName::ViInsert),
-            "emacs" => keymap.set_current(KeyMapName::EmacsStandard),
-            _ => return None,
-        }
+        keymap.set_current(match normalized.as_str() {
+            "vi" => KeyMapName::ViInsert,
+            _ => KeyMapName::EmacsStandard,
+        });
     } else if canonical_name == "keymap" && KeyMapName::parse(&normalized).is_none() {
         return None;
     }
@@ -536,19 +535,36 @@ fn is_known_set_variable(name: &str) -> bool {
 
 /// GNU Readline's diagnostic for a value that its variable rejects.
 ///
-/// Only `bell-style`, `editing-mode`, and `keymap` validate their value;
-/// the other variables accept any value.
+/// GNU validates the value of `bell-style`, `comment-begin`, `editing-mode`,
+/// and `keymap`; the other variables accept any value.
 fn invalid_set_value(name: &str, value: &str) -> Option<String> {
     let normalized = value.to_ascii_lowercase();
     let invalid = match name {
-        "bell-style" => {
-            !value.is_empty() && !matches!(normalized.as_str(), "none" | "visible" | "audible")
-        }
-        "editing-mode" => !matches!(normalized.as_str(), "emacs" | "vi"),
+        "bell-style" => !matches!(
+            normalized.as_str(),
+            "" | "none" | "visible" | "audible" | "on" | "off"
+        ),
+        "comment-begin" => value.is_empty(),
+        "editing-mode" => canonical_editing_mode(value).is_none(),
         "keymap" => KeyMapName::parse(value).is_none(),
         _ => false,
     };
     invalid.then(|| format!("could not set value to `{value}'"))
+}
+
+/// The `editing-mode` value GNU Readline derives from an inputrc value.
+///
+/// GNU accepts any value that starts with `vi` or `emacs`, selects the mode
+/// that prefix names, and reports the mode it selected.
+fn canonical_editing_mode(value: &str) -> Option<&'static str> {
+    let normalized = value.to_ascii_lowercase();
+    if normalized.starts_with("vi") {
+        Some("vi")
+    } else if normalized.starts_with("emacs") {
+        Some("emacs")
+    } else {
+        None
+    }
 }
 
 fn eval_condition(
@@ -727,7 +743,10 @@ fn normalize_variable_value(name: &str, value: &str) -> Option<String> {
         }
         return Some("0".to_string());
     }
-    if matches!(name, "editing-mode" | "keymap") {
+    if name == "editing-mode" {
+        return canonical_editing_mode(value).map(str::to_string);
+    }
+    if name == "keymap" {
         return Some(value.to_ascii_lowercase());
     }
     if matches!(
@@ -757,8 +776,15 @@ fn normalize_variable_value(name: &str, value: &str) -> Option<String> {
             value.to_string()
         });
     }
-    if matches!(name, "bell-style") {
-        return Some(value.to_string());
+    if name == "bell-style" {
+        // GNU keeps the current bell style when the value is empty and
+        // canonicalizes `on` and `off` to `audible` and `none`.
+        return match value.to_ascii_lowercase().as_str() {
+            "" => None,
+            "on" => Some("audible".to_string()),
+            "off" => Some("none".to_string()),
+            other => Some(other.to_string()),
+        };
     }
     if !READLINE_BOOLEAN_VARIABLES.contains(&name) {
         return None;

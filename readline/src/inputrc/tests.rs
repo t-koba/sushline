@@ -32,6 +32,71 @@ fn reports_invalid_set_directives_like_gnu_readline() {
 }
 
 #[test]
+fn accepts_the_set_values_gnu_readline_accepts() {
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+
+    let diagnostics = InputrcParser::new()
+        .parse_str(
+            "set bell-style on\nset bell-style visible\nset bell-style NONE\nset editing-mode vi-command\nset editing-mode emacs-standard\nset comment-begin ##\n",
+            &Config::default(),
+            &mut keymap,
+            &mut variables,
+        )
+        .unwrap();
+
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    // GNU stores the canonical value of the variables it normalizes.
+    assert_eq!(variables["bell-style"], "none");
+    assert_eq!(variables["editing-mode"], "emacs");
+    assert_eq!(keymap.current(), KeyMapName::EmacsStandard);
+}
+
+#[test]
+fn keeps_the_current_bell_style_for_an_empty_bell_style_value() {
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+
+    let diagnostics = InputrcParser::new()
+        .parse_str(
+            "set bell-style none\nset bell-style\n",
+            &Config::default(),
+            &mut keymap,
+            &mut variables,
+        )
+        .unwrap();
+
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    assert_eq!(variables["bell-style"], "none");
+}
+
+#[test]
+fn rejects_the_set_values_gnu_readline_rejects() {
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+
+    let diagnostics = InputrcParser::new()
+        .parse_str(
+            "set comment-begin\nset editing-mode em\nset keymap not-a-keymap\n",
+            &Config::default(),
+            &mut keymap,
+            &mut variables,
+        )
+        .unwrap();
+
+    assert_eq!(diagnostics.len(), 3);
+    assert_eq!(diagnostics[0].variable, "comment-begin");
+    assert_eq!(diagnostics[0].message, "could not set value to `'");
+    assert_eq!(diagnostics[1].variable, "editing-mode");
+    assert_eq!(diagnostics[1].message, "could not set value to `em'");
+    assert_eq!(diagnostics[2].variable, "keymap");
+    assert_eq!(
+        diagnostics[2].message,
+        "could not set value to `not-a-keymap'"
+    );
+}
+
+#[test]
 fn sushline_vi_register_command_is_opt_in_for_inputrc_bindings() {
     let config = Config::default();
     let mut keymap = KeyMap::emacs_default();

@@ -147,14 +147,15 @@ pub(super) fn run_bash_readline_with_bindings_and_env(
     )
 }
 
-pub(super) fn run_bash_history_expand(expansion: &str, history: &[&str]) -> String {
+/// Runs the shell's own history expansion and returns the separated streams.
+fn bash_history_expand_output(expansion: &str, history: &[&str]) -> std::process::Output {
     let history_commands = history
         .iter()
         .map(|entry| format!("history -s {}", shell_single_quote(entry)))
         .collect::<Vec<_>>()
         .join("; ");
     require_oracle_host();
-    let output = Command::new("bash")
+    Command::new("bash")
         .args([
             "--noprofile",
             "--norc",
@@ -166,7 +167,11 @@ pub(super) fn run_bash_history_expand(expansion: &str, history: &[&str]) -> Stri
             ),
         ])
         .output()
-        .expect("bash must be available for history oracle tests");
+        .expect("bash must be available for history oracle tests")
+}
+
+pub(super) fn run_bash_history_expand(expansion: &str, history: &[&str]) -> String {
+    let output = bash_history_expand_output(expansion, history);
     assert!(
         output.status.success(),
         "{}",
@@ -179,29 +184,16 @@ pub(super) fn run_bash_history_expand(expansion: &str, history: &[&str]) -> Stri
         .to_string()
 }
 
-/// The shell's own error text for a failing history expansion, with the
-/// two streams separated.
-pub(super) fn run_bash_history_expand_failure(expansion: &str, history: &[&str]) -> String {
-    let history_commands = history
-        .iter()
-        .map(|entry| format!("history -s {}", shell_single_quote(entry)))
-        .collect::<Vec<_>>()
-        .join("; ");
-    require_oracle_host();
-    let output = Command::new("bash")
-        .args([
-            "--noprofile",
-            "--norc",
-            "-i",
-            "-c",
-            &format!(
-                "set +H; {history_commands}; history -p {}",
-                shell_single_quote(expansion)
-            ),
-        ])
-        .output()
-        .expect("bash must be available for history oracle tests");
-    String::from_utf8_lossy(&output.stderr).to_string()
+/// The shell's own streams for a failing history expansion, separated.
+pub(super) fn run_bash_history_expand_failure(
+    expansion: &str,
+    history: &[&str],
+) -> (String, String) {
+    let output = bash_history_expand_output(expansion, history);
+    (
+        String::from_utf8_lossy(&output.stdout).to_string(),
+        String::from_utf8_lossy(&output.stderr).to_string(),
+    )
 }
 
 pub(super) fn run_bash_readline_with_term(

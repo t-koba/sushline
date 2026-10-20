@@ -2288,7 +2288,8 @@ fn bash_reports_a_failing_history_expansion_on_standard_error() {
     // `history-expand-line` command, which is the interaction the editor
     // mirrors, leaves the line unchanged and reports nothing at all, so the
     // editor's expansion has no GNU counterpart to match.
-    let stderr = run_bash_history_expand_failure("!missing", &["echo one"]);
+    let (stdout, stderr) = run_bash_history_expand_failure("!missing", &["echo one"]);
+    assert!(stdout.is_empty(), "bash stdout: {stdout}");
     assert!(
         stderr.contains("!missing: history expansion failed"),
         "bash stderr: {stderr}"

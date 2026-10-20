@@ -316,7 +316,7 @@ fn bash_readline_and_sushline_horizontal_scroll_exposes_unwrapped_ansi_prompt_wi
 }
 
 #[test]
-fn bash_and_sushline_horizontal_scroll_agree_on_a_wide_character_tail() {
+fn bash_and_sushline_horizontal_scroll_differ_on_a_wide_character_tail() {
     if !c_utf8_locale_available() {
         return;
     }
@@ -640,4 +640,31 @@ fn bash_window_edge_splits_a_multibyte_character_that_sushline_keeps_valid() {
         std::str::from_utf8(sushline_frame).is_ok(),
         "Sushline keeps valid UTF-8: {sushline_frame:?}"
     );
+}
+
+#[test]
+fn bash_horizontal_scroll_starts_the_window_on_the_byte_edge() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+    // GNU measures the line's width in bytes, the prompt included, so a
+    // multibyte prompt or tail reaches the edge before its cell width does:
+    // 76 text bytes behind the two-byte prompt "P>" scroll the window, and
+    // 74 text bytes behind the four-byte prompt "é> " do. The window then
+    // holds the last 51 bytes, and the cursor sits one column past the
+    // window's column width. Sushline still starts the window in cells, so
+    // it keeps the whole line on screen for these fixtures.
+    let cases: [(&str, usize, &str, usize); 2] =
+        [("P>", 74, "\u{e9}", 51), ("\u{e9}> ", 74, "", 52)];
+    for (prompt, ascii, tail, column) in cases {
+        let text = format!("{}{}", "a".repeat(ascii), tail);
+        let steps: Vec<Vec<u8>> = text.as_bytes().iter().map(|byte| vec![*byte]).collect();
+        let frames = checkpoints_with_locale(true, 80, prompt, &steps, "C.UTF-8");
+        let (screen, cursor) = frames.last().cloned().expect("checkpoint");
+        assert!(
+            screen.starts_with('<'),
+            "prompt={prompt:?} tail={tail:?} screen={screen:?}"
+        );
+        assert_eq!(cursor, column, "prompt={prompt:?} tail={tail:?}");
+    }
 }

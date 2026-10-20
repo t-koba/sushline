@@ -279,7 +279,8 @@ The embedder supplies:
   `completion-ignore-case` maps each byte with locale-aware `tolower` on Unix
   and uses ASCII folding elsewhere; this is byte-wise, not multibyte case folding.
   The editor's history search honours `search-ignore-case` with the locale it
-  owns from the `LC_CTYPE` environment variable, not the process locale, and
+  owns from the environment, not the process locale: it takes the first non-empty of
+  `LC_ALL`, `LC_CTYPE` and `LANG`, and
   falls back to ASCII byte folding when that locale is unavailable or the
   bytes are not valid UTF-8. The public History byte-search API stays
   ASCII-only and consults no locale.

@@ -652,20 +652,25 @@ fn bash_horizontal_scroll_starts_the_window_on_the_byte_edge() {
     // 76 text bytes behind the two-byte prompt "P>" scroll the window, and
     // 74 text bytes behind the four-byte prompt "é> " do. The window then
     // holds the last 51 bytes, and the cursor sits one column past the
-    // window's column width. Sushline still starts the window in cells, so
-    // it keeps the whole line on screen for these fixtures.
+    // window's column width. Sushline measures the same edge in bytes, so
+    // both editors scroll on the same byte and land on the same column.
     let cases: [(&str, usize, &str, usize); 2] =
         [("P>", 74, "\u{e9}", 51), ("\u{e9}> ", 74, "", 52)];
     for (prompt, ascii, tail, column) in cases {
         let text = format!("{}{}", "a".repeat(ascii), tail);
         let steps: Vec<Vec<u8>> = text.as_bytes().iter().map(|byte| vec![*byte]).collect();
-        let frames = checkpoints_with_locale(true, 80, prompt, &steps, "C.UTF-8");
-        let (screen, cursor) = frames.last().cloned().expect("checkpoint");
-        assert!(
-            screen.starts_with('<'),
-            "prompt={prompt:?} tail={tail:?} screen={screen:?}"
-        );
-        assert_eq!(cursor, column, "prompt={prompt:?} tail={tail:?}");
+        for bash in [true, false] {
+            let frames = checkpoints_with_locale(bash, 80, prompt, &steps, "C.UTF-8");
+            let (screen, cursor) = frames.last().cloned().expect("checkpoint");
+            assert!(
+                screen.starts_with('<'),
+                "prompt={prompt:?} tail={tail:?} bash={bash} screen={screen:?}"
+            );
+            assert_eq!(
+                cursor, column,
+                "prompt={prompt:?} tail={tail:?} bash={bash}"
+            );
+        }
     }
 }
 

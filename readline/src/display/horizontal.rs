@@ -21,6 +21,10 @@ pub(crate) struct DisplayLine {
     pub(crate) point: usize,
     /// The cursor's byte offset in the buffer text.
     pub(crate) point_bytes: usize,
+    /// The prompt's visible byte width: GNU measures the whole line in
+    /// bytes, so a multibyte prompt reaches the scroll edge before its cell
+    /// width does.
+    pub(crate) prompt_bytes: usize,
 }
 
 #[derive(Debug)]
@@ -35,6 +39,7 @@ struct Unit {
 impl DisplayLine {
     /// An indivisible rendered character (including a control/meta expansion).
     pub(crate) fn push_cell(&mut self, text: String, width: usize) {
+        self.prompt_bytes += text.len();
         // Keep zero-width scalars distinct from hidden bytes. Their clipping
         // follows the preceding base, even across intervening hidden units;
         // merging into an escape would replay a mark without its clipped base.
@@ -112,6 +117,7 @@ impl DisplayLine {
     /// (ESC counts as one, other bytes by cell width) while the complete
     /// sequence replays verbatim. Never split the sequence when clipping.
     fn push_prompt_escape(&mut self, text: String) {
+        self.prompt_bytes += text.len();
         if text.contains('\n') {
             self.finish_prompt_line(&text);
             return;
@@ -143,6 +149,7 @@ impl DisplayLine {
         }
         self.point = self.width + other.point;
         self.point_bytes = other.point_bytes;
+        self.prompt_bytes += other.prompt_bytes;
         self.width += other.width;
         self.units.extend(other.units);
     }
@@ -180,6 +187,10 @@ impl HorizontalViewport {
                     line.point - third
                 },
             );
+        } else if self.offset == 0 && line.prompt_bytes + line.point_bytes >= edge {
+            // The cursor's byte position in the whole line reached the edge:
+            // the window starts, and the last bytes of the line stay visible.
+            self.set_offset(line, line.point_bytes.saturating_sub(scroll - 1));
         } else if line.point_bytes - self.offset >= edge - 1 {
             // GNU counts the scroll offset in bytes, so a multibyte tail
             // scrolls further than its cell width alone suggests.
@@ -451,15 +462,16 @@ mod tests {
                     ("e\x1b[31m\u{301}\x1b[1m\u{302}xxxxx\x1b[0m>".into(), 1)
                 );
             } else {
-                // The logical escape columns already overflow the window at
-                // the prompt, so the base is clipped immediately. The full
-                // escapes still replay in order for the visible tail.
+                // The prompt is wider than the screen, so the window starts
+                // at the prompt's end and the base is clipped immediately.
+                // The full escapes still replay in order for the visible tail.
                 assert_eq!(
                     viewport.layout(&layout, 8),
-                    ("<\x1b[31m\x1b[1mxx\x1b[0m>".into(), 4)
+                    ("<\x1b[31m\x1b[1mxxxxx\x1b[0m>".into(), 1)
                 );
             }
             layout.point = layout.width;
+            layout.point_bytes = 20;
             let (out, col) = viewport.layout(&layout, 8);
             // Hidden styles still replay, in order, but neither orphaned mark
             // can decorate the left indicator after its base is clipped.
@@ -507,10 +519,11 @@ mod tests {
                 assert_eq!(out, format!("\x1b[31m界>\x1b[0m{}>", "é".repeat(7)));
                 assert_eq!(col, 3);
             } else {
-                // Logical escape columns scroll the window at the prompt;
-                // both escapes still emit complete and unsplit.
-                assert_eq!(out, format!("<\x1b[31m>\x1b[0m{}>", "é".repeat(4)));
-                assert_eq!(col, 6);
+                // The prompt is wider than the screen, so the window starts
+                // at the prompt's end; both escapes still emit complete and
+                // unsplit.
+                assert_eq!(out, format!("<\x1b[31m\x1b[0m{}>", "é".repeat(9)));
+                assert_eq!(col, 1);
             }
             assert!(out.contains("\x1b[31m"));
             assert!(out.contains("\x1b[0m"));

@@ -251,19 +251,32 @@ fn bash_readline_and_sushline_horizontal_scroll_counts_hidden_ansi_prompt() {
 #[test]
 fn bash_readline_and_sushline_horizontal_scroll_exposes_unwrapped_ansi_prompt_width() {
     let prompt = "\x1b[31mP>\x1b[0m";
-    let steps = vec![vec![b'a'; 90]];
-    let bash = checkpoints(true, 80, prompt, &steps);
-    let sushline = checkpoints(false, 80, prompt, &steps);
-
+    // Bytewise typing proves logical-width alignment: unmarked CSI bytes
+    // count as prompt columns, so both implementations clip to the same
+    // window. The single-batch trajectory still diverges because Sushline
+    // reads the batch bytewise while Bash scrolls it as one batch; that
+    // granularity gap is covered separately and is not an ANSI regression.
+    let bytewise: Vec<Vec<u8>> = vec![vec![b'a']; 90];
+    for bash in [true, false] {
+        let frames = checkpoints(bash, 80, prompt, &bytewise);
+        assert_eq!(
+            frames.last(),
+            Some(&(format!("<{}", "a".repeat(74)), 75)),
+            "bash={bash} bytewise"
+        );
+    }
+    let batch = vec![vec![b'a'; 90]];
+    let bash = checkpoints(true, 80, prompt, &batch);
+    let sushline = checkpoints(false, 80, prompt, &batch);
     assert_eq!(
         bash.last(),
         Some(&(format!("<{}", "a".repeat(51)), 52)),
-        "Bash"
+        "Bash batch"
     );
     assert_eq!(
         sushline.last(),
-        Some(&(format!("<{}", "a".repeat(65)), 66)),
-        "Sushline"
+        Some(&(format!("<{}", "a".repeat(74)), 75)),
+        "Sushline batch reads bytewise"
     );
 }
 

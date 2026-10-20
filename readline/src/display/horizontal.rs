@@ -51,8 +51,9 @@ impl DisplayLine {
         }
     }
 
-    /// Prompt text: keep complete ANSI sequences as zero-cell units. Explicit
-    /// Readline hidden spans are supplied separately by the prompt parser.
+    /// Prompt text: count unmarked ANSI sequences as logical prompt width
+    /// while emitting their complete bytes. Explicit Readline hidden spans
+    /// are supplied separately by the prompt parser at zero width.
     pub(crate) fn push_prompt_text(&mut self, text: &str) {
         let mut chars = text.char_indices().peekable();
         while let Some((start, ch)) = chars.next() {
@@ -79,11 +80,31 @@ impl DisplayLine {
                     _ => {}
                 }
                 let end = chars.peek().map_or(text.len(), |(idx, _)| *idx);
-                self.push_hidden(text[start..end].to_string());
+                self.push_prompt_escape(text[start..end].to_string());
             } else {
                 self.push_cell(ch.to_string(), char_width(ch));
             }
         }
+    }
+
+    /// Unmarked prompt escape: logical columns count like `Prompt::width`
+    /// (ESC counts as one, other bytes by cell width) while the complete
+    /// sequence replays verbatim. Never split the sequence when clipping.
+    fn push_prompt_escape(&mut self, text: String) {
+        if text.contains('\n') {
+            self.finish_prompt_line(&text);
+            return;
+        }
+        let width: usize = text
+            .chars()
+            .map(|ch| if ch == '\x1b' { 1 } else { char_width(ch) })
+            .sum();
+        self.units.push(Unit {
+            text,
+            width,
+            hidden: true,
+        });
+        self.width += width;
     }
 
     fn finish_prompt_line(&mut self, suffix: &str) {
@@ -147,10 +168,16 @@ impl HorizontalViewport {
         let mut base_visible = false;
         for unit in &line.units {
             let next = col + unit.width;
-            if unit.width == 0 {
-                // Replay style/hidden bytes even outside the window, including
-                // resets after clipped text. Never cut an escape sequence.
-                if unit.hidden || base_visible {
+            if unit.hidden {
+                // Replay hidden bytes even outside the window, including
+                // resets after clipped text. Logical-width prompt escapes
+                // advance the column but never clip or split; they keep the
+                // preceding base visibility for combining marks.
+                out.push_str(&unit.text);
+            } else if unit.width == 0 {
+                // Zero-width buffer marks follow the preceding base, even
+                // across intervening hidden units.
+                if base_visible {
                     out.push_str(&unit.text);
                 }
             } else if col >= start && next <= end {
@@ -326,19 +353,41 @@ mod tests {
             "e\x1b[31m\u{301}\x1b[1m\u{302}",
             "e\x01\x1b[31m\x02\u{301}\x01\x1b[1m\x02\u{302}",
         ] {
+            // Viewport width tracks logical prompt width: unmarked escapes
+            // count, explicitly hidden spans stay at zero width.
+            let parsed = Prompt::new(prompt);
+            let marked = prompt.contains("\x01") || prompt.contains("\\[");
+            assert_eq!(parsed.horizontal_line().width, parsed.width());
+            if marked {
+                assert_eq!(parsed.width(), 1);
+            } else {
+                assert_eq!(parsed.width(), 10);
+            }
             let mut viewport = HorizontalViewport::default();
             let mut layout = line(prompt, &"x".repeat(20), 0);
             layout.push_hidden("\x1b[0m".into());
-            assert_eq!(
-                viewport.layout(&layout, 8),
-                ("e\x1b[31m\u{301}\x1b[1m\u{302}xxxxx\x1b[0m>".into(), 1)
-            );
+            if marked {
+                assert_eq!(
+                    viewport.layout(&layout, 8),
+                    ("e\x1b[31m\u{301}\x1b[1m\u{302}xxxxx\x1b[0m>".into(), 1)
+                );
+            } else {
+                // The logical escape columns already overflow the window at
+                // the prompt, so the base is clipped immediately. The full
+                // escapes still replay in order for the visible tail.
+                assert_eq!(
+                    viewport.layout(&layout, 8),
+                    ("<\x1b[31m\x1b[1mxx\x1b[0m>".into(), 4)
+                );
+            }
             layout.point = layout.width;
             let (out, col) = viewport.layout(&layout, 8);
             // Hidden styles still replay, in order, but neither orphaned mark
             // can decorate the left indicator after its base is clipped.
             assert_eq!(out, "<\x1b[31m\x1b[1mxxx\x1b[0m");
             assert_eq!(col, 4);
+            assert!(!out.contains("\u{301}"));
+            assert!(!out.contains("\u{302}"));
         }
     }
 
@@ -363,11 +412,31 @@ mod tests {
             "\\[\\e[31m\\]界>\\[\\e[0m\\]",
             "\x1b[31m界>\x1b[0m",
         ] {
+            let parsed = Prompt::new(prompt);
+            let marked = prompt.starts_with("\x01") || prompt.starts_with("\\[");
+            assert_eq!(parsed.horizontal_line().width, parsed.width());
+            if marked {
+                assert_eq!(parsed.width(), 3);
+            } else {
+                // Unmarked CSI bytes count as logical columns.
+                assert_eq!(parsed.width(), 12);
+            }
             let mut viewport = HorizontalViewport::default();
             let text = "é".repeat(30);
             let (out, col) = viewport.layout(&line(prompt, &text, 0), 12);
-            assert_eq!(out, format!("\x1b[31m界>\x1b[0m{}>", "é".repeat(7)));
-            assert_eq!(col, 3);
+            if marked {
+                assert_eq!(out, format!("\x1b[31m界>\x1b[0m{}>", "é".repeat(7)));
+                assert_eq!(col, 3);
+            } else {
+                // Logical escape columns scroll the window at the prompt;
+                // both escapes still emit complete and unsplit.
+                assert_eq!(out, format!("<\x1b[31m>\x1b[0m{}>", "é".repeat(4)));
+                assert_eq!(col, 6);
+            }
+            assert!(out.contains("\x1b[31m"));
+            assert!(out.contains("\x1b[0m"));
+            assert!(visible_width(&out) < 12);
+            assert!(col < 12);
             let (out, col) = viewport.layout(&line(prompt, &text, text.len()), 12);
             assert!(out.contains("\x1b[31m"));
             assert!(out.contains("\x1b[0m"));

@@ -52,6 +52,14 @@ pub trait TerminalIo {
     fn read_event(&mut self, timeout: Option<Duration>) -> io::Result<TerminalEvent>;
     /// Writes UTF-8 text to the terminal.
     fn write(&mut self, text: &str) -> io::Result<()>;
+    /// Writes a diagnostic message, like GNU Readline's inputrc diagnostics.
+    ///
+    /// The default writes to the terminal output stream, so a custom backend
+    /// keeps the diagnostics where it writes its output. The built-in
+    /// terminal writes them to standard error, like GNU Readline.
+    fn write_diagnostic(&mut self, text: &str) -> io::Result<()> {
+        self.write(text)
+    }
     /// Writes bytes to the terminal.
     fn write_bytes(&mut self, bytes: &[u8]) -> io::Result<()>;
     /// Flushes pending terminal output.
@@ -231,6 +239,12 @@ impl TerminalIo for Terminal {
 
     fn write(&mut self, text: &str) -> io::Result<()> {
         self.stdout.write_all(text.as_bytes())
+    }
+
+    fn write_diagnostic(&mut self, text: &str) -> io::Result<()> {
+        let mut stderr = io::stderr().lock();
+        stderr.write_all(text.as_bytes())?;
+        stderr.flush()
     }
 
     fn write_bytes(&mut self, bytes: &[u8]) -> io::Result<()> {

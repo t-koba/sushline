@@ -238,8 +238,8 @@ where
         self.inputrc_report_pending = false;
         for diagnostic in &self.inputrc_diagnostics {
             self.terminal
-                .write(&format_inputrc_diagnostic(diagnostic))?;
-            self.terminal.write("\r\n")?;
+                .write_diagnostic(&format_inputrc_diagnostic(diagnostic))?;
+            self.terminal.write_diagnostic("\r\n")?;
         }
         self.terminal.flush()?;
         Ok(())

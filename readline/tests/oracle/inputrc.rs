@@ -3,6 +3,7 @@
 //! the specific parser/configuration fixtures described in `COMPATIBILITY.md`.
 
 use super::pty::*;
+use portable_pty::CommandBuilder;
 use std::fs;
 use std::path::Path;
 
@@ -139,6 +140,69 @@ fn reported_inputrc_diagnostics(output: &str, path: &Path) -> Vec<(u32, String)>
         diagnostics.push((number, rest.trim().trim_end_matches('\r').to_string()));
     }
     diagnostics
+}
+
+#[test]
+fn bash_readline_and_sushline_write_inputrc_diagnostics_to_standard_error() {
+    // GNU writes the inputrc diagnostics to standard error, so an embedder's
+    // standard output stays free of them.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    fs::write(&path, "set bell-style no-such-style\n").expect("write inputrc");
+    let keys = b"abc\r";
+
+    let bash_stderr = dir.path().join("bash-stderr");
+    let mut bash = CommandBuilder::new("sh");
+    bash.args([
+        "-c",
+        &format!(
+            "exec 2>{}; exec bash --noprofile --norc -i -c {}",
+            shell_single_quote(&bash_stderr.display().to_string()),
+            shell_single_quote(&format!(
+                "printf \"{READY_PROMPT}\"; IFS= read -r -e line; printf \"SUSHLINE_ACCEPTED:%s\\n\" \"$line\""
+            )),
+        ),
+    ]);
+    bash.env("INPUTRC", path.to_string_lossy().as_ref());
+    let bash_output = run_pty(bash, keys);
+    let bash_diagnostics = fs::read_to_string(&bash_stderr).unwrap_or_default();
+
+    let sushline_stderr = dir.path().join("sushline-stderr");
+    let mut sushline = CommandBuilder::new("sh");
+    sushline.args([
+        "-c",
+        &format!(
+            "exec 2>{}; exec {}",
+            shell_single_quote(&sushline_stderr.display().to_string()),
+            shell_single_quote(env!("CARGO_BIN_EXE_sushline-harness")),
+        ),
+    ]);
+    sushline.env("SUSHLINE_INPUTRC_FILE", path.to_string_lossy().as_ref());
+    sushline.env("SUSHLINE_PROMPT", READY_PROMPT);
+    sushline.env("SUSHLINE_HISTORY", "");
+    let sushline_output = run_pty(sushline, keys);
+    let sushline_diagnostics = fs::read_to_string(&sushline_stderr).unwrap_or_default();
+
+    let expected = format!(
+        "readline: {}: line 1: bell-style: could not set value to `no-such-style'",
+        path.display()
+    );
+    assert!(
+        bash_diagnostics.contains(&expected),
+        "bash stderr: {bash_diagnostics}"
+    );
+    assert!(
+        sushline_diagnostics.contains(&expected),
+        "sushline stderr: {sushline_diagnostics}"
+    );
+    assert!(
+        !bash_output.contains("readline:"),
+        "bash output: {bash_output}"
+    );
+    assert!(
+        !sushline_output.contains("readline:"),
+        "sushline output: {sushline_output}"
+    );
 }
 
 #[test]

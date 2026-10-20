@@ -193,6 +193,7 @@ struct MemoryTerminal {
     events: VecDeque<TerminalEvent>,
     read_error: Option<io::Error>,
     out: String,
+    diagnostics: String,
     columns: u16,
     tty_special: Vec<(u8, &'static str)>,
     meta_enabled: Vec<bool>,
@@ -208,6 +209,7 @@ impl MemoryTerminal {
             events: events.into(),
             read_error: None,
             out: String::new(),
+            diagnostics: String::new(),
             columns: 80,
             tty_special: Vec::new(),
             meta_enabled: Vec::new(),
@@ -246,6 +248,11 @@ impl TerminalIo for MemoryTerminal {
 
     fn write(&mut self, text: &str) -> io::Result<()> {
         self.out.push_str(text);
+        Ok(())
+    }
+
+    fn write_diagnostic(&mut self, text: &str) -> io::Result<()> {
+        self.diagnostics.push_str(text);
         Ok(())
     }
 

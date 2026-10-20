@@ -26,6 +26,29 @@ fn editor_new_retains_initial_inputrc_error_and_try_new_reports_it() {
 }
 
 #[test]
+fn inputrc_diagnostics_go_to_the_terminal_diagnostic_sink() {
+    let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(vec![b'\r'])]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set bell-style no-such-style")
+        .unwrap();
+    line.read_line(Prompt::new("P>"), &mut ()).unwrap();
+
+    let terminal = &line.terminal;
+    assert!(
+        terminal
+            .diagnostics
+            .contains("could not set value to `no-such-style'"),
+        "{}",
+        terminal.diagnostics
+    );
+    assert!(
+        !terminal.out.contains("could not set value"),
+        "{}",
+        terminal.out
+    );
+}
+
+#[test]
 fn every_readline_command_is_in_typed_or_named_dispatch_table() {
     assert!(
         NAMED_READLINE_COMMAND_DISPATCH

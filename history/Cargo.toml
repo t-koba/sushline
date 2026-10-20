@@ -1,9 +1,12 @@
 [package]
-name = "history"
+name = "sushline-history"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "History library for sushline"
+
+[lib]
+name = "history"
 
 [dev-dependencies]
 tempfile = "3"

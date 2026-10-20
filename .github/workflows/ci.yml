@@ -77,4 +77,4 @@ jobs:
           set -euo pipefail
           export PATH="$HOME/.cache/sushline/bash-oracle/bin:$PATH"
           bash --version
-          cargo test --locked -p readline --test oracle --test bind_golden
+          cargo test --locked -p sushline-readline --test oracle --test bind_golden

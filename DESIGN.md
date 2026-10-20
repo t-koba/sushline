@@ -26,13 +26,13 @@ Embedders should depend on the root crate.
 
 ## Internal Crates
 
-The `readline` crate owns interactive line editing.
+The `sushline-readline` package owns interactive line editing.
 
 Important source areas: `editor.rs`, `state/`, `input.rs`, `keymap/`,
 `bind.rs`, `inputrc.rs`, `buffer/`, `command/`, `completion/`, `display.rs`,
 `prompt.rs`, `width.rs`, `terminal.rs`, `terminal/`, and `hooks.rs`.
 
-The `history` crate owns history data structures and algorithms.
+The `sushline-history` package owns history data structures and algorithms.
 Important source areas: `lib.rs`, `file.rs`, and `expansion.rs`. History save
 policy belongs to the embedder.
 

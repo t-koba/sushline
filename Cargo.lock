@@ -112,13 +112,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
-name = "history"
-version = "0.1.0"
-dependencies = [
- "tempfile",
-]
-
-[[package]]
 name = "id-arena"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -278,17 +271,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
-name = "readline"
-version = "0.1.0"
-dependencies = [
- "history",
- "libc",
- "portable-pty",
- "tempfile",
- "unicode-width",
-]
-
-[[package]]
 name = "rustix"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -411,8 +393,26 @@ checksum = "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77"
 name = "sushline"
 version = "0.2.1"
 dependencies = [
- "history",
- "readline",
+ "sushline-history",
+ "sushline-readline",
+]
+
+[[package]]
+name = "sushline-history"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+]
+
+[[package]]
+name = "sushline-readline"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "portable-pty",
+ "sushline-history",
+ "tempfile",
+ "unicode-width",
 ]
 
 [[package]]

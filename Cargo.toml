@@ -12,10 +12,10 @@ resolver = "3"
 [dependencies]
 # The version requirements let the crates be packaged: a path dependency
 # without a version cannot be published.
-history = { path = "history", version = "0.1.0" }
+history = { package = "sushline-history", path = "history", version = "0.1.0" }
 # The default features of `readline` only gate its Bash-hosted test targets,
 # so the facade opts out of them and keeps the dependency surface explicit.
-readline = { path = "readline", version = "0.1.0", default-features = false }
+readline = { package = "sushline-readline", path = "readline", version = "0.1.0", default-features = false }
 
 [profile.release]
 opt-level = 3

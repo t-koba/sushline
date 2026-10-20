@@ -1,9 +1,12 @@
 [package]
-name = "readline"
+name = "sushline-readline"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Pure Rust Readline-style line editing foundation for Sush"
+
+[lib]
+name = "readline"
 
 [features]
 default = ["oracle"]
@@ -14,7 +17,7 @@ oracle = []
 [dependencies]
 # The version requirement lets the crate be packaged: a path dependency
 # without a version cannot be published.
-history = { path = "../history", version = "0.1.0" }
+history = { package = "sushline-history", path = "../history", version = "0.1.0" }
 libc = "0.2"
 unicode-width = "0.1"
 

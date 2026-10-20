@@ -278,8 +278,11 @@ The embedder supplies:
   is desired. Completion sorting delegates ordering to libc `strcoll`; on Unix,
   `completion-ignore-case` maps each byte with locale-aware `tolower` on Unix
   and uses ASCII folding elsewhere; this is byte-wise, not multibyte case folding.
-  History `search-ignore-case` remains ASCII-only and does not consult the process
-  locale.
+  The editor's history search honours `search-ignore-case` with the locale it
+  owns from the `LC_CTYPE` environment variable, not the process locale, and
+  falls back to ASCII byte folding when that locale is unavailable or the
+  bytes are not valid UTF-8. The public History byte-search API stays
+  ASCII-only and consults no locale.
 - Supplying and persisting history according to the embedding program's policy.
 - Programmable completion state and candidate generation.
 - Shell-specific completion quoting, glob expansion, history expansion status,

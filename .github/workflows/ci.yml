@@ -77,14 +77,16 @@ jobs:
           set -euo pipefail
           # The compatibility row's output-stream claim rests on a Readline
           # observation. This probe repeats it against the library the runner
-          # installed and reports what it saw, so the claim is checked in CI
-          # without a C fixture in the repository.
+          # installed and checks it, so the claim is verified in CI without a C
+          # fixture in the repository. The headers are installed here as well,
+          # because the host's cache may already hold the built Bash.
+          sudo apt-get update
+          sudo apt-get install -y libreadline-dev
           cat > /tmp/readline_probe.c <<'PROBE'
           #include <stdio.h>
           #include <stdlib.h>
           #include <string.h>
 
-          extern FILE *rl_outstream;
           extern char *readline(const char *);
 
           int main(void) {
@@ -93,7 +95,6 @@ jobs:
                   return 1;
               }
               setvbuf(report, NULL, _IONBF, 0);
-              fprintf(report, "rl_outstream_is_stdout=%d\n", rl_outstream == stdout);
               freopen("/tmp/readline_probe.out", "w", stdout);
               freopen("/tmp/readline_probe.err", "w", stderr);
               char *line = readline("probe> ");
@@ -117,6 +118,8 @@ jobs:
           echo "" | /tmp/readline_probe || true
           cat /tmp/readline_probe.report
           dpkg-query -W -f='readline_package_version=${Version}\n' libreadline-dev
+          # The claim: the library writes its prompt to standard output.
+          grep -qx 'prompt_in_stdout=1' /tmp/readline_probe.report
       - name: Run the oracle suite
         run: |
           set -euo pipefail

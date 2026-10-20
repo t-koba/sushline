@@ -81,6 +81,14 @@ fn bash_readline_and_sushline_report_the_same_set_value_diagnostics() {
         "bogus",
         "bogus extra",
         "NONE",
+        // GNU reads a quoted value without its surrounding quotes.
+        "\"\"",
+        "\"none\"",
+        "\"bogus\"",
+        "\"vi-insert\"",
+        "\"vi-command\"",
+        "\"emacs-standard\"",
+        "\"##\"",
     ];
 
     let dir = tempfile::tempdir().expect("tempdir");

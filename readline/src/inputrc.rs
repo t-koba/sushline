@@ -518,6 +518,14 @@ pub fn apply_variable(
             "vi" => KeyMapName::ViInsert,
             _ => KeyMapName::EmacsStandard,
         });
+        // GNU derives the keymap variable from the editing mode.
+        variables.insert(
+            "keymap".to_string(),
+            match normalized.as_str() {
+                "vi" => "vi-insert".to_string(),
+                _ => "emacs".to_string(),
+            },
+        );
     } else if canonical_name == "keymap" && KeyMapName::parse(&normalized).is_none() {
         return None;
     }
@@ -538,6 +546,7 @@ fn is_known_set_variable(name: &str) -> bool {
 /// GNU validates the value of `bell-style`, `comment-begin`, `editing-mode`,
 /// and `keymap`; the other variables accept any value.
 fn invalid_set_value(name: &str, value: &str) -> Option<String> {
+    let value = unquote_set_value(value);
     let normalized = value.to_ascii_lowercase();
     let invalid = match name {
         "bell-style" => !matches!(
@@ -550,6 +559,17 @@ fn invalid_set_value(name: &str, value: &str) -> Option<String> {
         _ => false,
     };
     invalid.then(|| format!("could not set value to `{value}'"))
+}
+
+/// The `set` value GNU Readline reads.
+///
+/// GNU removes the surrounding double quotes from a value before it
+/// validates, stores, and reports it.
+fn unquote_set_value(value: &str) -> &str {
+    value
+        .strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+        .unwrap_or(value)
 }
 
 /// The `editing-mode` value GNU Readline derives from an inputrc value.
@@ -744,10 +764,10 @@ fn normalize_variable_value(name: &str, value: &str) -> Option<String> {
         return Some("0".to_string());
     }
     if name == "editing-mode" {
-        return canonical_editing_mode(value).map(str::to_string);
+        return canonical_editing_mode(unquote_set_value(value)).map(str::to_string);
     }
     if name == "keymap" {
-        return Some(value.to_ascii_lowercase());
+        return Some(unquote_set_value(value).to_ascii_lowercase());
     }
     if matches!(
         name,
@@ -779,7 +799,7 @@ fn normalize_variable_value(name: &str, value: &str) -> Option<String> {
     if name == "bell-style" {
         // GNU keeps the current bell style when the value is empty and
         // canonicalizes `on` and `off` to `audible` and `none`.
-        return match value.to_ascii_lowercase().as_str() {
+        return match unquote_set_value(value).to_ascii_lowercase().as_str() {
             "" => None,
             "on" => Some("audible".to_string()),
             "off" => Some("none".to_string()),

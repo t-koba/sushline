@@ -53,6 +53,52 @@ fn accepts_the_set_values_gnu_readline_accepts() {
 }
 
 #[test]
+fn unquotes_set_values_like_gnu_readline() {
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+
+    let diagnostics = InputrcParser::new()
+        .parse_str(
+            "set comment-begin \"\"\nset bell-style \"none\"\nset editing-mode \"vi-command\"\nset bell-style \"bogus\"\n",
+            &Config::default(),
+            &mut keymap,
+            &mut variables,
+        )
+        .unwrap();
+
+    // GNU reads the value without the surrounding quotes, so the empty
+    // value is empty and the rejected value is reported unquoted.
+    assert_eq!(diagnostics.len(), 2);
+    assert_eq!(diagnostics[0].variable, "comment-begin");
+    assert_eq!(diagnostics[0].message, "could not set value to `'");
+    assert_eq!(diagnostics[1].variable, "bell-style");
+    assert_eq!(diagnostics[1].message, "could not set value to `bogus'");
+    assert_eq!(variables["bell-style"], "none");
+    assert_eq!(variables["editing-mode"], "vi");
+    // GNU derives the keymap variable from the editing mode.
+    assert_eq!(variables["keymap"], "vi-insert");
+    assert_eq!(keymap.current(), KeyMapName::ViInsert);
+}
+
+#[test]
+fn keeps_the_current_bell_style_for_an_empty_quoted_value() {
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+
+    let diagnostics = InputrcParser::new()
+        .parse_str(
+            "set bell-style none\nset bell-style \"\"\n",
+            &Config::default(),
+            &mut keymap,
+            &mut variables,
+        )
+        .unwrap();
+
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    assert_eq!(variables["bell-style"], "none");
+}
+
+#[test]
 fn keeps_the_current_bell_style_for_an_empty_bell_style_value() {
     let mut keymap = KeyMap::emacs_default();
     let mut variables = Variables::new();

@@ -262,6 +262,39 @@ fn bind_variable_set_normalization_matches_gnu_readline_oracle() {
 }
 
 #[test]
+fn bind_editing_mode_stores_the_keymap_gnu_stores() {
+    let commands = ["set editing-mode vi-command"];
+    let bash_command = commands
+        .iter()
+        .map(|command| format!("bind {}", shell_single_quote(command)))
+        .chain(std::iter::once("bind -v".to_string()))
+        .collect::<Vec<_>>()
+        .join("; ");
+    let bash = bash_oracle_command()
+        .args(["--noprofile", "--norc", "-i", "-c", &bash_command])
+        .output()
+        .expect("bash must be available for bind oracle tests");
+    assert!(
+        bash.status.success(),
+        "{}",
+        String::from_utf8_lossy(&bash.stderr)
+    );
+
+    let mut line = editor();
+    let mut bind = line.bind_api();
+    for command in commands {
+        bind.apply_line(command).unwrap();
+    }
+    let sushline = bind.print(BindQuery::PrintVariablesReusable);
+
+    let selected = ["editing-mode", "keymap"];
+    assert_eq!(
+        selected_variable_lines(&sushline, &selected),
+        selected_variable_lines(&String::from_utf8_lossy(&bash.stdout), &selected)
+    );
+}
+
+#[test]
 fn bind_query_reports_function_bindings() {
     let mut line = editor();
     let bind = line.bind_api();

@@ -154,7 +154,9 @@ without a real TTY.
 
 Every error text the editor writes goes through `TerminalIo::write_diagnostic`:
 the inputrc diagnostics, the readline error messages, and the history
-expansion failure message. The built-in terminal writes them to standard
+expansion failure message. The print-only history expansion result joins them
+on that sink, because GNU writes that result to standard error as well. The
+built-in terminal writes them to standard
 error, like GNU Readline, so an embedder's standard output stays free of
 them; a custom backend keeps the default of writing the diagnostics to its own
 output stream.

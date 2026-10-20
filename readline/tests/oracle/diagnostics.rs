@@ -128,4 +128,18 @@ fn bash_and_sushline_keep_the_screen_when_the_diagnostic_sink_is_a_file() {
             "{editor} sink: {diagnostics}"
         );
     }
+    // The host redirects the line editor's output to standard error, while
+    // the built-in terminal writes the display to standard output, so the
+    // host's sink holds its line editor output and Sushline's sink holds
+    // only the diagnostic.
+    let bash_sink = fs::read_to_string(&bash_sink).unwrap_or_default();
+    let sushline_sink = fs::read_to_string(&sushline_sink).unwrap_or_default();
+    assert!(
+        bash_sink.contains("0123456789ABCDEFGHIJ"),
+        "bash sink: {bash_sink}"
+    );
+    assert!(
+        !sushline_sink.contains("0123456789ABCDEFGHIJ"),
+        "sushline sink: {sushline_sink}"
+    );
 }

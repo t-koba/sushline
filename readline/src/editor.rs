@@ -684,8 +684,10 @@ where
     ) -> Result<Option<Vec<u8>>, ReadlineError> {
         match self.expand_history_line(line, hooks) {
             Ok(expanded) if expanded.print_only => {
-                let message = String::from_utf8_lossy(&expanded.line);
-                self.report_history_expansion_message(state, &message)?;
+                // The print-only result is not error text, but GNU writes it
+                // to standard error as well, so it takes the same sink.
+                let result = String::from_utf8_lossy(&expanded.line);
+                self.report_history_expansion_message(state, &result)?;
                 state.after_non_kill_command();
                 Ok(None)
             }
@@ -698,11 +700,11 @@ where
         }
     }
 
-    /// Report a history expansion failure.
+    /// Report a history expansion message.
     ///
-    /// The message is error text, so it goes to the diagnostic sink like the
-    /// other error families. GNU's shell reports the same failure on
-    /// standard error.
+    /// A failure is error text, so it goes to the diagnostic sink with the
+    /// other error families. The print-only result is not error text, but
+    /// GNU writes it to standard error as well, so it takes the same sink.
     pub(crate) fn report_history_expansion_message(
         &mut self,
         state: &mut EditorState,

@@ -105,3 +105,27 @@ fn history_expansion_reports_event_and_word_errors() {
     );
     assert!(!line.terminal.out.contains("!missing: event not found"));
 }
+
+#[test]
+fn history_expansion_print_only_result_goes_to_the_diagnostic_sink() {
+    // The print-only result is not error text, but GNU writes it to standard
+    // error as well, so it takes the diagnostic sink.
+    let mut history = History::new();
+    history.push("echo one");
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"!echo:p".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, history);
+    line.load_inputrc_str("\"\\C-o\": history-expand-line")
+        .unwrap();
+    let mut hooks = TestHistoryHook;
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+
+    // The print-only result does not become the line.
+    assert_eq!(result, ReadlineResult::Line("!echo:p".as_bytes().to_vec()));
+    assert!(line.terminal.diagnostics.contains("echo one\n"));
+    assert!(!line.terminal.out.contains("echo one"));
+}

@@ -39,7 +39,9 @@ jobs:
           prefix="$HOME/.cache/sushline/bash-oracle"
           if [ ! -x "$prefix/bin/bash" ]; then
             # Bash needs the Readline headers to build the line editor the
-            # oracle suite observes.
+            # oracle suite observes. The runner image ships without package
+            # lists, so the index is refreshed before the install.
+            sudo apt-get update
             sudo apt-get install -y libreadline-dev
             curl -fsSL \
               --connect-timeout 20 \

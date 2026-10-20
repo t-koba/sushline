@@ -112,18 +112,16 @@ fn checkpoints_with_locale(
         .collect()
 }
 
-fn checkpoint_outputs_with_locale(
+fn horizontal_scroll_command(
     bash: bool,
-    columns: u16,
     prompt: &str,
-    steps: &[Vec<u8>],
+    dir: &std::path::Path,
     locale: &str,
-) -> Vec<String> {
-    let dir = tempfile::tempdir().unwrap();
+) -> CommandBuilder {
     let inputrc =
         "set horizontal-scroll-mode on\nset enable-bracketed-paste off\nset bell-style audible\n";
     let mut command = if bash {
-        let path = dir.path().join("inputrc");
+        let path = dir.join("inputrc");
         std::fs::write(&path, inputrc).unwrap();
         let mut command = CommandBuilder::new("bash");
         command.env("INPUTRC", path.to_str().unwrap());
@@ -143,8 +141,45 @@ fn checkpoint_outputs_with_locale(
         command
     };
     command.env("LC_ALL", locale);
+    command
+}
+
+fn checkpoint_outputs_with_locale(
+    bash: bool,
+    columns: u16,
+    prompt: &str,
+    steps: &[Vec<u8>],
+    locale: &str,
+) -> Vec<String> {
+    let dir = tempfile::tempdir().unwrap();
+    let command = horizontal_scroll_command(bash, prompt, dir.path(), locale);
     let wait_prompt = prompt.replace(['\x01', '\x02'], "");
     run_pty_checkpoints(
+        command,
+        &wait_prompt,
+        steps,
+        PtySize {
+            rows: 24,
+            cols: columns,
+            pixel_width: 0,
+            pixel_height: 0,
+        },
+    )
+}
+
+/// The checkpoint frames as raw bytes, so a caller can observe output that
+/// is not valid UTF-8.
+fn checkpoint_outputs_raw_with_locale(
+    bash: bool,
+    columns: u16,
+    prompt: &str,
+    steps: &[Vec<u8>],
+    locale: &str,
+) -> Vec<Vec<u8>> {
+    let dir = tempfile::tempdir().unwrap();
+    let command = horizontal_scroll_command(bash, prompt, dir.path(), locale);
+    let wait_prompt = prompt.replace(['\x01', '\x02'], "");
+    run_pty_checkpoints_raw(
         command,
         &wait_prompt,
         steps,
@@ -543,4 +578,73 @@ fn bash_horizontal_scroll_window_holds_the_last_line_bytes() {
         );
         assert_eq!(col, cursor, "tail={tail:?}");
     }
+}
+
+#[test]
+fn bash_and_sushline_horizontal_scroll_bytewise_window_counts_bytes() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+    // GNU counts the scroll offset in bytes in every path. The bytewise path
+    // scrolls to keep the cursor at the window's right edge, so an ASCII
+    // tail fills the screen, while a multibyte tail leaves about 50 columns
+    // visible and can leave the cursor inside the window. Sushline counts
+    // columns, so its bytewise window keeps the wider ASCII-like window for
+    // a narrow multibyte tail.
+    let base = "0123456789".repeat(10);
+    let window = |start: usize, tail: &str| format!("<{}{tail}", &base[start..]);
+    let cases: [(&str, String, usize, String, usize); 4] = [
+        ("e", window(25, "e"), 77, window(25, "e"), 77),
+        (
+            "e\u{301}",
+            window(51, "e\u{301}"),
+            51,
+            window(51, "e\u{301}"),
+            51,
+        ),
+        ("\u{e9}", window(51, "\u{e9}"), 51, window(25, "\u{e9}"), 77),
+        ("\u{b7}", window(51, "\u{b7}"), 51, window(25, "\u{b7}"), 77),
+    ];
+    for (tail, gnu_screen, gnu_column, sushline_screen, sushline_column) in cases {
+        let text = format!("{base}{tail}");
+        let steps: Vec<Vec<u8>> = text.as_bytes().iter().map(|byte| vec![*byte]).collect();
+        for bash in [true, false] {
+            let frames = checkpoints_with_locale(bash, 80, "P>", &steps, "C.UTF-8");
+            let (screen, column) = frames.last().cloned().expect("checkpoint");
+            let (expected_screen, expected_column) = if bash {
+                (&gnu_screen, gnu_column)
+            } else {
+                (&sushline_screen, sushline_column)
+            };
+            assert_eq!(screen, *expected_screen, "tail={tail:?} bash={bash}");
+            assert_eq!(column, expected_column, "tail={tail:?} bash={bash}");
+        }
+    }
+}
+
+#[test]
+fn bash_window_edge_splits_a_multibyte_character_that_sushline_keeps_valid() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+    // The window edge falls inside the wide glyph, so GNU writes the
+    // glyph's trailing bytes without its lead byte while Sushline clips the
+    // cell and keeps its output valid UTF-8. The batched path keeps the
+    // echoed line and the redisplay apart, so only the split makes the
+    // frame invalid UTF-8.
+    let text = format!("{}中{}", "0".repeat(50), "1".repeat(49));
+    let steps = vec![text.into_bytes()];
+    let bash = checkpoint_outputs_raw_with_locale(true, 80, "P>", &steps, "C.UTF-8");
+    let sushline = checkpoint_outputs_raw_with_locale(false, 80, "P>", &steps, "C.UTF-8");
+
+    let bash_frame = bash.last().expect("bash frame");
+    let sushline_frame = sushline.last().expect("sushline frame");
+    assert!(
+        std::str::from_utf8(bash_frame).is_err(),
+        "GNU splits the glyph: {bash_frame:?}"
+    );
+    assert!(
+        std::str::from_utf8(sushline_frame).is_ok(),
+        "Sushline keeps valid UTF-8: {sushline_frame:?}"
+    );
 }

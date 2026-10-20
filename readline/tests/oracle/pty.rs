@@ -1370,11 +1370,25 @@ pub(super) fn shell_single_quote(value: &str) -> String {
 /// Paste callers instead barrier after the terminator and wait for the accepted
 /// line after Enter. The deadline is only a hang bound, never a success signal.
 pub(super) fn run_pty_checkpoints(
-    mut command: CommandBuilder,
+    command: CommandBuilder,
     prompt: &str,
     steps: &[Vec<u8>],
     size: PtySize,
 ) -> Vec<String> {
+    run_pty_checkpoints_raw(command, prompt, steps, size)
+        .iter()
+        .map(|frame| lossy_output(frame))
+        .collect()
+}
+
+/// The checkpoint frames as raw bytes, so a caller can observe output that
+/// is not valid UTF-8.
+pub(super) fn run_pty_checkpoints_raw(
+    mut command: CommandBuilder,
+    prompt: &str,
+    steps: &[Vec<u8>],
+    size: PtySize,
+) -> Vec<Vec<u8>> {
     command.env("TERM", "xterm-256color");
     command.cwd("/");
     let pair = NativePtySystem::default().openpty(size).expect("open pty");
@@ -1404,7 +1418,7 @@ pub(super) fn run_pty_checkpoints(
                 let send_next = if !ready {
                     ready = find_bytes(&output, prompt.as_bytes()).is_some();
                     ready
-                } else if let Some(frame) = checkpoint_before_bell(&mut output, scan_start) {
+                } else if let Some(frame) = checkpoint_before_bell_raw(&mut output, scan_start) {
                     frames.push(frame);
                     true
                 } else {
@@ -1434,11 +1448,17 @@ pub(super) fn run_pty_checkpoints(
 
 // Remove the barrier itself but retain post-BEL output for the next frame.
 fn checkpoint_before_bell(output: &mut Vec<u8>, scan_start: usize) -> Option<String> {
+    Some(lossy_output(&checkpoint_before_bell_raw(
+        output, scan_start,
+    )?))
+}
+
+fn checkpoint_before_bell_raw(output: &mut Vec<u8>, scan_start: usize) -> Option<Vec<u8>> {
     let bell = scan_start
         + output[scan_start..]
             .iter()
             .position(|byte| *byte == b'\x07')?;
-    let frame = lossy_output(&output[..bell]);
+    let frame = output[..bell].to_vec();
     output.remove(bell);
     Some(frame)
 }

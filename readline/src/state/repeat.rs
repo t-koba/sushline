@@ -75,7 +75,8 @@ pub(crate) fn repeat_count(arg: Option<i32>) -> u32 {
 
 /// The largest numeric argument GNU accepts.
 ///
-/// Measured on GNU Readline 8.2: an argument of 1000000 is accepted without
+/// Measured on the Bash 5.3 host, whose Readline is the 8.3 release: an
+/// argument of 1000000 is accepted without
 /// a bell, while a larger one rings the bell and resets the argument, so the
 /// digits that follow the reset are ordinary text.
 pub(crate) const MAX_NUMERIC_ARGUMENT: i32 = 1_000_000;

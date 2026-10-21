@@ -90,9 +90,9 @@ fn diagnostic_to_a_separate_sink_keeps_the_redisplay_on_the_rendered_line() {
 
 /// The pending numeric argument is drawn in place of the prompt.
 ///
-/// GNU Readline 8.2 draws `(arg: N) ` where the prompt would be while a
+/// GNU Readline 8.3 draws `(arg: N) ` where the prompt would be while a
 /// numeric argument is pending, and the indicator grows with the argument
-/// (Bash 5.3 PTY observation).
+/// (Bash 5.3 PTY observation on the host's Readline 8.3).
 #[test]
 fn a_pending_numeric_argument_draws_the_gnu_indicator_in_place_of_the_prompt() {
     let line = Editor::new(
@@ -115,6 +115,10 @@ fn a_pending_numeric_argument_draws_the_gnu_indicator_in_place_of_the_prompt() {
     assert_eq!(line.effective_prompt(&state).0, "(arg: 34) ");
     state.numeric_arg = Some(-1);
     assert_eq!(line.effective_prompt(&state).0, "(arg: -1) ");
+
+    // A leading zero is an argument of its own.
+    state.numeric_arg = Some(0);
+    assert_eq!(line.effective_prompt(&state).0, "(arg: 0) ");
 
     state.numeric_arg = None;
     assert_eq!(line.effective_prompt(&state).0, "P> ");

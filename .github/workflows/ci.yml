@@ -144,4 +144,7 @@ jobs:
           set -euo pipefail
           export PATH="$HOME/.cache/sushline/bash-oracle/bin:$PATH"
           bash --version
-          cargo test --locked -p sushline-readline --test oracle --test bind_golden
+          # The oracle output is not captured, so the notes a case prints
+          # when it reports nothing on a host with another release are in the
+          # job log.
+          cargo test --locked -p sushline-readline --test oracle --test bind_golden -- --nocapture

@@ -54,8 +54,17 @@ fn probe() -> Result<String, String> {
     }
     match host_readline::host_readline_version() {
         Some(version) if host_readline::is_documented(version) => Ok(format!(
-            "the oracle host is GNU Bash {}.{} carrying Readline {version}",
-            REQUIRED_BASH_VERSION.0, REQUIRED_BASH_VERSION.1
+            "the oracle host is GNU Bash {}.{} carrying Readline {version}{}",
+            REQUIRED_BASH_VERSION.0,
+            REQUIRED_BASH_VERSION.1,
+            if host_readline::host_carries(host_readline::MEASURED_RELEASE) {
+                String::new()
+            } else {
+                format!(
+                    "; the cases measured on Readline {} report nothing",
+                    host_readline::MEASURED_RELEASE
+                )
+            }
         )),
         Some(version) => Err(format!(
             "the oracle host must carry a Readline the compatibility document covers, found Readline {version}"

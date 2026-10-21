@@ -120,23 +120,24 @@ completion names (`complete-command`, `complete-filename`,
 `possible-filename-completions`, `possible-hostname-completions`,
 `possible-username-completions`, `possible-variable-completions`,
 `glob-complete-word`, `glob-expand-word`, `glob-list-expansions`,
-`dabbrev-expand`, `dynamic-complete-history`, `export-completions`,
-`bash-vi-complete`) and the application service names (`shell-expand-line`,
-`spell-correct-word`, `edit-and-execute-command`,
-`vi-edit-and-execute-command`, `display-shell-version`,
-`insert-last-argument`, `execute-named-command`). The baseline for those
+`dabbrev-expand`, `dynamic-complete-history`, `bash-vi-complete`) and the
+application service names (`shell-expand-line`, `spell-correct-word`,
+`edit-and-execute-command`, `vi-edit-and-execute-command`,
+`display-shell-version`, `insert-last-argument`). The baseline for those
 names is the Bash 5.3 host's own command, and the status column gives
 Sushline's behavior for every name.
 
-The classification was measured on that host: its `bind -l` output lists the
-Readline function names and the names the shell adds, and the difference
-against the Readline library's own function table is the shell's
-registrations. The host links its own static Readline rather than the
-installed Readline 8.2 library; the two hold the same command names, and
-neither holds the names above. The Readline the host links exports the
-release number of the 8.3 release this document targets, so the
-classification is measured against the declared baseline. Deliberate
-Sushline-only extensions use the `Sushline extension` status.
+The classification was measured on the development host, whose Bash links
+Readline 8.3 statically: its `bind -l` output lists the library's command
+names and the names the shell adds, and the difference is the shell's own.
+The Readline 8.3 function table is the 8.2 table plus the two commands the
+8.3 release notes add (`execute-named-command` and `export-completions`), and
+neither table holds a name above, so those two names are commands of the
+release this document targets and their rows keep the Readline baseline. The
+CI oracle job builds its host against the Readline the runner image ships,
+8.2 at the time of writing, and the suite names the release its host
+carries. Deliberate Sushline-only extensions use the `Sushline extension`
+status.
 
 ### Moving
 
@@ -190,7 +191,7 @@ Sushline-only extensions use the `Sushline extension` status.
 
 | Command(s) | Status | Notes |
 | --- | --- | --- |
-| `digit-argument`, `universal-argument` | Compatible | Multi-digit chaining, sign handling, and universal-argument composition. A numeric argument may not exceed 1000000, the universal argument included: a larger one rings the bell and resets the argument, and the digits that follow the reset are ordinary text (Bash 5.3 and Readline 8.2 observations). A pending argument is drawn in place of the whole prompt, as `(arg: N) `, and the value grows with the argument, as in `(arg: 34) `; a sign-only prefix shows its sign, as in `(arg: -1) `, and the universal argument shows `(arg: 4) `. The mode indicator belongs to the prompt and is replaced with it. The prompt returns when the argument is consumed, and the line's text follows the indicator (Bash 5.3 and Readline 8.2 PTY observations, compared screen by screen). Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs), [`editor/tests/display.rs`](readline/src/editor/tests/display.rs). |
+| `digit-argument`, `universal-argument` | Compatible | Multi-digit chaining, sign handling, and universal-argument composition. A numeric argument may not exceed 1000000, the universal argument included: a larger one rings the bell and resets the argument, and the digits that follow the reset are ordinary text (Bash 5.3 PTY observations on the host's Readline 8.3). A pending argument is drawn in place of the whole prompt, as `(arg: N) `, and the value grows with the argument, as in `(arg: 34) `; a sign-only prefix shows its sign, as in `(arg: -1) `, a leading zero shows `(arg: 0) `, and the universal argument shows `(arg: 4) `. The mode indicator belongs to the prompt and is replaced with it. The prompt returns when the argument is consumed, and the line's text follows the indicator (Bash 5.3 PTY observations on the host's Readline 8.3, compared screen by screen). That comparison needs a host that carries the 8.3 release, because the 8.2 release leaves the prompt on the screen; the cases report nothing on a host with another release. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs), [`editor/tests/display.rs`](readline/src/editor/tests/display.rs). |
 | `start-kbd-macro`, `end-kbd-macro` | Compatible | A recording without an argument starts a fresh definition, an unfinished recording continues across prompts, and a replay that accepts a line continues in the next prompt. Explicit start and end counts follow the append/replay, no-op, invalidation, abort, and nesting behavior with matching bells and diagnostics. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `call-last-kbd-macro` | Compatible | Default and counted calls, with no-definition and nesting-exhaustion bells. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `print-last-kbd-macro` | Compatible | Recorded macro output. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |

@@ -345,11 +345,11 @@ where
 
 /// The indicator GNU Readline draws while a numeric argument is pending.
 ///
-/// GNU Readline 8.2 draws `(arg: N) ` in place of the whole prompt while a
+/// GNU Readline 8.3 draws `(arg: N) ` in place of the whole prompt while a
 /// numeric argument is pending, and the indicator grows with the argument. A
 /// sign-only prefix shows its sign, so `M--` draws `(arg: -1) `. The mode
 /// indicator is part of the prompt, so it is replaced as well. Measured on
-/// the Bash 5.3 host and on the Readline 8.2 library in a PTY.
+/// the Bash 5.3 host, whose Readline is the 8.3 release, in a PTY.
 fn numeric_arg_indicator(state: &EditorState) -> Option<String> {
     let argument = state.numeric_arg?;
     Some(format!("(arg: {argument}) "))

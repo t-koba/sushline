@@ -1763,14 +1763,26 @@ fn pending_argument_row(editor: &str, output: &str, indicator: &str) -> String {
         })
 }
 
-/// The pending numeric argument is drawn in place of the prompt.
+/// Whether the host carries the release the pending argument rendering was
+/// measured on.
 ///
-/// GNU Readline 8.2 draws `(arg: N) ` where the prompt would be while a
+/// GNU Readline 8.3 draws `(arg: N) ` where the prompt would be while a
 /// numeric argument is pending, and the prompt is not on the screen while
-/// the indicator is (Bash 5.3 PTY observation). The two editors must show
-/// the same screen while the indicator is there.
+/// the indicator is (Bash 5.3 PTY observation on the host's Readline 8.3).
+/// The 8.2 release leaves the prompt on the screen, so the comparison holds
+/// on the release the evidence was measured on and reports nothing on a host
+/// that carries another one.
+fn host_carries_measured_release() -> bool {
+    super::host_readline::host_carries(super::host_readline::MEASURED_RELEASE)
+}
 #[test]
 fn bash_and_sushline_draw_the_pending_numeric_argument_in_place_of_the_prompt() {
+    if !host_carries_measured_release() {
+        eprintln!(
+            "the pending argument rendering was measured on Readline 8.3, and the host carries another release, so this case reports nothing"
+        );
+        return;
+    }
     let keys = b"\x1b3\r";
     let bash = run_bash_readline(keys);
     let sushline = run_sushline_harness(keys);
@@ -1787,9 +1799,43 @@ fn bash_and_sushline_draw_the_pending_numeric_argument_in_place_of_the_prompt() 
     );
 }
 
+/// A leading zero is an argument of its own.
+///
+/// The digit zero starts an argument of zero, and the indicator carries it
+/// like any other value.
+#[test]
+fn bash_and_sushline_draw_the_zero_pending_numeric_argument() {
+    if !host_carries_measured_release() {
+        eprintln!(
+            "the pending argument rendering was measured on Readline 8.3, and the host carries another release, so this case reports nothing"
+        );
+        return;
+    }
+    let keys = b"\x1b0\r";
+    let bash = run_bash_readline(keys);
+    let sushline = run_sushline_harness(keys);
+
+    let bash_row = pending_argument_row("Bash", &bash, "(arg: 0)");
+    let sushline_row = pending_argument_row("Sushline", &sushline, "(arg: 0)");
+    assert_eq!(
+        bash_row, sushline_row,
+        "the drawn indicator must match the host"
+    );
+    assert_eq!(
+        bash_row, "(arg: 0)",
+        "the indicator must carry the pending argument"
+    );
+}
+
 /// The indicator grows with the pending argument.
 #[test]
 fn bash_and_sushline_draw_the_growing_pending_numeric_argument() {
+    if !host_carries_measured_release() {
+        eprintln!(
+            "the pending argument rendering was measured on Readline 8.3, and the host carries another release, so this case reports nothing"
+        );
+        return;
+    }
     let keys = b"\x1b3\x1b4\r";
     let bash = run_bash_readline(keys);
     let sushline = run_sushline_harness(keys);
@@ -1809,6 +1855,12 @@ fn bash_and_sushline_draw_the_growing_pending_numeric_argument() {
 /// The universal argument is drawn in place of the prompt.
 #[test]
 fn bash_and_sushline_draw_the_pending_universal_argument_in_place_of_the_prompt() {
+    if !host_carries_measured_release() {
+        eprintln!(
+            "the pending argument rendering was measured on Readline 8.3, and the host carries another release, so this case reports nothing"
+        );
+        return;
+    }
     let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
     let keys = b"\x0f\r";
     let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
@@ -1832,6 +1884,12 @@ fn bash_and_sushline_draw_the_pending_universal_argument_in_place_of_the_prompt(
 /// it as well (Bash 5.3 PTY observation).
 #[test]
 fn bash_and_sushline_replace_the_mode_indicator_with_the_pending_argument() {
+    if !host_carries_measured_release() {
+        eprintln!(
+            "the pending argument rendering was measured on Readline 8.3, and the host carries another release, so this case reports nothing"
+        );
+        return;
+    }
     let inputrc =
         "set editing-mode vi\nset show-mode-in-prompt on\n\"\\C-o\": universal-argument\n";
     let keys = b"\x0f";
@@ -1853,6 +1911,12 @@ fn bash_and_sushline_replace_the_mode_indicator_with_the_pending_argument() {
 /// The line's text follows the indicator.
 #[test]
 fn bash_and_sushline_draw_the_pending_numeric_argument_before_the_line_text() {
+    if !host_carries_measured_release() {
+        eprintln!(
+            "the pending argument rendering was measured on Readline 8.3, and the host carries another release, so this case reports nothing"
+        );
+        return;
+    }
     let keys = b"abc\x1b3\r";
     let bash = run_bash_readline(keys);
     let sushline = run_sushline_harness(keys);
@@ -1872,6 +1936,12 @@ fn bash_and_sushline_draw_the_pending_numeric_argument_before_the_line_text() {
 /// The sign-only prefix draws the sign of the pending argument.
 #[test]
 fn bash_and_sushline_draw_the_negative_pending_numeric_argument() {
+    if !host_carries_measured_release() {
+        eprintln!(
+            "the pending argument rendering was measured on Readline 8.3, and the host carries another release, so this case reports nothing"
+        );
+        return;
+    }
     let keys = b"\x1b-\r";
     let bash = run_bash_readline(keys);
     let sushline = run_sushline_harness(keys);

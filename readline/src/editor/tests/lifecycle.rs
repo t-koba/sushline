@@ -1226,7 +1226,7 @@ fn setup_failure_after_raw_entry_still_restores_terminal_mode() {
 #[test]
 fn positive_digit_overflow_resets_without_panic() {
     // A numeric argument may not exceed 1000000, as measured on GNU
-    // Readline 8.2: ESC + 13 nines fills the argument with six nines, the
+    // The host's Readline 8.3: ESC + 13 nines fills the argument with six nines, the
     // seventh exceeds the limit and resets the argument with a bell so no
     // huge repeat executes, and the six digits that follow the reset are
     // ordinary input, as they are on GNU. The editor dispatches the input
@@ -1272,7 +1272,7 @@ fn negative_digit_overflow_resets_without_panic() {
 
 #[test]
 fn numeric_argument_accepts_the_limit_and_resets_above_it() {
-    // The limit is the magnitude 1000000, as measured on GNU Readline 8.2:
+    // The limit is the magnitude 1000000, as measured on the Bash 5.3 host,
     // the argument of 1000000 is accepted without a bell, and the argument
     // of 10000001 exceeds the limit, so the bell rings and the argument is
     // reset. The digits of the argument are consumed either way, so the

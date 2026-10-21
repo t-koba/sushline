@@ -59,6 +59,22 @@ pub(super) fn is_documented(version: ReadlineVersion) -> bool {
     DOCUMENTED_VERSIONS.contains(&version)
 }
 
+/// The Readline release the host's rendering evidence was measured on.
+///
+/// The reference host carries Readline 8.3, the release the document
+/// targets, and the pending argument indicator it draws takes the place of
+/// the prompt, while the 8.2 release leaves the prompt on the screen, so a
+/// case that compares that rendering states the release it needs.
+pub(super) const MEASURED_RELEASE: ReadlineVersion = ReadlineVersion { major: 8, minor: 3 };
+
+/// Whether the host carries a given Readline release.
+///
+/// A case that compares a release-specific behavior cannot report evidence
+/// against another release, so it asks for the release first.
+pub(super) fn host_carries(version: ReadlineVersion) -> bool {
+    host_readline_version() == Some(version)
+}
+
 /// The Readline the host on `PATH` carries.
 ///
 /// The measurement needs the host's ELF image, so it reports nothing on a

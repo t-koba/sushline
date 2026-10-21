@@ -33,7 +33,9 @@ pub use history::expansion::{
     expand_history_with_status_with_state, get_history_event, history_arg_extract,
     history_tokenize,
 };
-pub use history::{History, HistoryDirection, HistoryEntry, HistorySearchMatch, HistoryState};
+pub use history::{
+    History, HistoryDirection, HistoryEntry, HistoryMultiline, HistorySearchMatch, HistoryState,
+};
 pub use hooks::{
     CommandContext, Edit, HistoryExpansionContext, Hooks, LineExpansionContext, QuoteContext,
     SpellCorrectionContext,

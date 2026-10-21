@@ -48,8 +48,7 @@ impl History {
     /// FROM/TO bounds count physical command lines and blank lines are not
     /// counted. For a FROM below TO the TO bound is exclusive; equal bounds
     /// select the command line at FROM, and a TO below FROM leaves the range
-    /// open to the end of the file. The selected lines are then grouped by the
-    /// policy.
+    /// open to the end of the file.
     pub fn read_file_range(
         path: impl AsRef<Path>,
         from: usize,
@@ -116,8 +115,7 @@ impl History {
     /// FROM/TO bounds count physical command lines and blank lines are not
     /// counted. For a FROM below TO the TO bound is exclusive; equal bounds
     /// select the command line at FROM, and a TO below FROM leaves the range
-    /// open to the end of the file. The selected lines are then grouped by the
-    /// policy.
+    /// open to the end of the file.
     pub fn load_file_range(
         &mut self,
         path: impl AsRef<Path>,
@@ -253,7 +251,12 @@ impl History {
     /// Truncate file.
     ///
     /// The file is read with the default per-physical-line grouping, so the
-    /// entries that are kept are the file's command lines.
+    /// entries that are kept are the file's command lines. The truncate is a
+    /// rewrite of the file from those entries, not an edit of its bytes: the
+    /// rewritten file has no blank lines, an unterminated trailing line is
+    /// dropped, and when the kept window starts inside a timestamp block the
+    /// block's timestamp record is dropped and the kept lines are written
+    /// without a timestamp.
     pub fn truncate_file(path: impl AsRef<Path>, max_len: usize) -> io::Result<()> {
         let path = path.as_ref();
         let dest = effective_write_path(path)?;

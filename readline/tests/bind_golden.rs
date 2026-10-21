@@ -775,7 +775,7 @@ fn compatibility_document_classifies_editor_bind_and_history_coverage() {
 
     for area in [
         "| Basic line editing | Mixed |",
-        "| Emacs keymap, bindable names, and `bind` | Compatible |",
+        "| Emacs keymap, bindable names, and `bind` | Mixed |",
         "| vi mode | Mixed |",
         "| Init file/inputrc | Mixed |",
         "| History navigation/search | Mixed |",

@@ -8,8 +8,8 @@ The compatibility target is GNU Readline 8.3 patch level 0 and GNU History
 Library behavior, limited to Sushline's Rust editor and history APIs. Oracle
 comparisons use GNU Bash 5.3 as a host, and the oracle suite requires that
 version on `PATH` and stops without evidence on any other host; the Readline
-library that host links is not asserted, so the oracle evidence is Bash runtime
-observation rather than proof of a Readline version.
+library that host links is not asserted by the suite, so the oracle evidence is
+Bash runtime observation rather than proof of a Readline version.
 Bash language, shell runtime, and builtin compatibility are not goals. The C
 ABI is out of scope. Claims below are limited to the cited oracle tests and
 their asserted fixtures; test modules are pointers to that evidence, not claims of complete
@@ -23,11 +23,10 @@ feature coverage.
 | Implemented | Implemented, but not audited enough to claim GNU-compatible behavior for the whole row. |
 | Implementation-specific | Implemented through Sushline's Rust model rather than GNU Readline/History internals; observable differences may exist outside the cited evidence. |
 | Sushline extension | Deliberate Sushline-only behavior or API, used only by explicit invocation/configuration; it does not alter GNU-default Readline behavior. |
-| Bash-provided | A name the Bash shell registers with Readline; the Readline library does not provide it. The row's notes give the editor's behavior for the name. |
 | Terminal-backed | Implemented through `TerminalIo`, terminfo-backed capabilities where available, and fixed ANSI helpers for the built-in terminal; exact bytes may still depend on terminal/backend capabilities. |
 | Mixed | The area contains multiple statuses; use the detailed rows below. |
 | Known deviation | A known observable behavior differs from the baseline. |
-| Hook-backed | The Readline command/mechanism is implemented; GNU-equivalent embedder-owned state or behavior is supplied through `Hooks`. |
+| Hook-backed | The command or mechanism is implemented; the GNU-equivalent embedder-owned state or behavior is supplied through `Hooks`. |
 | Not implemented | In the compatibility target, but missing or effectively inert. |
 | Untested | Implemented or partially implemented, but not verified enough to classify. |
 
@@ -96,10 +95,34 @@ and supplied through `Hooks` where applicable.
 ## User-Facing Readline Commands
 
 GNU command names below come from the Readline User Manual bindable-command
-sections; `history-expand-line`, `history-and-alias-expand-line` and
-`alias-expand-line` are provided by the Bash shell rather than by Readline, so
-they carry the `Bash-provided` status, and deliberate Sushline-only extensions
-use the `Sushline extension` status.
+sections. The names the Bash shell registers with Readline itself are the
+shell's own rather than GNU Readline commands, and the Readline library
+provides none of them: the history expansion names (`magic-space`,
+`history-expand-line`, `history-and-alias-expand-line`, `alias-expand-line`),
+the shell word names (`shell-forward-word`, `shell-backward-word`,
+`shell-kill-word`, `shell-backward-kill-word`, `shell-transpose-words`), the
+completion names (`complete-command`, `complete-filename`,
+`complete-hostname`, `complete-username`, `complete-variable`,
+`complete-into-braces`, `possible-command-completions`,
+`possible-filename-completions`, `possible-hostname-completions`,
+`possible-username-completions`, `possible-variable-completions`,
+`glob-complete-word`, `glob-expand-word`, `glob-list-expansions`,
+`dabbrev-expand`, `dynamic-complete-history`, `export-completions`,
+`bash-vi-complete`) and the application service names (`shell-expand-line`,
+`spell-correct-word`, `edit-and-execute-command`,
+`vi-edit-and-execute-command`, `display-shell-version`,
+`insert-last-argument`, `execute-named-command`). The baseline for those
+names is the Bash 5.3 host's own command, and the status column gives
+Sushline's behavior for every name.
+
+The classification was measured on that host: its `bind -l` output lists the
+Readline function names and the names the shell adds, and the difference
+against the Readline library's own function table is the shell's
+registrations. The host links its own static Readline rather than the
+installed Readline 8.2 library; the two hold the same command names, and
+neither holds the names above. The declared Readline 8.3 baseline has not
+been measured. Deliberate Sushline-only extensions use the `Sushline extension`
+status.
 
 ### Moving
 
@@ -119,8 +142,8 @@ use the `Sushline extension` status.
 | `reverse-search-history`, `forward-search-history`, `non-incremental-reverse-search-history`, `non-incremental-forward-search-history`, `non-incremental-forward-search-history-again`, `non-incremental-reverse-search-history-again` | Compatible | Direction, repeat, case, abort/accept, bells, quoting, prompt and query memory. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
 | `history-search-backward`, `history-search-forward`, `history-substring-search-backward`, `history-substring-search-forward` | Compatible | Direction, repeat, case, abort/accept, bell, and cursor behavior. Editor searches use locale-aware lowercase matching with `search-ignore-case` on and stay case-sensitive otherwise. Numeric counts repeat, reverse, or no-op with excessive counts stopping at the nearest match; prefix search skips the selected entry and failed forward search preserves the line; failed navigation rings once. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
 | `magic-space` | Compatible | Built-in expansion uses GNU-default policy; custom characters/policy are direct-API only. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
-| `history-expand-line` | Bash-provided | Bash registers the name with Readline and the Readline 8.2 library does not provide it (Bash 5.3 and Readline 8.2 observations). Built-in expansion uses GNU-default policy; custom characters/policy are direct-API only. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
-| `history-and-alias-expand-line`, `alias-expand-line` | Bash-provided | Bash registers the names with Readline and the Readline 8.2 library does not provide them (Bash 5.3 and Readline 8.2 observations). Alias expansion uses `Hooks::expand_aliases`. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
+| `history-expand-line` | Compatible | Built-in expansion uses GNU-default policy; custom characters/policy are direct-API only. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
+| `history-and-alias-expand-line`, `alias-expand-line` | Hook-backed | Alias expansion uses `Hooks::expand_aliases`. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
 | `yank-nth-arg`, `yank-last-arg`, `insert-last-argument` | Hook-backed | Shell words; exact application lexer words may come from `Hooks::shell_words`. Yanking with nothing to yank rings once; an out-of-range or explicitly negative word number rings instead of clamping, and 0 yanks the command word. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
 | `fetch-history` | Compatible | Numbered fetch; an out-of-range number (including 0) silently fetches the first entry, and an empty history stays put. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
 | `operate-and-get-next` | Compatible | Multi-read prefill including numeric arguments. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
@@ -280,6 +303,12 @@ use the `Sushline extension` status.
 | Inhibit-expansion callback | Compatible | Per-call predicate. Tests: [`history.rs`](history/tests/history.rs). |
 
 ## Editor History Expansion Commands
+
+The names below are the editor's history expansion commands. `magic-space`,
+`history-expand-line`, `history-and-alias-expand-line` and `alias-expand-line`
+are the shell-registered names of the User-Facing Readline Commands section
+above, so their baseline is the Bash 5.3 host's own command rather than a GNU
+Readline command. The status column gives the editor's behavior for each name.
 
 | Command(s) | Status | Notes |
 | --- | --- | --- |

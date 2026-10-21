@@ -33,7 +33,10 @@ list, and it names all three in its note, so the evidence carries the
 release it was measured on. The CI job builds the Readline release this
 document names from the upstream tarball and links the pinned Bash host
 against it, so the same suite runs against that release there as well. The
-job checks the release number the built library exports, that the built
+build asks the release's configure for the terminfo interface, the interface
+the reference host's Readline is built against, so the pinned library comes
+out with the same terminal interface. The job checks the release number the
+built library exports, that the built
 library links a terminfo library as the reference host does, and that the
 pinned host's command list holds the two names the 8.3 release adds, so a
 build of another release or of another terminal interface cannot pass as the

@@ -77,11 +77,17 @@ jobs:
             echo "$READLINE_ORACLE_SHA256  /tmp/readline-$READLINE_ORACLE_VERSION.tar.gz" | sha256sum --check --strict
             tar -xzf /tmp/readline-$READLINE_ORACLE_VERSION.tar.gz -C /tmp
             cd /tmp/readline-$READLINE_ORACLE_VERSION
-            # The release's own configure flags, with the prefix the job
-            # installs into. The terminal interface the build comes out
-            # with is part of the evidence's identity, because the oracle
-            # compares redisplay bytes, so it is checked after the build.
-            ./configure --prefix="$prefix"
+            # The prefix the job installs into, and the terminal interface
+            # the reference host's Readline is built against. The interface
+            # is part of the evidence's identity, because the oracle
+            # compares redisplay bytes, so the build asks the release's
+            # configure for the terminfo interface instead of leaving it to
+            # the release's default, and it is checked after the build.
+            configure_flags=(--prefix="$prefix")
+            if ./configure --help | grep -E -- '--with-curses' >/dev/null; then
+              configure_flags+=(--with-curses)
+            fi
+            ./configure "${configure_flags[@]}"
             make -j"$(nproc)"
             make install
           fi
@@ -105,8 +111,13 @@ jobs:
           test "$release" = "$READLINE_ORACLE_VERSION"
           # The terminal interface the library was built against is part of
           # the evidence's identity, so the build is checked to use the
-          # terminfo interface the reference host's Readline uses as well.
-          ldd "$prefix/lib/libreadline.so" | grep -E 'libtinfo|libncurses'
+          # terminfo interface the reference host's Readline is built
+          # against as well. A build that came out with another interface is
+          # named and stops the job.
+          if ! ldd "$prefix/lib/libreadline.so" | grep -E 'libtinfo|libncurses'; then
+            echo "the pinned Readline build did not link a terminfo library" >&2
+            exit 1
+          fi
       - name: Install the pinned bash oracle host
         run: |
           set -euo pipefail

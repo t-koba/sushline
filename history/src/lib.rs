@@ -218,6 +218,10 @@ impl History {
     }
 
     /// Add time.
+    ///
+    /// The value is the timestamp record's text, the `#`-plus-digits form the
+    /// reader recognizes and GNU writes, so a history written with
+    /// timestamps is a history the reader reads back with its timestamps.
     pub fn add_time(&mut self, timestamp: impl Into<String>) -> bool {
         let Some(entry) = self.entries.last_mut() else {
             return false;

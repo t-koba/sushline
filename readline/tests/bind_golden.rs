@@ -724,12 +724,18 @@ fn compatibility_document_classifies_editor_bind_and_history_coverage() {
         .lines()
         .filter(|line| line.starts_with('|') && line.contains("| Known deviation |"))
         .collect::<Vec<_>>();
-    assert!(
-        known_deviation_rows
-            .iter()
-            .any(|row| row.starts_with("| Signal install/catch/reraise |")),
-        "COMPATIBILITY.md must retain the | Signal install/catch/reraise | deviation"
-    );
+    for deviation in [
+        "| Signal install/catch/reraise |",
+        "| `~user` and recursive `$include` |",
+        "| `horizontal-scroll-mode` |",
+    ] {
+        assert!(
+            known_deviation_rows
+                .iter()
+                .any(|row| row.starts_with(deviation)),
+            "COMPATIBILITY.md must retain the {deviation} deviation"
+        );
+    }
     assert!(documented_rows.lines().any(|line| {
         line.starts_with("| Cell width and locale |")
             && line.contains("| Compatible |")
@@ -775,6 +781,7 @@ fn compatibility_document_classifies_editor_bind_and_history_coverage() {
 
     for area in [
         "| Basic line editing | Mixed |",
+        "| Completion | Mixed |",
         "| Emacs keymap, bindable names, and `bind` | Mixed |",
         "| vi mode | Mixed |",
         "| Init file/inputrc | Mixed |",

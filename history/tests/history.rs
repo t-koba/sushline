@@ -818,6 +818,24 @@ fn history_files_preserve_embedded_nul_bytes() {
 }
 
 #[test]
+fn timestamp_records_survive_a_write_and_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    let mut history = History::new();
+    history.push("echo one");
+    assert!(history.add_time("#1700000000"));
+    history.write_file_with_timestamps(&path, true).unwrap();
+
+    let loaded = History::read_file(&path).unwrap();
+    assert_eq!(loaded.entries().len(), 1);
+    assert_eq!(
+        loaded.entries()[0].timestamp.as_deref(),
+        Some("#1700000000")
+    );
+    assert_eq!(loaded.entries()[0].line(), "echo one");
+}
+
+#[test]
 fn treats_digits_with_trailing_junk_as_timestamp() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");

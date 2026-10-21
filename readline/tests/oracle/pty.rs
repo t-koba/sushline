@@ -5,6 +5,7 @@ use super::host::require_oracle_host;
 use portable_pty::{CommandBuilder, ExitStatus, NativePtySystem, PtySize, PtySystem};
 use std::fs;
 use std::io::{Read, Write};
+use std::path::Path;
 use std::process::Command;
 use std::sync::mpsc;
 use std::thread;
@@ -1094,6 +1095,80 @@ pub(super) fn run_pty_until_exit(
 
 pub(super) fn run_pty_with_size(command: CommandBuilder, keys: &[u8], size: PtySize) -> String {
     run_pty_with_size_until(command, keys, size, "SUSHLINE_ACCEPTED:")
+}
+
+/// Runs an interactive Bash whose standard error goes to a file, typing the
+/// given keys one at a time, and returns the terminal output with the file's
+/// contents.
+///
+/// The interactive shell is the only harness in which the host's
+/// `history-expand-line` function is bound and runs; the `read -r -e`
+/// harness leaves it inert. The prompt goes to standard error with the rest
+/// of the shell's output, so the keys are separated by a pause rather than
+/// by a prompt.
+pub(super) fn run_bash_interactive_with_sink(
+    keys: &[Vec<u8>],
+    inputrc: &Path,
+    sink: &Path,
+) -> (String, String) {
+    require_oracle_host();
+    let mut command = CommandBuilder::new("sh");
+    command.args([
+        "-c",
+        &format!(
+            "exec 2>{}; exec bash --noprofile --norc -i",
+            shell_single_quote(&sink.display().to_string())
+        ),
+    ]);
+    command.env("INPUTRC", inputrc.to_string_lossy().as_ref());
+    command.env("TERM", "xterm-256color");
+    command.cwd("/");
+    let pair = NativePtySystem::default()
+        .openpty(PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .expect("open pty");
+    let mut child = pair.slave.spawn_command(command).expect("spawn command");
+    drop(pair.slave);
+    let mut reader = pair.master.try_clone_reader().expect("pty reader");
+    let mut writer = pair.master.take_writer().expect("pty writer");
+    let (tx, rx) = mpsc::channel();
+    let reader_thread = thread::spawn(move || {
+        let mut buf = [0_u8; 1024];
+        while let Ok(n) = reader.read(&mut buf) {
+            if n == 0 || tx.send(buf[..n].to_vec()).is_err() {
+                break;
+            }
+        }
+    });
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut out = Vec::new();
+    for key in keys {
+        writer.write_all(key).expect("write key");
+        writer.flush().expect("flush key");
+        // The shell's prompt is on the redirected stream, so the next key
+        // waits for the editor to draw it.
+        thread::sleep(Duration::from_millis(300));
+    }
+    while Instant::now() < deadline {
+        match rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(chunk) => out.extend_from_slice(&chunk),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if child.try_wait().ok().flatten().is_some() {
+                    break;
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = reader_thread.join();
+    let sink = std::fs::read_to_string(sink).unwrap_or_default();
+    (String::from_utf8_lossy(&out).to_string(), sink)
 }
 
 pub(super) fn run_pty_until(command: CommandBuilder, keys: &[u8], stop_marker: &str) -> String {

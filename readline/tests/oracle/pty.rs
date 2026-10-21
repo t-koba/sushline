@@ -1210,9 +1210,14 @@ pub(super) fn run_pty_with_size(command: CommandBuilder, keys: &[u8], size: PtyS
     run_pty_with_size_until(command, keys, size, "SUSHLINE_ACCEPTED:")
 }
 
+/// The time the sink has to stay unchanged before the evidence is complete.
+///
+/// The host writes the failure and redraws the line right after it, so the
+/// sink is read once it has settled.
+const SINK_QUIET_PERIOD: Duration = Duration::from_millis(500);
+
 /// Runs an interactive Bash whose standard error goes to a file, typing the
-/// given keys one at a time, and returns the terminal output with the file's
-/// contents.
+/// given keys one at a time, and returns the file's contents.
 ///
 /// The interactive shell is the only harness in which the host's
 /// `history-expand-line` command is bound and runs; the `read -r -e`
@@ -1220,14 +1225,17 @@ pub(super) fn run_pty_with_size(command: CommandBuilder, keys: &[u8], size: PtyS
 /// of the shell's output, so the keys are separated by a pause rather than
 /// by a prompt.
 ///
-/// The wait ends as soon as the sink carries `expect`, because the evidence
-/// is complete then; the deadline only bounds a hang.
+/// The wait ends when the sink carries `expect` and has stopped changing:
+/// what the host writes after the expected text belongs to the evidence,
+/// because the host redraws the line after a failed expansion and that
+/// redraw shows that the line was left unchanged. The deadline only bounds
+/// a hang.
 pub(super) fn run_bash_interactive_with_sink(
     keys: &[Vec<u8>],
     inputrc: &Path,
     sink: &Path,
     expect: &str,
-) -> (String, String) {
+) -> String {
     require_oracle_host();
     let mut command = CommandBuilder::new("sh");
     command.args([
@@ -1249,7 +1257,6 @@ pub(super) fn run_bash_interactive_with_sink(
             pixel_height: 0,
         },
     );
-    let mut out = Vec::new();
     for key in keys {
         session.write(key);
         // The shell's prompt is on the redirected stream, so the next key
@@ -1257,27 +1264,34 @@ pub(super) fn run_bash_interactive_with_sink(
         thread::sleep(Duration::from_millis(300));
     }
     let deadline = Instant::now() + Duration::from_secs(15);
+    let mut last = String::new();
+    let mut changed = Instant::now();
+    let mut seen = false;
     while Instant::now() < deadline {
-        if sink_text(sink).contains(expect) {
+        let text = sink_text(sink);
+        let carries = text.contains(expect);
+        if !seen || text != last {
+            last = text;
+            changed = Instant::now();
+            seen = true;
+        } else if carries && changed.elapsed() >= SINK_QUIET_PERIOD {
+            // The expected text is there and nothing follows it.
             break;
         }
         if session.exited() {
             break;
         }
+        // The host writes to the redirected stream, so the terminal output
+        // carries none of the interaction; it is read to keep the child
+        // from blocking on a full terminal.
         match session.read(Duration::from_millis(50)) {
-            PtyOutput::Chunk(chunk) => out.extend_from_slice(&chunk),
+            PtyOutput::Chunk(_) => {}
             PtyOutput::Timeout => {}
             PtyOutput::Closed => break,
         }
     }
-    // The evidence is complete, but the child may have written more, so
-    // the screen shows the whole interaction.
-    while let PtyOutput::Chunk(chunk) = session.read(Duration::from_millis(50)) {
-        out.extend_from_slice(&chunk);
-    }
     session.finish();
-    let sink = sink_text(sink);
-    (String::from_utf8_lossy(&out).to_string(), sink)
+    sink_text(sink)
 }
 
 /// The current contents of the sink file.

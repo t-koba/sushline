@@ -2296,7 +2296,7 @@ fn bash_host_reports_a_failing_expansion_on_standard_error() {
     )
     .expect("write inputrc");
     let sink = dir.path().join("sink");
-    let (screen, sink) = run_bash_interactive_with_sink(
+    let sink = run_bash_interactive_with_sink(
         &[b"!missing".to_vec(), vec![0x0f]],
         &inputrc,
         &sink,
@@ -2306,8 +2306,21 @@ fn bash_host_reports_a_failing_expansion_on_standard_error() {
         sink.contains("!missing: event not found"),
         "bash sink: {sink}"
     );
-    // The failure text went to the sink, so the terminal did not show it.
-    assert!(!screen.contains("event not found"), "bash screen: {screen}");
+    // The command left the line unchanged, so the host redraws it after the
+    // failure. The shell's own expansion runs when the line is accepted and
+    // consumes the line instead, so the prompt that follows the failure
+    // would be empty. The redrawn line is therefore what tells the host's
+    // command apart from the shell's own expansion, and the case fails when
+    // the binding is dropped.
+    let after_failure = sink
+        .split_once("!missing: event not found")
+        .expect("the failure text must be on the sink")
+        .1;
+    let redrawn = after_failure.trim_start_matches(['\r', '\n']);
+    assert!(
+        redrawn.trim_end().ends_with("!missing"),
+        "the failed expansion must leave the line unchanged: bash sink: {sink}"
+    );
 }
 
 #[test]

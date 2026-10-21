@@ -109,7 +109,16 @@ jobs:
             # bytes, so the build is configured with the named options
             # instead of the release's defaults, and the library it comes
             # out with is checked after the build.
-            ./configure "${configure_flags[@]}"
+            # The configuration the job names is the configuration the
+            # build is given, and a configure that does not recognize an
+            # option reports it and carries on, so the configure's own
+            # report is checked and a build that ignored an option stops
+            # the job.
+            ./configure "${configure_flags[@]}" 2>&1 | tee /tmp/readline_configure.log
+            if grep -q 'unrecognized options' /tmp/readline_configure.log; then
+              echo "the pinned Readline configure did not accept: ${configure_flags[*]}" >&2
+              exit 1
+            fi
             make -j"$(nproc)"
             make install
             # The configuration the library was built with is recorded, so

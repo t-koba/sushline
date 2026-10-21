@@ -8,28 +8,35 @@ The compatibility target is GNU Readline 8.3 patch level 0 and GNU History
 Library behavior, limited to Sushline's Rust editor and history APIs. Oracle
 comparisons use GNU Bash 5.3 as a host, and the oracle suite requires that
 version on `PATH` and stops without evidence on any other host. The Readline
-the host carries is part of that baseline: the suite reads the release number
-the host's Readline exports
+the host carries is part of that baseline: the suite reads the release
+number and the version label the host's Readline carries
 ([`oracle/host.rs`](readline/tests/oracle/host.rs)), names the release it
-measured, and stops on a release the claims below do not cover, so the oracle
-evidence is scoped to a Readline release and not to Bash alone. The number is
-read from the host's own image when the host links Readline statically, in
-either the symbols it exports or the symbols it was built with, and from the
-library the host loads otherwise. A host whose release cannot be read, a
-host whose programs are not ELF images, is named by the suite and the suite
-continues there; the evidence of such a host is not scoped to a release. The host the
-claims were measured on links Readline statically and exports the release
-number 0x0803, the 8.3 release this document targets; the version string of
-that build reads 8.1, so the release number is what the version claim rests
-on. The CI job builds the Readline release this document names from the
-upstream tarball and links the pinned Bash host against it, so the same
-suite runs against that release there as well. The job checks the release
-number the built library exports and the two commands the 8.3 function
-table adds, so a build of another release cannot pass as the pinned one.
-The job also runs the output-stream probe against that pinned release, so
-the claim the output-stream row makes is measured on the release this
-document targets and not only observed on the 8.2 release the runner image
-ships.
+measured, and stops on a release the claims below do not cover, so the
+oracle evidence is scoped to a Readline release and not to Bash alone. The
+number is read from the host's own image when the host links Readline
+statically, in either the symbols it exports or the symbols it was built
+with, and from the library the host loads otherwise. A host whose release
+cannot be read, a host whose programs are not ELF images, is named by the
+suite and the suite continues there; the evidence of such a host is not
+scoped to a release. The host the claims were measured on links Readline
+statically and exports the release number 0x0803, the 8.3 release this
+document targets. Its library's own version label reads 8.1, so the image
+states the release two ways and the two disagree; the release identity rests
+on the release number, because the host's Readline holds the two commands
+the 8.3 release adds to the function table (`execute-named-command` and
+`export-completions`) and the 8.2 release's library holds neither, so the
+code is the 8.3 release and the label is stale. The suite reads the number,
+the label and the command names from the image that carries them and names
+them in its note, so the evidence carries the release it was measured on.
+The CI job builds the Readline release this document names from the upstream
+tarball and links the pinned Bash host against it, so the same suite runs
+against that release there as well. The job checks the release number the
+built library exports and the two commands the 8.3 function table adds, so a
+build of another release cannot pass as the pinned one; the suite reads the
+same signals from that library, so the job log names them as well. The job
+also runs the output-stream probe against that pinned release, so the claim
+the output-stream row makes is measured on the release this document targets
+and not only observed on the 8.2 release the runner image ships.
 The tarball's digest is not pinned in the job yet: the job prints the
 digest it fetched, and pinning that digest turns the fetch into a checked
 one.
@@ -138,8 +145,10 @@ names is the Bash 5.3 host's own command, and the status column gives
 Sushline's behavior for every name.
 
 The classification was measured on the development host, whose Bash links
-Readline 8.3 statically: its `bind -l` output lists the library's command
-names and the names the shell adds, and the difference is the shell's own.
+Readline statically and carries the 8.3 release; the scope above states the
+signals that release identity rests on. Its `bind -l` output lists the
+library's command names and the names the shell adds, and the difference is
+the shell's own.
 The Readline 8.3 function table is the 8.2 table plus the two commands the
 8.3 release notes add (`execute-named-command` and `export-completions`), and
 neither table holds a name above, so those two names are commands of the

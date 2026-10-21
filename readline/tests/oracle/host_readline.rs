@@ -14,6 +14,15 @@
 //! are read. A symbol the image does not define is skipped, because a
 //! program that loads Readline names the variable without defining it, and
 //! the number is in the library the program loads.
+//!
+//! An image states the release twice: the number the Readline header
+//! declares and the library's own version label. The two can disagree,
+//! because a build can carry a label that is not the release its code was
+//! built from, so the module reads both signals. It reads the commands the
+//! 8.3 release adds to the function table as well, because an image that
+//! holds them carries the 8.3 release's code whatever label it states. The
+//! evidence therefore carries the release it was measured on, the label the
+//! image states and the code the image holds.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -41,6 +50,11 @@ impl ReadlineVersion {
             major: (number >> 8) & 0xff,
             minor: number & 0xff,
         }
+    }
+
+    /// The number the Readline header declares for this release.
+    pub(super) fn number(&self) -> u32 {
+        (self.major << 8) | self.minor
     }
 }
 
@@ -70,6 +84,47 @@ pub(super) fn is_documented(version: ReadlineVersion) -> bool {
 /// case that compares that rendering states the release it needs.
 pub(super) const MEASURED_RELEASE: ReadlineVersion = ReadlineVersion { major: 8, minor: 3 };
 
+/// The commands the 8.3 release adds to the library's function table.
+///
+/// An image that holds these names carries the 8.3 release's code, so the
+/// names tell the code apart from an earlier release's, whatever version
+/// label the image states.
+const COMMANDS_ADDED_IN_83: [&str; 2] = ["execute-named-command", "export-completions"];
+
+/// What the image that carries the Readline states about it.
+#[derive(Clone, Debug)]
+pub(super) struct ReadlineIdentity {
+    /// The release the Readline header the image was built from declares.
+    pub(super) release: ReadlineVersion,
+    /// The library's own version label, when the image carries one.
+    pub(super) library_version: Option<String>,
+    /// Whether the image's code holds the commands the 8.3 release adds.
+    pub(super) carries_83_commands: bool,
+}
+
+impl ReadlineIdentity {
+    /// What the image states, in the words the suite's note uses.
+    ///
+    /// The image states the release twice, and the note names both signals
+    /// and the commands the image's code holds, so the evidence carries the
+    /// release it was measured on and the label the image states.
+    pub(super) fn note(&self) -> String {
+        let label = match &self.library_version {
+            Some(label) => format!(", library version label {label}"),
+            None => String::new(),
+        };
+        let commands = if self.carries_83_commands {
+            ", its function table holds the commands the 8.3 release adds"
+        } else {
+            ", its function table does not hold the commands the 8.3 release adds"
+        };
+        format!(
+            " (release number 0x{:04x}{label}{commands})",
+            self.release.number()
+        )
+    }
+}
+
 /// Whether the host carries a given Readline release.
 ///
 /// A case that compares a release-specific behavior cannot report evidence
@@ -78,17 +133,22 @@ pub(super) fn host_carries(version: ReadlineVersion) -> bool {
     host_readline_version() == Some(version)
 }
 
-/// The Readline the host on `PATH` carries.
+/// The Readline the host on `PATH` carries, as the image states it.
 ///
 /// The measurement needs the host's ELF image, so it reports nothing on a
 /// platform whose executables are not ELF images.
-pub(super) fn host_readline_version() -> Option<ReadlineVersion> {
+pub(super) fn host_readline_identity() -> Option<ReadlineIdentity> {
     let executable = host_executable()?;
-    if let Some(version) = release_number_in(&executable) {
-        return Some(version);
+    if let Some(identity) = identity_in(&executable) {
+        return Some(identity);
     }
     let library = linked_readline_library(&executable)?;
-    release_number_in(&library)
+    identity_in(&library)
+}
+
+/// The Readline release the host's image carries.
+pub(super) fn host_readline_version() -> Option<ReadlineVersion> {
+    host_readline_identity().map(|identity| identity.release)
 }
 
 /// The host program the oracle suite runs.
@@ -125,17 +185,36 @@ fn library_path(report: &str) -> Option<PathBuf> {
     })
 }
 
-/// The Readline release an ELF image carries.
+/// What the image that carries the Readline states about it.
 ///
 /// The library exports the release number as `rl_readline_version`, the
 /// value the Readline header declares for the release, so the number
-/// identifies the release the image was built from.
-fn release_number_in(image: &Path) -> Option<ReadlineVersion> {
+/// identifies the release the image was built from. The library also
+/// exports its own version label, and the image's code holds the commands
+/// the 8.3 release adds, so the image says three things about the release
+/// it carries.
+fn identity_in(image: &Path) -> Option<ReadlineIdentity> {
     let bytes = std::fs::read(image).ok()?;
     let elf = Elf::parse(&bytes)?;
     let address = elf.symbol_address("rl_readline_version")?;
     let number = elf.i32_at(address)? as u32;
-    Some(ReadlineVersion::from_release_number(number))
+    Some(ReadlineIdentity {
+        release: ReadlineVersion::from_release_number(number),
+        library_version: elf.library_version(),
+        carries_83_commands: COMMANDS_ADDED_IN_83
+            .iter()
+            .all(|command| image_holds(&bytes, command.as_bytes())),
+    })
+}
+
+/// Whether an image holds a string.
+///
+/// The command names the library's function table holds are strings in the
+/// image, so the image's own bytes say which commands its code knows.
+fn image_holds(bytes: &[u8], needle: &[u8]) -> bool {
+    !needle.is_empty()
+        && needle.len() <= bytes.len()
+        && bytes.windows(needle.len()).any(|window| window == needle)
 }
 
 /// A 64-bit little-endian ELF image.
@@ -249,6 +328,17 @@ impl<'a> Elf<'a> {
         std::str::from_utf8(rest.get(..end)?).ok()
     }
 
+    /// The library's own version label, when the image carries one.
+    ///
+    /// The library exports its version as a pointer to a string, so the
+    /// label is read by following the pointer into the image.
+    fn library_version(&self) -> Option<String> {
+        let address = self.symbol_address("rl_library_version")?;
+        let pointer = self.u64_at(self.file_offset(address)?)?;
+        let offset = self.file_offset(pointer)?;
+        self.string(offset).map(|label| label.to_string())
+    }
+
     /// The signed number an address holds.
     fn i32_at(&self, address: u64) -> Option<i32> {
         let offset = self.file_offset(address)?;
@@ -288,10 +378,29 @@ struct Section {
 
 #[cfg(test)]
 mod tests {
-    use super::{DYNAMIC_SYMBOLS, Elf, ReadlineVersion, STATIC_SYMBOLS, is_documented};
+    use super::{
+        DYNAMIC_SYMBOLS, Elf, ReadlineIdentity, ReadlineVersion, STATIC_SYMBOLS, image_holds,
+        is_documented,
+    };
 
     /// The address the release number is stored at in a test image.
     const NUMBER_ADDRESS: u64 = 0x1000;
+
+    /// The address the version label's pointer is stored at in a test image.
+    const LABEL_POINTER_ADDRESS: u64 = 0x1008;
+
+    /// The address the version label is stored at in a test image.
+    const LABEL_ADDRESS: u64 = 0x1100;
+
+    /// A symbol in a test image's symbol table.
+    struct Symbol {
+        /// The name the symbol table gives the symbol.
+        name: &'static str,
+        /// The address the symbol holds.
+        address: u64,
+        /// The section the symbol belongs to.
+        section: u16,
+    }
 
     /// Stores a number in a little-endian image.
     fn put_u16(image: &mut [u8], offset: usize, value: u16) {
@@ -309,12 +418,37 @@ mod tests {
     }
 
     /// Builds an ELF image that carries a release number in a symbol table.
-    ///
-    /// The image has the shape the reader expects: an ELF header, a program
-    /// header that maps the number's address to its file offset, a symbol
-    /// table with one entry, and the string table the entry names.
     fn elf_image_with_release_number(kind: u32, number: u32) -> Vec<u8> {
         elf_image_with_symbol(kind, number, 1)
+    }
+
+    /// Builds an ELF image that carries a release number and a version label.
+    ///
+    /// The label is a string the image holds and the symbol points at, so
+    /// the image states the release the way a library states it.
+    fn elf_image_with_library_version(kind: u32, number: u32, label: &str) -> Vec<u8> {
+        let mut label_bytes = label.as_bytes().to_vec();
+        label_bytes.push(0);
+        elf_image_with_symbols(
+            kind,
+            &[
+                Symbol {
+                    name: "rl_readline_version",
+                    address: NUMBER_ADDRESS,
+                    section: 1,
+                },
+                Symbol {
+                    name: "rl_library_version",
+                    address: LABEL_POINTER_ADDRESS,
+                    section: 1,
+                },
+            ],
+            &[
+                (NUMBER_ADDRESS, number.to_le_bytes().to_vec()),
+                (LABEL_POINTER_ADDRESS, LABEL_ADDRESS.to_le_bytes().to_vec()),
+                (LABEL_ADDRESS, label_bytes),
+            ],
+        )
     }
 
     /// Builds an ELF image whose symbol table names the release number.
@@ -322,7 +456,26 @@ mod tests {
     /// The section the symbol belongs to says whether the image defines the
     /// symbol, so an image that only names it can be built as well.
     fn elf_image_with_symbol(kind: u32, number: u32, section: u16) -> Vec<u8> {
+        elf_image_with_symbols(
+            kind,
+            &[Symbol {
+                name: "rl_readline_version",
+                address: NUMBER_ADDRESS,
+                section,
+            }],
+            &[(NUMBER_ADDRESS, number.to_le_bytes().to_vec())],
+        )
+    }
+
+    /// Builds an ELF image whose symbol table names the given symbols.
+    ///
+    /// The image has the shape the reader expects: an ELF header, a program
+    /// header that maps the data addresses to their file offsets, a symbol
+    /// table with the symbols, and the string table their names come from.
+    /// The data area holds the bytes the caller placed there.
+    fn elf_image_with_symbols(kind: u32, symbols: &[Symbol], data: &[(u64, Vec<u8>)]) -> Vec<u8> {
         const DATA_OFFSET: usize = 0x1000;
+        const DATA_SIZE: u64 = 0x200;
         const STRING_OFFSET: usize = 0x2000;
         const SYMBOL_OFFSET: usize = 0x2100;
         const HEADER_OFFSET: usize = 0x2200;
@@ -353,35 +506,46 @@ mod tests {
         put_u64(&mut image, 72, DATA_OFFSET as u64);
         put_u64(&mut image, 80, DATA_OFFSET as u64);
         put_u64(&mut image, 88, DATA_OFFSET as u64);
-        put_u64(&mut image, 96, 4); // The segment's size in the file.
-        put_u64(&mut image, 104, 4);
+        put_u64(&mut image, 96, DATA_SIZE); // The segment's size in the file.
+        put_u64(&mut image, 104, DATA_SIZE);
         put_u64(&mut image, 112, 1);
 
-        // The release number the symbol names.
-        put_u32(&mut image, DATA_OFFSET, number);
+        // The bytes the caller placed in the data area.
+        for (address, bytes) in data {
+            let offset = DATA_OFFSET + (*address as usize - DATA_OFFSET);
+            image[offset..offset + bytes.len()].copy_from_slice(bytes);
+        }
 
-        // The string table and the symbol that names the number.
-        let name = b"rl_readline_version";
+        // The string table and the symbols that name their addresses.
         image[STRING_OFFSET] = 0;
-        image[STRING_OFFSET + 1..STRING_OFFSET + 1 + name.len()].copy_from_slice(name);
-        put_u32(&mut image, SYMBOL_OFFSET, 1); // The name's offset.
-        image[SYMBOL_OFFSET + 4] = 0x11; // A global object.
-        put_u16(&mut image, SYMBOL_OFFSET + 6, section); // The section it belongs to.
-        put_u64(&mut image, SYMBOL_OFFSET + 8, DATA_OFFSET as u64);
-        put_u64(&mut image, SYMBOL_OFFSET + 16, 4);
+        let mut name_offset = 1;
+        let mut symbol_offset = SYMBOL_OFFSET;
+        for symbol in symbols {
+            let name = symbol.name.as_bytes();
+            image[STRING_OFFSET + name_offset..STRING_OFFSET + name_offset + name.len()]
+                .copy_from_slice(name);
+            image[STRING_OFFSET + name_offset + name.len()] = 0;
+            put_u32(&mut image, symbol_offset, name_offset as u32);
+            image[symbol_offset + 4] = 0x11; // A global object.
+            put_u16(&mut image, symbol_offset + 6, symbol.section);
+            put_u64(&mut image, symbol_offset + 8, symbol.address);
+            put_u64(&mut image, symbol_offset + 16, 8);
+            name_offset += name.len() + 1;
+            symbol_offset += 24;
+        }
 
         // The section headers: the symbol table, the string table, and the
         // null header every table starts with.
-        let symbols = HEADER_OFFSET + SECTION_SIZE;
-        put_u32(&mut image, symbols + 4, kind);
-        put_u64(&mut image, symbols + 24, SYMBOL_OFFSET as u64);
-        put_u64(&mut image, symbols + 32, 24); // One symbol.
-        put_u32(&mut image, symbols + 40, 2); // The string table's section.
-        put_u64(&mut image, symbols + 56, 24); // A symbol's own size.
-        let strings = HEADER_OFFSET + 2 * SECTION_SIZE;
-        put_u32(&mut image, strings + 4, 3); // The string table.
-        put_u64(&mut image, strings + 24, STRING_OFFSET as u64);
-        put_u64(&mut image, strings + 32, (1 + name.len() + 1) as u64);
+        let symbol_section = HEADER_OFFSET + SECTION_SIZE;
+        put_u32(&mut image, symbol_section + 4, kind);
+        put_u64(&mut image, symbol_section + 24, SYMBOL_OFFSET as u64);
+        put_u64(&mut image, symbol_section + 32, (24 * symbols.len()) as u64);
+        put_u32(&mut image, symbol_section + 40, 2); // The string table's section.
+        put_u64(&mut image, symbol_section + 56, 24); // A symbol's own size.
+        let string_section = HEADER_OFFSET + 2 * SECTION_SIZE;
+        put_u32(&mut image, string_section + 4, 3); // The string table.
+        put_u64(&mut image, string_section + 24, STRING_OFFSET as u64);
+        put_u64(&mut image, string_section + 32, name_offset as u64);
 
         image
     }
@@ -419,6 +583,42 @@ mod tests {
         let image = elf_image_with_symbol(DYNAMIC_SYMBOLS, 0x0803, 0);
         let elf = Elf::parse(&image).expect("the image is an ELF image");
         assert_eq!(elf.symbol_address("rl_readline_version"), None);
+    }
+
+    #[test]
+    fn the_library_version_label_is_read_from_the_image() {
+        let image = elf_image_with_library_version(DYNAMIC_SYMBOLS, 0x0803, "8.1");
+        let elf = Elf::parse(&image).expect("the image is an ELF image");
+        assert_eq!(elf.library_version(), Some("8.1".to_string()));
+    }
+
+    #[test]
+    fn an_image_without_a_version_label_reads_none() {
+        let image = elf_image_with_release_number(DYNAMIC_SYMBOLS, 0x0803);
+        let elf = Elf::parse(&image).expect("the image is an ELF image");
+        assert_eq!(elf.library_version(), None);
+    }
+
+    #[test]
+    fn the_commands_the_83_release_adds_are_looked_for_in_the_image() {
+        let image = b"a function table holds execute-named-command".to_vec();
+        assert!(image_holds(&image, b"execute-named-command"));
+        assert!(!image_holds(&image, b"export-completions"));
+        assert!(!image_holds(&image, b""));
+        assert!(!image_holds(&image, b"a command the image does not hold"));
+    }
+
+    #[test]
+    fn the_identity_note_names_both_signals_and_the_commands() {
+        let identity = ReadlineIdentity {
+            release: ReadlineVersion { major: 8, minor: 3 },
+            library_version: Some("8.1".to_string()),
+            carries_83_commands: true,
+        };
+        assert_eq!(
+            identity.note(),
+            " (release number 0x0803, library version label 8.1, its function table holds the commands the 8.3 release adds)"
+        );
     }
 
     #[test]

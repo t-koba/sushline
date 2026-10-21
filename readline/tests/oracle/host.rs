@@ -52,11 +52,13 @@ fn probe() -> Result<String, String> {
             ));
         }
     }
-    match host_readline::host_readline_version() {
-        Some(version) if host_readline::is_documented(version) => Ok(format!(
-            "the oracle host is GNU Bash {}.{} carrying Readline {version}{}",
+    match host_readline::host_readline_identity() {
+        Some(identity) if host_readline::is_documented(identity.release) => Ok(format!(
+            "the oracle host is GNU Bash {}.{} carrying Readline {}{}{}",
             REQUIRED_BASH_VERSION.0,
             REQUIRED_BASH_VERSION.1,
+            identity.release,
+            identity.note(),
             if host_readline::host_carries(host_readline::MEASURED_RELEASE) {
                 String::new()
             } else {
@@ -66,8 +68,9 @@ fn probe() -> Result<String, String> {
                 )
             }
         )),
-        Some(version) => Err(format!(
-            "the oracle host must carry a Readline the compatibility document covers, found Readline {version}"
+        Some(identity) => Err(format!(
+            "the oracle host must carry a Readline the compatibility document covers, found Readline {}",
+            identity.release
         )),
         None => Ok(format!(
             "the oracle host is GNU Bash {}.{}; its Readline release is not readable on this platform",

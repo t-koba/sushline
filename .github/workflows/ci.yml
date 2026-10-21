@@ -64,7 +64,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/sushline/readline-oracle
-          key: readline-${{ runner.os }}-${{ env.READLINE_ORACLE_VERSION }}-${{ env.READLINE_ORACLE_SHA256 }}-${{ env.READLINE_ORACLE_CONFIGURE_FLAGS }}
+          key: readline-${{ runner.os }}-${{ env.READLINE_ORACLE_VERSION }}-${{ env.READLINE_ORACLE_SHA256 }}-${{ env.READLINE_ORACLE_CONFIGURE_FLAGS }}-configure-accepted-v1
       - name: Cache the pinned bash oracle host
         uses: actions/cache@v4
         with:
@@ -81,12 +81,15 @@ jobs:
           # did not configure.
           marker="$prefix/build-configuration"
           configure_flags=(--prefix="$prefix" "$READLINE_ORACLE_CONFIGURE_FLAGS")
+          # This identity prevents a cached build from before the configure
+          # acceptance check from being reused as if it had passed the check.
+          configure_identity="configure-accepted-v1 ${configure_flags[*]}"
           recorded=""
           if [ -f "$marker" ]; then
             recorded=$(cat "$marker")
           fi
-          if [ ! -f "$prefix/lib/libreadline.so" ] || [ "$recorded" != "${configure_flags[*]}" ]; then
-            # Readline needs the terminfo headers and library to build. The
+          if [ ! -f "$prefix/lib/libreadline.so" ] || [ "$recorded" != "$configure_identity" ]; then
+            # This build needs the terminal-capability headers and library. The
             # runner image ships without package lists, so the index is
             # refreshed before the install.
             sudo apt-get update
@@ -123,9 +126,10 @@ jobs:
             make install
             # The configuration the library was built with is recorded, so
             # the next run knows which build it is looking at.
-            printf '%s\n' "${configure_flags[*]}" > "$marker"
+            printf '%s\n' "$configure_identity" > "$marker"
           fi
           echo "readline_configuration=${configure_flags[*]}"
+          echo "readline_configure_check=configure-accepted-v1"
           # The release the compatibility document names is the release the
           # library carries, so a build of another release cannot pass as
           # the pinned one.
@@ -154,7 +158,7 @@ jobs:
           # script fail on a variable it leaves unset, so the loader is
           # asked without them.
           if ! env -u SHELLOPTS ldd "$prefix/lib/libreadline.so" | grep -E 'libtinfo|libncurses'; then
-            echo "the pinned Readline build did not link a terminfo library" >&2
+            echo "the pinned Readline build did not link libtinfo or libncurses" >&2
             exit 1
           fi
       - name: Install the pinned bash oracle host
@@ -164,8 +168,8 @@ jobs:
           readline="$HOME/.cache/sushline/readline-oracle"
           # The host's line editor is the pinned Readline release, so the
           # headers the build needs come with that release and the runner
-          # image's own library is not installed here. The terminfo library
-          # the release was built against is still needed.
+          # image's own library is not installed here. The terminal-capability
+          # library used by the pinned Readline build is still needed.
           sudo apt-get update
           sudo apt-get install -y libncurses-dev
           # The linkage the configuration names is the linkage the build

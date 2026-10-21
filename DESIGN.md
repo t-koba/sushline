@@ -299,8 +299,9 @@ save timing remains controlled by the embedder.
 The embedder supplies:
 
 - Expanding prompts before passing them to `Editor::read_line`.
-- Initializing process locale state when the byte-wise completion fallback is
-  used. Completion sorting delegates ordering to libc `strcoll`;
+- Initializing process locale state when locale-sensitive completion ordering
+  is wanted. Completion sorting delegates ordering to libc `strcoll`, so the
+  candidates are ordered by the process locale whichever path matches them;
   `completion-ignore-case` matches filename candidates by whole scalars
   through the locale the editor owns from the environment when that locale is
   UTF-8, and otherwise falls back to a byte-wise mapping - libc `tolower` on

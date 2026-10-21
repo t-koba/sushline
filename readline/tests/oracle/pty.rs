@@ -2,7 +2,9 @@
 //! test infrastructure and do not assert an independent compatibility claim.
 
 use super::host::require_oracle_host;
-use portable_pty::{Child, CommandBuilder, ExitStatus, NativePtySystem, PtySize, PtySystem};
+use portable_pty::{
+    Child, CommandBuilder, ExitStatus, MasterPty, NativePtySystem, PtySize, PtySystem,
+};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -105,7 +107,10 @@ fn run_bash_interactive_after_ctrl_c_once_with_keys(keys: &[u8]) -> String {
     )
 }
 
-/// The hang bound the step drivers use.
+/// The hang bound the PTY drivers use.
+///
+/// The bound only limits a hang: a driver returns as soon as its own
+/// evidence is complete.
 pub(super) const PTY_HANG_BOUND: Duration = Duration::from_secs(15);
 
 /// A PTY session that owns the child's lifetime.
@@ -115,6 +120,11 @@ pub(super) const PTY_HANG_BOUND: Duration = Duration::from_secs(15);
 /// evidence is complete.
 struct PtySession {
     child: Box<dyn Child + Send + Sync>,
+    /// The PTY master, kept open for the session's lifetime so that its
+    /// file descriptor stays valid for a driver that has to change the
+    /// terminal's settings.
+    #[cfg_attr(not(unix), allow(dead_code))]
+    master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
     output: mpsc::Receiver<Vec<u8>>,
     reader: Option<thread::JoinHandle<()>>,
@@ -154,6 +164,7 @@ impl PtySession {
         });
         Self {
             child,
+            master: pair.master,
             writer,
             output: rx,
             reader: Some(reader_thread),
@@ -178,6 +189,25 @@ impl PtySession {
     /// Whether the child has exited.
     fn exited(&mut self) -> bool {
         self.child.try_wait().ok().flatten().is_some()
+    }
+
+    /// The PTY master's file descriptor.
+    ///
+    /// The master stays open for the session's lifetime, so the descriptor
+    /// is valid while the session runs. A driver that has to change the
+    /// terminal's settings needs it.
+    #[cfg(unix)]
+    fn master_fd(&self) -> std::os::unix::io::RawFd {
+        self.master.as_raw_fd().expect("PTY master file descriptor")
+    }
+
+    /// The child's exit status, if it has exited.
+    ///
+    /// The check does not block: a driver that waits for the child polls
+    /// it, and a driver that only asks whether the child is still alive
+    /// reads `None`.
+    fn child_exit_status(&mut self) -> Option<ExitStatus> {
+        self.child.try_wait().ok().flatten()
     }
 
     /// Ends the session: the child is killed and the reader thread joined.
@@ -960,38 +990,17 @@ fn run_pty_with_canonical_paste_eof(mut command: CommandBuilder, suffix: &[u8]) 
     require_oracle_host();
     command.env("TERM", "xterm-256color");
     command.cwd("/");
-    let pty_system = NativePtySystem::default();
-    let pair = pty_system
-        .openpty(PtySize {
+    let mut session = PtySession::spawn(
+        command,
+        PtySize {
             rows: 24,
             cols: 80,
             pixel_width: 0,
             pixel_height: 0,
-        })
-        .expect("open pty");
-    let mut child = pair.slave.spawn_command(command).expect("spawn command");
-    drop(pair.slave);
-
-    let master_fd = pair.master.as_raw_fd().expect("PTY master file descriptor");
-    let mut reader = pair.master.try_clone_reader().expect("pty reader");
-    let mut writer = pair.master.take_writer().expect("pty writer");
-    let (tx, rx) = mpsc::channel();
-    let reader_thread = thread::spawn(move || {
-        let mut buf = [0_u8; 1024];
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    if tx.send(buf[..n].to_vec()).is_err() {
-                        break;
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-    });
-
-    let deadline = Instant::now() + Duration::from_secs(15);
+        },
+    );
+    let master_fd = session.master_fd();
+    let deadline = Instant::now() + PTY_HANG_BOUND;
     let mut output = Vec::new();
     let mut sent_eof_input = false;
     let mut eof_checkpoint_seen = false;
@@ -1001,8 +1010,8 @@ fn run_pty_with_canonical_paste_eof(mut command: CommandBuilder, suffix: &[u8]) 
     let mut sent_followup = false;
 
     while Instant::now() < deadline {
-        match rx.recv_timeout(Duration::from_millis(20)) {
-            Ok(chunk) => {
+        match session.read(Duration::from_millis(20)) {
+            PtyOutput::Chunk(chunk) => {
                 output.extend_from_slice(&chunk);
                 if !sent_eof_input && find_bytes(&output, READY_PROMPT.as_bytes()).is_some() {
                     let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
@@ -1029,42 +1038,31 @@ fn run_pty_with_canonical_paste_eof(mut command: CommandBuilder, suffix: &[u8]) 
                     let mut paste = b"\x1b[200~partial".to_vec();
                     paste.extend_from_slice(suffix);
                     paste.extend_from_slice(b"\x04\x04");
-                    writer
-                        .write_all(&paste)
-                        .expect("write paste and VEOF bytes");
-                    writer.flush().expect("flush paste and VEOF bytes");
+                    session.write(&paste);
                     sent_eof_input = true;
                 }
                 if sent_eof_input && !sent_followup && find_bytes(&output, b"partial").is_some() {
                     eof_checkpoint_seen = true;
                     accepted_before_followup = find_bytes(&output, b"SUSHLINE_ACCEPTED:").is_some();
-                    child_alive_at_eof_checkpoint = child
-                        .try_wait()
-                        .expect("check child after true EOF")
-                        .is_none();
+                    child_alive_at_eof_checkpoint = session.child_exit_status().is_none();
                     let mut probe = std::mem::MaybeUninit::<libc::termios>::uninit();
                     master_open_at_eof_checkpoint =
                         unsafe { libc::tcgetattr(master_fd, probe.as_mut_ptr()) == 0 };
-                    writer.write_all(b"\n").expect("write post-EOF newline");
-                    writer.flush().expect("flush post-EOF newline");
+                    session.write(b"\n");
                     sent_followup = true;
                 }
                 if stop_marker_line_complete(&output, "SUSHLINE_ACCEPTED:") {
                     break;
                 }
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            PtyOutput::Timeout => {}
+            PtyOutput::Closed => break,
         }
     }
 
     let saw_accepted_line = stop_marker_line_complete(&output, "SUSHLINE_ACCEPTED:");
     let output_text = lossy_output(&output);
-    let _ = child.kill();
-    let _ = child.wait();
-    drop(writer);
-    drop(pair.master);
-    let _ = reader_thread.join();
+    session.finish();
 
     assert!(sent_eof_input, "PTY prompt not observed: {output_text}");
     assert!(
@@ -1154,55 +1152,41 @@ pub(super) fn run_pty_until_exit(
     require_oracle_host();
     command.env("TERM", "xterm-256color");
     command.cwd("/");
-    let pair = NativePtySystem::default().openpty(size).expect("open pty");
-    let mut child = pair.slave.spawn_command(command).expect("spawn command");
-    drop(pair.slave);
-    let mut reader = pair.master.try_clone_reader().expect("pty reader");
-    let (tx, rx) = mpsc::channel();
-    let reader_thread = thread::spawn(move || {
-        let mut buf = [0_u8; 1024];
-        while let Ok(n) = reader.read(&mut buf) {
-            if n == 0 || tx.send(buf[..n].to_vec()).is_err() {
-                break;
-            }
-        }
-    });
-    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut session = PtySession::spawn(command, size);
+    let deadline = Instant::now() + PTY_HANG_BOUND;
     let mut out = Vec::new();
     while Instant::now() < deadline {
-        match rx.recv_timeout(Duration::from_millis(50)) {
-            Ok(chunk) => out.extend_from_slice(&chunk),
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                if child.try_wait().ok().flatten().is_some() {
+        match session.read(Duration::from_millis(50)) {
+            PtyOutput::Chunk(chunk) => out.extend_from_slice(&chunk),
+            PtyOutput::Timeout => {
+                if session.child_exit_status().is_some() {
                     break;
                 }
             }
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            PtyOutput::Closed => break,
         }
     }
     // The child has exited, but the reader may still hold chunks that the
     // loop did not receive, so the channel is drained until the reader ends.
-    if child.try_wait().ok().flatten().is_some() {
+    if session.child_exit_status().is_some() {
         let drain_deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < drain_deadline {
-            match rx.recv_timeout(Duration::from_millis(50)) {
-                Ok(chunk) => out.extend_from_slice(&chunk),
-                Err(mpsc::RecvTimeoutError::Timeout) => continue,
-                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            match session.read(Duration::from_millis(50)) {
+                PtyOutput::Chunk(chunk) => out.extend_from_slice(&chunk),
+                PtyOutput::Timeout => continue,
+                PtyOutput::Closed => break,
             }
         }
     }
     // The reader stops at the end of the output, which can precede the
     // child's exit, so the status is polled for a short while.
-    let mut status = child.try_wait().ok().flatten();
+    let mut status = session.child_exit_status();
     let status_deadline = Instant::now() + Duration::from_secs(5);
     while status.is_none() && Instant::now() < status_deadline {
         thread::sleep(Duration::from_millis(20));
-        status = child.try_wait().ok().flatten();
+        status = session.child_exit_status();
     }
-    let _ = child.kill();
-    let _ = child.wait();
-    let _ = reader_thread.join();
+    session.finish();
     (String::from_utf8_lossy(&out).to_string(), status)
 }
 
@@ -1263,7 +1247,7 @@ pub(super) fn run_bash_interactive_with_sink(
         // waits for the editor to draw it.
         thread::sleep(Duration::from_millis(300));
     }
-    let deadline = Instant::now() + Duration::from_secs(15);
+    let deadline = Instant::now() + PTY_HANG_BOUND;
     let mut last = String::new();
     let mut changed = Instant::now();
     let mut seen = false;
@@ -1414,7 +1398,8 @@ pub(super) fn run_pty_steps_until_with_timeout(
 /// reads, use a distinct prompt per read: redisplay can repeat the current
 /// prompt, so another occurrence of a shared prompt is not a new-read barrier.
 /// Success returns once `stop_marker` has appeared `stop_count` times with the
-/// final occurrence line-complete. The 15 s hang bound matches the other drivers.
+/// final occurrence line-complete. The hang bound is the one the other
+/// drivers use.
 pub(super) fn run_pty_steps_in_dir_with_size_raw_until_count(
     mut command: CommandBuilder,
     steps: &[(&str, &[u8])],
@@ -1428,55 +1413,29 @@ pub(super) fn run_pty_steps_in_dir_with_size_raw_until_count(
     require_oracle_host();
     command.env("TERM", "xterm-256color");
     command.cwd(cwd);
-    let pty_system = NativePtySystem::default();
-    let pair = pty_system.openpty(size).expect("open pty");
-
-    let mut child = pair.slave.spawn_command(command).expect("spawn command");
-    drop(pair.slave);
-
-    let mut reader = pair.master.try_clone_reader().expect("pty reader");
-    let mut writer = pair.master.take_writer().expect("pty writer");
-    let (tx, rx) = mpsc::channel();
-    let reader_thread = thread::spawn(move || {
-        let mut buf = [0_u8; 1024];
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    if tx.send(buf[..n].to_vec()).is_err() {
-                        break;
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-    });
-    // Same hang bound as the other drivers; batched groups stay far under it.
+    let mut session = PtySession::spawn(command, size);
     let deadline = Instant::now() + timeout;
     let mut out = Vec::new();
     let mut next_step = 0;
     let mut scan_start = 0;
 
     while Instant::now() < deadline {
-        match rx.recv_timeout(Duration::from_millis(20)) {
-            Ok(chunk) => {
+        match session.read(Duration::from_millis(20)) {
+            PtyOutput::Chunk(chunk) => {
                 out.extend_from_slice(&chunk);
                 if let Some(keys) = take_pty_step(&out, steps, &mut next_step, &mut scan_start) {
-                    writer.write_all(keys).expect("write keys");
-                    writer.flush().expect("flush keys");
+                    session.write(keys);
                 }
                 if stop_marker_count_line_complete(&out, stop_marker, stop_count) {
                     break;
                 }
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            PtyOutput::Timeout => {}
+            PtyOutput::Closed => break,
         }
     }
 
-    let _ = child.kill();
-    let _ = child.wait();
-    let _ = reader_thread.join();
+    session.finish();
     out
 }
 
@@ -1603,9 +1562,9 @@ fn run_pty_with_size_until_after_prompt_inner_raw<F: FnOnce()>(
     let mut session = PtySession::spawn(command, size);
     // Poll the reader thread so the deadline stays effective while the child
     // starts slowly on a loaded runner; a blocking read would ignore it.
-    // The generous timeout only binds the failure path: success returns on
-    // the stop marker in well under a second.
-    let deadline = Instant::now() + Duration::from_secs(15);
+    // The hang bound only binds the failure path: success returns on the
+    // stop marker in well under a second.
+    let deadline = Instant::now() + PTY_HANG_BOUND;
     let mut out = Vec::new();
     let mut sent_keys = false;
 
@@ -1734,29 +1693,16 @@ pub(super) fn run_pty_checkpoints_raw(
     require_oracle_host();
     command.env("TERM", "xterm-256color");
     command.cwd("/");
-    let pair = NativePtySystem::default().openpty(size).expect("open pty");
-    let mut child = pair.slave.spawn_command(command).expect("spawn command");
-    drop(pair.slave);
-    let mut reader = pair.master.try_clone_reader().expect("pty reader");
-    let mut writer = pair.master.take_writer().expect("pty writer");
-    let (tx, rx) = mpsc::channel();
-    let reader_thread = thread::spawn(move || {
-        let mut buf = [0; 4096];
-        while let Ok(n) = reader.read(&mut buf) {
-            if n == 0 || tx.send(buf[..n].to_vec()).is_err() {
-                break;
-            }
-        }
-    });
-    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut session = PtySession::spawn(command, size);
+    let deadline = Instant::now() + PTY_HANG_BOUND;
     let mut output = Vec::new();
     let mut frames = Vec::new();
     let mut sent = 0;
     let mut scan_start = 0;
     let mut ready = false;
     while frames.len() < steps.len() && Instant::now() < deadline {
-        match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-            Ok(chunk) => {
+        match session.read(deadline.saturating_duration_since(Instant::now())) {
+            PtyOutput::Chunk(chunk) => {
                 output.extend_from_slice(&chunk);
                 let send_next = if !ready {
                     ready = find_bytes(&output, prompt.as_bytes()).is_some();
@@ -1769,18 +1715,18 @@ pub(super) fn run_pty_checkpoints_raw(
                 };
                 if send_next && sent < steps.len() {
                     scan_start = output.len();
-                    writer.write_all(&steps[sent]).expect("write keys");
-                    writer.write_all(b"\x07").expect("write abort barrier");
-                    writer.flush().expect("flush keys and barrier");
+                    // The step and its barrier travel together, so the
+                    // barrier cannot arrive before the step's redisplay.
+                    let mut keys = steps[sent].clone();
+                    keys.extend_from_slice(b"\x07");
+                    session.write(&keys);
                     sent += 1;
                 }
             }
-            Err(mpsc::RecvTimeoutError::Timeout | mpsc::RecvTimeoutError::Disconnected) => break,
+            PtyOutput::Timeout | PtyOutput::Closed => break,
         }
     }
-    let _ = child.kill();
-    let _ = child.wait();
-    let _ = reader_thread.join();
+    session.finish();
     assert_eq!(
         frames.len(),
         steps.len(),

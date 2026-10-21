@@ -1762,6 +1762,29 @@ fn bash_readline_and_sushline_reset_a_numeric_argument_above_the_limit() {
 }
 
 #[test]
+fn bash_and_sushline_reset_a_universal_argument_above_the_limit() {
+    // The universal argument obeys the same limit as the digit argument:
+    // 4^10 exceeds 1000000, so the tenth universal argument rings the bell
+    // and resets the argument, and the `a` that follows is inserted once.
+    // Runtime observation against the tested Bash 5.3 host, not GNU source
+    // proof.
+    let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
+    let mut keys = vec![0x0f; 10];
+    keys.extend_from_slice(b"a\r");
+    let bash = run_bash_readline_with_inputrc_file(&keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(&keys, inputrc);
+
+    assert_eq!(accepted_line(&bash), Some("a".to_string()), "{bash}");
+    assert_eq!(bell_count(&bash), 1, "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(bell_count(&sushline), bell_count(&bash), "{sushline}");
+}
+
+#[test]
 fn bash_readline_and_sushline_ignore_negative_numeric_self_insert() {
     // A negative repeat count inserts nothing in the tested Bash 5.3 PTY
     // fixtures. Runtime observation, not GNU source proof.

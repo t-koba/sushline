@@ -153,7 +153,7 @@ use the `Sushline extension` status.
 
 | Command(s) | Status | Notes |
 | --- | --- | --- |
-| `digit-argument`, `universal-argument` | Compatible | Multi-digit chaining, sign handling, and universal-argument composition. A numeric argument may not exceed 1000000: a larger one rings the bell and resets the argument, and the digits that follow the reset are ordinary text (Bash 5.3 and Readline 8.2 observations). Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
+| `digit-argument`, `universal-argument` | Compatible | Multi-digit chaining, sign handling, and universal-argument composition. A numeric argument may not exceed 1000000, the universal argument included: a larger one rings the bell and resets the argument, and the digits that follow the reset are ordinary text (Bash 5.3 and Readline 8.2 observations). Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `start-kbd-macro`, `end-kbd-macro` | Compatible | A recording without an argument starts a fresh definition, an unfinished recording continues across prompts, and a replay that accepts a line continues in the next prompt. Explicit start and end counts follow the append/replay, no-op, invalidation, abort, and nesting behavior with matching bells and diagnostics. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `call-last-kbd-macro` | Compatible | Default and counted calls, with no-definition and nesting-exhaustion bells. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `print-last-kbd-macro` | Compatible | Recorded macro output. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |

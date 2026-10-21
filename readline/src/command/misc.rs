@@ -127,11 +127,11 @@ where
                 {
                     state.numeric_arg_universal_noop = false;
                     match state.numeric_arg.unwrap_or(1).checked_mul(4) {
-                        Some(next) => {
+                        Some(next) if next.unsigned_abs() <= MAX_NUMERIC_ARGUMENT as u32 => {
                             state.numeric_arg = Some(next);
                             state.numeric_arg_universal = true;
                         }
-                        None => {
+                        _ => {
                             state.take_numeric_arg();
                             self.ding()?;
                         }

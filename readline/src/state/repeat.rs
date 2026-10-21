@@ -78,7 +78,7 @@ pub(crate) fn repeat_count(arg: Option<i32>) -> u32 {
 /// Measured on GNU Readline 8.2: an argument of 1000000 is accepted without
 /// a bell, while a larger one rings the bell and resets the argument, so the
 /// digits that follow the reset are ordinary text.
-const MAX_NUMERIC_ARGUMENT: i32 = 1_000_000;
+pub(crate) const MAX_NUMERIC_ARGUMENT: i32 = 1_000_000;
 
 /// Update the pending numeric argument from a digit/minus key.
 ///

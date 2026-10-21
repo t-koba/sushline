@@ -1312,11 +1312,13 @@ fn numeric_argument_accepts_the_limit_and_resets_above_it() {
 
 #[test]
 fn repeated_universal_argument_overflow_resets_without_panic() {
-    // 4^16 overflows i32: 15 C-u reach 1073741824, the 16th must reset
-    // with a bell instead of panicking (debug) or wrapping to 0 (release).
-    // With reset the following `a` inserts once; wrap would insert zero.
+    // The universal argument obeys the same limit as the digit argument:
+    // 4^9 is 262144 and 4^10 is 1048576, which exceeds 1000000, so the
+    // tenth universal argument must reset with a bell instead of panicking
+    // (debug) or wrapping to 0 (release). With reset the following `a`
+    // inserts once; wrap would insert zero.
     let mut events = Vec::new();
-    for _ in 0..16 {
+    for _ in 0..10 {
         events.push(crate::terminal::TerminalEvent::Bytes(vec![0x15]));
     }
     events.push(crate::terminal::TerminalEvent::Bytes(b"a".to_vec()));

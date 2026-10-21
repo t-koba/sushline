@@ -2296,8 +2296,12 @@ fn bash_host_reports_a_failing_expansion_on_standard_error() {
     )
     .expect("write inputrc");
     let sink = dir.path().join("sink");
-    let (screen, sink) =
-        run_bash_interactive_with_sink(&[b"!missing".to_vec(), vec![0x0f]], &inputrc, &sink);
+    let (screen, sink) = run_bash_interactive_with_sink(
+        &[b"!missing".to_vec(), vec![0x0f]],
+        &inputrc,
+        &sink,
+        "!missing: event not found",
+    );
     assert!(
         sink.contains("!missing: event not found"),
         "bash sink: {sink}"

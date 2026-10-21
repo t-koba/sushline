@@ -2,7 +2,7 @@
 //! test infrastructure and do not assert an independent compatibility claim.
 
 use super::host::require_oracle_host;
-use portable_pty::{CommandBuilder, ExitStatus, NativePtySystem, PtySize, PtySystem};
+use portable_pty::{Child, CommandBuilder, ExitStatus, NativePtySystem, PtySize, PtySystem};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -107,6 +107,88 @@ fn run_bash_interactive_after_ctrl_c_once_with_keys(keys: &[u8]) -> String {
 
 /// The hang bound the step drivers use.
 pub(super) const PTY_HANG_BOUND: Duration = Duration::from_secs(15);
+
+/// A PTY session that owns the child's lifetime.
+///
+/// The helpers share the openpty, spawn, reader thread, deadline and kill
+/// body, so the lifecycle lives here and each helper decides when its own
+/// evidence is complete.
+struct PtySession {
+    child: Box<dyn Child + Send + Sync>,
+    writer: Box<dyn Write + Send>,
+    output: mpsc::Receiver<Vec<u8>>,
+    reader: Option<thread::JoinHandle<()>>,
+}
+
+/// What a read from a [`PtySession`] returned.
+enum PtyOutput {
+    /// The child wrote these bytes.
+    Chunk(Vec<u8>),
+    /// The child wrote nothing within the timeout.
+    Timeout,
+    /// The child closed its output.
+    Closed,
+}
+
+impl PtySession {
+    fn spawn(command: CommandBuilder, size: PtySize) -> Self {
+        let pair = NativePtySystem::default().openpty(size).expect("open pty");
+        let child = pair.slave.spawn_command(command).expect("spawn command");
+        drop(pair.slave);
+        let mut reader = pair.master.try_clone_reader().expect("pty reader");
+        let writer = pair.master.take_writer().expect("pty writer");
+        let (tx, rx) = mpsc::channel();
+        let reader_thread = thread::spawn(move || {
+            let mut buf = [0_u8; 1024];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        if tx.send(buf[..n].to_vec()).is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        Self {
+            child,
+            writer,
+            output: rx,
+            reader: Some(reader_thread),
+        }
+    }
+
+    /// Writes the bytes to the child's terminal.
+    fn write(&mut self, bytes: &[u8]) {
+        self.writer.write_all(bytes).expect("write keys");
+        self.writer.flush().expect("flush keys");
+    }
+
+    /// Reads what the child wrote, waiting at most `timeout`.
+    fn read(&mut self, timeout: Duration) -> PtyOutput {
+        match self.output.recv_timeout(timeout) {
+            Ok(chunk) => PtyOutput::Chunk(chunk),
+            Err(mpsc::RecvTimeoutError::Timeout) => PtyOutput::Timeout,
+            Err(mpsc::RecvTimeoutError::Disconnected) => PtyOutput::Closed,
+        }
+    }
+
+    /// Whether the child has exited.
+    fn exited(&mut self) -> bool {
+        self.child.try_wait().ok().flatten().is_some()
+    }
+
+    /// Ends the session: the child is killed and the reader thread joined.
+    fn finish(mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        if let Some(reader) = self.reader.take() {
+            let _ = reader.join();
+        }
+    }
+}
 
 /// The hang bound for the interrupt case.
 ///
@@ -1137,10 +1219,14 @@ pub(super) fn run_pty_with_size(command: CommandBuilder, keys: &[u8], size: PtyS
 /// harness leaves it inert. The prompt goes to standard error with the rest
 /// of the shell's output, so the keys are separated by a pause rather than
 /// by a prompt.
+///
+/// The wait ends as soon as the sink carries `expect`, because the evidence
+/// is complete then; the deadline only bounds a hang.
 pub(super) fn run_bash_interactive_with_sink(
     keys: &[Vec<u8>],
     inputrc: &Path,
     sink: &Path,
+    expect: &str,
 ) -> (String, String) {
     require_oracle_host();
     let mut command = CommandBuilder::new("sh");
@@ -1154,52 +1240,49 @@ pub(super) fn run_bash_interactive_with_sink(
     command.env("INPUTRC", inputrc.to_string_lossy().as_ref());
     command.env("TERM", "xterm-256color");
     command.cwd("/");
-    let pair = NativePtySystem::default()
-        .openpty(PtySize {
+    let mut session = PtySession::spawn(
+        command,
+        PtySize {
             rows: 24,
             cols: 80,
             pixel_width: 0,
             pixel_height: 0,
-        })
-        .expect("open pty");
-    let mut child = pair.slave.spawn_command(command).expect("spawn command");
-    drop(pair.slave);
-    let mut reader = pair.master.try_clone_reader().expect("pty reader");
-    let mut writer = pair.master.take_writer().expect("pty writer");
-    let (tx, rx) = mpsc::channel();
-    let reader_thread = thread::spawn(move || {
-        let mut buf = [0_u8; 1024];
-        while let Ok(n) = reader.read(&mut buf) {
-            if n == 0 || tx.send(buf[..n].to_vec()).is_err() {
-                break;
-            }
-        }
-    });
-    let deadline = Instant::now() + Duration::from_secs(15);
+        },
+    );
     let mut out = Vec::new();
     for key in keys {
-        writer.write_all(key).expect("write key");
-        writer.flush().expect("flush key");
+        session.write(key);
         // The shell's prompt is on the redirected stream, so the next key
         // waits for the editor to draw it.
         thread::sleep(Duration::from_millis(300));
     }
+    let deadline = Instant::now() + Duration::from_secs(15);
     while Instant::now() < deadline {
-        match rx.recv_timeout(Duration::from_millis(100)) {
-            Ok(chunk) => out.extend_from_slice(&chunk),
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                if child.try_wait().ok().flatten().is_some() {
-                    break;
-                }
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        if sink_text(sink).contains(expect) {
+            break;
+        }
+        if session.exited() {
+            break;
+        }
+        match session.read(Duration::from_millis(50)) {
+            PtyOutput::Chunk(chunk) => out.extend_from_slice(&chunk),
+            PtyOutput::Timeout => {}
+            PtyOutput::Closed => break,
         }
     }
-    let _ = child.kill();
-    let _ = child.wait();
-    let _ = reader_thread.join();
-    let sink = std::fs::read_to_string(sink).unwrap_or_default();
+    // The evidence is complete, but the child may have written more, so
+    // the screen shows the whole interaction.
+    while let PtyOutput::Chunk(chunk) = session.read(Duration::from_millis(50)) {
+        out.extend_from_slice(&chunk);
+    }
+    session.finish();
+    let sink = sink_text(sink);
     (String::from_utf8_lossy(&out).to_string(), sink)
+}
+
+/// The current contents of the sink file.
+fn sink_text(sink: &Path) -> String {
+    std::fs::read_to_string(sink).unwrap_or_default()
 }
 
 pub(super) fn run_pty_until(command: CommandBuilder, keys: &[u8], stop_marker: &str) -> String {
@@ -1503,29 +1586,7 @@ fn run_pty_with_size_until_after_prompt_inner_raw<F: FnOnce()>(
     mut after_prompt: Option<F>,
 ) -> Vec<u8> {
     require_oracle_host();
-    let pty_system = NativePtySystem::default();
-    let pair = pty_system.openpty(size).expect("open pty");
-
-    let mut child = pair.slave.spawn_command(command).expect("spawn command");
-    drop(pair.slave);
-
-    let mut reader = pair.master.try_clone_reader().expect("pty reader");
-    let mut writer = pair.master.take_writer().expect("pty writer");
-    let (tx, rx) = mpsc::channel();
-    let reader_thread = thread::spawn(move || {
-        let mut buf = [0_u8; 1024];
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    if tx.send(buf[..n].to_vec()).is_err() {
-                        break;
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-    });
+    let mut session = PtySession::spawn(command, size);
     // Poll the reader thread so the deadline stays effective while the child
     // starts slowly on a loaded runner; a blocking read would ignore it.
     // The generous timeout only binds the failure path: success returns on
@@ -1535,29 +1596,26 @@ fn run_pty_with_size_until_after_prompt_inner_raw<F: FnOnce()>(
     let mut sent_keys = false;
 
     while Instant::now() < deadline {
-        match rx.recv_timeout(Duration::from_millis(20)) {
-            Ok(chunk) => {
+        match session.read(Duration::from_millis(20)) {
+            PtyOutput::Chunk(chunk) => {
                 out.extend_from_slice(&chunk);
                 if !sent_keys && find_bytes(&out, READY_PROMPT.as_bytes()).is_some() {
                     if let Some(after_prompt) = after_prompt.take() {
                         after_prompt();
                     }
-                    writer.write_all(keys).expect("write keys");
-                    writer.flush().expect("flush keys");
+                    session.write(keys);
                     sent_keys = true;
                 }
                 if stop_marker_line_complete(&out, stop_marker) {
                     break;
                 }
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            PtyOutput::Timeout => {}
+            PtyOutput::Closed => break,
         }
     }
 
-    let _ = child.kill();
-    let _ = child.wait();
-    let _ = reader_thread.join();
+    session.finish();
     out
 }
 

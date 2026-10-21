@@ -38,10 +38,10 @@ also runs the output-stream probe against that pinned release, so the claim
 the output-stream row makes is checked on the release this document targets
 and not only observed on the 8.2 release the runner image ships. That job
 has not run on the tree that carries these steps, so the 8.3 baseline of the
-claims below rests on the release number the reference host's image exports,
-and the 8.3-scoped observations are not measured against a built 8.3 until
-it does. The tarball's digest is pinned in the job, so the fetch is a
-checked one.
+claims below rests on the release number the reference host's image exports
+and on the observations made against that host; the pinned build of the
+release this document names has not been exercised yet. The tarball's digest
+is pinned in the job, so the fetch is a checked one.
 Bash language, shell runtime, and builtin compatibility are not goals. The C
 ABI is out of scope. Claims below are limited to the cited oracle tests and
 their asserted fixtures; test modules are pointers to that evidence, not claims of complete

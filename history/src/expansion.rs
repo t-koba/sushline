@@ -671,29 +671,72 @@ fn apply_history_word_designator(
     line: &[u8],
     matched_word: Option<&[u8]>,
     input: &[u8],
-    mut idx: usize,
+    idx: usize,
     policy: &HistoryExpansionPolicy,
 ) -> Result<(Vec<u8>, usize), HistoryExpansionError> {
     if input.get(idx) == Some(&b'%') {
         return Ok((matched_word.unwrap_or_default().to_vec(), idx + 1));
     }
-    let start = idx;
-    while let Some(byte) = input.get(idx).copied() {
-        if byte == b':' || byte.is_ascii_whitespace() {
-            break;
-        }
-        if matches!(
-            byte,
-            b'h' | b't' | b'r' | b'e' | b'p' | b'q' | b'x' | b's' | b'g' | b'G' | b'a' | b'&'
-        ) {
-            break;
-        }
-        idx += 1;
-    }
-    if idx == start {
+    // GNU reads the designator and stops where the designator ends; the
+    // text that follows it is literal, so `!!:1/2` selects the first word
+    // and keeps the `/2` with it.
+    let (designator, next) = read_history_word_designator(input, idx);
+    if designator.is_empty() {
         Ok((line.to_vec(), idx))
     } else {
-        Ok((select_history_words(line, &input[start..idx], policy)?, idx))
+        Ok((select_history_words(line, &designator, policy)?, next))
+    }
+}
+
+/// Read the word designator that follows a `:` in a history event.
+///
+/// GNU's colon form selects a word of the event: an index (`1`), a range
+/// over indexes (`1-2`, `1-$`, `1-`), a range that starts at the beginning
+/// of the event (`-2`), the words from an index to the end (`1*`), or one of
+/// the named positions (`^`, `$`, `*`). The designator ends at the first
+/// byte that is not part of it.
+fn read_history_word_designator(input: &[u8], idx: usize) -> (Vec<u8>, usize) {
+    let mut end = idx;
+    let mut range = false;
+    match input.get(idx).copied() {
+        // A named position stands alone; no range follows it.
+        Some(b'^' | b'$' | b'*') => return (vec![input[idx]], idx + 1),
+        // A range that starts at the beginning of the event.
+        Some(b'-') => {
+            end = read_word_range_end(input, idx + 1);
+            range = true;
+        }
+        // An index, which may be the start of a range.
+        Some(b'0'..=b'9') => {
+            while input.get(end).is_some_and(u8::is_ascii_digit) {
+                end += 1;
+            }
+            if input.get(end) == Some(&b'-') {
+                end = read_word_range_end(input, end + 1);
+                range = true;
+            }
+        }
+        _ => return (Vec::new(), idx),
+    }
+    if !range && input.get(end) == Some(&b'*') {
+        // The `x*` form: the words from x to the end.
+        end += 1;
+    }
+    (input[idx..end].to_vec(), end)
+}
+
+/// Read the end of a word range: an index, the last word, the first word,
+/// or nothing, which leaves the range open.
+fn read_word_range_end(input: &[u8], idx: usize) -> usize {
+    match input.get(idx).copied() {
+        Some(b'$' | b'^') => idx + 1,
+        _ => {
+            let mut end = idx;
+            while input.get(end).is_some_and(u8::is_ascii_digit) {
+                end += 1;
+            }
+            end
+        }
     }
 }
 

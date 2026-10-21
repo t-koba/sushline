@@ -1483,6 +1483,68 @@ fn caret_word_designator_errors_on_single_word_event() {
 }
 
 #[test]
+fn word_designator_stops_at_the_end_of_the_designator() {
+    // GNU Bash 5.3 reads the designator and stops where the designator
+    // ends, so the text that follows is literal: `!!:1/2` is the first word
+    // with `/2` appended, and `!!:1h` keeps the letter with it.
+    let mut history = History::new();
+    history.push("echo zero one two three");
+    let histchars = HistoryChars::parse("!^#");
+    let policy = HistoryExpansionPolicy::default();
+
+    for (typed, expected) in [
+        ("!!:1/2", b"zero/2".as_slice()),
+        ("!!:1.txt", b"zero.txt".as_slice()),
+        ("!!:1,2", b"zero,2".as_slice()),
+        ("!!:1]", b"zero]".as_slice()),
+        ("!!:1=", b"zero=".as_slice()),
+        ("!!:1/2/3", b"zero/2/3".as_slice()),
+        ("!!:1h", b"zeroh".as_slice()),
+        ("!!:1&", b"zero&".as_slice()),
+    ] {
+        assert_eq!(
+            expand_history(typed.as_bytes(), &history, histchars, &policy, |_| false).unwrap(),
+            expected.to_vec(),
+            "{typed}"
+        );
+    }
+}
+
+#[test]
+fn word_designator_forms_select_the_words_gnu_selects() {
+    // The designator forms GNU Bash 5.3 accepts, with the words it selects
+    // from the entry `echo zero one two three`.
+    let mut history = History::new();
+    history.push("echo zero one two three");
+    let histchars = HistoryChars::parse("!^#");
+    let policy = HistoryExpansionPolicy::default();
+
+    for (typed, expected) in [
+        ("!!:0", b"echo".as_slice()),
+        ("!!:1", b"zero".as_slice()),
+        ("!!:^", b"zero".as_slice()),
+        ("!!:$", b"three".as_slice()),
+        ("!!:*", b"zero one two three".as_slice()),
+        ("!!:1-2", b"zero one".as_slice()),
+        ("!!:1-", b"zero one two".as_slice()),
+        ("!!:-2", b"echo zero one".as_slice()),
+        ("!!:1*", b"zero one two three".as_slice()),
+        ("!!:2*", b"one two three".as_slice()),
+        ("!!:0*", b"echo zero one two three".as_slice()),
+        ("!!:1-$", b"zero one two three".as_slice()),
+        ("!!:1-^", b"zero".as_slice()),
+        ("!!:-$", b"echo zero one two three".as_slice()),
+        ("!!:-^", b"echo zero".as_slice()),
+    ] {
+        assert_eq!(
+            expand_history(typed.as_bytes(), &history, histchars, &policy, |_| false).unwrap(),
+            expected.to_vec(),
+            "{typed}"
+        );
+    }
+}
+
+#[test]
 fn history_expansion_honors_readline_backslash_inhibition() {
     let mut history = History::new();
     history.push("echo alpha");

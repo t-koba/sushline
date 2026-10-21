@@ -9,34 +9,34 @@ Library behavior, limited to Sushline's Rust editor and history APIs. Oracle
 comparisons use GNU Bash 5.3 as a host, and the oracle suite requires that
 version on `PATH` and stops without evidence on any other host. The Readline
 the host carries is part of that baseline: the suite reads the release
-number and the version label the host's Readline carries
-([`oracle/host.rs`](readline/tests/oracle/host.rs)), names the release it
-measured, and stops on a release the claims below do not cover, so the
-oracle evidence is scoped to a Readline release and not to Bash alone. The
-number is read from the host's own image when the host links Readline
-statically, in either the symbols it exports or the symbols it was built
-with, and from the library the host loads otherwise. A host whose release
-cannot be read, a host whose programs are not ELF images, is named by the
-suite and the suite continues there; the evidence of such a host is not
-scoped to a release. The host the claims were measured on links Readline
-statically and exports the release number 0x0803, the 8.3 release this
-document targets. Its library's own version label reads 8.1, so the image
-states the release two ways and the two disagree; the release identity rests
-on the release number, because the host's command list holds the two names
-the 8.3 release adds to the library's function table
-(`execute-named-command` and `export-completions`): the shell registers
-neither of them, and no earlier release holds them, the installed 8.2
-release's library listing neither in its own function dump, so the code is
-the 8.3 release and the label is stale. The suite reads the number and the
-label from the image that carries them and asks the host for its command
-list, and it names all three in its note, so the evidence carries the
-release it was measured on. The CI job builds the Readline release this
-document names from the upstream tarball and links the pinned Bash host
-against it, so the same suite runs against that release there as well. The
-build is configured with the options the job names in its log and in the
-cache keys, and the host's Readline selection is named in the cache key as
-well, so neither a library nor a host built another way is reused as the
-pinned one. The job checks the release number the built library exports,
+number, the version label and the command list the host's Readline carries
+([`oracle/host_readline.rs`](readline/tests/oracle/host_readline.rs)), names
+the release it measured ([`oracle/host.rs`](readline/tests/oracle/host.rs)),
+and stops on a release the claims below do not cover, so the oracle evidence
+is scoped to a Readline release and not to Bash alone. The number is read
+from the host's own image when the host links Readline statically, in either
+the symbols it exports or the symbols it was built with, and from the
+library the host loads otherwise. A host whose release cannot be read, a
+host whose programs are not ELF images, is named by the suite and the suite
+continues there; the evidence of such a host is not scoped to a release. The
+host the claims were measured on links Readline statically and exports the
+release number 0x0803, the 8.3 release this document targets. Its library's
+own version label reads 8.1, so the image states the release two ways and
+the two disagree; the release identity rests on the release number, because
+the host's command list holds the two names the 8.3 release adds to the
+library's function table (`execute-named-command` and `export-completions`):
+the shell registers neither of them, and no earlier release holds them, the
+installed 8.2 release's library listing neither in its own function dump, so
+the code is the 8.3 release and the label is stale. The suite reads the
+number and the label from the image that carries them and asks the host for
+its command list, and it names all three in its note, so the evidence
+carries the release it was measured on. The CI job builds the Readline
+release this document names from the upstream tarball and links the pinned
+Bash host against it, so the same suite runs against that release there as
+well. The build is configured with the options the job names in its log and
+in the cache keys, and the host's Readline selection is named in the cache
+key as well, so neither a library nor a host built another way is reused as
+the pinned one. The job checks the release number the built library exports,
 that the built library links a terminal-capability library, and that the
 pinned host's command list holds the two names the 8.3 release adds, so a
 build of another release cannot pass as the pinned one; the suite reads the

@@ -169,8 +169,24 @@ fn host_executable() -> Option<PathBuf> {
 /// The loader reports the libraries a program maps, so the shared library
 /// that carries the release number is found from the loader's own answer.
 fn linked_readline_library(executable: &Path) -> Option<PathBuf> {
-    let output = Command::new("ldd").arg(executable).output().ok()?;
-    library_path(&String::from_utf8_lossy(&output.stdout))
+    let report = loader_report(executable)?;
+    library_path(&report)
+}
+
+/// The loader's report of the libraries a program maps.
+///
+/// The loader is a shell script of its own, and a shell that exports the
+/// options it runs with makes that script fail on a variable the script
+/// leaves unset, so the loader is asked without the options the caller
+/// exports. The evidence of a host that loads Readline depends on the
+/// report, and the report must not depend on the shell the suite runs in.
+fn loader_report(executable: &Path) -> Option<String> {
+    let output = Command::new("ldd")
+        .arg(executable)
+        .env_remove("SHELLOPTS")
+        .output()
+        .ok()?;
+    Some(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 /// The Readline library a loader report names.
@@ -412,6 +428,7 @@ mod tests {
     use super::{
         DYNAMIC_SYMBOLS, Elf, ReadlineIdentity, ReadlineVersion, STATIC_SYMBOLS, is_documented,
     };
+    use std::process::Command;
 
     /// The address the release number is stored at in a test image.
     const NUMBER_ADDRESS: u64 = 0x1000;
@@ -627,6 +644,35 @@ mod tests {
         let image = elf_image_with_release_number(DYNAMIC_SYMBOLS, 0x0803);
         let elf = Elf::parse(&image).expect("the image is an ELF image");
         assert_eq!(elf.library_version(), None);
+    }
+
+    #[test]
+    fn the_loader_report_is_read_from_a_caller_that_exports_its_shell_options() {
+        // The loader is a shell script, and a shell that exports the options
+        // it runs with makes that script fail on a variable it leaves unset,
+        // so the report is read without those options. The test runs itself
+        // again with the options exported, because the environment a test
+        // reads the loader in is the environment it inherits.
+        const CHILD: &str = "SUSHLINE_LOADER_REPORT_CHILD";
+        let executable = std::env::current_exe().expect("the test binary");
+        if std::env::var_os(CHILD).is_some() {
+            let report = super::loader_report(&executable).expect("a loader report");
+            assert!(
+                report.contains("libc"),
+                "the report names the libraries a program maps: {report}"
+            );
+            return;
+        }
+        let status = Command::new(&executable)
+            .args(["the_loader_report_is_read_from_a_caller"])
+            .env(CHILD, "1")
+            .env("SHELLOPTS", "nounset")
+            .status()
+            .expect("the test binary runs");
+        assert!(
+            status.success(),
+            "the report is read from a caller that exports its shell options"
+        );
     }
 
     #[test]

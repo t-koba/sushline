@@ -114,7 +114,12 @@ jobs:
           # terminfo interface the reference host's Readline is built
           # against as well. A build that came out with another interface is
           # named and stops the job.
-          if ! ldd "$prefix/lib/libreadline.so" | grep -E 'libtinfo|libncurses'; then
+          #
+          # The loader is a shell script of its own, and the shell that runs
+          # this step exports the options it runs with, which makes that
+          # script fail on a variable it leaves unset, so the loader is
+          # asked without them.
+          if ! env -u SHELLOPTS ldd "$prefix/lib/libreadline.so" | grep -E 'libtinfo|libncurses'; then
             echo "the pinned Readline build did not link a terminfo library" >&2
             exit 1
           fi
@@ -156,7 +161,7 @@ jobs:
           "$prefix/bin/bash" --norc -c 'bind -v' | grep -q '^set editing-mode emacs$'
           # The host must load the pinned release, or the cases scoped to it
           # would report nothing.
-          ldd "$prefix/bin/bash" | grep -F "$readline/lib/libreadline"
+          env -u SHELLOPTS ldd "$prefix/bin/bash" | grep -F "$readline/lib/libreadline"
           # The two names the 8.3 release adds belong to the library's
           # command table, and the host that loads the pinned release is
           # where the library's command list appears, so the check asks
@@ -257,7 +262,7 @@ jobs:
           cat /tmp/readline_probe_pinned.report
           # The probe has to link the pinned release, not the image's
           # library, or the check repeats the observation above.
-          ldd /tmp/readline_probe_pinned | grep -F "$readline/lib/libreadline"
+          env -u SHELLOPTS ldd /tmp/readline_probe_pinned | grep -F "$readline/lib/libreadline"
           grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/readline_probe_pinned.report
           grep -qx 'prompt_in_stdout=1' /tmp/readline_probe_pinned.report
       - name: Run the oracle suite

@@ -760,11 +760,12 @@ fn compatibility_document_classifies_editor_bind_and_history_coverage() {
     for area in [
         "| Basic line editing | Mixed |",
         "| Emacs keymap, bindable names, and `bind` | Compatible |",
-        "| vi mode | Compatible |",
+        "| vi mode | Mixed |",
         "| Init file/inputrc | Compatible |",
         "| History navigation/search | Mixed |",
         "| History expansion | Compatible |",
         "| History file storage | Mixed |",
+        "| `character-search`, `character-search-backward` | Mixed |",
     ] {
         assert!(
             compatibility.contains(area),

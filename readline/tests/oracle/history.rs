@@ -911,6 +911,14 @@ fn bash_readline_and_sushline_expand_same_history_words_and_modifiers() {
         ("!!:*", "/tmp/foo.txt alpha beta"),
         ("!!:1-2", "/tmp/foo.txt alpha"),
         ("!!:1-", "/tmp/foo.txt alpha"),
+        // The designator ends where its grammar ends; the text that
+        // follows it is literal, as GNU leaves it.
+        ("!!:1/2", "/tmp/foo.txt/2"),
+        ("!!:1.txt", "/tmp/foo.txt.txt"),
+        ("!!:1,", "/tmp/foo.txt,"),
+        ("!!:1]", "/tmp/foo.txt]"),
+        ("!!:1=", "/tmp/foo.txt="),
+        ("!!:1h", "/tmp/foo.txth"),
         ("!!:1:h", "/tmp"),
         ("!!:1:t", "foo.txt"),
         ("!!:1:r", "/tmp/foo"),

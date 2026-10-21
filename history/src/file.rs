@@ -53,8 +53,9 @@ impl History {
 
     /// Read file range with a multiline policy.
     ///
-    /// The FROM/TO bounds count physical command lines; the selected lines
-    /// are then grouped by the policy.
+    /// The FROM/TO bounds count physical command lines, TO is exclusive and
+    /// blank lines are not counted; the selected lines are then grouped by
+    /// the policy.
     pub fn read_file_range_with_multiline(
         path: impl AsRef<Path>,
         from: usize,
@@ -119,8 +120,9 @@ impl History {
 
     /// Load file range with a multiline policy.
     ///
-    /// The FROM/TO bounds count physical command lines; the selected lines
-    /// are then grouped by the policy.
+    /// The FROM/TO bounds count physical command lines, TO is exclusive and
+    /// blank lines are not counted; the selected lines are then grouped by
+    /// the policy.
     pub fn load_file_range_with_multiline(
         &mut self,
         path: impl AsRef<Path>,
@@ -231,6 +233,9 @@ impl History {
     }
 
     /// Truncate file.
+    ///
+    /// The file is read with the default per-physical-line grouping, so the
+    /// entries that are kept are the file's command lines.
     pub fn truncate_file(path: impl AsRef<Path>, max_len: usize) -> io::Result<()> {
         let path = path.as_ref();
         let dest = effective_write_path(path)?;

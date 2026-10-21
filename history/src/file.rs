@@ -43,6 +43,13 @@ impl History {
     }
 
     /// Read file range.
+    ///
+    /// The file is read with the default `HistoryMultiline` grouping. The
+    /// FROM/TO bounds count physical command lines and blank lines are not
+    /// counted. For a FROM below TO the TO bound is exclusive; equal bounds
+    /// select the command line at FROM, and a TO below FROM leaves the range
+    /// open to the end of the file. The selected lines are then grouped by the
+    /// policy.
     pub fn read_file_range(
         path: impl AsRef<Path>,
         from: usize,
@@ -104,6 +111,13 @@ impl History {
     }
 
     /// Load file range.
+    ///
+    /// The file is read with the default `HistoryMultiline` grouping. The
+    /// FROM/TO bounds count physical command lines and blank lines are not
+    /// counted. For a FROM below TO the TO bound is exclusive; equal bounds
+    /// select the command line at FROM, and a TO below FROM leaves the range
+    /// open to the end of the file. The selected lines are then grouped by the
+    /// policy.
     pub fn load_file_range(
         &mut self,
         path: impl AsRef<Path>,

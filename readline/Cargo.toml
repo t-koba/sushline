@@ -38,3 +38,10 @@ required-features = ["oracle"]
 name = "bind_golden"
 path = "tests/bind_golden.rs"
 required-features = ["oracle"]
+
+# The document's own consistency checks. They read COMPATIBILITY.md and the
+# library's bind listings, so they need no oracle host and no feature, and
+# the CI job that does not build the pinned host runs them.
+[[test]]
+name = "compatibility"
+path = "tests/compatibility.rs"

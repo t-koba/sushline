@@ -313,7 +313,7 @@ The embedder supplies:
 
 Unit tests cover internal behavior. PTY oracle tests compare observable
 Readline and History behavior against a GNU Bash 5.3 host; the Readline the
-host carries is read from the release number it exports, so the oracle
+host carries is read from the release number its image holds, so the oracle
 evidence names the Readline release it was measured on and stops on a release
 the compatibility document does not cover. The oracle suite requires that host
 on `PATH` and stops without evidence on any other host. Its test

@@ -51,7 +51,9 @@ oracle suite compares Sushline against GNU Bash 5.3 observed at runtime, so it
 requires GNU Bash 5.3 on `PATH`; on any other host, and on a host that carries
 a Readline release the compatibility document does not cover, the suite
 reports the mismatch once and stops without producing compatibility
-evidence.
+evidence. A host whose Readline release the suite cannot read, a host whose
+programs are not ELF images, is named by the suite, which continues there
+without a release scope.
 
 The Bash-hosted test targets are behind the `oracle` feature of the `readline`
 crate, which is on by default. `cargo test --workspace --no-default-features`

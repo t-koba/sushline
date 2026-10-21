@@ -12,7 +12,12 @@ the host carries is part of that baseline: the suite reads the release number
 the host's Readline exports
 ([`oracle/host.rs`](readline/tests/oracle/host.rs)), names the release it
 measured, and stops on a release the claims below do not cover, so the oracle
-evidence is scoped to a Readline release and not to Bash alone. The host the
+evidence is scoped to a Readline release and not to Bash alone. The number is
+read from the host's own image when the host links Readline statically, in
+either the symbols it exports or the symbols it was built with, and from the
+library the host loads otherwise. A host whose release cannot be read, a
+host whose programs are not ELF images, is named by the suite and the suite
+continues there; the evidence of such a host is not scoped to a release. The host the
 claims were measured on links Readline statically and exports the release
 number 0x0803, the 8.3 release this document targets; the version string of
 that build reads 8.1, so the release number is what the version claim rests

@@ -280,6 +280,17 @@ descriptor and reject non-regular inputs with an error like GNU, while symlinks
 resolve to their target descriptor. Full writes to regular destinations reset the mode to `0600` on Unix
 even when the destination pre-existed with a wider mode, and all writes are
 close-only with no fsync, matching GNU. Concurrent-writer merging is embedder policy.
+
+A history file's physical lines become entries through an explicit grouping
+policy. The default, `HistoryMultiline::PerLine`, makes each physical command
+line an entry of its own, which is GNU's default `history_multiline_entries`
+mode: the first line after a timestamp record carries that timestamp, the lines
+after it carry none, and blank lines carry no entry. `HistoryMultiline::Joined`
+makes the lines that follow a timestamp record one entry, which is GNU's mode 1.
+`read_file`/`load_file` and their range variants take the default; the
+`read_file_with_multiline`, `load_file_with_multiline`,
+`read_file_range_with_multiline` and `load_file_range_with_multiline` entry
+points take the policy.
 The editor can add accepted lines automatically when configured, but long-term
 save timing remains controlled by the embedder.
 

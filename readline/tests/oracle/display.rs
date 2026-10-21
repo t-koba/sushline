@@ -223,3 +223,77 @@ fn bash_and_sushline_expand_embedded_tab_to_tab_stops() {
         "sushline must not render ^I, got {sushline:?}"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn the_prompt_is_drawn_as_given_and_the_shell_spelling_is_opt_in() {
+    use portable_pty::CommandBuilder;
+    use std::fs;
+
+    // GNU Readline draws the prompt it is given: a shell expands its own
+    // prompt escapes before the editor sees them, and the editor reads only
+    // the invisible markers the shell hands it. Bash 5.3 PTY observations:
+    // the host draws the escape the shell expanded, and it draws an escape
+    // the shell left alone as the two characters it was given.
+    let root = tempfile::tempdir().expect("prompt PTY root");
+    let inputrc_path = root.path().join("empty-inputrc");
+    fs::write(&inputrc_path, b"").expect("write empty inputrc");
+    let inputrc = inputrc_path.to_string_lossy().into_owned();
+    let home = root.path().to_string_lossy().into_owned();
+    let history = root.path().join("history");
+    let size = PtySize {
+        rows: 24,
+        cols: 40,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let keys = b"printf '\\x1fPROMPTDONE\\n'\r";
+
+    let run_bash = |prompt: &str| {
+        let mut command = CommandBuilder::new("bash");
+        command.env("PS1", prompt);
+        command.env("INPUTRC", &inputrc);
+        command.env("HISTFILE", &history);
+        command.env("HOME", &home);
+        command.env("LC_ALL", "C");
+        command.env("PROMPT_COMMAND", "");
+        command.args(["--noprofile", "--norc", "-i"]);
+        run_pty_steps_with_size_until(command, &[("B> ", keys)], size, "\u{1f}PROMPTDONE")
+    };
+
+    let run_sushline = |prompt: &str, shell_spelling: bool| {
+        let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+        command.env("SUSHLINE_PROMPT", prompt);
+        command.env("SUSHLINE_INPUTRC", "");
+        command.env("INPUTRC", &inputrc);
+        command.env("SUSHLINE_HISTORY", "");
+        command.env("HOME", &home);
+        command.env("LC_ALL", "C");
+        if shell_spelling {
+            command.env("SUSHLINE_PROMPT_SHELL_ESCAPES", "1");
+        }
+        run_pty_steps_with_size_until(command, &[("B> ", keys)], size, "SUSHLINE_ACCEPTED:")
+    };
+
+    // An escape the shell leaves alone reaches the editor as it was written,
+    // and the editor draws the prompt it is given.
+    let bash_unknown = run_bash(r"A\qB> ");
+    assert!(bash_unknown.contains(r"A\qB> "), "{bash_unknown:?}");
+    let sushline_unknown = run_sushline(r"A\qB> ", false);
+    assert!(sushline_unknown.contains(r"A\qB> "), "{sushline_unknown:?}");
+
+    // An escape the shell expands reaches the editor already expanded, and
+    // the editor draws the prompt it is given.
+    let bash_escape = run_bash(r"A\e[31mB> ");
+    assert!(bash_escape.contains("\x1b[31mB> "), "{bash_escape:?}");
+    let sushline_escape = run_sushline(r"A\e[31mB> ", false);
+    assert!(
+        sushline_escape.contains(r"A\e[31mB> "),
+        "{sushline_escape:?}"
+    );
+
+    // The shell's spelling is read when the caller asks for it, and then the
+    // prompt is drawn as the host draws it.
+    let sushline_shell = run_sushline(r"A\e[31mB> ", true);
+    assert!(sushline_shell.contains("\x1b[31mB> "), "{sushline_shell:?}");
+}

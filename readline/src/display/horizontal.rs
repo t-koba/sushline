@@ -302,11 +302,22 @@ impl HorizontalViewport {
 mod tests {
     use super::*;
     use crate::buffer::{LineBuffer, RenderOptions};
-    use crate::prompt::Prompt;
+    use crate::prompt::{Prompt, PromptEscapes};
     use crate::width::visible_width;
 
     fn line(prompt: &str, text: &str, point: usize) -> DisplayLine {
-        let prompt = Prompt::new(prompt);
+        line_with(Prompt::new(prompt), text, point)
+    }
+
+    fn shell_line(prompt: &str, text: &str, point: usize) -> DisplayLine {
+        line_with(
+            Prompt::with_escapes(prompt, PromptEscapes::Shell),
+            text,
+            point,
+        )
+    }
+
+    fn line_with(prompt: Prompt, text: &str, point: usize) -> DisplayLine {
         let mut line = prompt.horizontal_line();
         let mut buffer = LineBuffer::from(text);
         buffer.set_point(point);
@@ -504,7 +515,7 @@ mod tests {
             "\\[\\e[31m\\]界>\\[\\e[0m\\]",
             "\x1b[31m界>\x1b[0m",
         ] {
-            let parsed = Prompt::new(prompt);
+            let parsed = Prompt::with_escapes(prompt, PromptEscapes::Shell);
             let marked = prompt.starts_with("\x01") || prompt.starts_with("\\[");
             assert_eq!(parsed.horizontal_line().width, parsed.width());
             if marked {
@@ -515,7 +526,7 @@ mod tests {
             }
             let mut viewport = HorizontalViewport::default();
             let text = "é".repeat(30);
-            let (out, col) = viewport.layout(&line(prompt, &text, 0), 12);
+            let (out, col) = viewport.layout(&shell_line(prompt, &text, 0), 12);
             if marked {
                 assert_eq!(out, format!("\x1b[31m界>\x1b[0m{}>", "é".repeat(7)));
                 assert_eq!(col, 3);
@@ -530,7 +541,7 @@ mod tests {
             assert!(out.contains("\x1b[0m"));
             assert!(visible_width(&out) < 12);
             assert!(col < 12);
-            let (out, col) = viewport.layout(&line(prompt, &text, text.len()), 12);
+            let (out, col) = viewport.layout(&shell_line(prompt, &text, text.len()), 12);
             assert!(out.contains("\x1b[31m"));
             assert!(out.contains("\x1b[0m"));
             assert!(visible_width(&out) < 12);

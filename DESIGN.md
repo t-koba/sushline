@@ -217,8 +217,10 @@ the active line. It does not own cell-width rules or escape string literals.
 `buffer/render.rs` is pure buffer rendering: it converts editable bytes into a
 rendered string plus point widths, including control-character and meta-byte
 display semantics. `prompt.rs` owns prompt marker parsing, including hidden
-regions. `completion/display.rs` owns completion candidate layout and
-pagination.
+regions, and the prompt's escape policy: the prompt text is drawn as it is
+given and only Readline's own invisible markers are read, while the shell's
+prompt spelling is an explicit choice (`PromptEscapes::Shell`).
+`completion/display.rs` owns completion candidate layout and pagination.
 
 `width.rs` centralizes shared cell-width primitives and ANSI-aware output
 measurement. It intentionally keeps prompt marker parsing, completion-visible
@@ -298,7 +300,8 @@ save timing remains controlled by the embedder.
 
 The embedder supplies:
 
-- Expanding prompts before passing them to `Editor::read_line`.
+- Expanding prompts before passing them to `Editor::read_line`. The editor draws the prompt it is
+  given; `PromptEscapes::Shell` reads the shell's spelling of a prompt instead.
 - Initializing process locale state when locale-sensitive completion ordering
   is wanted. Completion sorting delegates ordering to libc `strcoll`, so the
   candidates are ordered by the process locale whichever path matches them;

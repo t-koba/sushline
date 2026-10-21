@@ -1,4 +1,4 @@
-use readline::{Config, Editor, History, Hooks, Prompt, ReadlineResult, Terminal};
+use readline::{Config, Editor, History, Hooks, Prompt, PromptEscapes, ReadlineResult, Terminal};
 use std::process::ExitCode;
 use std::{fs, path::Path};
 
@@ -89,13 +89,21 @@ fn main() -> ExitCode {
     // Opt in to a distinct readiness marker for each read. A redisplay repeats
     // the current prompt, so a shared prompt cannot frame batched PTY input.
     let numbered_prompts = std::env::var_os("SUSHLINE_NUMBERED_PROMPTS").is_some();
+    let shell_escapes = std::env::var_os("SUSHLINE_PROMPT_SHELL_ESCAPES").is_some();
     for read_idx in 1..=reads {
         let read_prompt = if numbered_prompts {
             format!("{prompt}{read_idx}:")
         } else {
             prompt.clone()
         };
-        match line.read_line(Prompt::new(read_prompt), &mut hooks) {
+        // The prompt is drawn as it is given; a caller that wants the
+        // shell's spelling of it asks for it.
+        let read_prompt = if shell_escapes {
+            Prompt::with_escapes(read_prompt, PromptEscapes::Shell)
+        } else {
+            Prompt::new(read_prompt)
+        };
+        match line.read_line(read_prompt, &mut hooks) {
             Ok(ReadlineResult::Line(bytes)) => {
                 if reads == 1 {
                     println!("SUSHLINE_ACCEPTED:{}", String::from_utf8_lossy(&bytes));

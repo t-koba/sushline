@@ -1,23 +1,59 @@
 use crate::width::char_width;
 
+/// The backslash sequences a prompt's text is read as.
+///
+/// GNU Readline draws the prompt it is given: it reads the invisible markers
+/// the shell hands it and leaves every other byte as it is. A shell expands
+/// its own prompt escapes before the editor sees them, so an editor that
+/// decodes them changes a prompt the caller meant literally. The shell's
+/// spelling is therefore an explicit choice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PromptEscapes {
+    /// The prompt text as given; only Readline's own invisible markers are
+    /// read.
+    #[default]
+    None,
+    /// The shell's prompt spelling: `\[` and `\]` mark a non-printing span,
+    /// `\e` (or `\E`) is the escape character, and `\NNN` is an octal escape.
+    Shell,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Prompt.
 pub struct Prompt {
     raw: String,
     visible: String,
     width: usize,
+    escapes: PromptEscapes,
 }
 
 impl Prompt {
     /// New.
+    ///
+    /// The text is taken as given: only Readline's own invisible markers
+    /// (`\x01` ... `\x02`) are read, so a prompt the caller meant literally
+    /// stays literal. A shell expands its own prompt escapes before it hands
+    /// the prompt to the editor, and GNU Readline draws the prompt it is
+    /// given. [`Prompt::with_escapes`] reads the shell's spelling instead.
     pub fn new(raw: impl Into<String>) -> Self {
+        Self::with_escapes(raw, PromptEscapes::None)
+    }
+
+    /// New prompt whose text is read as `escapes` says.
+    pub fn with_escapes(raw: impl Into<String>, escapes: PromptEscapes) -> Self {
         let raw = raw.into();
-        let (visible, width) = strip_readline_markers(&raw);
+        let (visible, width) = strip_readline_markers(&raw, escapes);
         Self {
             raw,
             visible,
             width,
+            escapes,
         }
+    }
+
+    /// The escapes the prompt's text is read as.
+    pub fn escapes(&self) -> PromptEscapes {
+        self.escapes
     }
 
     /// Raw.
@@ -50,7 +86,7 @@ impl Prompt {
                 span.clear();
             }
         };
-        parse_prompt(&self.raw, |ch, hidden| {
+        parse_prompt(&self.raw, self.escapes, |ch, hidden| {
             if hidden != was_hidden {
                 flush(&mut line, &mut span, was_hidden);
                 was_hidden = hidden;
@@ -92,10 +128,10 @@ impl From<&[u8]> for Prompt {
     }
 }
 
-fn strip_readline_markers(raw: &str) -> (String, usize) {
+fn strip_readline_markers(raw: &str, escapes: PromptEscapes) -> (String, usize) {
     let mut visible = String::new();
     let mut width = 0;
-    parse_prompt(raw, |ch, hidden| {
+    parse_prompt(raw, escapes, |ch, hidden| {
         visible.push(ch);
         // Newlines still break lines even inside hidden regions.
         if ch == '\n' {
@@ -110,7 +146,7 @@ fn strip_readline_markers(raw: &str) -> (String, usize) {
     (visible, width)
 }
 
-fn parse_prompt(raw: &str, mut push_decoded: impl FnMut(char, bool)) {
+fn parse_prompt(raw: &str, escapes: PromptEscapes, mut push_decoded: impl FnMut(char, bool)) {
     let mut hidden_soh = false;
     let mut hidden_bracket = false;
     let mut chars = raw.chars().peekable();
@@ -124,7 +160,7 @@ fn parse_prompt(raw: &str, mut push_decoded: impl FnMut(char, bool)) {
             hidden_soh = false;
             continue;
         }
-        if ch == '\\' {
+        if escapes == PromptEscapes::Shell && ch == '\\' {
             match chars.peek().copied() {
                 Some('[') => {
                     chars.next();

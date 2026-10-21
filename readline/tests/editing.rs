@@ -2273,3 +2273,22 @@ fn excessive_forward_search_rollback_preserves_point() {
         ReadlineResult::Line("alphZa three".as_bytes().to_vec())
     );
 }
+
+#[test]
+fn character_search_takes_a_whole_multibyte_character() {
+    // The search target is one character, so the bytes of a multibyte
+    // character wait for the rest of it, the search matches it, and the
+    // rest of it never reaches the line.
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"a\xC3\xA9bc".to_vec()),
+        TerminalEvent::Bytes(b"\x01".to_vec()),
+        TerminalEvent::Bytes(b"\x1d".to_vec()),
+        TerminalEvent::Bytes(vec![0xC3]),
+        TerminalEvent::Bytes(vec![0xA9]),
+        TerminalEvent::Bytes(b"\x04".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line("abc".as_bytes().to_vec()));
+}

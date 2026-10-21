@@ -211,8 +211,8 @@ fn compatibility_document_classifies_editor_bind_and_history_coverage() {
         "| History navigation/search | Mixed |",
         "| History expansion | Mixed |",
         "| History file storage | Mixed |",
-        "| `character-search`, `character-search-backward` | Mixed |",
-        "| `vi-arg-digit`, `vi-search`, `vi-search-again`, `vi-char-search` | Mixed |",
+        "| `character-search`, `character-search-backward` | Compatible |",
+        "| `vi-arg-digit`, `vi-search`, `vi-search-again`, `vi-char-search` | Compatible |",
     ] {
         assert!(
             compatibility.contains(area),

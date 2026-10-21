@@ -372,3 +372,47 @@ fn vi_last_change_persists_across_reads_for_dot_repeat() {
     let second = line.read_line(Prompt::new("> "), &mut ()).unwrap();
     assert_eq!(second, ReadlineResult::Line(b"ef".to_vec()));
 }
+
+#[test]
+fn vi_mark_name_must_be_a_lowercase_letter() {
+    // GNU Readline names a vi mark by a lowercase ASCII letter, and rings
+    // for any other name.
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(b"\x1b".to_vec()),
+        TerminalEvent::Bytes(b"0".to_vec()),
+        TerminalEvent::Bytes(b"m".to_vec()),
+        TerminalEvent::Bytes(b"A".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set editing-mode vi").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line("abc".as_bytes().to_vec()));
+    assert!(
+        line.terminal().out.contains('\x07'),
+        "a mark name that is not a lowercase letter must ring"
+    );
+}
+
+#[test]
+fn vi_multibyte_character_search_takes_the_whole_character() {
+    // The search target is one character, so the bytes of a multibyte
+    // character wait for the rest of it and the search matches it.
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"a\xC3\xA9b".to_vec()),
+        TerminalEvent::Bytes(b"\x1b".to_vec()),
+        TerminalEvent::Bytes(b"0".to_vec()),
+        TerminalEvent::Bytes(b"f".to_vec()),
+        TerminalEvent::Bytes(vec![0xC3]),
+        TerminalEvent::Bytes(vec![0xA9]),
+        TerminalEvent::Bytes(b"i".to_vec()),
+        TerminalEvent::Bytes(b"X".to_vec()),
+        TerminalEvent::Bytes(b"\x1b".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set editing-mode vi").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line("aXéb".as_bytes().to_vec()));
+}

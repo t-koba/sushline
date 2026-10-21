@@ -5,6 +5,12 @@ pub(crate) struct InputState {
     pub(crate) quoted_insert: bool,
     pub(crate) interrupted: bool,
     pub(crate) pending_key: Vec<u8>,
+    /// The bytes of a character a pending command has not taken yet.
+    ///
+    /// A command that takes a character waits for the whole character, so
+    /// the bytes of an incomplete one are held here until the rest of it
+    /// arrives.
+    pub(crate) pending_char_bytes: Vec<u8>,
     pub(crate) skipping_csi: bool,
     pub(crate) csi_sequence_started: bool,
     pub(crate) pending_replace: bool,

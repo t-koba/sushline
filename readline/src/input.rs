@@ -568,9 +568,12 @@ where
             return Ok(None);
         };
 
-        // Fragmentation-invariant: only the first unit answers the pending
+        // GNU Readline's vi mark commands read one byte, so a multibyte
+        // name is not a name: the byte rings and the rest of the character
+        // arrives as ordinary input.
+        // Fragmentation-invariant: only the first byte answers the pending
         // mark; trailing bytes are separate input like split reads.
-        let (first, rest) = split_first_unit(bytes);
+        let (first, rest) = split_first_byte(bytes);
         let outcome = self.handle_pending_vi_mark_single(state, action, first)?;
         if !rest.is_empty() {
             let remainder_outcome = self.handle_bytes(state, rest, hooks)?;
@@ -590,7 +593,9 @@ where
             return Ok(EditorOutcome::Continue);
         };
 
-        if let Some(ch) = text.chars().find(|ch| !ch.is_control()) {
+        // GNU Readline names a vi mark by a lowercase ASCII letter, and
+        // rings for any other name.
+        if let Some(ch) = text.chars().find(|ch| ch.is_ascii_lowercase()) {
             match action {
                 ViMarkAction::Set => {
                     state.vi.vi_marks.insert(ch, state.buffer.point());
@@ -628,9 +633,12 @@ where
         }
         state.vi.pending_vi_register = false;
 
-        // Fragmentation-invariant: only the first unit selects the register;
+        // The register is named by one byte, like the vi mark commands:
+        // a multibyte name is not a name and the rest of the character
+        // arrives as ordinary input.
+        // Fragmentation-invariant: only the first byte selects the register;
         // trailing bytes are separate input like split reads.
-        let (first, rest) = split_first_unit(bytes);
+        let (first, rest) = split_first_byte(bytes);
         let outcome = self.handle_pending_vi_register_single(state, first)?;
         if !rest.is_empty() {
             let remainder_outcome = self.handle_bytes(state, rest, hooks)?;
@@ -668,17 +676,24 @@ where
         bytes: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<Option<EditorOutcome>, ReadlineError> {
+        if state.vi.pending_char_search.is_none() {
+            return Ok(None);
+        }
+        // The search takes a character, so the bytes of an incomplete one
+        // wait for the rest of it and the pending search stays pending.
+        let Some((first, rest)) = take_pending_character(state, bytes) else {
+            return Ok(Some(EditorOutcome::Continue));
+        };
         let Some(search) = state.vi.pending_char_search.take() else {
             return Ok(None);
         };
         let op_start = state.vi.pending_char_search_operator.take();
 
-        // Fragmentation-invariant: only the first unit is the search key;
-        // trailing bytes are separate input like split reads.
-        let (first, rest) = split_first_unit(bytes);
-        if let Some(ch) = char_search_key(first) {
+        // Fragmentation-invariant: only the first character is the search
+        // key; trailing bytes are separate input like split reads.
+        if let Some(ch) = char_search_key(&first) {
             if self.apply_char_search(state, search, ch)? {
-                self.finish_vi_motion_operator(state, op_start, first, true);
+                self.finish_vi_motion_operator(state, op_start, &first, true);
                 state.vi.last_char_search = Some((search, ch));
                 state.after_non_kill_command();
                 state.consume_numeric_arg_unless_prefix();
@@ -692,7 +707,7 @@ where
         }
 
         if !rest.is_empty() {
-            let remainder_outcome = self.handle_bytes(state, rest, hooks)?;
+            let remainder_outcome = self.handle_bytes(state, &rest, hooks)?;
             return Ok(Some(remainder_outcome));
         }
         Ok(Some(EditorOutcome::Continue))
@@ -1434,6 +1449,33 @@ fn split_first_unit(bytes: &[u8]) -> (&[u8], &[u8]) {
         .max(1)
         .min(bytes.len());
     bytes.split_at(len)
+}
+
+/// Splits the first byte of the input from the remainder, so a command
+/// that reads one byte takes it whether the input arrives in one batch or
+/// one byte at a time.
+fn split_first_byte(bytes: &[u8]) -> (&[u8], &[u8]) {
+    if bytes.is_empty() {
+        return (&[], &[]);
+    }
+    bytes.split_at(1)
+}
+
+/// Assembles the character a pending character search consumes.
+///
+/// GNU Readline reads a whole character before a command that takes one
+/// consumes it, so a multibyte search target is one character: the search
+/// matches it and the rest of it never reaches the line. The bytes of an
+/// incomplete character wait here for the rest of it.
+fn take_pending_character(state: &mut EditorState, bytes: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
+    let mut buffered = std::mem::take(&mut state.input.pending_char_bytes);
+    buffered.extend_from_slice(bytes);
+    if is_incomplete_utf8_prefix(&buffered) {
+        state.input.pending_char_bytes = buffered;
+        return None;
+    }
+    let (first, rest) = split_first_unit(&buffered);
+    Some((first.to_vec(), rest.to_vec()))
 }
 
 fn first_unit_len(bytes: &[u8]) -> usize {

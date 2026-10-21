@@ -4257,3 +4257,119 @@ fn bash_and_sushline_insert_partial_end_marker_at_true_pty_eof() {
         "{sushline}"
     );
 }
+
+#[test]
+fn bash_readline_and_sushline_multibyte_character_search_matches_like_bash() {
+    // A character search takes a character, so a multibyte target is one
+    // character: the search matches it and consumes the whole character,
+    // like GNU. The vi mark commands take one byte, so a multibyte mark
+    // name is not a name and the rest of the character arrives as ordinary
+    // input. Measured against Bash 5.3 in a PTY. Runtime observation, not
+    // GNU source proof.
+    let vi = "set editing-mode vi";
+    for (desc, keys, inputrc, expected, bells) in [
+        (
+            "emacs_no_match",
+            b"abc\x01\x1d\xC3\xA9\r".as_slice(),
+            "",
+            "abc",
+            1,
+        ),
+        (
+            "emacs_match",
+            b"a\xC3\xA9bc\x01\x1d\xC3\xA9\x04\r".as_slice(),
+            "",
+            "abc",
+            0,
+        ),
+        (
+            "emacs_backward_match",
+            b"a\xC3\xA9bc\x1b\x1d\xC3\xA9\x04\r".as_slice(),
+            "",
+            "abc",
+            0,
+        ),
+        (
+            "emacs_no_match_wide",
+            b"abc\x01\x1d\xE2\x82\xAC\r".as_slice(),
+            "",
+            "abc",
+            1,
+        ),
+        ("vi_no_match", b"ab\x1b0f\xC3\xA9\r".as_slice(), vi, "ab", 1),
+        (
+            "vi_match",
+            b"a\xC3\xA9b\x1b0f\xC3\xA9\x1biX\x1b\r".as_slice(),
+            vi,
+            "aXéb",
+            0,
+        ),
+        (
+            "vi_backward_match",
+            b"a\xC3\xA9b\x1b$F\xC3\xA9\x1biX\x1b\r".as_slice(),
+            vi,
+            "aXéb",
+            0,
+        ),
+        (
+            "vi_no_match_wide",
+            b"abc\x1b0f\xE2\x82\xAC\r".as_slice(),
+            vi,
+            "abc",
+            1,
+        ),
+        (
+            "vi_mark_name_is_one_byte",
+            b"abc\x1b0m\xE2\x82\xAC\r".as_slice(),
+            vi,
+            "abc",
+            3,
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_vi_mark_names_are_lowercase_letters_like_bash() {
+    // GNU Readline names a vi mark by a lowercase ASCII letter and rings
+    // for any other name. Measured against Bash 5.3 in a PTY. Runtime
+    // observation, not GNU source proof.
+    let vi = "set editing-mode vi";
+    for (desc, keys, bells) in [
+        ("lower", b"abc\x1b0ma\r".as_slice(), 0),
+        ("upper", b"abc\x1b0mA\r".as_slice(), 1),
+        ("digit", b"abc\x1b0m1\r".as_slice(), 1),
+        ("goto_unset_lower", b"abc\x1b0`a\r".as_slice(), 1),
+        ("goto_unset_upper", b"abc\x1b0`A\r".as_slice(), 1),
+        ("set_then_goto", b"abc\x1b0ma\x1b0`a\r".as_slice(), 0),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, vi);
+        let sushline = run_sushline_harness_with_inputrc(keys, vi);
+        assert_eq!(
+            accepted_line(&bash),
+            Some("abc".to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
+    }
+}

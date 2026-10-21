@@ -2283,10 +2283,10 @@ fn bash_readline_and_sushline_negative_yank_word_number_rings_like_bash() {
 
 #[test]
 fn bash_host_reports_a_failing_expansion_on_standard_error() {
-    // The Bash host's `history-expand-line` function is the interaction the
+    // The Bash host's `history-expand-line` command is the interaction the
     // editor mirrors: it leaves the line unchanged and reports the failure
     // on standard error, the sink the built-in terminal uses. The host's
-    // function is only bound in an interactive shell, so the case drives one
+    // command is only bound in an interactive shell, so the case drives one
     // and keeps its standard error in a file.
     let dir = tempfile::tempdir().expect("tempdir");
     let inputrc = dir.path().join("inputrc");
@@ -2314,7 +2314,7 @@ fn bash_host_reports_a_failing_expansion_on_standard_error() {
 fn bash_reports_a_failing_history_expansion_on_standard_error() {
     // The shell's own history expansion reports the failure on standard
     // error and writes nothing to standard output. The Bash host's
-    // `history-expand-line` function, the interaction the editor mirrors,
+    // `history-expand-line` command, the interaction the editor mirrors,
     // leaves the line unchanged and reports the failure on the same stream.
     let (stdout, stderr) = run_bash_history_expand_failure("!missing", &["echo one"]);
     assert!(stdout.is_empty(), "bash stdout: {stdout}");

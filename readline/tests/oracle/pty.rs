@@ -1215,7 +1215,7 @@ pub(super) fn run_pty_with_size(command: CommandBuilder, keys: &[u8], size: PtyS
 /// contents.
 ///
 /// The interactive shell is the only harness in which the host's
-/// `history-expand-line` function is bound and runs; the `read -r -e`
+/// `history-expand-line` command is bound and runs; the `read -r -e`
 /// harness leaves it inert. The prompt goes to standard error with the rest
 /// of the shell's output, so the keys are separated by a pause rather than
 /// by a prompt.

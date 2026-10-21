@@ -25,9 +25,10 @@ env:
   READLINE_ORACLE_CONFIGURE_FLAGS: "--with-curses"
   # The Readline the pinned Bash host is linked against. Bash carries its
   # own copy of Readline and builds that by default, so the host is
-  # configured to use the installed release, and the choice is named in the
-  # cache key: a cached host that was built another way is not reused as
-  # the pinned one.
+  # configured to use the installed release. The value chooses the linkage
+  # the build carries, and it is named in the cache key as well: a cached
+  # host that was built another way is not reused as the pinned one, and a
+  # value the build does not know stops the job.
   BASH_ORACLE_READLINE: "installed"
 
 jobs:
@@ -159,6 +160,21 @@ jobs:
           # the release was built against is still needed.
           sudo apt-get update
           sudo apt-get install -y libncurses-dev
+          # The linkage the configuration names is the linkage the build
+          # carries, so the configuration decides the flags the configure
+          # is given. A value the build does not know stops the job, so a
+          # host is never built with a linkage the configuration does not
+          # name.
+          case "$BASH_ORACLE_READLINE" in
+            installed)
+              readline_flags=(--with-installed-readline="$readline")
+              ;;
+            *)
+              echo "unknown BASH_ORACLE_READLINE: $BASH_ORACLE_READLINE" >&2
+              exit 1
+              ;;
+          esac
+          echo "bash_readline_selection=$BASH_ORACLE_READLINE"
           if [ ! -x "$prefix/bin/bash" ]; then
             curl -fsSL \
               --connect-timeout 20 \
@@ -179,7 +195,7 @@ jobs:
             # installed release is asked for by name; the prefix tells the
             # configure where to find it.
             ./configure --prefix="$prefix" \
-              --with-installed-readline="$readline" \
+              "${readline_flags[@]}" \
               CPPFLAGS="-I$readline/include" \
               LDFLAGS="-L$readline/lib -Wl,-rpath,$readline/lib"
             make -j"$(nproc)"
@@ -189,8 +205,12 @@ jobs:
           # A Bash without Readline would silently produce empty evidence.
           "$prefix/bin/bash" --norc -c 'bind -v' | grep -q '^set editing-mode emacs$'
           # The host must load the pinned release, or the cases scoped to it
-          # would report nothing.
-          env -u SHELLOPTS ldd "$prefix/bin/bash" | grep -F "$readline/lib/libreadline"
+          # would report nothing. A host that carries another release is
+          # named and stops the job.
+          if ! env -u SHELLOPTS ldd "$prefix/bin/bash" | grep -F "$readline/lib/libreadline"; then
+            echo "the pinned bash host does not load the pinned Readline release" >&2
+            exit 1
+          fi
           # The two names the 8.3 release adds belong to the library's
           # command table, and the host that loads the pinned release is
           # where the library's command list appears, so the check asks

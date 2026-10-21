@@ -1826,6 +1826,30 @@ fn bash_and_sushline_draw_the_pending_universal_argument_in_place_of_the_prompt(
     );
 }
 
+/// The mode indicator is replaced with the prompt.
+///
+/// The mode indicator belongs to the prompt, so a pending argument replaces
+/// it as well (Bash 5.3 PTY observation).
+#[test]
+fn bash_and_sushline_replace_the_mode_indicator_with_the_pending_argument() {
+    let inputrc =
+        "set editing-mode vi\nset show-mode-in-prompt on\n\"\\C-o\": universal-argument\n";
+    let keys = b"\x0f";
+    let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+    let bash_row = pending_argument_row("Bash", &bash, "(arg: 4)");
+    let sushline_row = pending_argument_row("Sushline", &sushline, "(arg: 4)");
+    assert_eq!(
+        bash_row, sushline_row,
+        "the drawn indicator must match the host"
+    );
+    assert_eq!(
+        bash_row, "(arg: 4)",
+        "the indicator must take the place of the prompt"
+    );
+}
+
 /// The line's text follows the indicator.
 #[test]
 fn bash_and_sushline_draw_the_pending_numeric_argument_before_the_line_text() {

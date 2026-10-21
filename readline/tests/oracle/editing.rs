@@ -9,6 +9,7 @@
 
 use super::host::require_oracle_host;
 use super::pty::*;
+use super::screen::Screen;
 use std::fs;
 
 #[test]
@@ -1738,6 +1739,129 @@ fn bash_readline_and_sushline_accept_same_multidigit_numeric_self_insert() {
         "bash={bash}\nsushline={sushline}"
     );
     assert_eq!(bell_count(&sushline), 0, "{sushline}");
+}
+
+/// The row the terminal shows with the pending numeric argument drawn.
+///
+/// The host draws the indicator over the prompt and redraws the prompt once
+/// the argument is consumed, so the screen is looked at while the indicator
+/// is there. The indicator takes the place of the prompt, so it starts the
+/// row, and the row that starts with it is the one a case compares, because
+/// a program may print its own output after the editor finished.
+fn pending_argument_row(editor: &str, output: &str, indicator: &str) -> String {
+    let screen = Screen::new(24, 80);
+    let rows = screen
+        .last_rows_starting_with(output.as_bytes(), indicator)
+        .unwrap_or_else(|| {
+            panic!("{editor} must draw {indicator} in place of the prompt: {output:?}")
+        });
+    rows.iter()
+        .find(|row| row.contains(indicator))
+        .cloned()
+        .unwrap_or_else(|| {
+            panic!("{editor} must draw {indicator} in place of the prompt: {rows:?}")
+        })
+}
+
+/// The pending numeric argument is drawn in place of the prompt.
+///
+/// GNU Readline 8.2 draws `(arg: N) ` where the prompt would be while a
+/// numeric argument is pending, and the prompt is not on the screen while
+/// the indicator is (Bash 5.3 PTY observation). The two editors must show
+/// the same screen while the indicator is there.
+#[test]
+fn bash_and_sushline_draw_the_pending_numeric_argument_in_place_of_the_prompt() {
+    let keys = b"\x1b3\r";
+    let bash = run_bash_readline(keys);
+    let sushline = run_sushline_harness(keys);
+
+    let bash_row = pending_argument_row("Bash", &bash, "(arg: 3)");
+    let sushline_row = pending_argument_row("Sushline", &sushline, "(arg: 3)");
+    assert_eq!(
+        bash_row, sushline_row,
+        "the drawn indicator must match the host"
+    );
+    assert_eq!(
+        bash_row, "(arg: 3)",
+        "the indicator must take the place of the prompt"
+    );
+}
+
+/// The indicator grows with the pending argument.
+#[test]
+fn bash_and_sushline_draw_the_growing_pending_numeric_argument() {
+    let keys = b"\x1b3\x1b4\r";
+    let bash = run_bash_readline(keys);
+    let sushline = run_sushline_harness(keys);
+
+    let bash_row = pending_argument_row("Bash", &bash, "(arg: 34)");
+    let sushline_row = pending_argument_row("Sushline", &sushline, "(arg: 34)");
+    assert_eq!(
+        bash_row, sushline_row,
+        "the drawn indicator must match the host"
+    );
+    assert_eq!(
+        bash_row, "(arg: 34)",
+        "the indicator must carry the pending argument"
+    );
+}
+
+/// The universal argument is drawn in place of the prompt.
+#[test]
+fn bash_and_sushline_draw_the_pending_universal_argument_in_place_of_the_prompt() {
+    let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
+    let keys = b"\x0f\r";
+    let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+    let bash_row = pending_argument_row("Bash", &bash, "(arg: 4)");
+    let sushline_row = pending_argument_row("Sushline", &sushline, "(arg: 4)");
+    assert_eq!(
+        bash_row, sushline_row,
+        "the drawn indicator must match the host"
+    );
+    assert_eq!(
+        bash_row, "(arg: 4)",
+        "the indicator must carry the universal argument"
+    );
+}
+
+/// The line's text follows the indicator.
+#[test]
+fn bash_and_sushline_draw_the_pending_numeric_argument_before_the_line_text() {
+    let keys = b"abc\x1b3\r";
+    let bash = run_bash_readline(keys);
+    let sushline = run_sushline_harness(keys);
+
+    let bash_row = pending_argument_row("Bash", &bash, "(arg: 3)");
+    let sushline_row = pending_argument_row("Sushline", &sushline, "(arg: 3)");
+    assert_eq!(
+        bash_row, sushline_row,
+        "the drawn indicator must match the host"
+    );
+    assert_eq!(
+        bash_row, "(arg: 3) abc",
+        "the line's text must follow the indicator"
+    );
+}
+
+/// The sign-only prefix draws the sign of the pending argument.
+#[test]
+fn bash_and_sushline_draw_the_negative_pending_numeric_argument() {
+    let keys = b"\x1b-\r";
+    let bash = run_bash_readline(keys);
+    let sushline = run_sushline_harness(keys);
+
+    let bash_row = pending_argument_row("Bash", &bash, "(arg: -1)");
+    let sushline_row = pending_argument_row("Sushline", &sushline, "(arg: -1)");
+    assert_eq!(
+        bash_row, sushline_row,
+        "the drawn indicator must match the host"
+    );
+    assert_eq!(
+        bash_row, "(arg: -1)",
+        "the indicator must carry the sign of the pending argument"
+    );
 }
 
 #[test]

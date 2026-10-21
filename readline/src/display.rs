@@ -13,7 +13,9 @@ use crate::prompt::Prompt;
 use crate::state::{EditorState, SearchDirection};
 use crate::terminal::{TerminalIo, TerminalSize, escape};
 use crate::variables::BoolVariable;
-use crate::width::{last_line_width, measured_rows_for_output, rendered_rows_for_output};
+use crate::width::{
+    last_line_width, measured_rows_for_output, rendered_rows_for_output, visible_width,
+};
 use std::borrow::Cow;
 use std::io;
 
@@ -77,11 +79,16 @@ where
             let width = last_line_width(&prompt);
             return (prompt, width);
         }
+        if let Some(indicator) = numeric_arg_indicator(state) {
+            // GNU Readline draws the pending argument in place of the whole
+            // prompt, so the mode indicator and the decorations go with it.
+            let width = visible_width(&indicator);
+            return (indicator, width);
+        }
         let mode = self.mode_prompt();
         let decorations = self.prompt_decorations(state);
-        let width = state
-            .prompt
-            .width_after_prefix(mode.width() + last_line_width(&decorations));
+        let prefix_width = mode.width() + last_line_width(&decorations);
+        let width = state.prompt.width_after_prefix(prefix_width);
         (
             format!("{}{decorations}{}", mode.visible(), state.prompt.visible()),
             width,
@@ -109,6 +116,12 @@ where
     fn horizontal_prompt(&self, state: &EditorState) -> horizontal::DisplayLine {
         if let Some(prompt) = active_search_prompt(state) {
             return Prompt::new(prompt).horizontal_line();
+        }
+        if let Some(indicator) = numeric_arg_indicator(state) {
+            // The indicator takes the place of the whole prompt.
+            let mut line = horizontal::DisplayLine::default();
+            line.push_prompt_text(&indicator);
+            return line;
         }
         // Parse the raw mode Prompt separately, just like the normal Prompt:
         // marker-stripped output loses the hidden spans' cell annotations.
@@ -328,6 +341,18 @@ where
         };
         Prompt::new(raw)
     }
+}
+
+/// The indicator GNU Readline draws while a numeric argument is pending.
+///
+/// GNU Readline 8.2 draws `(arg: N) ` in place of the whole prompt while a
+/// numeric argument is pending, and the indicator grows with the argument. A
+/// sign-only prefix shows its sign, so `M--` draws `(arg: -1) `. The mode
+/// indicator is part of the prompt, so it is replaced as well. Measured on
+/// the Bash 5.3 host and on the Readline 8.2 library in a PTY.
+fn numeric_arg_indicator(state: &EditorState) -> Option<String> {
+    let argument = state.numeric_arg?;
+    Some(format!("(arg: {argument}) "))
 }
 
 fn normalize_terminal_size(size: TerminalSize) -> TerminalSize {

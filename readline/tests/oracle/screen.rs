@@ -5,7 +5,9 @@
 //! instead of what the program wrote to the stream. The model covers the
 //! control sequences the editor and GNU Readline use; it treats every
 //! character as one cell wide, so it observes the single-width cases the
-//! screen-level cases use.
+//! screen-level cases use. The insert and delete characters sequences are
+//! covered because GNU Readline uses them to draw the pending numeric
+//! argument over the prompt.
 
 use std::iter::Peekable;
 use std::str::Chars;
@@ -53,6 +55,28 @@ impl Screen {
     /// Whether any row of the screen shows `text`.
     pub(super) fn shows(&self, text: &str) -> bool {
         (0..self.rows).any(|row| self.row_text(row).contains(text))
+    }
+
+    /// The rendered rows at the last point where a row starts with `text`.
+    ///
+    /// A display that is drawn and then replaced (the pending numeric
+    /// argument indicator, which the prompt replaces) is on the screen only
+    /// between two writes, so every prefix of the stream is rendered. The
+    /// indicator takes the place of the prompt, so it starts the row, and
+    /// the last prefix whose row starts with it is the settled display: the
+    /// prompt that follows starts the row again. A prefix that ends inside
+    /// a multibyte character renders that character as a replacement
+    /// character, so the text a case looks for has to be ASCII.
+    pub(super) fn last_rows_starting_with(&self, bytes: &[u8], text: &str) -> Option<Vec<String>> {
+        let mut rows = None;
+        for end in 1..=bytes.len() {
+            let mut screen = Screen::new(self.rows, self.columns);
+            screen.feed(&bytes[..end]);
+            if screen.rows_text().iter().any(|row| row.starts_with(text)) {
+                rows = Some(screen.rows_text());
+            }
+        }
+        rows
     }
 
     /// The rendered rows, for a failure message.
@@ -145,6 +169,8 @@ impl Screen {
                 self.row = (count(0) - 1).min(self.rows - 1);
                 self.column = (count(1) - 1).min(self.columns - 1);
             }
+            '@' => self.insert_characters(count(0)),
+            'P' => self.delete_characters(count(0)),
             'J' => self.erase_display(numbers.first().copied().unwrap_or(0)),
             'K' => self.erase_line(numbers.first().copied().unwrap_or(0)),
             'm' | 'h' | 'l' => {}
@@ -154,6 +180,28 @@ impl Screen {
                 self.column = self.saved.1;
             }
             _ => {}
+        }
+    }
+
+    /// Inserts blank characters at the cursor, pushing the rest of the row
+    /// to the right.
+    fn insert_characters(&mut self, count: usize) {
+        let row = self.row;
+        for _ in 0..count {
+            self.cells[row].insert(self.column, ' ');
+        }
+        self.cells[row].truncate(self.columns);
+    }
+
+    /// Deletes characters at the cursor, pulling the rest of the row to the
+    /// left.
+    fn delete_characters(&mut self, count: usize) {
+        let row = self.row;
+        for _ in 0..count {
+            if self.column < self.cells[row].len() {
+                self.cells[row].remove(self.column);
+                self.cells[row].push(' ');
+            }
         }
     }
 
@@ -196,5 +244,24 @@ impl Screen {
                 self.cells[row] = vec![' '; self.columns];
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Screen;
+
+    #[test]
+    fn deleted_characters_pull_the_row_left() {
+        let mut screen = Screen::new(2, 10);
+        screen.feed(b"abcdef\x1b[3D\x1b[2P");
+        assert_eq!(screen.row_text(0), "abcf");
+    }
+
+    #[test]
+    fn inserted_characters_push_the_row_right() {
+        let mut screen = Screen::new(2, 10);
+        screen.feed(b"abcdef\x1b[3D\x1b[2@");
+        assert_eq!(screen.row_text(0), "abc  def");
     }
 }

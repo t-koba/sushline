@@ -15,9 +15,9 @@ env:
   # The digest of the Readline tarball. The Bash tarball is pinned by
   # digest, and so is this one, so the fetch is a checked one.
   READLINE_ORACLE_SHA256: fe5383204467828cd495ee8d1d3c037a7eba1389c22bc6a041f627976f9061cc
-  # The configuration the pinned release is built with: the terminal
-  # interface the reference host's Readline is built against, which the
-  # build asks the release's configure for. The configuration is part of the
+  # The configuration the pinned release is built with: the options the
+  # build passes to the release's configure, which tell it that the termcap
+  # functions are in the curses library. The configuration is part of the
   # identity of the evidence, so it is named in the cache keys: a cached
   # library that was built with another configuration is not reused as the
   # pinned one. The value carries no space, because the cache key carries
@@ -103,12 +103,12 @@ jobs:
             echo "$READLINE_ORACLE_SHA256  /tmp/readline-$READLINE_ORACLE_VERSION.tar.gz" | sha256sum --check --strict
             tar -xzf /tmp/readline-$READLINE_ORACLE_VERSION.tar.gz -C /tmp
             cd /tmp/readline-$READLINE_ORACLE_VERSION
-            # The prefix the job installs into, and the terminal interface
-            # the reference host's Readline is built against. The interface
-            # is part of the evidence's identity, because the oracle
-            # compares redisplay bytes, so the build asks the release's
-            # configure for the terminfo interface instead of leaving it to
-            # the release's default, and it is checked after the build.
+            # The prefix the job installs into, and the options the
+            # configuration names. The configuration is part of the
+            # evidence's identity, because the oracle compares redisplay
+            # bytes, so the build is configured with the named options
+            # instead of the release's defaults, and the library it comes
+            # out with is checked after the build.
             ./configure "${configure_flags[@]}"
             make -j"$(nproc)"
             make install
@@ -135,11 +135,10 @@ jobs:
           release=$(/tmp/readline_release)
           echo "readline_release=$release"
           test "$release" = "$READLINE_ORACLE_VERSION"
-          # The terminal interface the library was built against is part of
-          # the evidence's identity, so the build is checked to use the
-          # terminfo interface the reference host's Readline is built
-          # against as well. A build that came out with another interface is
-          # named and stops the job.
+          # The terminal library the built library was linked against is
+          # part of the evidence's identity, so the build is checked to
+          # link a terminal-capability library. A build that came out
+          # without one is named and stops the job.
           #
           # The loader is a shell script of its own, and the shell that runs
           # this step exports the options it runs with, which makes that

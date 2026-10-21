@@ -15,14 +15,18 @@ env:
   # The digest of the Readline tarball. The Bash tarball is pinned by
   # digest, and so is this one, so the fetch is a checked one.
   READLINE_ORACLE_SHA256: fe5383204467828cd495ee8d1d3c037a7eba1389c22bc6a041f627976f9061cc
-  # The configuration the pinned release is built with: the options the
-  # build passes to the release's configure, which tell it that the termcap
-  # functions are in the curses library. The configuration is part of the
+  # The configuration the pinned release is built with: the option the
+  # build passes to the release's configure. The option asks the release to
+  # link its shared library against the terminal-capability library the
+  # build finds, so the built library carries that dependency itself
+  # instead of leaving it to the program that links it. The pinned Bash
+  # host loads that library, and the host's configure has to find the
+  # terminal functions through it. The configuration is part of the
   # identity of the evidence, so it is named in the cache keys: a cached
   # library that was built with another configuration is not reused as the
   # pinned one. The value carries no space, because the cache key carries
   # it.
-  READLINE_ORACLE_CONFIGURE_FLAGS: "--with-curses"
+  READLINE_ORACLE_CONFIGURE_FLAGS: "--with-shared-termcap-library"
   # The Readline the pinned Bash host is linked against. Bash carries its
   # own copy of Readline and builds that by default, so the host is
   # configured to use the installed release. The value chooses the linkage
@@ -151,14 +155,18 @@ jobs:
           # The terminal library the built library was linked against is
           # part of the evidence's identity, so the build is checked to
           # link a terminal-capability library. A build that came out
-          # without one is named and stops the job.
+          # without one is named and stops the job. The release links
+          # whichever of them its own detection found, so the check accepts
+          # the family and the job log names the one that was linked.
           #
           # The loader is a shell script of its own, and the shell that runs
           # this step exports the options it runs with, which makes that
           # script fail on a variable it leaves unset, so the loader is
           # asked without them.
-          if ! env -u SHELLOPTS ldd "$prefix/lib/libreadline.so" | grep -E 'libtinfo|libncurses'; then
-            echo "the pinned Readline build did not link libtinfo or libncurses" >&2
+          loader_report=$(env -u SHELLOPTS ldd "$prefix/lib/libreadline.so")
+          echo "$loader_report"
+          if ! printf '%s\n' "$loader_report" | grep -E 'libtinfo|libncurses|libtermcap'; then
+            echo "the pinned Readline build did not link a terminal-capability library" >&2
             exit 1
           fi
       - name: Install the pinned bash oracle host

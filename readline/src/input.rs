@@ -27,12 +27,16 @@ where
         state: &mut EditorState,
         signal: i32,
     ) -> Result<Option<ReadlineResult>, ReadlineError> {
-        self.terminal.restore_mode()?;
         #[cfg(unix)]
         if signal == libc::SIGINT {
+            // The input that arrived with the interrupt is dropped while the
+            // terminal is still in raw mode, like GNU Readline.
+            self.terminal.drain_pending_input()?;
+            self.terminal.restore_mode()?;
             self.echo_signal_interrupt(state)?;
             return Ok(Some(ReadlineResult::Interrupted));
         }
+        self.terminal.restore_mode()?;
         #[cfg(unix)]
         unsafe {
             libc::raise(signal);

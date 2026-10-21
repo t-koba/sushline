@@ -433,6 +433,10 @@ where
                         && !state.input.quoted_insert
                         && !state.paste.bracketed_paste
                     {
+                        // The input that arrived with the interrupt is
+                        // dropped, like GNU Readline, so the next read does
+                        // not accept it.
+                        self.terminal.drain_pending_input()?;
                         self.echo_signal_interrupt(&mut state)?;
                         self.save_persistent_state(&state);
                         return Ok(ReadlineResult::Interrupted);

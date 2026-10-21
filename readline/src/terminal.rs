@@ -60,6 +60,15 @@ pub trait TerminalIo {
     fn write_diagnostic(&mut self, text: &str) -> io::Result<()> {
         self.write(text)
     }
+    /// Discards the input the terminal has already queued.
+    ///
+    /// GNU Readline drops the pending input after an interrupt, so the bytes
+    /// that arrived with the interrupt are not accepted by the next read.
+    /// The default does nothing, which leaves a custom backend's behavior
+    /// unchanged.
+    fn drain_pending_input(&mut self) -> io::Result<()> {
+        Ok(())
+    }
     /// Reports whether the diagnostic sink writes to the terminal's own
     /// screen.
     ///
@@ -248,6 +257,14 @@ impl TerminalIo for Terminal {
             let _ = timeout;
             Err(unsupported_terminal_io())
         }
+    }
+
+    fn drain_pending_input(&mut self) -> io::Result<()> {
+        #[cfg(unix)]
+        {
+            drain_stdin();
+        }
+        Ok(())
     }
 
     fn write(&mut self, text: &str) -> io::Result<()> {
@@ -657,6 +674,43 @@ fn read_raw_event(timeout: Option<Duration>) -> io::Result<TerminalEvent> {
         ));
     }
     Ok(TerminalEvent::Bytes(buf[..read as usize].to_vec()))
+}
+
+/// Discards the bytes the terminal has queued.
+///
+/// The terminal is polled with no timeout, so the read never waits for more
+/// input than the terminal already holds.
+#[cfg(unix)]
+fn drain_stdin() {
+    let mut buf = [0u8; 1024];
+    loop {
+        let mut pollfd = libc::pollfd {
+            fd: libc::STDIN_FILENO,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let ready = unsafe { libc::poll(&mut pollfd, 1, 0) };
+        if ready <= 0 {
+            return;
+        }
+        let read = unsafe {
+            libc::read(
+                libc::STDIN_FILENO,
+                buf.as_mut_ptr().cast::<libc::c_void>(),
+                buf.len(),
+            )
+        };
+        if read > 0 {
+            continue;
+        }
+        if read == 0 {
+            return;
+        }
+        if io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
+            continue;
+        }
+        return;
+    }
 }
 
 #[cfg(unix)]

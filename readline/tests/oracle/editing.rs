@@ -40,6 +40,19 @@ fn bash_and_sushline_ctrl_c_signal_path_wins_over_inputrc_macro() {
 }
 
 #[test]
+fn bash_and_sushline_drop_the_input_that_arrived_with_the_interrupt() {
+    // The bytes that arrive with the interrupt are dropped, so the next read
+    // does not accept them.
+    let bash = run_bash_interactive_after_ctrl_c_with_keys(b"abc\x03X\r");
+    let sushline = run_sushline_harness_after_ctrl_c_with_keys(b"abc\x03X\r");
+
+    assert!(bash.contains("SUSHLINE_ACCEPTED:ok"), "{bash}");
+    assert!(!bash.contains("X: command not found"), "{bash}");
+    assert!(sushline.contains("SUSHLINE_ACCEPTED_2:ok"), "{sushline}");
+    assert!(!sushline.contains("SUSHLINE_ACCEPTED_2:X"), "{sushline}");
+}
+
+#[test]
 fn sushline_ctrl_c_signal_interrupts_readline_without_io_error() {
     require_oracle_host();
     let sushline = run_sushline_harness_until(b"abc\x03", "", "SUSHLINE_INTERRUPTED");

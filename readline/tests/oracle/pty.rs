@@ -78,6 +78,10 @@ fn bash_interrupt_run_is_complete(output: &str) -> bool {
 }
 
 fn run_bash_interactive_after_ctrl_c_once() -> String {
+    run_bash_interactive_after_ctrl_c_once_with_keys(b"abc\x03")
+}
+
+fn run_bash_interactive_after_ctrl_c_once_with_keys(keys: &[u8]) -> String {
     // Unique prompts prevent partial-line redisplay from releasing the next PTY step.
     let mut command = CommandBuilder::new("bash");
     command.env("PS1", "SUSHLINE_READY1>");
@@ -90,7 +94,7 @@ fn run_bash_interactive_after_ctrl_c_once() -> String {
     run_pty_steps_until_with_timeout(
         command,
         &[
-            ("SUSHLINE_READY1>", b"abc\x03".as_slice()),
+            ("SUSHLINE_READY1>", keys),
             (
                 "SUSHLINE_READY2>",
                 b"printf 'SUSHLINE_ACCEPTED:%s\\n' ok\r".as_slice(),
@@ -614,7 +618,34 @@ pub(super) fn run_sushline_harness_until(keys: &[u8], inputrc: &str, stop_marker
     run_pty_until(command, keys, stop_marker)
 }
 
+/// Runs the host's interrupt case with the given keys in the first step.
+///
+/// The keys may carry input that arrives with the interrupt, so the case can
+/// observe whether the host accepts it in the next read.
+pub(super) fn run_bash_interactive_after_ctrl_c_with_keys(keys: &[u8]) -> String {
+    let mut output = String::new();
+    for attempt in 1..=BASH_INTERRUPT_ATTEMPTS {
+        output = run_bash_interactive_after_ctrl_c_once_with_keys(keys);
+        if bash_interrupt_run_is_complete(&output) {
+            if attempt > 1 {
+                eprintln!("the GNU host run needed {attempt} attempts");
+            }
+            return output;
+        }
+        eprintln!("the GNU host run attempt {attempt} did not reach the next prompt");
+    }
+    output
+}
+
 pub(super) fn run_sushline_harness_after_ctrl_c() -> String {
+    run_sushline_harness_after_ctrl_c_with_keys(b"abc\x03")
+}
+
+/// Runs the harness's interrupt case with the given keys in the first step.
+///
+/// The keys may carry input that arrives with the interrupt, so the case can
+/// observe whether the editor accepts it in the next read.
+pub(super) fn run_sushline_harness_after_ctrl_c_with_keys(keys: &[u8]) -> String {
     let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
     command.env("SUSHLINE_INPUTRC", "");
     command.env("SUSHLINE_PROMPT", "SUSHLINE_READY");
@@ -625,7 +656,7 @@ pub(super) fn run_sushline_harness_after_ctrl_c() -> String {
     run_pty_steps_until(
         command,
         &[
-            ("SUSHLINE_READY1:", b"abc\x03".as_slice()),
+            ("SUSHLINE_READY1:", keys),
             ("SUSHLINE_READY2:", b"ok\r".as_slice()),
         ],
         "SUSHLINE_ACCEPTED_2:",

@@ -11,7 +11,9 @@
 //! A program that links Readline statically keeps the release number in its
 //! own symbol table, and it holds the number in the dynamic symbol table
 //! only when the program was linked to export its symbols, so both tables
-//! are read.
+//! are read. A symbol the image does not define is skipped, because a
+//! program that loads Readline names the variable without defining it, and
+//! the number is in the library the program loads.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -45,10 +47,11 @@ impl ReadlineVersion {
 /// The Readline releases the compatibility document's evidence covers.
 ///
 /// The reference host carries Readline 8.3, the release the document
-/// targets, and the CI-built host carries the Readline the runner image
-/// ships, which was 8.2 when the document was written. A host that carries
-/// another release is not a host the document describes, so the oracle suite
-/// stops on it instead of reporting evidence against it.
+/// targets, and the CI-built host is built against that release as well.
+/// The 8.2 release is covered too, because the claim about the library's
+/// output stream was measured on it. A host that carries another release is
+/// not a host the document describes, so the oracle suite stops on it
+/// instead of reporting evidence against it.
 const DOCUMENTED_VERSIONS: [ReadlineVersion; 2] = [
     ReadlineVersion { major: 8, minor: 2 },
     ReadlineVersion { major: 8, minor: 3 },
@@ -143,6 +146,9 @@ struct Elf<'a> {
 /// The section header type of the static symbol table.
 const STATIC_SYMBOLS: u32 = 2;
 
+/// The section index a symbol the image does not define carries.
+const UNDEFINED_SECTION: u16 = 0;
+
 /// The section header type of the dynamic symbol table.
 const DYNAMIC_SYMBOLS: u32 = 11;
 
@@ -200,7 +206,14 @@ impl<'a> Elf<'a> {
         while offset + 24 <= symbols.offset + symbols.size {
             let name_offset = self.u32_at(offset)? as usize;
             if self.string(strings.offset + name_offset)? == name {
-                return self.u64_at(offset + 8);
+                // A symbol the image does not define carries no value of its
+                // own, so it is not the release number this image holds. A
+                // host that loads Readline names the variable in its own
+                // tables without defining it, and the library the host loads
+                // is where the release number lives.
+                if self.u16_at(offset + 6)? != UNDEFINED_SECTION {
+                    return self.u64_at(offset + 8);
+                }
             }
             offset += entry;
         }
@@ -301,6 +314,14 @@ mod tests {
     /// header that maps the number's address to its file offset, a symbol
     /// table with one entry, and the string table the entry names.
     fn elf_image_with_release_number(kind: u32, number: u32) -> Vec<u8> {
+        elf_image_with_symbol(kind, number, 1)
+    }
+
+    /// Builds an ELF image whose symbol table names the release number.
+    ///
+    /// The section the symbol belongs to says whether the image defines the
+    /// symbol, so an image that only names it can be built as well.
+    fn elf_image_with_symbol(kind: u32, number: u32, section: u16) -> Vec<u8> {
         const DATA_OFFSET: usize = 0x1000;
         const STRING_OFFSET: usize = 0x2000;
         const SYMBOL_OFFSET: usize = 0x2100;
@@ -345,7 +366,7 @@ mod tests {
         image[STRING_OFFSET + 1..STRING_OFFSET + 1 + name.len()].copy_from_slice(name);
         put_u32(&mut image, SYMBOL_OFFSET, 1); // The name's offset.
         image[SYMBOL_OFFSET + 4] = 0x11; // A global object.
-        put_u16(&mut image, SYMBOL_OFFSET + 6, 1); // The section it belongs to.
+        put_u16(&mut image, SYMBOL_OFFSET + 6, section); // The section it belongs to.
         put_u64(&mut image, SYMBOL_OFFSET + 8, DATA_OFFSET as u64);
         put_u64(&mut image, SYMBOL_OFFSET + 16, 4);
 
@@ -388,6 +409,16 @@ mod tests {
             .expect("the dynamic symbol table must be read");
         assert_eq!(address, NUMBER_ADDRESS);
         assert_eq!(elf.i32_at(address), Some(0x0802));
+    }
+
+    #[test]
+    fn a_symbol_the_image_does_not_define_is_not_read() {
+        // A host that loads Readline names the release number in its own
+        // tables without defining it, and the number is in the library the
+        // host loads, so the host's own image does not carry it.
+        let image = elf_image_with_symbol(DYNAMIC_SYMBOLS, 0x0803, 0);
+        let elf = Elf::parse(&image).expect("the image is an ELF image");
+        assert_eq!(elf.symbol_address("rl_readline_version"), None);
     }
 
     #[test]

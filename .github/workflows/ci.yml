@@ -8,6 +8,16 @@ env:
   # digest.
   BASH_ORACLE_VERSION: "5.3"
   BASH_ORACLE_SHA256: 0d5cd86965f869a26cf64f4b71be7b96f90a3ba8b3d74e27e8e9d9d5550f31ba
+  # The Readline release the oracle host is built against. It is the release
+  # the compatibility document names, so the cases that are scoped to that
+  # release run in the job instead of reporting nothing.
+  READLINE_ORACLE_VERSION: "8.3"
+  # The digest of the Readline tarball, when it is pinned here. The Bash
+  # tarball is pinned by digest; the Readline tarball's digest is not
+  # recorded in this repository yet, so the job verifies the release the
+  # built library carries and prints the digest it fetched. Pinning the
+  # printed digest here turns the fetch into a checked one.
+  READLINE_ORACLE_SHA256: ""
 
 jobs:
   # The Rust checks do not need the oracle host, so a network fault in the
@@ -38,21 +48,86 @@ jobs:
         with:
           path: ~/.cargo/registry
           key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache the pinned Readline release
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/sushline/readline-oracle
+          key: readline-${{ runner.os }}-${{ env.READLINE_ORACLE_VERSION }}-${{ env.READLINE_ORACLE_SHA256 }}
       - name: Cache the pinned bash oracle host
         uses: actions/cache@v4
         with:
           path: ~/.cache/sushline/bash-oracle
-          key: bash-${{ runner.os }}-${{ env.BASH_ORACLE_VERSION }}-${{ env.BASH_ORACLE_SHA256 }}
+          key: bash-${{ runner.os }}-${{ env.BASH_ORACLE_VERSION }}-${{ env.BASH_ORACLE_SHA256 }}-${{ env.READLINE_ORACLE_VERSION }}-${{ env.READLINE_ORACLE_SHA256 }}
+      - name: Install the pinned Readline release
+        run: |
+          set -euo pipefail
+          prefix="$HOME/.cache/sushline/readline-oracle"
+          if [ ! -f "$prefix/lib/libreadline.so" ]; then
+            # Readline needs the terminfo headers and library to build. The
+            # runner image ships without package lists, so the index is
+            # refreshed before the install.
+            sudo apt-get update
+            sudo apt-get install -y libncurses-dev
+            curl -fsSL \
+              --connect-timeout 20 \
+              --max-time 300 \
+              --retry 5 \
+              --retry-connrefused \
+              --retry-delay 2 \
+              --retry-max-time 240 \
+              -o /tmp/readline-$READLINE_ORACLE_VERSION.tar.gz \
+              https://ftp.gnu.org/gnu/readline/readline-$READLINE_ORACLE_VERSION.tar.gz
+            if [ -n "$READLINE_ORACLE_SHA256" ]; then
+              echo "$READLINE_ORACLE_SHA256  /tmp/readline-$READLINE_ORACLE_VERSION.tar.gz" | sha256sum --check --strict
+            else
+              # The digest is printed, so it can be pinned here the way the
+              # Bash tarball's is.
+              sha256sum /tmp/readline-$READLINE_ORACLE_VERSION.tar.gz
+            fi
+            tar -xzf /tmp/readline-$READLINE_ORACLE_VERSION.tar.gz -C /tmp
+            cd /tmp/readline-$READLINE_ORACLE_VERSION
+            ./configure --prefix="$prefix"
+            make -j"$(nproc)"
+            make install
+          fi
+          # The release the compatibility document names is the release the
+          # library carries, so a build of another release cannot pass as
+          # the pinned one.
+          cat > /tmp/readline_release.c <<'PROBE'
+          #include <stdio.h>
+
+          extern int rl_readline_version;
+
+          int main(void) {
+              printf("%d.%d\n", rl_readline_version >> 8, rl_readline_version & 0xff);
+              return 0;
+          }
+          PROBE
+          cc -o /tmp/readline_release /tmp/readline_release.c \
+            -L"$prefix/lib" -Wl,-rpath,"$prefix/lib" -lreadline
+          release=$(/tmp/readline_release)
+          echo "readline_release=$release"
+          test "$release" = "$READLINE_ORACLE_VERSION"
+          # The 8.3 release adds two commands to the library's function
+          # table, so the built library names them and a build of an earlier
+          # release does not. The check ties the built library to the
+          # release the compatibility document names, not only to the number
+          # the library exports.
+          for command in execute-named-command export-completions; do
+            grep -q "$command" "$prefix"/lib/libreadline.so*
+          done
       - name: Install the pinned bash oracle host
         run: |
           set -euo pipefail
           prefix="$HOME/.cache/sushline/bash-oracle"
+          readline="$HOME/.cache/sushline/readline-oracle"
+          # The host's line editor is the pinned Readline release, so the
+          # headers the build needs come with that release and the runner
+          # image's own library is not installed here. The terminfo library
+          # the release was built against is still needed.
+          sudo apt-get update
+          sudo apt-get install -y libncurses-dev
           if [ ! -x "$prefix/bin/bash" ]; then
-            # Bash needs the Readline headers to build the line editor the
-            # oracle suite observes. The runner image ships without package
-            # lists, so the index is refreshed before the install.
-            sudo apt-get update
-            sudo apt-get install -y libreadline-dev
             curl -fsSL \
               --connect-timeout 20 \
               --max-time 300 \
@@ -65,21 +140,31 @@ jobs:
             echo "$BASH_ORACLE_SHA256  /tmp/bash-$BASH_ORACLE_VERSION.tar.gz" | sha256sum --check --strict
             tar -xzf /tmp/bash-$BASH_ORACLE_VERSION.tar.gz -C /tmp
             cd /tmp/bash-$BASH_ORACLE_VERSION
-            ./configure --prefix="$prefix"
+            # The host is linked against the pinned release, and the path to
+            # it is carried in the host's own image, so the oracle suite
+            # finds the release the host carries.
+            ./configure --prefix="$prefix" \
+              CPPFLAGS="-I$readline/include" \
+              LDFLAGS="-L$readline/lib -Wl,-rpath,$readline/lib"
             make -j"$(nproc)"
             make install
           fi
           "$prefix/bin/bash" --version
           # A Bash without Readline would silently produce empty evidence.
           "$prefix/bin/bash" --norc -c 'bind -v' | grep -q '^set editing-mode emacs$'
+          # The host must load the pinned release, or the cases scoped to it
+          # would report nothing.
+          ldd "$prefix/bin/bash" | grep -F "$readline/lib/libreadline"
       - name: Report the installed Readline default
         run: |
           set -euo pipefail
           # The compatibility row's output-stream claim rests on a Readline
-          # observation. This probe repeats it against the library the runner
-          # installed and checks it, so the claim is verified in CI without a C
-          # fixture in the repository. The headers are installed here as well,
-          # because the host's cache may already hold the built Bash.
+          # observation on the 8.2 release. This probe repeats it against the
+          # library the runner image installed and checks it, so the claim is
+          # verified in CI without a C fixture in the repository. That
+          # library is not the one the oracle host loads: the host carries
+          # the pinned release, and the row's claim is the one that was
+          # measured on the image's release.
           sudo apt-get update
           sudo apt-get install -y libreadline-dev
           cat > /tmp/readline_probe.c <<'PROBE'
@@ -122,9 +207,9 @@ jobs:
           cat /tmp/readline_probe.report
           version=$(dpkg-query -W -f='${Version}' libreadline-dev)
           echo "readline_package_version=$version"
-          # The library the probe links is the library the oracle host
-          # loads, so the release it reports is the release the oracle
-          # evidence was measured on.
+          # The library the probe links is the image's own library, the one
+          # the claim was measured on; the oracle host loads the pinned
+          # release, and the oracle suite names the release it carries.
           release=$(sed -n 's/^readline_release=//p' /tmp/readline_probe.report)
           echo "readline_release=$release"
           case "$release" in
@@ -147,4 +232,7 @@ jobs:
           # The oracle output is not captured, so the notes a case prints
           # when it reports nothing on a host with another release are in the
           # job log.
-          cargo test --locked -p sushline-readline --test oracle --test bind_golden -- --nocapture
+          cargo test --locked -p sushline-readline --test oracle --test bind_golden -- --nocapture 2>&1 | tee /tmp/oracle.log
+          # The host must carry the release the claims name, or the cases
+          # scoped to that release would report nothing.
+          grep -q "carrying Readline $READLINE_ORACLE_VERSION" /tmp/oracle.log

@@ -40,16 +40,21 @@ fn bash_and_sushline_ctrl_c_signal_path_wins_over_inputrc_macro() {
 }
 
 #[test]
-fn bash_and_sushline_drop_the_input_that_arrived_with_the_interrupt() {
-    // The bytes that arrive with the interrupt are dropped, so the next read
-    // does not accept them.
+fn bash_drops_the_input_that_arrived_with_the_interrupt_while_sushline_keeps_it() {
+    // GNU Readline clears the line on an interrupt, keeps reading and
+    // accepts the bytes that arrived with the interrupt as the next line,
+    // measured against Readline 8.2 in a program that links the library. The
+    // Bash host drops those bytes instead, so the two editors differ here
+    // and the case records both.
     let bash = run_bash_interactive_after_ctrl_c_with_keys(b"abc\x03X\r");
     let sushline = run_sushline_harness_after_ctrl_c_with_keys(b"abc\x03X\r");
 
+    // The Bash host drops the trailing input and accepts the line that
+    // follows it.
     assert!(bash.contains("SUSHLINE_ACCEPTED:ok"), "{bash}");
     assert!(!bash.contains("X: command not found"), "{bash}");
-    assert!(sushline.contains("SUSHLINE_ACCEPTED_2:ok"), "{sushline}");
-    assert!(!sushline.contains("SUSHLINE_ACCEPTED_2:X"), "{sushline}");
+    // Sushline keeps the trailing input, so the next read accepts it.
+    assert!(sushline.contains("SUSHLINE_ACCEPTED_2:X"), "{sushline}");
 }
 
 #[test]

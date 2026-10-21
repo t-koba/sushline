@@ -29,9 +29,10 @@ where
     ) -> Result<Option<ReadlineResult>, ReadlineError> {
         #[cfg(unix)]
         if signal == libc::SIGINT {
-            // The input that arrived with the interrupt is dropped while the
-            // terminal is still in raw mode, like GNU Readline.
-            self.terminal.drain_pending_input()?;
+            // The terminal keeps the input that arrived with the interrupt.
+            // GNU Readline clears the line, keeps reading and accepts those
+            // bytes as the next line, so the editor does not discard the
+            // terminal's queued bytes here.
             self.terminal.restore_mode()?;
             self.echo_signal_interrupt(state)?;
             return Ok(Some(ReadlineResult::Interrupted));
@@ -124,12 +125,13 @@ where
             let (byte, tail) = rest.split_at(1);
             rest = tail;
             if byte[0] == 0x03 && !state.input.quoted_insert && !state.paste.bracketed_paste {
-                // The input that arrived with the interrupt is dropped,
-                // like GNU Readline, so the next read does not accept it.
-                self.terminal.drain_pending_input()?;
+                // The bytes that arrived with the interrupt stay in the
+                // input stream. GNU Readline clears the line, keeps reading
+                // and accepts them as the next line, so the next read
+                // continues with them.
                 self.echo_signal_interrupt(state)?;
                 state.input.interrupted = true;
-                return Ok((EditorOutcome::Continue, Vec::new(), drawn));
+                return Ok((EditorOutcome::Continue, rest.to_vec(), drawn));
             }
             let paste_active = state.paste.bracketed_paste;
             // A key that is not text interrupts the pending text, so the

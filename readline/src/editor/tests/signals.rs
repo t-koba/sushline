@@ -14,6 +14,22 @@ fn interrupted_readline_cleans_up_terminal_modes() {
 }
 
 #[test]
+fn interrupt_keeps_the_input_that_arrived_with_it() {
+    // GNU Readline clears the line on an interrupt, keeps reading and
+    // accepts the bytes that arrived with the interrupt as the next line, so
+    // the editor keeps them in the input stream.
+    let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(b"abc\x03X\r".to_vec())]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Interrupted);
+    assert!(line.terminal.out.contains("^C\r\n"));
+
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"X".to_vec()));
+}
+
+#[test]
 fn interrupted_readline_marks_current_input_line() {
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"abc".to_vec()),

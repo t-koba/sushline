@@ -152,6 +152,14 @@ backend is provided. Tests and embedders can provide their own `TerminalIo`
 implementation, including an in-memory terminal for editor behavior tests
 without a real TTY.
 
+The built-in terminal reads the input the terminal holds as one batch, like
+GNU Readline, which processes the input that is available character by
+character and redisplays once. The editor dispatches a batch character by
+character, draws the pending text before a key that interrupts it, and keeps
+the bytes that follow an accepted line in the input stream, so the next read
+continues with them. A custom `TerminalIo` implementation owns its own read
+granularity; the editor draws the text of an event once, when the event ends.
+
 Every error text the editor writes goes through `TerminalIo::write_diagnostic`:
 the inputrc diagnostics, the readline error messages, and the history
 expansion failure message. The print-only history expansion result joins them

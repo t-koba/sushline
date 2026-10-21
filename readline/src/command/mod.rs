@@ -31,6 +31,8 @@ where
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
         state.record_macro_binding(key, &binding);
+        state.input.applied_command =
+            !matches!(binding, KeyBinding::Command(EditCommand::SelfInsert));
         match binding {
             KeyBinding::Command(command) => self.apply_command(state, command, key, hooks),
             KeyBinding::NamedCommand(command) => {

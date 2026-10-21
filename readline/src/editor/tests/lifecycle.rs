@@ -1138,7 +1138,11 @@ fn setup_failure_after_raw_entry_still_restores_terminal_mode() {
 fn positive_digit_overflow_resets_without_panic() {
     // Auditor repro: ESC + 13 nines overflows i32; parsing alone must not
     // panic (debug) or wrap (release). Overflow resets with a bell so no
-    // huge repeat executes; the trailing run rebuilds a small argument.
+    // huge repeat executes. The editor dispatches the input one byte at
+    // a time, like GNU Readline's per-character reads, so the digits
+    // that follow the reset are ordinary input, as they are on GNU.
+    // Sushline's argument holds more digits than GNU's before it
+    // overflows, so three digits follow the reset here.
     let terminal = super::MemoryTerminal::with_events(vec![crate::terminal::TerminalEvent::Bytes(
         b"\x1b9999999999999\x01\r".to_vec(),
     )]);
@@ -1146,7 +1150,7 @@ fn positive_digit_overflow_resets_without_panic() {
     let result = line.read_line(Prompt::new("> "), &mut ());
     assert_eq!(
         result.unwrap(),
-        ReadlineResult::Line(b"".to_vec()),
+        ReadlineResult::Line(b"999".to_vec()),
         "overflowing positive arg must not panic and must accept"
     );
     assert!(
@@ -1158,7 +1162,9 @@ fn positive_digit_overflow_resets_without_panic() {
 
 #[test]
 fn negative_digit_overflow_resets_without_panic() {
-    // Negative accumulation overflows toward i32::MIN; same reset policy.
+    // Negative accumulation overflows toward i32::MIN; same reset policy,
+    // and the digits that follow the reset are ordinary input, as they are
+    // on GNU.
     let terminal = super::MemoryTerminal::with_events(vec![crate::terminal::TerminalEvent::Bytes(
         b"\x1b-9999999999999\x01\r".to_vec(),
     )]);
@@ -1166,7 +1172,7 @@ fn negative_digit_overflow_resets_without_panic() {
     let result = line.read_line(Prompt::new("> "), &mut ());
     assert_eq!(
         result.unwrap(),
-        ReadlineResult::Line(b"".to_vec()),
+        ReadlineResult::Line(b"999".to_vec()),
         "overflowing negative arg must not panic and must accept"
     );
     assert!(

@@ -138,6 +138,7 @@ where
     }
 
     pub(super) fn render(&mut self, state: &mut EditorState) -> io::Result<()> {
+        state.display.pending_text = false;
         if state.display.rendered_rows > 0 {
             if state.display.rendered_cursor_row > 0 {
                 self.terminal.move_up(state.display.rendered_cursor_row)?;

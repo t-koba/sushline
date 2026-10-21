@@ -39,6 +39,40 @@ impl Hooks for EditingHook {
 }
 
 #[test]
+fn batched_input_after_an_accepted_line_continues_in_the_next_read() {
+    // GNU Readline keeps the bytes that follow an accepted line in its input
+    // stream, so a batch that carries two lines feeds the next read.
+    let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(b"one\rtwo\r".to_vec())]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    assert_eq!(
+        line.read_line(Prompt::new("> "), &mut ()).unwrap(),
+        ReadlineResult::Line(b"one".to_vec())
+    );
+    assert_eq!(
+        line.read_line(Prompt::new("> "), &mut ()).unwrap(),
+        ReadlineResult::Line(b"two".to_vec())
+    );
+}
+
+#[test]
+fn batched_text_is_drawn_once() {
+    // GNU Readline processes the input that is available as one batch and
+    // redisplays once, so a pasted line is drawn in one step.
+    let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(b"abc\r".to_vec())]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    assert_eq!(
+        line.read_line(Prompt::new("P>"), &mut ()).unwrap(),
+        ReadlineResult::Line(b"abc".to_vec())
+    );
+    assert_eq!(
+        line.terminal().out.matches("P>").count(),
+        2,
+        "the batch is drawn once: {:?}",
+        line.terminal().out
+    );
+}
+
+#[test]
 fn reads_basic_edited_line() {
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"a".to_vec()),

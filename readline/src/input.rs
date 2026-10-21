@@ -102,6 +102,73 @@ where
         self.handle_key_dispatch(state, bytes, hooks)
     }
 
+    /// Dispatch the bytes of one terminal event.
+    ///
+    /// GNU Readline reads the available input as one batch, processes it
+    /// character by character, and redisplays once. The editor dispatches
+    /// the batch one byte at a time, like GNU's per-character reads, and
+    /// reports the bytes that follow an accepted line, so the next read
+    /// continues with them the way GNU continues with its input stream.
+    ///
+    /// The result carries the outcome of the dispatch, the bytes that
+    /// follow an accepted line, and whether the batch was drawn.
+    pub(super) fn dispatch_input_bytes(
+        &mut self,
+        state: &mut EditorState,
+        bytes: &[u8],
+        hooks: &mut impl Hooks,
+    ) -> Result<(EditorOutcome, Vec<u8>, bool), ReadlineError> {
+        let mut rest = bytes;
+        let mut drawn = false;
+        while !rest.is_empty() {
+            let (byte, tail) = rest.split_at(1);
+            rest = tail;
+            if byte[0] == 0x03 && !state.input.quoted_insert && !state.paste.bracketed_paste {
+                // The input that arrived with the interrupt is dropped,
+                // like GNU Readline, so the next read does not accept it.
+                self.terminal.drain_pending_input()?;
+                self.echo_signal_interrupt(state)?;
+                state.input.interrupted = true;
+                return Ok((EditorOutcome::Continue, Vec::new(), drawn));
+            }
+            let paste_active = state.paste.bracketed_paste;
+            // A key that is not text interrupts the pending text, so the
+            // text is drawn before the key writes anything, like GNU
+            // Readline, which draws the line before it rings the bell.
+            if state.display.pending_text
+                && byte[0].is_ascii_control()
+                && !paste_active
+                && !state.input.quoted_insert
+            {
+                self.render(state)?;
+                drawn = true;
+            }
+            state.input.applied_command = false;
+            let outcome = if state.search.non_incremental_search.is_some() {
+                self.handle_non_incremental_search(state, byte, hooks)?
+            } else if state.search.reverse_search.is_some() {
+                self.handle_reverse_search(state, byte, hooks)?
+            } else {
+                self.handle_bytes(state, byte, hooks)?
+            };
+            // GNU Readline defers the redisplay of typed text until the
+            // input batch ends and redraws after every other key, so a
+            // pasted line is drawn once and a command is drawn at once. A
+            // finished paste is drawn when its terminator arrives.
+            let applied_command = state.input.applied_command;
+            let ends_the_read = !matches!(outcome, EditorOutcome::Continue);
+            if (applied_command && !ends_the_read) || (paste_active && !state.paste.bracketed_paste)
+            {
+                self.render(state)?;
+                drawn = true;
+            }
+            if !matches!(outcome, EditorOutcome::Continue) {
+                return Ok((outcome, rest.to_vec(), drawn));
+            }
+        }
+        Ok((EditorOutcome::Continue, Vec::new(), drawn))
+    }
+
     /// Dispatch keyboard-macro bytes one at a time.
     ///
     /// GNU Readline keeps macro bytes in the input stream, so a macro that
@@ -285,6 +352,7 @@ where
     }
 
     fn insert_literal(&mut self, state: &mut EditorState, bytes: &[u8], record_macro: bool) {
+        state.display.pending_text = true;
         let count = repeat_count(state.take_numeric_arg());
         state.record_insert_undo(count == 1 && bytes.len() == 1);
         for _ in 0..count {

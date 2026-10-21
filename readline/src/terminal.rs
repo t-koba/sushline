@@ -136,6 +136,13 @@ pub struct Terminal {
     raw: bool,
     catch_signals: bool,
     catch_sigwinch: bool,
+    /// Input that was read before a signal was noticed.
+    ///
+    /// The signal is reported before the data, like GNU Readline, which
+    /// reads one character at a time and sees the signal first. The data
+    /// waits here for the next read.
+    #[cfg(unix)]
+    pending: Vec<u8>,
     #[cfg(unix)]
     saved_termios: Option<libc::termios>,
 }
@@ -148,6 +155,8 @@ impl Terminal {
             raw: false,
             catch_signals: true,
             catch_sigwinch: true,
+            #[cfg(unix)]
+            pending: Vec::new(),
             #[cfg(unix)]
             saved_termios: None,
         }
@@ -249,7 +258,10 @@ impl TerminalIo for Terminal {
     fn read_event(&mut self, timeout: Option<Duration>) -> io::Result<TerminalEvent> {
         #[cfg(unix)]
         {
-            read_raw_event(timeout)
+            if !self.pending.is_empty() {
+                return Ok(TerminalEvent::Bytes(std::mem::take(&mut self.pending)));
+            }
+            read_raw_event(timeout, &mut self.pending)
         }
 
         #[cfg(not(unix))]
@@ -262,6 +274,7 @@ impl TerminalIo for Terminal {
     fn drain_pending_input(&mut self) -> io::Result<()> {
         #[cfg(unix)]
         {
+            self.pending.clear();
             drain_stdin();
         }
         Ok(())
@@ -627,8 +640,20 @@ fn tty_special_bindings() -> Vec<(u8, &'static str)> {
     bindings
 }
 
+/// Reads the available input as one batch.
+///
+/// GNU Readline reads the input that is available, processes it character by
+/// character, and redisplays once, so a pasted or piped line scrolls like
+/// GNU's batch and not like bytewise input. The batch is the input the
+/// terminal holds: the read continues while the terminal still has bytes, and
+/// a short read ends the batch. The read never waits for input the terminal
+/// does not hold.
+///
+/// A signal that arrives with the input is reported before the data, like
+/// GNU Readline, which reads one character at a time and sees the signal
+/// first. The data waits in `pending` for the next read.
 #[cfg(unix)]
-fn read_raw_event(timeout: Option<Duration>) -> io::Result<TerminalEvent> {
+fn read_raw_event(timeout: Option<Duration>, pending: &mut Vec<u8>) -> io::Result<TerminalEvent> {
     if SIGWINCH_RECEIVED.swap(false, Ordering::SeqCst) {
         return current_resize_event();
     }
@@ -656,24 +681,72 @@ fn read_raw_event(timeout: Option<Duration>) -> io::Result<TerminalEvent> {
     if ready == 0 {
         return Ok(TerminalEvent::Timeout);
     }
-    let mut buf = [0u8; 4];
-    let read = unsafe {
-        libc::read(
-            libc::STDIN_FILENO,
-            buf.as_mut_ptr().cast::<libc::c_void>(),
-            1,
-        )
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        let read = unsafe {
+            libc::read(
+                libc::STDIN_FILENO,
+                chunk.as_mut_ptr().cast::<libc::c_void>(),
+                chunk.len(),
+            )
+        };
+        if read < 0 {
+            let err = io::Error::last_os_error();
+            if err.kind() != io::ErrorKind::Interrupted {
+                return Err(err);
+            }
+            if let Some(event) = pending_signal_event() {
+                *pending = buf;
+                return Ok(event);
+            }
+            if buf.is_empty() {
+                return read_error_event(err);
+            }
+            // The interruption ended the batch; the data is delivered and
+            // the next read reports the interruption.
+            break;
+        }
+        if read == 0 {
+            if buf.is_empty() {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "terminal input reached EOF",
+                ));
+            }
+            break;
+        }
+        buf.extend_from_slice(&chunk[..read as usize]);
+        if read < chunk.len() as isize {
+            // The terminal holds no more input, so the batch is complete.
+            break;
+        }
+        if !stdin_holds_input() {
+            // The read filled the buffer and the terminal holds no more
+            // input. The batch is the input the terminal already holds,
+            // so the read does not wait for more.
+            break;
+        }
+    }
+    if let Some(event) = pending_signal_event() {
+        *pending = buf;
+        return Ok(event);
+    }
+    Ok(TerminalEvent::Bytes(buf))
+}
+
+/// Reports whether the terminal holds input that can be read now.
+///
+/// The batch is the input the terminal already holds, so a read that filled
+/// its buffer ends the batch instead of waiting for more input.
+#[cfg(unix)]
+fn stdin_holds_input() -> bool {
+    let mut pollfd = libc::pollfd {
+        fd: libc::STDIN_FILENO,
+        events: libc::POLLIN,
+        revents: 0,
     };
-    if read < 0 {
-        return read_error_event(io::Error::last_os_error());
-    }
-    if read == 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::UnexpectedEof,
-            "terminal input reached EOF",
-        ));
-    }
-    Ok(TerminalEvent::Bytes(buf[..read as usize].to_vec()))
+    unsafe { libc::poll(&mut pollfd, 1, 0) > 0 }
 }
 
 /// Discards the bytes the terminal has queued.

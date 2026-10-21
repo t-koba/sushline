@@ -12,7 +12,6 @@ use history::History;
 use history::expansion::{
     HistoryChars, HistoryExpansion, HistoryExpansionPolicy, HistoryExpansionState,
 };
-use std::collections::VecDeque;
 use std::fmt;
 use std::io;
 use std::path::Path;
@@ -99,7 +98,11 @@ where
     initial_inputrc_error: Option<String>,
     inputrc_diagnostics: Vec<InputrcDiagnostic>,
     inputrc_report_pending: bool,
-    pending_input: VecDeque<u8>,
+    /// Input that was read but not consumed yet.
+    ///
+    /// The bytes that follow an accepted line stay here, like GNU
+    /// Readline's input stream, so the next read continues with them.
+    pending_input: Vec<u8>,
 }
 
 impl<T> Editor<T>
@@ -151,7 +154,7 @@ where
             initial_inputrc_error: None,
             inputrc_diagnostics: Vec::new(),
             inputrc_report_pending: false,
-            pending_input: VecDeque::new(),
+            pending_input: Vec::new(),
         }
     }
 
@@ -429,31 +432,24 @@ where
                 }
                 TerminalEvent::Bytes(bytes) if bytes.is_empty() => continue,
                 TerminalEvent::Bytes(bytes) => {
-                    if bytes.as_slice() == [0x03]
-                        && !state.input.quoted_insert
-                        && !state.paste.bracketed_paste
-                    {
-                        // The input that arrived with the interrupt is
-                        // dropped, like GNU Readline, so the next read does
-                        // not accept it.
-                        self.terminal.drain_pending_input()?;
-                        self.echo_signal_interrupt(&mut state)?;
-                        self.save_persistent_state(&state);
-                        return Ok(ReadlineResult::Interrupted);
+                    let (outcome, remainder, drawn) =
+                        self.dispatch_input_bytes(&mut state, &bytes, hooks)?;
+                    if !remainder.is_empty() {
+                        // The bytes that follow an accepted line stay in
+                        // the input stream, like GNU Readline, so the next
+                        // read continues with them.
+                        self.pending_input.extend(remainder);
                     }
-                    let outcome = if state.search.non_incremental_search.is_some() {
-                        self.handle_non_incremental_search(&mut state, &bytes, hooks)?
-                    } else if state.search.reverse_search.is_some() {
-                        self.handle_reverse_search(&mut state, &bytes, hooks)?
-                    } else {
-                        self.handle_bytes(&mut state, &bytes, hooks)?
-                    };
                     if state.input.interrupted {
                         self.save_persistent_state(&state);
                         return Ok(ReadlineResult::Interrupted);
                     }
                     if matches!(outcome, EditorOutcome::Continue) {
-                        self.render(&mut state)?;
+                        // The batch's text is drawn when the batch ends,
+                        // unless a key already drew it.
+                        if !drawn || state.display.pending_text {
+                            self.render(&mut state)?;
+                        }
                     } else {
                         return self.finish_outcome(&mut state, outcome);
                     }
@@ -730,8 +726,10 @@ where
         &mut self,
         timeout: Option<Duration>,
     ) -> io::Result<TerminalEvent> {
-        if let Some(byte) = self.pending_input.pop_front() {
-            return Ok(TerminalEvent::Bytes(vec![byte]));
+        if !self.pending_input.is_empty() {
+            return Ok(TerminalEvent::Bytes(std::mem::take(
+                &mut self.pending_input,
+            )));
         }
         self.terminal.read_event(timeout)
     }

@@ -251,11 +251,11 @@ fn bash_readline_and_sushline_horizontal_scroll_retains_margin_between_batches()
         steps.push(vec![5]);
         for bash in [true, false] {
             let frames = checkpoints(bash, 80, "P>", &steps);
-            // The built-in Sushline Terminal currently reads one byte per
-            // event, even when the PTY writer sends a batch. The viewport
-            // itself honors batched TerminalEvents (see display.rs), but
-            // changing terminal read granularity is outside this display fix.
-            let (start, col) = match if bash { chunk } else { 1 } {
+            // Both editors read the available input as one batch, so the
+            // window is the batch's: the last 51 bytes of the line for a
+            // batch that arrives at once, and the bytewise window for a
+            // batch that arrives one byte at a time.
+            let (start, col) = match chunk {
                 1 => (25, 76),
                 10 => (29, 72),
                 _ => (49, 52),
@@ -295,9 +295,8 @@ fn bash_readline_and_sushline_horizontal_scroll_exposes_unwrapped_ansi_prompt_wi
     let prompt = "\x1b[31mP>\x1b[0m";
     // Bytewise typing proves logical-width alignment: unmarked CSI bytes
     // count as prompt columns, so both implementations clip to the same
-    // window. The single-batch trajectory still diverges because Sushline
-    // reads the batch bytewise while Bash scrolls it as one batch; that
-    // granularity gap is covered separately and is not an ANSI regression.
+    // window. The single-batch trajectory scrolls like GNU's batch on both
+    // sides, because both editors read the available input as one batch.
     let bytewise: Vec<Vec<u8>> = vec![vec![b'a']; 90];
     for bash in [true, false] {
         let frames = checkpoints(bash, 80, prompt, &bytewise);
@@ -308,45 +307,34 @@ fn bash_readline_and_sushline_horizontal_scroll_exposes_unwrapped_ansi_prompt_wi
         );
     }
     let batch = vec![vec![b'a'; 90]];
-    let bash = checkpoints(true, 80, prompt, &batch);
-    let sushline = checkpoints(false, 80, prompt, &batch);
-    assert_eq!(
-        bash.last(),
-        Some(&(format!("<{}", "a".repeat(51)), 52)),
-        "Bash batch"
-    );
-    assert_eq!(
-        sushline.last(),
-        Some(&(format!("<{}", "a".repeat(74)), 75)),
-        "Sushline batch reads bytewise"
-    );
+    for bash in [true, false] {
+        let frames = checkpoints(bash, 80, prompt, &batch);
+        assert_eq!(
+            frames.last(),
+            Some(&(format!("<{}", "a".repeat(51)), 52)),
+            "bash={bash} batch"
+        );
+    }
 }
 
 #[test]
-fn bash_and_sushline_horizontal_scroll_differ_on_a_wide_character_tail() {
+fn bash_and_sushline_horizontal_scroll_matches_a_wide_character_tail() {
     if !c_utf8_locale_available() {
         return;
     }
     // The window is measured in bytes on both sides, so the wide glyph is
-    // clipped as a whole. GNU's batched path shows the last 51 bytes, while
-    // Sushline's bytewise path keeps the tail visible: the built-in
-    // terminal reads one byte per event, and that batching difference is
-    // covered on its own.
+    // clipped as a whole. Both editors read the available input as one
+    // batch, so the batched path shows the last 51 bytes on both sides.
     let text = format!("{}中{}", "a".repeat(24), "b".repeat(64));
     let steps = vec![text.into_bytes()];
-    let bash = checkpoints_with_locale(true, 80, "P>", &steps, "C.UTF-8");
-    let sushline = checkpoints_with_locale(false, 80, "P>", &steps, "C.UTF-8");
-
-    assert_eq!(
-        bash.last(),
-        Some(&(format!("<{}", "b".repeat(51)), 52)),
-        "Bash"
-    );
-    assert_eq!(
-        sushline.last(),
-        Some(&(format!("<{}", "b".repeat(64)), 65)),
-        "Sushline"
-    );
+    for bash in [true, false] {
+        let frames = checkpoints_with_locale(bash, 80, "P>", &steps, "C.UTF-8");
+        assert_eq!(
+            frames.last(),
+            Some(&(format!("<{}", "b".repeat(51)), 52)),
+            "bash={bash}"
+        );
+    }
 }
 
 #[test]
@@ -373,7 +361,7 @@ fn bash_readline_and_sushline_horizontal_scroll_keeps_clipped_combining_marks_wi
 }
 
 #[test]
-fn bash_and_sushline_horizontal_scroll_differs_for_visible_combining_mark() {
+fn bash_and_sushline_horizontal_scroll_matches_for_visible_combining_mark() {
     if !c_utf8_locale_available() {
         return;
     }
@@ -394,27 +382,14 @@ fn bash_and_sushline_horizontal_scroll_differs_for_visible_combining_mark() {
         assert!(plain_screen.0.ends_with('e'), "bash={bash}");
         let marked_b = marked_screen.0.matches('b').count();
         let plain_b = plain_screen.0.matches('b').count();
-        if bash {
-            assert_eq!(marked_screen.1, 50);
-            assert_eq!(plain_screen.1, 52);
-            assert_eq!(plain_b, marked_b + 2);
-        } else {
-            assert_eq!(marked_screen.1, 65);
-            assert_eq!(plain_screen.1, 65);
-            assert_eq!(marked_b, plain_b);
-            assert_eq!(
-                marked_screen
-                    .0
-                    .strip_suffix('\u{301}')
-                    .expect("mark suffix"),
-                plain_screen.0
-            );
-        }
+        assert_eq!(marked_screen.1, 50);
+        assert_eq!(plain_screen.1, 52);
+        assert_eq!(plain_b, marked_b + 2);
     }
 }
 
 #[test]
-fn bash_and_sushline_horizontal_scroll_exposes_ambiguous_width_difference() {
+fn bash_and_sushline_horizontal_scroll_matches_ambiguous_width() {
     if !c_utf8_locale_available() {
         return;
     }
@@ -435,22 +410,9 @@ fn bash_and_sushline_horizontal_scroll_exposes_ambiguous_width_difference() {
         let ambiguous_b = ambiguous_screen.0.matches('b').count();
         let plain_b = plain_screen.0.matches('b').count();
 
-        if bash {
-            assert_eq!(ambiguous_screen.1, 51);
-            assert_eq!(plain_screen.1, 52);
-            assert_eq!(plain_b, ambiguous_b + 1);
-        } else {
-            assert_eq!(ambiguous_screen.1, 65);
-            assert_eq!(plain_screen.1, 65);
-            assert_eq!(ambiguous_b, plain_b);
-            assert_eq!(
-                ambiguous_screen
-                    .0
-                    .strip_suffix('·')
-                    .expect("ambiguous suffix"),
-                plain_screen.0.strip_suffix('x').expect("plain suffix")
-            );
-        }
+        assert_eq!(ambiguous_screen.1, 51);
+        assert_eq!(plain_screen.1, 52);
+        assert_eq!(plain_b, ambiguous_b + 1);
     }
 }
 

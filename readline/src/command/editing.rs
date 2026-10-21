@@ -96,6 +96,7 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::SelfInsert => {
+                state.display.pending_text = true;
                 let raw = state.take_numeric_arg().unwrap_or(1);
                 // GNU inserts nothing for a negative repeat count (tested
                 // M-- M-1 M-0); only non-negative counts repeat the insert.

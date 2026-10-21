@@ -146,6 +146,7 @@ where
                 drawn = true;
             }
             state.input.applied_command = false;
+            state.input.changed_display = false;
             let outcome = if state.search.non_incremental_search.is_some() {
                 self.handle_non_incremental_search(state, byte, hooks)?
             } else if state.search.reverse_search.is_some() {
@@ -156,10 +157,14 @@ where
             // GNU Readline defers the redisplay of typed text until the
             // input batch ends and redraws after every other key, so a
             // pasted line is drawn once and a command is drawn at once. A
-            // finished paste is drawn when its terminator arrives.
+            // key that changes the display without running a command, like
+            // a search query, redraws as well. A finished paste is drawn
+            // when its terminator arrives.
             let applied_command = state.input.applied_command;
+            let changed_display = state.input.changed_display;
             let ends_the_read = !matches!(outcome, EditorOutcome::Continue);
-            if (applied_command && !ends_the_read) || (paste_active && !state.paste.bracketed_paste)
+            if ((applied_command || changed_display) && !ends_the_read)
+                || (paste_active && !state.paste.bracketed_paste)
             {
                 self.render(state)?;
                 drawn = true;
@@ -346,6 +351,7 @@ where
                 state.vi.last_vi_change = Some(change);
             }
             state.after_non_kill_command();
+            state.input.changed_display = true;
         }
         if rest.is_empty() {
             return Ok(EditorOutcome::Continue);
@@ -594,6 +600,7 @@ where
                     if let Some(point) = state.vi.vi_marks.get(&ch).copied() {
                         state.buffer.set_point(point);
                         self.finish_vi_motion_operator(state, op_start, bytes, false);
+                        state.input.changed_display = true;
                     } else {
                         state.cancel_pending_command();
                         self.ding()?;
@@ -675,6 +682,7 @@ where
                 state.vi.last_char_search = Some((search, ch));
                 state.after_non_kill_command();
                 state.consume_numeric_arg_unless_prefix();
+                state.input.changed_display = true;
             } else {
                 state.cancel_pending_command();
             }
@@ -895,6 +903,7 @@ where
                 self.ding()?;
             }
             state.search.reverse_search = Some(search);
+            state.input.changed_display = true;
             return Ok(EditorOutcome::Continue);
         }
         // Incremental searches allow anything bound to quoted-insert to
@@ -910,6 +919,10 @@ where
         let Some(mut search) = state.search.reverse_search.take() else {
             return Ok(EditorOutcome::Continue);
         };
+        // GNU Readline redraws the search display for every key of an
+        // incremental search, so the query and the match are drawn as
+        // they change.
+        state.input.changed_display = true;
 
         let outcome = match bytes {
             bytes if self.is_isearch_terminator(bytes) => {
@@ -1166,6 +1179,7 @@ where
             };
             search.query.extend_from_slice(bytes);
             state.search.non_incremental_search = Some(search);
+            state.input.changed_display = true;
             return Ok(EditorOutcome::Continue);
         }
         // Non-incremental searches quote only ^V/^Q (CHANGES 8.3 2.i:
@@ -1181,6 +1195,9 @@ where
         let Some(search) = state.search.non_incremental_search.take() else {
             return Ok(EditorOutcome::Continue);
         };
+        // The query is drawn in the search prompt, and the match replaces
+        // the line when the search executes, so every key redraws.
+        state.input.changed_display = true;
         match bytes {
             b"\r" | b"\n" => {
                 state.search.quoted_pending = false;

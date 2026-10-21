@@ -99,6 +99,9 @@ where
         key: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
+        // A named command is a command, so it redraws like the binding
+        // that runs one.
+        state.input.applied_command = true;
         if command == "vi-set-register" && !self.variables.is_on("sushline-vi-registers") {
             return self.apply_named_misc_command(state, command, key, hooks);
         }

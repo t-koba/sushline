@@ -157,7 +157,9 @@ GNU Readline, which processes the input that is available character by
 character and redisplays once. The editor dispatches a batch character by
 character, draws the pending text before a key that interrupts it, and keeps
 the bytes that follow an accepted line in the input stream, so the next read
-continues with them. A custom `TerminalIo` implementation owns its own read
+continues with them. A key that changes the display without running a command,
+like the query of an incremental search, redraws at once, like GNU Readline's
+search display, which is redrawn for every query key. A custom `TerminalIo` implementation owns its own read
 granularity; the editor draws the text of an event once, when the event ends.
 
 Every error text the editor writes goes through `TerminalIo::write_diagnostic`:

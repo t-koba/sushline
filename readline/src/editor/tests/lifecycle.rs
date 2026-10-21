@@ -364,6 +364,95 @@ fn batched_non_incremental_query_plus_enter_matches_fragmented_reads() {
 }
 
 #[test]
+fn batched_search_query_draws_like_split_reads() {
+    // GNU Readline redraws the search display for every query key, so a
+    // batch that carries the query with the search key draws the same
+    // screen as the split reads. A Bash 5.3 PTY observation: the batched
+    // write and the split write produce the same output.
+    fn run(events: Vec<TerminalEvent>) -> (String, Vec<u16>) {
+        let terminal = super::MemoryTerminal::with_events(events);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        (
+            line.terminal.out.clone(),
+            line.terminal.moved_columns.clone(),
+        )
+    }
+    let split = run(vec![
+        TerminalEvent::Bytes(vec![0x12]),
+        TerminalEvent::Bytes(b"ab".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let batched = run(vec![
+        TerminalEvent::Bytes(b"\x12ab".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    assert!(
+        split.0.contains("reverse-i-search)`ab"),
+        "the split reads must draw the query: {:?}",
+        split.0
+    );
+    assert!(
+        batched.0.contains("reverse-i-search)`ab"),
+        "the batched reads must draw the query: {:?}",
+        batched.0
+    );
+    assert_eq!(
+        batched, split,
+        "the batched query must draw like the split reads"
+    );
+}
+
+#[test]
+fn batched_display_changes_draw_like_split_reads() {
+    // A key that changes the display without running a command, like the
+    // query of a search or the target of the vi character search, redraws
+    // at once, so a batch that carries such a key with the command
+    // before it draws like the split reads.
+    fn run(inputrc: &str, events: Vec<Vec<u8>>) -> (String, Vec<u16>) {
+        let terminal = super::MemoryTerminal::with_events(
+            events.into_iter().map(TerminalEvent::Bytes).collect(),
+        );
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str(inputrc).unwrap();
+        line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        (
+            line.terminal.out.clone(),
+            line.terminal.moved_columns.clone(),
+        )
+    }
+    type Case = (&'static str, Vec<Vec<u8>>, Vec<Vec<u8>>);
+    let cases: [Case; 3] = [
+        // The non-incremental search query.
+        (
+            "",
+            vec![vec![0x1b, b'p'], b"ab".to_vec(), vec![b'\r'], vec![b'\r']],
+            vec![b"\x1bpab".to_vec(), vec![b'\r'], vec![b'\r']],
+        ),
+        // The vi character search target.
+        (
+            "set editing-mode vi",
+            vec![b"abc,def\x1b0f".to_vec(), vec![b','], vec![b'\r']],
+            vec![b"abc,def\x1b0f,".to_vec(), vec![b'\r']],
+        ),
+        // The vi overwrite-mode replacement.
+        (
+            "set editing-mode vi",
+            vec![b"abc\x1b0r".to_vec(), vec![b'X'], vec![b'\r']],
+            vec![b"abc\x1b0rX".to_vec(), vec![b'\r']],
+        ),
+    ];
+    for (inputrc, split, batched) in cases {
+        let split_drawing = run(inputrc, split.clone());
+        let batched_drawing = run(inputrc, batched.clone());
+        assert_eq!(
+            batched_drawing, split_drawing,
+            "the batched drawing must match the split drawing for {split:?}"
+        );
+    }
+}
+
+#[test]
 fn batched_vi_replace_remainder_matches_fragmented_reads() {
     // `r` consumes one replacement char; trailing bytes are separate input.
     // Batched [X,d,l] must replace with X then delete like split reads

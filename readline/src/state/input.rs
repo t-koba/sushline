@@ -16,6 +16,12 @@ pub(crate) struct InputState {
     /// batch ends, and redraws after every other key. The editor redraws
     /// the same way, so a pasted line is drawn once.
     pub(crate) applied_command: bool,
+    /// Whether the last dispatched key changed the display.
+    ///
+    /// A key that changes the display without running a command, like
+    /// the query of an incremental search, redraws as well: GNU Readline
+    /// redraws the search display for every query key.
+    pub(crate) changed_display: bool,
     // Byte length of the synthetic Meta sequence retained in the pending key.
     pub(crate) prefix_meta_command_len: usize,
 }

@@ -22,26 +22,31 @@ scoped to a release. The host the claims were measured on links Readline
 statically and exports the release number 0x0803, the 8.3 release this
 document targets. Its library's own version label reads 8.1, so the image
 states the release two ways and the two disagree; the release identity rests
-on the release number, because the host's Readline holds the two commands
-the 8.3 release adds to the function table (`execute-named-command` and
-`export-completions`) and the 8.2 release's library holds neither, so the
-code is the 8.3 release and the label is stale. The suite reads the number,
-the label and the command names from the image that carries them and names
-them in its note, so the evidence carries the release it was measured on.
-The CI job builds the Readline release this document names from the upstream
-tarball and links the pinned Bash host against it, so the same suite runs
-against that release there as well. The job checks the release number the
-built library exports and the two commands the 8.3 function table adds, so a
-build of another release cannot pass as the pinned one; the suite reads the
-same signals from that library, so the job log names them as well. The job
-also runs the output-stream probe against that pinned release, so the claim
-the output-stream row makes is checked on the release this document targets
-and not only observed on the 8.2 release the runner image ships. That job
-has not run on the tree that carries these steps, so the 8.3 baseline of the
-claims below rests on the release number the reference host's image exports
-and on the observations made against that host; the pinned build of the
-release this document names has not been exercised yet. The tarball's digest
-is pinned in the job, so the fetch is a checked one.
+on the release number, because the host's command list holds the two names
+the 8.3 release adds to the library's function table
+(`execute-named-command` and `export-completions`): the shell registers
+neither of them, and no earlier release holds them, the installed 8.2
+release's library listing neither in its own function dump, so the code is
+the 8.3 release and the label is stale. The suite reads the number and the
+label from the image that carries them and asks the host for its command
+list, and it names all three in its note, so the evidence carries the
+release it was measured on. The CI job builds the Readline release this
+document names from the upstream tarball and links the pinned Bash host
+against it, so the same suite runs against that release there as well. The
+job checks the release number the built library exports, that the built
+library links a terminfo library as the reference host does, and that the
+pinned host's command list holds the two names the 8.3 release adds, so a
+build of another release or of another terminal interface cannot pass as the
+pinned one; the suite reads the same signals from that library, so the job
+log names them as well. The job also runs the output-stream probe against
+that pinned release, so the claim the output-stream row makes is checked on
+the release this document targets and not only observed on the 8.2 release
+the runner image ships. That job has not run on the tree that carries these
+steps, so the 8.3 baseline of the claims below rests on the release number
+the reference host's image exports and on the observations made against that
+host; the pinned build of the release this document names has not been
+exercised yet. The tarball's digest is pinned in the job, so the fetch is a
+checked one.
 Bash language, shell runtime, and builtin compatibility are not goals. The C
 ABI is out of scope. Claims below are limited to the cited oracle tests and
 their asserted fixtures; test modules are pointers to that evidence, not claims of complete

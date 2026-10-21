@@ -5,3 +5,6 @@ target/
 
 # Local mizu harness (private)
 /.mizu/
+
+# The verification harness's test log
+/.oracle-test.log

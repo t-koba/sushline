@@ -77,6 +77,10 @@ jobs:
             echo "$READLINE_ORACLE_SHA256  /tmp/readline-$READLINE_ORACLE_VERSION.tar.gz" | sha256sum --check --strict
             tar -xzf /tmp/readline-$READLINE_ORACLE_VERSION.tar.gz -C /tmp
             cd /tmp/readline-$READLINE_ORACLE_VERSION
+            # The release's own configure flags, with the prefix the job
+            # installs into. The terminal interface the build comes out
+            # with is part of the evidence's identity, because the oracle
+            # compares redisplay bytes, so it is checked after the build.
             ./configure --prefix="$prefix"
             make -j"$(nproc)"
             make install
@@ -99,14 +103,10 @@ jobs:
           release=$(/tmp/readline_release)
           echo "readline_release=$release"
           test "$release" = "$READLINE_ORACLE_VERSION"
-          # The 8.3 release adds two commands to the library's function
-          # table, so the built library names them and a build of an earlier
-          # release does not. The check ties the built library to the
-          # release the compatibility document names, not only to the number
-          # the library exports.
-          for command in execute-named-command export-completions; do
-            grep -q "$command" "$prefix"/lib/libreadline.so*
-          done
+          # The terminal interface the library was built against is part of
+          # the evidence's identity, so the build is checked to use the
+          # terminfo interface the reference host's Readline uses as well.
+          ldd "$prefix/lib/libreadline.so" | grep -E 'libtinfo|libncurses'
       - name: Install the pinned bash oracle host
         run: |
           set -euo pipefail
@@ -146,6 +146,13 @@ jobs:
           # The host must load the pinned release, or the cases scoped to it
           # would report nothing.
           ldd "$prefix/bin/bash" | grep -F "$readline/lib/libreadline"
+          # The two names the 8.3 release adds belong to the library's
+          # command table, and the host that loads the pinned release is
+          # where the library's command list appears, so the check asks
+          # that host rather than searching the library's bytes.
+          for command in execute-named-command export-completions; do
+            "$prefix/bin/bash" --norc -c 'bind -l' | tr ' ' '\n' | grep -qx "$command"
+          done
       - name: Report the installed Readline default
         run: |
           set -euo pipefail

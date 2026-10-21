@@ -18,11 +18,12 @@
 //! An image states the release twice: the number the Readline header
 //! declares and the library's own version label. The two can disagree,
 //! because a build can carry a label that is not the release its code was
-//! built from, so the module reads both signals. It reads the commands the
-//! 8.3 release adds to the function table as well, because an image that
-//! holds them carries the 8.3 release's code whatever label it states. The
+//! built from, so the module reads both signals. It asks the host which
+//! command names its line editor offers as well, because the two names the
+//! 8.3 release adds to the library's command table tell that release's code
+//! apart from an earlier release's, whatever label the image states. The
 //! evidence therefore carries the release it was measured on, the label the
-//! image states and the code the image holds.
+//! image states and the commands the host offers.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -86,9 +87,9 @@ pub(super) const MEASURED_RELEASE: ReadlineVersion = ReadlineVersion { major: 8,
 
 /// The commands the 8.3 release adds to the library's function table.
 ///
-/// An image that holds these names carries the 8.3 release's code, so the
-/// names tell the code apart from an earlier release's, whatever version
-/// label the image states.
+/// A host whose command list holds these names carries the 8.3 release's
+/// code, so the names tell the code apart from an earlier release's,
+/// whatever version label the image states.
 const COMMANDS_ADDED_IN_83: [&str; 2] = ["execute-named-command", "export-completions"];
 
 /// What the image that carries the Readline states about it.
@@ -98,25 +99,29 @@ pub(super) struct ReadlineIdentity {
     pub(super) release: ReadlineVersion,
     /// The library's own version label, when the image carries one.
     pub(super) library_version: Option<String>,
-    /// Whether the image's code holds the commands the 8.3 release adds.
-    pub(super) carries_83_commands: bool,
+    /// Whether the host's command list holds the names the 8.3 release adds.
+    pub(super) lists_83_commands: bool,
 }
 
 impl ReadlineIdentity {
-    /// What the image states, in the words the suite's note uses.
+    /// What the host and its image state, in the words the suite's note uses.
     ///
     /// The image states the release twice, and the note names both signals
-    /// and the commands the image's code holds, so the evidence carries the
-    /// release it was measured on and the label the image states.
+    /// and the command names the host offers, so the evidence carries the
+    /// release it was measured on, the label the image states and the
+    /// commands the host's line editor knows.
     pub(super) fn note(&self) -> String {
         let label = match &self.library_version {
             Some(label) => format!(", library version label {label}"),
             None => String::new(),
         };
-        let commands = if self.carries_83_commands {
-            ", its function table holds the commands the 8.3 release adds"
+        let commands = if self.lists_83_commands {
+            format!(
+                ", its command list holds the names the 8.3 release adds ({})",
+                COMMANDS_ADDED_IN_83.join(", ")
+            )
         } else {
-            ", its function table does not hold the commands the 8.3 release adds"
+            ", its command list does not hold the names the 8.3 release adds".to_string()
         };
         format!(
             " (release number 0x{:04x}{label}{commands})",
@@ -190,9 +195,8 @@ fn library_path(report: &str) -> Option<PathBuf> {
 /// The library exports the release number as `rl_readline_version`, the
 /// value the Readline header declares for the release, so the number
 /// identifies the release the image was built from. The library also
-/// exports its own version label, and the image's code holds the commands
-/// the 8.3 release adds, so the image says three things about the release
-/// it carries.
+/// exports its own version label, so the image says two things about the
+/// release it carries, and the host's own command list says a third.
 fn identity_in(image: &Path) -> Option<ReadlineIdentity> {
     let bytes = std::fs::read(image).ok()?;
     let elf = Elf::parse(&bytes)?;
@@ -201,20 +205,47 @@ fn identity_in(image: &Path) -> Option<ReadlineIdentity> {
     Some(ReadlineIdentity {
         release: ReadlineVersion::from_release_number(number),
         library_version: elf.library_version(),
-        carries_83_commands: COMMANDS_ADDED_IN_83
-            .iter()
-            .all(|command| image_holds(&bytes, command.as_bytes())),
+        lists_83_commands: host_lists_83_commands(),
     })
 }
 
-/// Whether an image holds a string.
+/// Whether the host's command list holds the names the 8.3 release adds.
 ///
-/// The command names the library's function table holds are strings in the
-/// image, so the image's own bytes say which commands its code knows.
-fn image_holds(bytes: &[u8], needle: &[u8]) -> bool {
-    !needle.is_empty()
-        && needle.len() <= bytes.len()
-        && bytes.windows(needle.len()).any(|window| window == needle)
+/// The host's own `bind -l` output lists the command names its line editor
+/// knows, so the question is asked of the host rather than answered by a
+/// search of the image's bytes, which a name in any other string would
+/// satisfy.
+fn host_lists_83_commands() -> bool {
+    match host_command_names() {
+        Some(names) => COMMANDS_ADDED_IN_83
+            .iter()
+            .all(|command| names.iter().any(|name| name == command)),
+        None => false,
+    }
+}
+
+/// The command names the host's line editor offers.
+///
+/// The host lists them with `bind -l`, which names the commands the
+/// library's function table holds and the names the shell adds, so the list
+/// is the host's command list.
+fn host_command_names() -> Option<Vec<String>> {
+    let executable = host_executable()?;
+    let output = Command::new(executable)
+        .arg("--norc")
+        .arg("-c")
+        .arg("bind -l")
+        .output()
+        .ok()?;
+    Some(command_names(&String::from_utf8_lossy(&output.stdout)))
+}
+
+/// The command names a `bind -l` report lists.
+fn command_names(report: &str) -> Vec<String> {
+    report
+        .split_whitespace()
+        .map(|name| name.to_string())
+        .collect()
 }
 
 /// A 64-bit little-endian ELF image.
@@ -379,8 +410,7 @@ struct Section {
 #[cfg(test)]
 mod tests {
     use super::{
-        DYNAMIC_SYMBOLS, Elf, ReadlineIdentity, ReadlineVersion, STATIC_SYMBOLS, image_holds,
-        is_documented,
+        DYNAMIC_SYMBOLS, Elf, ReadlineIdentity, ReadlineVersion, STATIC_SYMBOLS, is_documented,
     };
 
     /// The address the release number is stored at in a test image.
@@ -600,12 +630,16 @@ mod tests {
     }
 
     #[test]
-    fn the_commands_the_83_release_adds_are_looked_for_in_the_image() {
-        let image = b"a function table holds execute-named-command".to_vec();
-        assert!(image_holds(&image, b"execute-named-command"));
-        assert!(!image_holds(&image, b"export-completions"));
-        assert!(!image_holds(&image, b""));
-        assert!(!image_holds(&image, b"a command the image does not hold"));
+    fn the_command_names_are_read_from_the_hosts_report() {
+        let names = super::command_names("abort accept-line\nexecute-named-command\n");
+        assert!(names.contains(&"abort".to_string()));
+        assert!(names.contains(&"execute-named-command".to_string()));
+        assert!(!names.contains(&"export-completions".to_string()));
+    }
+
+    #[test]
+    fn an_empty_report_lists_no_command_names() {
+        assert!(super::command_names("").is_empty());
     }
 
     #[test]
@@ -613,11 +647,11 @@ mod tests {
         let identity = ReadlineIdentity {
             release: ReadlineVersion { major: 8, minor: 3 },
             library_version: Some("8.1".to_string()),
-            carries_83_commands: true,
+            lists_83_commands: true,
         };
         assert_eq!(
             identity.note(),
-            " (release number 0x0803, library version label 8.1, its function table holds the commands the 8.3 release adds)"
+            " (release number 0x0803, library version label 8.1, its command list holds the names the 8.3 release adds (execute-named-command, export-completions))"
         );
     }
 

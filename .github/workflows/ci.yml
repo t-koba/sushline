@@ -167,6 +167,9 @@ jobs:
           # measured on the image's release.
           sudo apt-get update
           sudo apt-get install -y libreadline-dev
+          # The probe writes its report and its captured streams under the
+          # prefix it is given, so the same program runs against the
+          # image's library and against the pinned one.
           cat > /tmp/readline_probe.c <<'PROBE'
           #include <stdio.h>
           #include <stdlib.h>
@@ -175,23 +178,30 @@ jobs:
           extern char *readline(const char *);
           extern int rl_readline_version;
 
-          int main(void) {
-              FILE *report = fopen("/tmp/readline_probe.report", "w");
+          int main(int argc, char **argv) {
+              const char *prefix = argc > 1 ? argv[1] : "/tmp/readline_probe";
+              char report_path[512];
+              char out_path[512];
+              char err_path[512];
+              snprintf(report_path, sizeof report_path, "%s.report", prefix);
+              snprintf(out_path, sizeof out_path, "%s.out", prefix);
+              snprintf(err_path, sizeof err_path, "%s.err", prefix);
+              FILE *report = fopen(report_path, "w");
               if (!report) {
                   return 1;
               }
               setvbuf(report, NULL, _IONBF, 0);
               fprintf(report, "readline_release=%d.%d\n", rl_readline_version >> 8,
                       rl_readline_version & 0xff);
-              freopen("/tmp/readline_probe.out", "w", stdout);
-              freopen("/tmp/readline_probe.err", "w", stderr);
+              freopen(out_path, "w", stdout);
+              freopen(err_path, "w", stderr);
               char *line = readline("probe> ");
               free(line);
               fflush(stdout);
               fflush(stderr);
               char buffer[512];
               size_t read = 0;
-              FILE *out = fopen("/tmp/readline_probe.out", "r");
+              FILE *out = fopen(out_path, "r");
               if (out) {
                   read = fread(buffer, 1, sizeof(buffer) - 1, out);
                   fclose(out);
@@ -202,28 +212,45 @@ jobs:
               return 0;
           }
           PROBE
-          cc -o /tmp/readline_probe /tmp/readline_probe.c -lreadline
-          echo "" | /tmp/readline_probe || true
-          cat /tmp/readline_probe.report
+          cc -o /tmp/readline_probe_image /tmp/readline_probe.c -lreadline
+          echo "" | /tmp/readline_probe_image /tmp/readline_probe_image || true
+          cat /tmp/readline_probe_image.report
           version=$(dpkg-query -W -f='${Version}' libreadline-dev)
           echo "readline_package_version=$version"
           # The library the probe links is the image's own library, the one
           # the claim was measured on; the oracle host loads the pinned
           # release, and the oracle suite names the release it carries.
-          release=$(sed -n 's/^readline_release=//p' /tmp/readline_probe.report)
+          release=$(sed -n 's/^readline_release=//p' /tmp/readline_probe_image.report)
           echo "readline_release=$release"
           case "$release" in
             8.2)
               # The claim, on the release it was observed on: the library
               # writes its prompt to standard output.
-              grep -qx 'prompt_in_stdout=1' /tmp/readline_probe.report
+              grep -qx 'prompt_in_stdout=1' /tmp/readline_probe_image.report
               ;;
             *)
               # Another release is an observation, not a check of the claim.
-              cat /tmp/readline_probe.report
+              cat /tmp/readline_probe_image.report
               echo "::warning::the runner image's Readline is $release; the compatibility row's claim was observed on 8.2"
               ;;
           esac
+      - name: Check the output-stream claim on the pinned release
+        run: |
+          set -euo pipefail
+          readline="$HOME/.cache/sushline/readline-oracle"
+          # The claim the compatibility row makes is about the release the
+          # document targets, so the probe runs against the pinned release
+          # too and the claim is checked there, not only observed on the
+          # 8.2 release the runner image ships.
+          cc -o /tmp/readline_probe_pinned /tmp/readline_probe.c \
+            -L"$readline/lib" -Wl,-rpath,"$readline/lib" -lreadline
+          echo "" | /tmp/readline_probe_pinned /tmp/readline_probe_pinned || true
+          cat /tmp/readline_probe_pinned.report
+          # The probe has to link the pinned release, not the image's
+          # library, or the check repeats the observation above.
+          ldd /tmp/readline_probe_pinned | grep -F "$readline/lib/libreadline"
+          grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/readline_probe_pinned.report
+          grep -qx 'prompt_in_stdout=1' /tmp/readline_probe_pinned.report
       - name: Run the oracle suite
         run: |
           set -euo pipefail

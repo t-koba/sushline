@@ -47,6 +47,18 @@ pub enum HistoryDirection {
     Next,
 }
 
+/// How a history file's physical lines are grouped into entries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HistoryMultiline {
+    /// Each physical line is an entry of its own. This is GNU's default:
+    /// `history_multiline_entries` is 0 unless the caller changes it.
+    #[default]
+    PerLine,
+    /// The physical lines that follow a timestamp record make one entry.
+    /// This is GNU's `history_multiline_entries` mode 1.
+    Joined,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// HistoryState.
 pub struct HistoryState {

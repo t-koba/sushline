@@ -1,4 +1,4 @@
-use super::{History, HistoryEntry};
+use super::{History, HistoryEntry, HistoryMultiline};
 use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -23,9 +23,21 @@ impl History {
 
     /// Read file.
     pub fn read_file(path: impl AsRef<Path>) -> io::Result<Self> {
+        Self::read_file_with_multiline(path, HistoryMultiline::default())
+    }
+
+    /// Read file with a multiline policy.
+    ///
+    /// The policy decides how the file's physical lines are grouped into
+    /// entries; the default groups one entry per physical line, which is
+    /// GNU's default `history_multiline_entries` mode.
+    pub fn read_file_with_multiline(
+        path: impl AsRef<Path>,
+        multiline: HistoryMultiline,
+    ) -> io::Result<Self> {
         let file = fs::File::open(path)?;
         let mut history = Self::new();
-        history.import_records(read_history_records(file)?);
+        history.import_records(read_history_records(file, multiline)?);
         history.file_loaded_len = history.entries.len();
         Ok(history)
     }
@@ -36,9 +48,22 @@ impl History {
         from: usize,
         to: Option<usize>,
     ) -> io::Result<Self> {
+        Self::read_file_range_with_multiline(path, from, to, HistoryMultiline::default())
+    }
+
+    /// Read file range with a multiline policy.
+    ///
+    /// The FROM/TO bounds count physical command lines; the selected lines
+    /// are then grouped by the policy.
+    pub fn read_file_range_with_multiline(
+        path: impl AsRef<Path>,
+        from: usize,
+        to: Option<usize>,
+        multiline: HistoryMultiline,
+    ) -> io::Result<Self> {
         let file = fs::File::open(path)?;
         let mut history = Self::new();
-        history.import_records(read_history_range_records(file, from, to)?);
+        history.import_records(read_history_range_records(file, from, to, multiline)?);
         history.file_loaded_len = history.entries.len();
         Ok(history)
     }
@@ -54,8 +79,22 @@ impl History {
         path: impl AsRef<Path>,
         max_entries: Option<usize>,
     ) -> io::Result<()> {
+        self.load_file_with_multiline(path, max_entries, HistoryMultiline::default())
+    }
+
+    /// Load file with a multiline policy.
+    ///
+    /// The policy decides how the file's physical lines are grouped into
+    /// entries; the default groups one entry per physical line, which is
+    /// GNU's default `history_multiline_entries` mode.
+    pub fn load_file_with_multiline(
+        &mut self,
+        path: impl AsRef<Path>,
+        max_entries: Option<usize>,
+        multiline: HistoryMultiline,
+    ) -> io::Result<()> {
         let file = fs::File::open(path)?;
-        self.import_records(read_history_records(file)?);
+        self.import_records(read_history_records(file, multiline)?);
         self.enforce_max_len(max_entries);
         self.file_loaded_len = self.entries.len();
         Ok(())
@@ -69,8 +108,29 @@ impl History {
         to: Option<usize>,
         max_entries: Option<usize>,
     ) -> io::Result<()> {
+        self.load_file_range_with_multiline(
+            path,
+            from,
+            to,
+            max_entries,
+            HistoryMultiline::default(),
+        )
+    }
+
+    /// Load file range with a multiline policy.
+    ///
+    /// The FROM/TO bounds count physical command lines; the selected lines
+    /// are then grouped by the policy.
+    pub fn load_file_range_with_multiline(
+        &mut self,
+        path: impl AsRef<Path>,
+        from: usize,
+        to: Option<usize>,
+        max_entries: Option<usize>,
+        multiline: HistoryMultiline,
+    ) -> io::Result<()> {
         let file = fs::File::open(path)?;
-        self.import_records(read_history_range_records(file, from, to)?);
+        self.import_records(read_history_range_records(file, from, to, multiline)?);
         self.enforce_max_len(max_entries);
         self.file_loaded_len = self.entries.len();
         Ok(())
@@ -208,13 +268,15 @@ fn read_history_range_records(
     file: fs::File,
     from: usize,
     to: Option<usize>,
+    multiline: HistoryMultiline,
 ) -> io::Result<Vec<(Vec<u8>, Option<String>)>> {
     let count = range_count(from, to);
-    Ok(read_history_records(file)?
-        .into_iter()
-        .skip(from)
-        .take(count)
-        .collect())
+    let blocks = read_history_blocks(file)?;
+    Ok(group_history_blocks(
+        &blocks,
+        multiline,
+        Some((from, count)),
+    ))
 }
 
 fn range_count(from: usize, to: Option<usize>) -> usize {
@@ -346,7 +408,25 @@ fn write_entry(
     file.write_all(b"\n")
 }
 
-fn read_history_records(file: fs::File) -> io::Result<Vec<(Vec<u8>, Option<String>)>> {
+fn read_history_records(
+    file: fs::File,
+    multiline: HistoryMultiline,
+) -> io::Result<Vec<(Vec<u8>, Option<String>)>> {
+    let blocks = read_history_blocks(file)?;
+    Ok(group_history_blocks(&blocks, multiline, None))
+}
+
+/// The physical lines a timestamp record opens, or the lines that precede
+/// the first timestamp record.
+struct HistoryBlock {
+    /// The timestamp record that opened the block; None for the lines
+    /// before the first timestamp record.
+    timestamp: Option<String>,
+    /// The physical lines of the block.
+    lines: Vec<Vec<u8>>,
+}
+
+fn read_history_blocks(file: fs::File) -> io::Result<Vec<HistoryBlock>> {
     // Match GNU read_history_range rejecting non-regular descriptors after
     // open (EINVAL): /dev/null and similar specials error instead of loading
     // as empty, while symlinks resolve to their target descriptor.
@@ -356,9 +436,7 @@ fn read_history_records(file: fs::File) -> io::Result<Vec<(Vec<u8>, Option<Strin
             "history read requires a regular file",
         ));
     }
-    let mut records = Vec::new();
-    let mut pending_timestamp: Option<String> = None;
-    let mut delimited_lines: Vec<Vec<u8>> = Vec::new();
+    let mut blocks: Vec<HistoryBlock> = Vec::new();
     let mut reader = io::BufReader::new(file);
     let mut line = Vec::new();
     while reader.read_until(b'\n', &mut line)? != 0 {
@@ -378,47 +456,117 @@ fn read_history_records(file: fs::File) -> io::Result<Vec<(Vec<u8>, Option<Strin
         // the delimiter into command text; the public String field stores it
         // with replacement characters.
         if is_timestamp_record(&line) {
-            flush_delimited_lines(&mut delimited_lines, &mut pending_timestamp, &mut records);
-            pending_timestamp = Some(String::from_utf8_lossy(&line).into_owned());
+            // A timestamp record opens the block of the physical lines that
+            // follow it.
+            blocks.push(HistoryBlock {
+                timestamp: Some(String::from_utf8_lossy(&line).into_owned()),
+                lines: Vec::new(),
+            });
             line.clear();
             continue;
         }
-        if pending_timestamp.is_some() || !delimited_lines.is_empty() {
-            // Timestamp-delimited entry: physical lines up to the next
-            // timestamp belong to one entry; blank lines are preserved.
-            delimited_lines.push(std::mem::take(&mut line));
-        } else {
-            // Plain file without timestamps: one physical line per entry;
-            // blank lines carry no entry.
-            if !line.is_empty() {
-                records.push((std::mem::take(&mut line), None));
-            }
+        if blocks.is_empty() {
+            // The lines before the first timestamp record carry no
+            // timestamp of their own.
+            blocks.push(HistoryBlock {
+                timestamp: None,
+                lines: Vec::new(),
+            });
         }
+        blocks
+            .last_mut()
+            .expect("a block was just pushed")
+            .lines
+            .push(std::mem::take(&mut line));
         line.clear();
     }
-    flush_delimited_lines(&mut delimited_lines, &mut pending_timestamp, &mut records);
-    Ok(records)
+    Ok(blocks)
 }
 
-fn flush_delimited_lines(
-    delimited_lines: &mut Vec<Vec<u8>>,
-    pending_timestamp: &mut Option<String>,
-    records: &mut Vec<(Vec<u8>, Option<String>)>,
-) {
-    if delimited_lines.is_empty() {
-        return;
+/// Group the blocks' physical lines into entries.
+///
+/// The selection bounds the grouping to a run of physical command lines,
+/// the unit GNU's range bounds count; without it every command line of the
+/// file is grouped.
+fn group_history_blocks(
+    blocks: &[HistoryBlock],
+    multiline: HistoryMultiline,
+    selection: Option<(usize, usize)>,
+) -> Vec<(Vec<u8>, Option<String>)> {
+    let mut records = Vec::new();
+    let mut command_index = 0usize;
+    for block in blocks {
+        // The command lines of the block: the physical lines that carry an
+        // entry. A blank line carries none.
+        let command_lines: Vec<usize> = block
+            .lines
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| !line.is_empty())
+            .map(|(index, _)| index)
+            .collect();
+        let block_start = command_index;
+        command_index += command_lines.len();
+
+        let selected: Vec<usize> = match selection {
+            None => command_lines.clone(),
+            Some((from, count)) => {
+                let end = from.saturating_add(count);
+                command_lines
+                    .iter()
+                    .enumerate()
+                    .filter(|(offset, _)| {
+                        let index = block_start + offset;
+                        index >= from && index < end
+                    })
+                    .map(|(_, line)| *line)
+                    .collect()
+            }
+        };
+        if selected.is_empty() {
+            continue;
+        }
+        // The timestamp record applies to the first command line of its
+        // block; a range that starts inside the block selects no timestamp.
+        let carrier = command_lines.first().copied();
+        let (start, end) = match selection {
+            // The whole block, so that a joined entry keeps the blank lines
+            // that follow its last command line.
+            None => (0, block.lines.len().saturating_sub(1)),
+            Some(_) => (
+                selected[0],
+                *selected.last().expect("the selection is not empty"),
+            ),
+        };
+
+        if multiline == HistoryMultiline::Joined && block.timestamp.is_some() {
+            // The physical lines that follow the timestamp record make one
+            // entry; leading blank lines are dropped and interior blanks are
+            // preserved.
+            let Some(first) = block.lines[start..=end]
+                .iter()
+                .position(|line| !line.is_empty())
+            else {
+                continue;
+            };
+            let joined = block.lines[start + first..=end].join(&b'\n');
+            let timestamp = match carrier {
+                Some(carrier) if carrier >= start && carrier <= end => block.timestamp.clone(),
+                _ => None,
+            };
+            records.push((joined, timestamp));
+        } else {
+            // One entry per physical command line.
+            for line in selected {
+                let timestamp = match carrier {
+                    Some(carrier) if carrier == line => block.timestamp.clone(),
+                    _ => None,
+                };
+                records.push((block.lines[line].clone(), timestamp));
+            }
+        }
     }
-    let start = delimited_lines
-        .iter()
-        .position(|entry| !entry.is_empty())
-        .unwrap_or(delimited_lines.len());
-    if start < delimited_lines.len() {
-        let joined = delimited_lines[start..].join(&b'\n');
-        records.push((joined, pending_timestamp.take()));
-    } else {
-        pending_timestamp.take();
-    }
-    delimited_lines.clear();
+    records
 }
 
 fn history_tmp_path(path: &Path) -> std::path::PathBuf {

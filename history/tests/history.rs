@@ -6,7 +6,7 @@ use history::expansion::{
     expand_history_with_status_with_state, get_history_event, history_arg_extract,
     history_tokenize,
 };
-use history::{History, HistoryDirection, HistoryUndoEntry};
+use history::{History, HistoryDirection, HistoryMultiline, HistoryUndoEntry};
 
 #[test]
 fn navigates_history_and_restores_current_edit() {
@@ -619,9 +619,28 @@ fn history_files_join_timestamp_delimited_multiline_and_preserve_blanks() {
     )
     .unwrap();
 
+    // The default grouping is one entry per physical line: the first line
+    // after a timestamp record carries the timestamp, the lines after it
+    // carry none, and a blank line carries no entry.
     let loaded = History::read_file(&path).unwrap();
     assert_eq!(
         loaded
+            .entries()
+            .iter()
+            .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
+            .collect::<Vec<_>>(),
+        vec![
+            (Some("#1700000000"), "line one".to_string()),
+            (None, "line two".to_string()),
+            (Some("#1700000001"), "next".to_string()),
+        ]
+    );
+
+    // The joined grouping makes the physical lines of a timestamp block one
+    // entry and keeps the blank line inside it.
+    let joined = History::read_file_with_multiline(&path, HistoryMultiline::Joined).unwrap();
+    assert_eq!(
+        joined
             .entries()
             .iter()
             .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
@@ -633,7 +652,7 @@ fn history_files_join_timestamp_delimited_multiline_and_preserve_blanks() {
     );
 
     // Round-trip preserves the delimited byte layout.
-    let reread = History::read_file(&path).unwrap();
+    let reread = History::read_file_with_multiline(&path, HistoryMultiline::Joined).unwrap();
     assert_eq!(reread.entries().len(), 2);
     assert_eq!(reread.entries()[0].line_bytes, b"line one\n\nline two");
 
@@ -652,6 +671,86 @@ fn history_files_join_timestamp_delimited_multiline_and_preserve_blanks() {
             "next".to_string()
         ]
     );
+    // A file without timestamps groups the same way in both modes.
+    let plain_joined = History::read_file_with_multiline(&path, HistoryMultiline::Joined).unwrap();
+    assert_eq!(
+        plain_joined
+            .entries()
+            .iter()
+            .map(|entry| entry.line().into_owned())
+            .collect::<Vec<_>>(),
+        vec![
+            "line one".to_string(),
+            "line two".to_string(),
+            "next".to_string()
+        ]
+    );
+}
+
+#[test]
+fn history_files_group_physical_lines_by_multiline_policy() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(&path, "#123\none\ntwo\n#456\nthree\nfour\n").unwrap();
+
+    // The default grouping is one entry per physical line, GNU's default
+    // `history_multiline_entries` mode: the first line of a timestamp block
+    // carries the timestamp, the lines after it carry none.
+    let per_line = History::read_file(&path).unwrap();
+    assert_eq!(
+        per_line
+            .entries()
+            .iter()
+            .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
+            .collect::<Vec<_>>(),
+        vec![
+            (Some("#123"), "one".to_string()),
+            (None, "two".to_string()),
+            (Some("#456"), "three".to_string()),
+            (None, "four".to_string()),
+        ]
+    );
+
+    // The joined grouping is GNU's `history_multiline_entries` mode 1: one
+    // entry per timestamp block.
+    let joined = History::read_file_with_multiline(&path, HistoryMultiline::Joined).unwrap();
+    assert_eq!(
+        joined
+            .entries()
+            .iter()
+            .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
+            .collect::<Vec<_>>(),
+        vec![
+            (Some("#123"), "one\ntwo".to_string()),
+            (Some("#456"), "three\nfour".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn load_file_variants_take_the_multiline_policy() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(&path, "#123\none\ntwo\n").unwrap();
+
+    let mut loaded = History::new();
+    loaded.load_file(&path, None).unwrap();
+    assert_eq!(loaded.entries().len(), 2);
+    assert_eq!(loaded.entries()[0].timestamp.as_deref(), Some("#123"));
+
+    let mut joined = History::new();
+    joined
+        .load_file_with_multiline(&path, None, HistoryMultiline::Joined)
+        .unwrap();
+    assert_eq!(joined.entries().len(), 1);
+    assert_eq!(joined.entries()[0].line_bytes, b"one\ntwo");
+
+    let mut ranged = History::new();
+    ranged
+        .load_file_range_with_multiline(&path, 1, Some(2), None, HistoryMultiline::Joined)
+        .unwrap();
+    assert_eq!(ranged.entries().len(), 1);
+    assert_eq!(ranged.entries()[0].line_bytes, b"two");
 }
 
 #[test]
@@ -701,11 +800,21 @@ fn history_files_preserve_embedded_nul_bytes() {
 
     std::fs::write(&path, b"#123\nalpha\0tail\nbeta\n#456\nlast\n").unwrap();
     let loaded = History::read_file(&path).unwrap();
-    assert_eq!(loaded.entries().len(), 2);
+    assert_eq!(loaded.entries().len(), 3);
     assert_eq!(loaded.entries()[0].timestamp.as_deref(), Some("#123"));
-    assert_eq!(loaded.entries()[0].line_bytes, b"alpha\0tail\nbeta");
-    assert_eq!(loaded.entries()[1].timestamp.as_deref(), Some("#456"));
-    assert_eq!(loaded.entries()[1].line_bytes, b"last");
+    assert_eq!(loaded.entries()[0].line_bytes, b"alpha\0tail");
+    assert_eq!(loaded.entries()[1].timestamp.as_deref(), None);
+    assert_eq!(loaded.entries()[1].line_bytes, b"beta");
+    assert_eq!(loaded.entries()[2].timestamp.as_deref(), Some("#456"));
+    assert_eq!(loaded.entries()[2].line_bytes, b"last");
+
+    // The joined grouping keeps the physical lines of the block together.
+    let joined = History::read_file_with_multiline(&path, HistoryMultiline::Joined).unwrap();
+    assert_eq!(joined.entries().len(), 2);
+    assert_eq!(joined.entries()[0].timestamp.as_deref(), Some("#123"));
+    assert_eq!(joined.entries()[0].line_bytes, b"alpha\0tail\nbeta");
+    assert_eq!(joined.entries()[1].timestamp.as_deref(), Some("#456"));
+    assert_eq!(joined.entries()[1].line_bytes, b"last");
 }
 
 #[test]
@@ -721,6 +830,20 @@ fn treats_digits_with_trailing_junk_as_timestamp() {
             .iter()
             .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
             .collect::<Vec<_>>(),
+        vec![
+            (Some("#1700000000abc"), "foo".to_string()),
+            (None, "# not timestamp".to_string()),
+        ]
+    );
+
+    // The joined grouping keeps the block together.
+    let joined = History::read_file_with_multiline(&path, HistoryMultiline::Joined).unwrap();
+    assert_eq!(
+        joined
+            .entries()
+            .iter()
+            .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
+            .collect::<Vec<_>>(),
         vec![(Some("#1700000000abc"), "foo\n# not timestamp".to_string()),]
     );
 }
@@ -732,14 +855,23 @@ fn recognizes_timestamp_delimiters_before_utf8_decoding() {
     fs::write(&path, b"#123\xff\none\ntwo\n#456\nlast\n").unwrap();
 
     let loaded = History::read_file(&path).unwrap();
-    assert_eq!(loaded.entries().len(), 2);
+    assert_eq!(loaded.entries().len(), 3);
     assert_eq!(
         loaded.entries()[0].timestamp.as_deref(),
         Some("#123\u{fffd}")
     );
-    assert_eq!(loaded.entries()[0].line_bytes, b"one\ntwo");
-    assert_eq!(loaded.entries()[1].timestamp.as_deref(), Some("#456"));
-    assert_eq!(loaded.entries()[1].line_bytes, b"last");
+    assert_eq!(loaded.entries()[0].line_bytes, b"one");
+    assert_eq!(loaded.entries()[1].timestamp.as_deref(), None);
+    assert_eq!(loaded.entries()[1].line_bytes, b"two");
+    assert_eq!(loaded.entries()[2].timestamp.as_deref(), Some("#456"));
+    assert_eq!(loaded.entries()[2].line_bytes, b"last");
+
+    // The joined grouping keeps the block together.
+    let joined = History::read_file_with_multiline(&path, HistoryMultiline::Joined).unwrap();
+    assert_eq!(joined.entries().len(), 2);
+    assert_eq!(joined.entries()[0].line_bytes, b"one\ntwo");
+    assert_eq!(joined.entries()[1].timestamp.as_deref(), Some("#456"));
+    assert_eq!(joined.entries()[1].line_bytes, b"last");
 
     let output = dir.path().join("roundtrip");
     loaded.write_file_with_timestamps(&output, true).unwrap();
@@ -767,7 +899,8 @@ fn preserves_timestamped_history_file_records() {
             .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
             .collect::<Vec<_>>(),
         vec![
-            (Some("#1700000000"), "echo one\n# not timestamp".to_string()),
+            (Some("#1700000000"), "echo one".to_string()),
+            (None, "# not timestamp".to_string()),
             (Some("#1700000001"), "printf two".to_string()),
         ]
     );
@@ -1080,6 +1213,8 @@ fn reads_history_file_ranges_and_controls_timestamp_writes() {
     let path = dir.path().join("history");
     fs::write(&path, "#1700000000\none\n#1700000001\ntwo\nthree\n").unwrap();
 
+    // The range bounds count physical command lines: "one", "two" and
+    // "three".
     let ranged = History::read_file_range(&path, 1, Some(3)).unwrap();
     assert_eq!(
         ranged
@@ -1087,7 +1222,10 @@ fn reads_history_file_ranges_and_controls_timestamp_writes() {
             .iter()
             .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
             .collect::<Vec<_>>(),
-        vec![(Some("#1700000001"), "two\nthree".to_string()),]
+        vec![
+            (Some("#1700000001"), "two".to_string()),
+            (None, "three".to_string()),
+        ]
     );
 
     let single = History::read_file_range(&path, 1, Some(2)).unwrap();
@@ -1097,7 +1235,7 @@ fn reads_history_file_ranges_and_controls_timestamp_writes() {
             .iter()
             .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
             .collect::<Vec<_>>(),
-        vec![(Some("#1700000001"), "two\nthree".to_string())]
+        vec![(Some("#1700000001"), "two".to_string())]
     );
 
     let to_end = History::read_file_range(&path, 1, None).unwrap();
@@ -1107,7 +1245,7 @@ fn reads_history_file_ranges_and_controls_timestamp_writes() {
             .iter()
             .map(|entry| entry.line().into_owned())
             .collect::<Vec<_>>(),
-        vec!["two\nthree".to_string()]
+        vec!["two".to_string(), "three".to_string()]
     );
 
     let reversed_range = History::read_file_range(&path, 1, Some(0)).unwrap();
@@ -1117,7 +1255,20 @@ fn reads_history_file_ranges_and_controls_timestamp_writes() {
             .iter()
             .map(|entry| entry.line().into_owned())
             .collect::<Vec<_>>(),
-        vec!["two\nthree".to_string()]
+        vec!["two".to_string(), "three".to_string()]
+    );
+
+    // The joined grouping applies to the selected lines.
+    let joined =
+        History::read_file_range_with_multiline(&path, 1, Some(3), HistoryMultiline::Joined)
+            .unwrap();
+    assert_eq!(
+        joined
+            .entries()
+            .iter()
+            .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
+            .collect::<Vec<_>>(),
+        vec![(Some("#1700000001"), "two\nthree".to_string())]
     );
 
     let no_timestamps = dir.path().join("no-timestamps");
@@ -1128,11 +1279,11 @@ fn reads_history_file_ranges_and_controls_timestamp_writes() {
 }
 
 #[test]
-fn range_and_truncate_count_timestamp_joined_entries_not_physical_lines() {
-    // Decided policy: range FROM/TO and truncate count timestamp-joined Rust
-    // entries (logical commands), not physical file lines. A multiline
-    // timestamp-delimited entry plus a single-line entry is two entries over
-    // six physical lines; entry counting skips/keeps the whole first entry.
+fn range_bounds_count_physical_command_lines() {
+    // The range FROM/TO bounds count physical command lines, not the entries
+    // a grouping policy makes of them. The fixture holds three command lines
+    // ("line one", "line two" and "next") over five physical lines, and the
+    // timestamp records are not command lines.
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");
     fs::write(
@@ -1141,16 +1292,58 @@ fn range_and_truncate_count_timestamp_joined_entries_not_physical_lines() {
     )
     .unwrap();
 
-    let ranged = History::read_file_range(&path, 1, Some(2)).unwrap();
+    // The second command line is "line two"; the timestamp of its block
+    // belongs to the first command line, which the range leaves out.
+    let second = History::read_file_range(&path, 1, Some(2)).unwrap();
     assert_eq!(
-        ranged
+        second
             .entries()
             .iter()
             .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
             .collect::<Vec<_>>(),
-        vec![(Some("#1700000001"), "next".to_string()),]
+        vec![(None, "line two".to_string())]
     );
 
+    let third = History::read_file_range(&path, 2, Some(3)).unwrap();
+    assert_eq!(
+        third
+            .entries()
+            .iter()
+            .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
+            .collect::<Vec<_>>(),
+        vec![(Some("#1700000001"), "next".to_string())]
+    );
+
+    // The joined grouping applies to the selected lines, so a range can end
+    // with a partial block.
+    let joined =
+        History::read_file_range_with_multiline(&path, 0, Some(2), HistoryMultiline::Joined)
+            .unwrap();
+    assert_eq!(
+        joined
+            .entries()
+            .iter()
+            .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
+            .collect::<Vec<_>>(),
+        vec![(Some("#1700000000"), "line one\n\nline two".to_string())]
+    );
+
+    let partial =
+        History::read_file_range_with_multiline(&path, 1, Some(3), HistoryMultiline::Joined)
+            .unwrap();
+    assert_eq!(
+        partial
+            .entries()
+            .iter()
+            .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
+            .collect::<Vec<_>>(),
+        vec![
+            (None, "line two".to_string()),
+            (Some("#1700000001"), "next".to_string()),
+        ]
+    );
+
+    // The truncate keeps the last command lines of the file.
     History::truncate_file(&path, 1).unwrap();
     assert_eq!(fs::read_to_string(&path).unwrap(), "#1700000001\nnext\n");
 }
@@ -2604,10 +2797,16 @@ fn timestamped_reads_strip_leading_blanks_and_drop_blank_only_gaps() {
         vec![(Some("#1700000001"), "foo".to_string()),]
     );
 
-    // Internal and trailing blanks are still preserved.
+    // Internal and trailing blanks are still preserved by the joined grouping.
     std::fs::write(&path, "#1700000000\nline one\n\nline two\n").unwrap();
+    let joined = History::read_file_with_multiline(&path, HistoryMultiline::Joined).unwrap();
+    assert_eq!(joined.entries()[0].line_bytes, b"line one\n\nline two");
+
+    // The default grouping drops the blank line and splits the block.
     let loaded = History::read_file(&path).unwrap();
-    assert_eq!(loaded.entries()[0].line_bytes, b"line one\n\nline two");
+    assert_eq!(loaded.entries().len(), 2);
+    assert_eq!(loaded.entries()[0].line_bytes, b"line one");
+    assert_eq!(loaded.entries()[1].line_bytes, b"line two");
 }
 
 #[test]
@@ -2644,11 +2843,22 @@ fn ignores_unterminated_trailing_fragment_like_gnu() {
     let loaded = History::read_file(&path).unwrap();
     assert!(loaded.entries().is_empty());
 
-    // Timestamped control joins the multiline entry.
+    // Timestamped control keeps one entry per physical line by default.
     std::fs::write(&path, "#123\none\ntwo\n").unwrap();
     let loaded = History::read_file(&path).unwrap();
     assert_eq!(
         loaded
+            .entries()
+            .iter()
+            .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
+            .collect::<Vec<_>>(),
+        vec![(Some("#123"), "one".to_string()), (None, "two".to_string()),]
+    );
+
+    // The joined grouping joins the multiline entry.
+    let joined = History::read_file_with_multiline(&path, HistoryMultiline::Joined).unwrap();
+    assert_eq!(
+        joined
             .entries()
             .iter()
             .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
@@ -2661,6 +2871,15 @@ fn ignores_unterminated_trailing_fragment_like_gnu() {
     let loaded = History::read_file(&path).unwrap();
     assert_eq!(
         loaded
+            .entries()
+            .iter()
+            .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
+            .collect::<Vec<_>>(),
+        vec![(Some("#123"), "one".to_string()),]
+    );
+    let joined = History::read_file_with_multiline(&path, HistoryMultiline::Joined).unwrap();
+    assert_eq!(
+        joined
             .entries()
             .iter()
             .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))

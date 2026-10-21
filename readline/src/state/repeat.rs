@@ -73,12 +73,19 @@ pub(crate) fn repeat_count(arg: Option<i32>) -> u32 {
     arg.unwrap_or(1).unsigned_abs()
 }
 
+/// The largest numeric argument GNU accepts.
+///
+/// Measured on GNU Readline 8.2: an argument of 1000000 is accepted without
+/// a bell, while a larger one rings the bell and resets the argument, so the
+/// digits that follow the reset are ordinary text.
+const MAX_NUMERIC_ARGUMENT: i32 = 1_000_000;
+
 /// Update the pending numeric argument from a digit/minus key.
 ///
-/// Returns true when the update overflowed `i32`: the argument is reset so a
-/// huge repeat count never executes, and the caller rings the bell.
-/// A lone `-` on `i32::MIN` keeps `MIN` without bell: it is already the most
-/// negative representable argument.
+/// Returns true when the update exceeded `MAX_NUMERIC_ARGUMENT`: the argument
+/// is reset so a huge repeat count never executes, and the caller rings the
+/// bell. The digit that exceeded the limit is consumed with the argument, and
+/// the digits that follow it are ordinary text, as they are on GNU.
 pub(crate) fn update_numeric_argument(state: &mut EditorState, key: &[u8]) -> bool {
     let Some(last) = key.last().copied() else {
         return false;
@@ -93,15 +100,11 @@ pub(crate) fn update_numeric_argument(state: &mut EditorState, key: &[u8]) -> bo
                 } else {
                     true
                 };
-            let magnitude = current.unsigned_abs();
+            let magnitude = current.unsigned_abs().min(i32::MAX as u32) as i32;
             state.numeric_arg = Some(if state.numeric_arg_negative {
-                if magnitude > i32::MAX as u32 {
-                    i32::MIN
-                } else {
-                    -(magnitude as i32)
-                }
+                -magnitude
             } else {
-                magnitude.min(i32::MAX as u32) as i32
+                magnitude
             });
             state.numeric_arg_sign_only = true;
             false
@@ -125,6 +128,10 @@ pub(crate) fn update_numeric_argument(state: &mut EditorState, key: &[u8]) -> bo
                     .and_then(|scaled| scaled.checked_add(digit))
             };
             match next {
+                Some(value) if value.unsigned_abs() > MAX_NUMERIC_ARGUMENT as u32 => {
+                    state.take_numeric_arg();
+                    true
+                }
                 Some(value) => {
                     state.numeric_arg = Some(value);
                     // Preserve a negative sign through leading zero digits.

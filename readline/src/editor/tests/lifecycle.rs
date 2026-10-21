@@ -1225,13 +1225,12 @@ fn setup_failure_after_raw_entry_still_restores_terminal_mode() {
 
 #[test]
 fn positive_digit_overflow_resets_without_panic() {
-    // Auditor repro: ESC + 13 nines overflows i32; parsing alone must not
-    // panic (debug) or wrap (release). Overflow resets with a bell so no
-    // huge repeat executes. The editor dispatches the input one byte at
-    // a time, like GNU Readline's per-character reads, so the digits
-    // that follow the reset are ordinary input, as they are on GNU.
-    // Sushline's argument holds more digits than GNU's before it
-    // overflows, so three digits follow the reset here.
+    // A numeric argument may not exceed 1000000, as measured on GNU
+    // Readline 8.2: ESC + 13 nines fills the argument with six nines, the
+    // seventh exceeds the limit and resets the argument with a bell so no
+    // huge repeat executes, and the six digits that follow the reset are
+    // ordinary input, as they are on GNU. The editor dispatches the input
+    // one byte at a time, like GNU Readline's per-character reads.
     let terminal = super::MemoryTerminal::with_events(vec![crate::terminal::TerminalEvent::Bytes(
         b"\x1b9999999999999\x01\r".to_vec(),
     )]);
@@ -1239,7 +1238,7 @@ fn positive_digit_overflow_resets_without_panic() {
     let result = line.read_line(Prompt::new("> "), &mut ());
     assert_eq!(
         result.unwrap(),
-        ReadlineResult::Line(b"999".to_vec()),
+        ReadlineResult::Line(b"999999".to_vec()),
         "overflowing positive arg must not panic and must accept"
     );
     assert!(
@@ -1251,9 +1250,9 @@ fn positive_digit_overflow_resets_without_panic() {
 
 #[test]
 fn negative_digit_overflow_resets_without_panic() {
-    // Negative accumulation overflows toward i32::MIN; same reset policy,
-    // and the digits that follow the reset are ordinary input, as they are
-    // on GNU.
+    // The negative argument has the same limit: the magnitude may not
+    // exceed 1000000, so the same reset policy applies, and the digits
+    // that follow the reset are ordinary input, as they are on GNU.
     let terminal = super::MemoryTerminal::with_events(vec![crate::terminal::TerminalEvent::Bytes(
         b"\x1b-9999999999999\x01\r".to_vec(),
     )]);
@@ -1261,12 +1260,52 @@ fn negative_digit_overflow_resets_without_panic() {
     let result = line.read_line(Prompt::new("> "), &mut ());
     assert_eq!(
         result.unwrap(),
-        ReadlineResult::Line(b"999".to_vec()),
+        ReadlineResult::Line(b"999999".to_vec()),
         "overflowing negative arg must not panic and must accept"
     );
     assert!(
         line.terminal.out.contains("\x07"),
         "negative overflow must bell, got {:?}",
+        line.terminal.out
+    );
+}
+
+#[test]
+fn numeric_argument_accepts_the_limit_and_resets_above_it() {
+    // The limit is the magnitude 1000000, as measured on GNU Readline 8.2:
+    // the argument of 1000000 is accepted without a bell, and the argument
+    // of 10000001 exceeds the limit, so the bell rings and the argument is
+    // reset. The digits of the argument are consumed either way, so the
+    // accepted line is empty.
+    let terminal = super::MemoryTerminal::with_events(vec![crate::terminal::TerminalEvent::Bytes(
+        b"\x1b1000000\r".to_vec(),
+    )]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ());
+    assert_eq!(
+        result.unwrap(),
+        ReadlineResult::Line(Vec::new()),
+        "the argument at the limit must be accepted"
+    );
+    assert!(
+        !line.terminal.out.contains("\x07"),
+        "the argument at the limit must not bell, got {:?}",
+        line.terminal.out
+    );
+
+    let terminal = super::MemoryTerminal::with_events(vec![crate::terminal::TerminalEvent::Bytes(
+        b"\x1b10000001\r".to_vec(),
+    )]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ());
+    assert_eq!(
+        result.unwrap(),
+        ReadlineResult::Line(Vec::new()),
+        "the argument above the limit must be consumed with the argument"
+    );
+    assert!(
+        line.terminal.out.contains("\x07"),
+        "the argument above the limit must bell, got {:?}",
         line.terminal.out
     );
 }

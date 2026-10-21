@@ -1741,6 +1741,27 @@ fn bash_readline_and_sushline_accept_same_multidigit_numeric_self_insert() {
 }
 
 #[test]
+fn bash_readline_and_sushline_reset_a_numeric_argument_above_the_limit() {
+    // A numeric argument may not exceed 1000000: the argument fills with six
+    // nines, the seventh exceeds the limit and rings the bell, and the
+    // argument is reset, so the six digits that follow the reset reach the
+    // shell as ordinary text. Runtime observation against the tested Bash
+    // 5.3 host, not GNU source proof.
+    let keys = b"\x1b9999999999999\r";
+    let bash = run_bash_readline(keys);
+    let sushline = run_sushline_harness(keys);
+
+    assert_eq!(accepted_line(&bash), Some("999999".to_string()), "{bash}");
+    assert_eq!(bell_count(&bash), 1, "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(bell_count(&sushline), bell_count(&bash), "{sushline}");
+}
+
+#[test]
 fn bash_readline_and_sushline_ignore_negative_numeric_self_insert() {
     // A negative repeat count inserts nothing in the tested Bash 5.3 PTY
     // fixtures. Runtime observation, not GNU source proof.

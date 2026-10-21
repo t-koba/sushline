@@ -33,23 +33,22 @@ list, and it names all three in its note, so the evidence carries the
 release it was measured on. The CI job builds the Readline release this
 document names from the upstream tarball and links the pinned Bash host
 against it, so the same suite runs against that release there as well. The
-build asks the release's configure for the terminfo interface, the interface
-the reference host's Readline is built against, so the pinned library comes
-out with the same terminal interface. The job checks the release number the
-built library exports, that the built
-library links a terminfo library as the reference host does, and that the
+build is configured with the options the job names in its log and in the
+cache keys, and the host's Readline selection is named in the cache key as
+well, so neither a library nor a host built another way is reused as the
+pinned one. The job checks the release number the built library exports,
+that the built library links a terminal-capability library, and that the
 pinned host's command list holds the two names the 8.3 release adds, so a
-build of another release or of another terminal interface cannot pass as the
-pinned one; the suite reads the same signals from that library, so the job
-log names them as well. The job also runs the output-stream probe against
-that pinned release, so the claim the output-stream row makes is checked on
-the release this document targets and not only observed on the 8.2 release
-the runner image ships. That job has not run on the tree that carries these
-steps, so the 8.3 baseline of the claims below rests on the release number
-the reference host's image exports and on the observations made against that
-host; the pinned build of the release this document names has not been
-exercised yet. The tarball's digest is pinned in the job, so the fetch is a
-checked one.
+build of another release cannot pass as the pinned one; the suite reads the
+same signals from that library, so the job log names them as well. The job
+also runs the output-stream probe against that pinned release, so the claim
+the output-stream row makes is checked on the release this document targets
+and not only observed on the 8.2 release the runner image ships. That job
+has not run on the tree that carries these steps, so the 8.3 baseline of the
+claims below rests on the release number the reference host's image exports
+and on the observations made against that host; the pinned build of the
+release this document names has not been exercised yet. The tarball's digest
+is pinned in the job, so the fetch is a checked one.
 Bash language, shell runtime, and builtin compatibility are not goals. The C
 ABI is out of scope. Claims below are limited to the cited oracle tests and
 their asserted fixtures; test modules are pointers to that evidence, not claims of complete

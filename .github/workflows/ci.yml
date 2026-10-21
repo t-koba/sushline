@@ -15,6 +15,20 @@ env:
   # The digest of the Readline tarball. The Bash tarball is pinned by
   # digest, and so is this one, so the fetch is a checked one.
   READLINE_ORACLE_SHA256: fe5383204467828cd495ee8d1d3c037a7eba1389c22bc6a041f627976f9061cc
+  # The configuration the pinned release is built with: the terminal
+  # interface the reference host's Readline is built against, which the
+  # build asks the release's configure for. The configuration is part of the
+  # identity of the evidence, so it is named in the cache keys: a cached
+  # library that was built with another configuration is not reused as the
+  # pinned one. The value carries no space, because the cache key carries
+  # it.
+  READLINE_ORACLE_CONFIGURE_FLAGS: "--with-curses"
+  # The Readline the pinned Bash host is linked against. Bash carries its
+  # own copy of Readline and builds that by default, so the host is
+  # configured to use the installed release, and the choice is named in the
+  # cache key: a cached host that was built another way is not reused as
+  # the pinned one.
+  BASH_ORACLE_READLINE: "installed"
 
 jobs:
   # The Rust checks do not need the oracle host, so a network fault in the
@@ -49,17 +63,28 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/sushline/readline-oracle
-          key: readline-${{ runner.os }}-${{ env.READLINE_ORACLE_VERSION }}-${{ env.READLINE_ORACLE_SHA256 }}
+          key: readline-${{ runner.os }}-${{ env.READLINE_ORACLE_VERSION }}-${{ env.READLINE_ORACLE_SHA256 }}-${{ env.READLINE_ORACLE_CONFIGURE_FLAGS }}
       - name: Cache the pinned bash oracle host
         uses: actions/cache@v4
         with:
           path: ~/.cache/sushline/bash-oracle
-          key: bash-${{ runner.os }}-${{ env.BASH_ORACLE_VERSION }}-${{ env.BASH_ORACLE_SHA256 }}-${{ env.READLINE_ORACLE_VERSION }}-${{ env.READLINE_ORACLE_SHA256 }}
+          key: bash-${{ runner.os }}-${{ env.BASH_ORACLE_VERSION }}-${{ env.BASH_ORACLE_SHA256 }}-${{ env.READLINE_ORACLE_VERSION }}-${{ env.READLINE_ORACLE_SHA256 }}-${{ env.READLINE_ORACLE_CONFIGURE_FLAGS }}-${{ env.BASH_ORACLE_READLINE }}
       - name: Install the pinned Readline release
         run: |
           set -euo pipefail
           prefix="$HOME/.cache/sushline/readline-oracle"
-          if [ ! -f "$prefix/lib/libreadline.so" ]; then
+          # The configuration the build is configured with is part of the
+          # identity of the evidence, so it is recorded next to the library
+          # it built. A cached library that was built with another
+          # configuration is rebuilt, so the job never measures a build it
+          # did not configure.
+          marker="$prefix/build-configuration"
+          configure_flags=(--prefix="$prefix" "$READLINE_ORACLE_CONFIGURE_FLAGS")
+          recorded=""
+          if [ -f "$marker" ]; then
+            recorded=$(cat "$marker")
+          fi
+          if [ ! -f "$prefix/lib/libreadline.so" ] || [ "$recorded" != "${configure_flags[*]}" ]; then
             # Readline needs the terminfo headers and library to build. The
             # runner image ships without package lists, so the index is
             # refreshed before the install.
@@ -83,14 +108,14 @@ jobs:
             # compares redisplay bytes, so the build asks the release's
             # configure for the terminfo interface instead of leaving it to
             # the release's default, and it is checked after the build.
-            configure_flags=(--prefix="$prefix")
-            if ./configure --help | grep -E -- '--with-curses' >/dev/null; then
-              configure_flags+=(--with-curses)
-            fi
             ./configure "${configure_flags[@]}"
             make -j"$(nproc)"
             make install
+            # The configuration the library was built with is recorded, so
+            # the next run knows which build it is looking at.
+            printf '%s\n' "${configure_flags[*]}" > "$marker"
           fi
+          echo "readline_configuration=${configure_flags[*]}"
           # The release the compatibility document names is the release the
           # library carries, so a build of another release cannot pass as
           # the pinned one.
@@ -149,8 +174,12 @@ jobs:
             cd /tmp/bash-$BASH_ORACLE_VERSION
             # The host is linked against the pinned release, and the path to
             # it is carried in the host's own image, so the oracle suite
-            # finds the release the host carries.
+            # finds the release the host carries. Bash carries its own copy
+            # of Readline in lib/readline and builds that by default, so the
+            # installed release is asked for by name; the prefix tells the
+            # configure where to find it.
             ./configure --prefix="$prefix" \
+              --with-installed-readline="$readline" \
               CPPFLAGS="-I$readline/include" \
               LDFLAGS="-L$readline/lib -Wl,-rpath,$readline/lib"
             make -j"$(nproc)"

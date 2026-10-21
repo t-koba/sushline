@@ -757,6 +757,22 @@ fn compatibility_document_classifies_editor_bind_and_history_coverage() {
         assert!(rows.is_empty(), "{forbidden} rows remain: {rows:?}");
     }
 
+    // Rows whose first column names a long list of methods are locked by
+    // their status alone, so the lock does not depend on the rest of the row.
+    for (row_start, status) in [
+        ("| Files: `read_history`", "Mixed"),
+        ("| File range: `read_history_range`", "Mixed"),
+    ] {
+        let row = compatibility
+            .lines()
+            .find(|line| line.starts_with(row_start))
+            .unwrap_or_else(|| panic!("COMPATIBILITY.md must keep the {row_start} row"));
+        assert!(
+            row.contains(&format!("| {status} |")),
+            "the {row_start} row must be {status}: {row}"
+        );
+    }
+
     for area in [
         "| Basic line editing | Mixed |",
         "| Emacs keymap, bindable names, and `bind` | Compatible |",

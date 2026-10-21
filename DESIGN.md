@@ -299,10 +299,12 @@ save timing remains controlled by the embedder.
 The embedder supplies:
 
 - Expanding prompts before passing them to `Editor::read_line`.
-- Initializing process locale state when locale-sensitive completion behavior
-  is desired. Completion sorting delegates ordering to libc `strcoll`; on Unix,
-  `completion-ignore-case` maps each byte with locale-aware `tolower` on Unix
-  and uses ASCII folding elsewhere; this is byte-wise, not multibyte case folding.
+- Initializing process locale state when the byte-wise completion fallback is
+  used. Completion sorting delegates ordering to libc `strcoll`;
+  `completion-ignore-case` matches filename candidates by whole scalars
+  through the locale the editor owns from the environment when that locale is
+  UTF-8, and otherwise falls back to a byte-wise mapping - libc `tolower` on
+  Unix, ASCII folding elsewhere - which is not multibyte case folding.
   The editor's history search honours `search-ignore-case` with the locale it
   owns from the environment, not the process locale: it takes the first non-empty of
   `LC_ALL`, `LC_CTYPE` and `LANG`, and

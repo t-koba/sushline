@@ -9,8 +9,9 @@ public API is designed for Rust embedders.
 The compatibility target is GNU Readline 8.3 patch level 0 and the GNU
 History Library behavior in that baseline. PTY oracle probes use GNU Bash 5.3
 as a runtime host for Readline/History behavior, and the oracle harness checks
-that host version; these are Bash runtime observations, not proof of the
-Readline version reported by other host tooling.
+that host version and the Readline release the host carries; these are Bash
+runtime observations, not proof of the Readline version reported by other host
+tooling.
 Bash language, shell runtime, and builtin compatibility are not Sushline goals.
 Sushline is an independent Rust implementation and does not include Readline
 source code.
@@ -47,8 +48,10 @@ let _ = editor.read_line(Prompt::new("> "), &mut ());
 
 `cargo test --workspace` runs the unit tests and the PTY oracle suite. The
 oracle suite compares Sushline against GNU Bash 5.3 observed at runtime, so it
-requires GNU Bash 5.3 on `PATH`; on any other host the suite reports the
-mismatch once and stops without producing compatibility evidence.
+requires GNU Bash 5.3 on `PATH`; on any other host, and on a host that carries
+a Readline release the compatibility document does not cover, the suite
+reports the mismatch once and stops without producing compatibility
+evidence.
 
 The Bash-hosted test targets are behind the `oracle` feature of the `readline`
 crate, which is on by default. `cargo test --workspace --no-default-features`

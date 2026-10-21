@@ -10,6 +10,7 @@ mod editing;
 mod history;
 mod horizontal_scroll;
 pub(super) mod host;
+mod host_readline;
 mod inputrc;
 pub(super) mod pty;
 pub(super) mod screen;

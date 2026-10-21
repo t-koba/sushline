@@ -9,6 +9,9 @@ use readline::{
 #[path = "oracle/host.rs"]
 mod host;
 
+#[path = "oracle/host_readline.rs"]
+mod host_readline;
+
 fn editor() -> Editor<DummyTerminal> {
     Editor::new(Config::default(), DummyTerminal, History::new())
 }

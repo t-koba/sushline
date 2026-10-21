@@ -4,11 +4,16 @@
 //! 5.3 host, so that host is a precondition of the suite rather than a
 //! sibling check. A case that ran on another host would compare against a
 //! baseline the compatibility claims do not cover, so the suite stops with one
-//! message instead of reporting such a comparison as evidence.
+//! message instead of reporting such a comparison as evidence. The Readline
+//! the host carries is part of that baseline: the claims name the release the
+//! evidence was measured on, so a host that carries another release is a host
+//! the claims do not describe.
 
 use std::io::Write;
 use std::process::Command;
 use std::sync::OnceLock;
+
+use super::host_readline;
 
 /// The documented oracle host version.
 const REQUIRED_BASH_VERSION: (u32, u32) = (5, 3);
@@ -29,7 +34,7 @@ fn reported_version(banner: &str) -> Option<(u32, u32)> {
     Some((major, minor))
 }
 
-fn probe() -> Result<(), String> {
+fn probe() -> Result<String, String> {
     let output = Command::new("bash")
         .arg("--version")
         .output()
@@ -39,9 +44,24 @@ fn probe() -> Result<(), String> {
         return Err(format!("the oracle host must be GNU bash, found: {banner}"));
     }
     match reported_version(&banner) {
-        Some(version) if version == REQUIRED_BASH_VERSION => Ok(()),
-        _ => Err(format!(
-            "the oracle host must be GNU Bash {}.{}, found: {banner}",
+        Some(version) if version == REQUIRED_BASH_VERSION => {}
+        _ => {
+            return Err(format!(
+                "the oracle host must be GNU Bash {}.{}, found: {banner}",
+                REQUIRED_BASH_VERSION.0, REQUIRED_BASH_VERSION.1
+            ));
+        }
+    }
+    match host_readline::host_readline_version() {
+        Some(version) if host_readline::is_documented(version) => Ok(format!(
+            "the oracle host is GNU Bash {}.{} carrying Readline {version}",
+            REQUIRED_BASH_VERSION.0, REQUIRED_BASH_VERSION.1
+        )),
+        Some(version) => Err(format!(
+            "the oracle host must carry a Readline the compatibility document covers, found Readline {version}"
+        )),
+        None => Ok(format!(
+            "the oracle host is GNU Bash {}.{}; its Readline release is not readable on this platform",
             REQUIRED_BASH_VERSION.0, REQUIRED_BASH_VERSION.1
         )),
     }
@@ -53,12 +73,18 @@ fn probe() -> Result<(), String> {
 /// stops, so no oracle case reports success against another host.
 pub(super) fn require_oracle_host() {
     BASELINE.get_or_init(|| {
-        if let Err(message) = probe() {
-            let mut stderr = std::io::stderr();
-            let _ = writeln!(stderr, "{message}");
-            let _ = stderr.flush();
-            std::process::exit(101);
+        let mut stderr = std::io::stderr();
+        match probe() {
+            Ok(baseline) => {
+                let _ = writeln!(stderr, "{baseline}");
+            }
+            Err(message) => {
+                let _ = writeln!(stderr, "{message}");
+                let _ = stderr.flush();
+                std::process::exit(101);
+            }
         }
+        let _ = stderr.flush();
     });
 }
 

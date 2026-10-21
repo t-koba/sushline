@@ -88,6 +88,7 @@ jobs:
           #include <string.h>
 
           extern char *readline(const char *);
+          extern int rl_readline_version;
 
           int main(void) {
               FILE *report = fopen("/tmp/readline_probe.report", "w");
@@ -95,6 +96,8 @@ jobs:
                   return 1;
               }
               setvbuf(report, NULL, _IONBF, 0);
+              fprintf(report, "readline_release=%d.%d\n", rl_readline_version >> 8,
+                      rl_readline_version & 0xff);
               freopen("/tmp/readline_probe.out", "w", stdout);
               freopen("/tmp/readline_probe.err", "w", stderr);
               char *line = readline("probe> ");
@@ -119,16 +122,21 @@ jobs:
           cat /tmp/readline_probe.report
           version=$(dpkg-query -W -f='${Version}' libreadline-dev)
           echo "readline_package_version=$version"
-          case "$version" in
-            8.2-*)
-              # The claim, on the version it was observed on: the library
+          # The library the probe links is the library the oracle host
+          # loads, so the release it reports is the release the oracle
+          # evidence was measured on.
+          release=$(sed -n 's/^readline_release=//p' /tmp/readline_probe.report)
+          echo "readline_release=$release"
+          case "$release" in
+            8.2)
+              # The claim, on the release it was observed on: the library
               # writes its prompt to standard output.
               grep -qx 'prompt_in_stdout=1' /tmp/readline_probe.report
               ;;
             *)
-              # Another version is an observation, not a check of the claim.
+              # Another release is an observation, not a check of the claim.
               cat /tmp/readline_probe.report
-              echo "::warning::the runner image's Readline is $version; the compatibility row's claim was observed on 8.2"
+              echo "::warning::the runner image's Readline is $release; the compatibility row's claim was observed on 8.2"
               ;;
           esac
       - name: Run the oracle suite

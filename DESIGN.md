@@ -312,10 +312,11 @@ The embedder supplies:
 ## Test Structure
 
 Unit tests cover internal behavior. PTY oracle tests compare observable
-Readline and History behavior against a GNU Bash 5.3 host; the Readline library
-that host links is not asserted, so the oracle evidence is Bash runtime
-observation rather than proof of a Readline version. The oracle suite requires
-that host on `PATH` and stops without evidence on any other host. Its test
+Readline and History behavior against a GNU Bash 5.3 host; the Readline the
+host carries is read from the release number it exports, so the oracle
+evidence names the Readline release it was measured on and stops on a release
+the compatibility document does not cover. The oracle suite requires that host
+on `PATH` and stops without evidence on any other host. Its test
 targets are behind the `oracle` feature of the `readline` crate, so a host
 without that Bash can run the rest of the suite with
 `cargo test --workspace --no-default-features`. Embedding-program tests should

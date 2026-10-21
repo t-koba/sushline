@@ -39,6 +39,13 @@ name = "bind_golden"
 path = "tests/bind_golden.rs"
 required-features = ["oracle"]
 
+# The bind checks that compare Sushline's own output and defaults. They need
+# no oracle host and no feature, so the CI job that does not build the
+# pinned host runs them.
+[[test]]
+name = "bind"
+path = "tests/bind.rs"
+
 # The document's own consistency checks. They read COMPATIBILITY.md and the
 # library's bind listings, so they need no oracle host and no feature, and
 # the CI job that does not build the pinned host runs them.

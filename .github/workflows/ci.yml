@@ -12,12 +12,9 @@ env:
   # the compatibility document names, so the cases that are scoped to that
   # release run in the job instead of reporting nothing.
   READLINE_ORACLE_VERSION: "8.3"
-  # The digest of the Readline tarball, when it is pinned here. The Bash
-  # tarball is pinned by digest; the Readline tarball's digest is not
-  # recorded in this repository yet, so the job verifies the release the
-  # built library carries and prints the digest it fetched. Pinning the
-  # printed digest here turns the fetch into a checked one.
-  READLINE_ORACLE_SHA256: ""
+  # The digest of the Readline tarball. The Bash tarball is pinned by
+  # digest, and so is this one, so the fetch is a checked one.
+  READLINE_ORACLE_SHA256: fe5383204467828cd495ee8d1d3c037a7eba1389c22bc6a041f627976f9061cc
 
 jobs:
   # The Rust checks do not need the oracle host, so a network fault in the
@@ -77,13 +74,7 @@ jobs:
               --retry-max-time 240 \
               -o /tmp/readline-$READLINE_ORACLE_VERSION.tar.gz \
               https://ftp.gnu.org/gnu/readline/readline-$READLINE_ORACLE_VERSION.tar.gz
-            if [ -n "$READLINE_ORACLE_SHA256" ]; then
-              echo "$READLINE_ORACLE_SHA256  /tmp/readline-$READLINE_ORACLE_VERSION.tar.gz" | sha256sum --check --strict
-            else
-              # The digest is printed, so it can be pinned here the way the
-              # Bash tarball's is.
-              sha256sum /tmp/readline-$READLINE_ORACLE_VERSION.tar.gz
-            fi
+            echo "$READLINE_ORACLE_SHA256  /tmp/readline-$READLINE_ORACLE_VERSION.tar.gz" | sha256sum --check --strict
             tar -xzf /tmp/readline-$READLINE_ORACLE_VERSION.tar.gz -C /tmp
             cd /tmp/readline-$READLINE_ORACLE_VERSION
             ./configure --prefix="$prefix"

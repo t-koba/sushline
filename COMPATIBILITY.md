@@ -36,10 +36,8 @@ build of another release cannot pass as the pinned one; the suite reads the
 same signals from that library, so the job log names them as well. The job
 also runs the output-stream probe against that pinned release, so the claim
 the output-stream row makes is measured on the release this document targets
-and not only observed on the 8.2 release the runner image ships.
-The tarball's digest is not pinned in the job yet: the job prints the
-digest it fetched, and pinning that digest turns the fetch into a checked
-one.
+and not only observed on the 8.2 release the runner image ships. The
+tarball's digest is pinned in the job, so the fetch is a checked one.
 Bash language, shell runtime, and builtin compatibility are not goals. The C
 ABI is out of scope. Claims below are limited to the cited oracle tests and
 their asserted fixtures; test modules are pointers to that evidence, not claims of complete

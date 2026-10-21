@@ -1314,6 +1314,31 @@ fn range_bounds_count_physical_command_lines() {
         vec![(Some("#1700000001"), "next".to_string())]
     );
 
+    // Equal bounds select the command line at FROM, and a TO below FROM
+    // leaves the range open to the end of the file.
+    let equal = History::read_file_range(&path, 1, Some(1)).unwrap();
+    assert_eq!(
+        equal
+            .entries()
+            .iter()
+            .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
+            .collect::<Vec<_>>(),
+        vec![(None, "line two".to_string())]
+    );
+
+    let reversed = History::read_file_range(&path, 1, Some(0)).unwrap();
+    assert_eq!(
+        reversed
+            .entries()
+            .iter()
+            .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
+            .collect::<Vec<_>>(),
+        vec![
+            (None, "line two".to_string()),
+            (Some("#1700000001"), "next".to_string())
+        ]
+    );
+
     // The joined grouping applies to the selected lines, so a range can end
     // with a partial block.
     let joined =

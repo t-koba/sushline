@@ -53,9 +53,11 @@ impl History {
 
     /// Read file range with a multiline policy.
     ///
-    /// The FROM/TO bounds count physical command lines, TO is exclusive and
-    /// blank lines are not counted; the selected lines are then grouped by
-    /// the policy.
+    /// The FROM/TO bounds count physical command lines and blank lines are
+    /// not counted. For a FROM below TO the TO bound is exclusive; equal
+    /// bounds select the command line at FROM, and a TO below FROM leaves the
+    /// range open to the end of the file. The selected lines are then grouped
+    /// by the policy.
     pub fn read_file_range_with_multiline(
         path: impl AsRef<Path>,
         from: usize,
@@ -120,9 +122,11 @@ impl History {
 
     /// Load file range with a multiline policy.
     ///
-    /// The FROM/TO bounds count physical command lines, TO is exclusive and
-    /// blank lines are not counted; the selected lines are then grouped by
-    /// the policy.
+    /// The FROM/TO bounds count physical command lines and blank lines are
+    /// not counted. For a FROM below TO the TO bound is exclusive; equal
+    /// bounds select the command line at FROM, and a TO below FROM leaves the
+    /// range open to the end of the file. The selected lines are then grouped
+    /// by the policy.
     pub fn load_file_range_with_multiline(
         &mut self,
         path: impl AsRef<Path>,

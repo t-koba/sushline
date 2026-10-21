@@ -766,6 +766,7 @@ fn compatibility_document_classifies_editor_bind_and_history_coverage() {
         "| History expansion | Compatible |",
         "| History file storage | Mixed |",
         "| `character-search`, `character-search-backward` | Mixed |",
+        "| `vi-arg-digit`, `vi-search`, `vi-search-again`, `vi-char-search` | Mixed |",
     ] {
         assert!(
             compatibility.contains(area),

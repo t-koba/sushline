@@ -341,7 +341,7 @@ where
                 let mut item = candidate
                     .display
                     .as_deref()
-                    .map(str::to_owned)
+                    .map(crate::buffer::escape_raw_marker)
                     .unwrap_or_else(|| {
                         if response.options.filenames {
                             filename_display_name(candidate.replacement_bytes())

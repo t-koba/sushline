@@ -216,7 +216,10 @@ the active line. It does not own cell-width rules or escape string literals.
 
 `buffer/render.rs` is pure buffer rendering: it converts editable bytes into a
 rendered string plus point widths, including control-character and meta-byte
-display semantics. `prompt.rs` owns prompt marker parsing, including hidden
+display semantics. A rendered string also carries the bytes the terminal is
+to receive, and the two are told apart: a byte that spells out no character
+is written as a marked placeholder, and a character is written as itself, so
+a character an application uses for its own glyphs is never read as a byte. `prompt.rs` owns prompt marker parsing, including hidden
 regions, and the prompt's escape policy: the prompt text is drawn as it is
 given and only Readline's own invisible markers are read, while the shell's
 prompt spelling is an explicit choice (`PromptEscapes::Shell`). That choice

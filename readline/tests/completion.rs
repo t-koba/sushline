@@ -2146,3 +2146,41 @@ fn completion_pager_quit_preserves_batched_suffix() {
     assert_eq!(split.0, batched.0);
     assert_eq!(split.0, ReadlineResult::Line(b"Z".to_vec()));
 }
+
+#[test]
+fn a_private_use_character_in_a_completion_display_is_written_as_itself() {
+    // An application may use the private-use area for its own glyphs in the
+    // display text of a candidate, so the character reaches the terminal as
+    // its own bytes.
+    struct Hook;
+    impl Hooks for Hook {
+        fn complete(&mut self, _: CompletionRequest) -> Option<CompletionResponse> {
+            Some(CompletionResponse {
+                candidates: vec![
+                    CompletionCandidate {
+                        replacement: b"alpha".to_vec(),
+                        display: Some("\u{e0b0}alpha".to_string()),
+                    },
+                    CompletionCandidate {
+                        replacement: b"alpine".to_vec(),
+                        display: None,
+                    },
+                ],
+                ..Default::default()
+            })
+        }
+    }
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"al".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut hooks = Hook;
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": possible-completions")
+        .unwrap();
+    let _ = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    let out = &line.terminal().out;
+    assert!(out.contains('\u{e0b0}'), "out: {out:?}");
+}

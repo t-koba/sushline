@@ -3,7 +3,7 @@
 //! This module owns conversion from buffer bytes to display strings and point
 //! widths, including control-character and meta-byte display semantics.
 
-use super::{LineBuffer, private_byte_char, private_byte_value};
+use super::{DecodedUnit, LineBuffer, private_byte_char, private_byte_value};
 use crate::width::{advance_cell, char_width};
 use std::borrow::Cow;
 
@@ -37,6 +37,60 @@ pub(crate) fn tab_expansion(col: usize) -> &'static str {
     &SPACES[..8 - col % 8]
 }
 
+/// The character that marks a raw byte in rendered text.
+///
+/// Rendered text carries the bytes the terminal is to receive, and a byte
+/// that spells out no character cannot be written as one. Such a byte is
+/// written as this marker followed by the placeholder character for the
+/// byte, so a character an application uses for its own glyphs is never
+/// read as a byte.
+pub(crate) const RAW_BYTE_MARKER: char = '\u{200b}';
+
+/// The rendered text of a raw byte: the marker and the byte's placeholder.
+fn raw_byte_text(byte: u8) -> String {
+    format!("{RAW_BYTE_MARKER}{}", private_byte_char(byte))
+}
+
+/// Genuine text with the raw-byte marker escaped.
+///
+/// The marker is a character an application may use in its own text, so a
+/// genuine one is written twice: the reader takes a doubled marker as one
+/// character, and a marker followed by a placeholder as a marked byte.
+pub(crate) fn escape_raw_marker(text: &str) -> String {
+    if !text.contains(RAW_BYTE_MARKER) {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        if ch == RAW_BYTE_MARKER {
+            out.push(RAW_BYTE_MARKER);
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// A genuine character as rendered text, with the marker escaped.
+fn display_genuine_char(ch: char) -> String {
+    if ch == RAW_BYTE_MARKER {
+        format!("{RAW_BYTE_MARKER}{RAW_BYTE_MARKER}")
+    } else {
+        ch.to_string()
+    }
+}
+
+/// The display of a byte that spells out no character.
+///
+/// With `output-meta` the byte is written as it is, marked so that it
+/// survives the round trip through rendered text; otherwise it is written
+/// as octal notation.
+pub(super) fn display_raw_byte(byte: u8, output_meta: bool) -> String {
+    if !output_meta || byte.is_ascii_control() {
+        return format!("\\{byte:03o}");
+    }
+    raw_byte_text(byte)
+}
+
 pub(super) fn display_char(
     ch: char,
     output_meta: bool,
@@ -44,12 +98,6 @@ pub(super) fn display_char(
     utf8_locale: bool,
     col: usize,
 ) -> String {
-    if let Some(byte) = private_byte_value(ch) {
-        if !output_meta || byte.is_ascii_control() {
-            return format!("\\{byte:03o}");
-        }
-        return private_byte_char(byte).to_string();
-    }
     // UTF-8 locales preserve valid multibyte characters in character mode.
     // Byte-oriented mode or a non-UTF-8 locale renders constituent bytes;
     // `output-meta` selects raw bytes versus octal notation.
@@ -60,7 +108,7 @@ pub(super) fn display_char(
             .iter()
             .map(|byte| {
                 if output_meta {
-                    private_byte_char(*byte).to_string()
+                    raw_byte_text(*byte)
                 } else {
                     format!("\\{byte:03o}")
                 }
@@ -85,14 +133,14 @@ pub(super) fn display_char(
             format!("^{caret}")
         }
         '\x7f' => "^?".to_string(),
-        _ => ch.to_string(),
+        _ => display_genuine_char(ch),
     }
 }
 
 /// Whether `ch` renders as a per-byte expansion under these options: a valid
 /// non-ASCII scalar with byte-oriented mode or a non-UTF-8 locale.
 fn renders_byte_split(ch: char, byte_oriented: bool, utf8_locale: bool) -> bool {
-    !ch.is_ascii() && private_byte_value(ch).is_none() && (byte_oriented || !utf8_locale)
+    !ch.is_ascii() && (byte_oriented || !utf8_locale)
 }
 
 /// Display prefix for the first `prefix_len` bytes of `ch`'s UTF-8 encoding
@@ -106,7 +154,7 @@ fn byte_split_prefix(ch: char, prefix_len: usize, output_meta: bool) -> String {
         .iter()
         .map(|byte| {
             if output_meta {
-                private_byte_char(*byte).to_string()
+                raw_byte_text(*byte)
             } else {
                 format!("\\{byte:03o}")
             }
@@ -122,12 +170,17 @@ fn byte_split_prefix_width(ch: char, prefix_len: usize, output_meta: bool) -> us
         .sum()
 }
 
+/// Appends bytes as rendered text.
+///
+/// A byte that is not a character is written as the marker and the byte's
+/// placeholder, so the bytes the terminal is to receive survive the round
+/// trip through rendered text.
 pub(crate) fn append_bytes_lossless(out: &mut String, bytes: &[u8]) {
     for byte in bytes {
         if byte.is_ascii() {
             out.push(*byte as char);
         } else {
-            out.push(private_byte_char(*byte));
+            out.push_str(&raw_byte_text(*byte));
         }
     }
 }
@@ -148,6 +201,11 @@ fn break_sequence_len(first: u8) -> usize {
     }
 }
 
+/// Appends bytes as characters.
+///
+/// The bytes are read as characters where they spell one out, and a byte
+/// that spells out no character is written as its placeholder. The text is
+/// compared with the buffer's characters, so it carries no raw-byte marker.
 pub(crate) fn append_bytes_decoded_lossless(out: &mut String, bytes: &[u8]) {
     let mut idx = 0;
     while idx < bytes.len() {
@@ -177,17 +235,43 @@ pub(crate) fn bytes_decoded_lossless(bytes: &[u8]) -> String {
     out
 }
 
+/// The bytes the terminal is to receive for a rendered text.
+///
+/// A marked byte is written as the marker and the byte's placeholder, and a
+/// genuine marker is written twice; every other character is written as
+/// itself.
 pub(crate) fn rendered_string_to_bytes(rendered: &str) -> Vec<u8> {
     let mut out = Vec::with_capacity(rendered.len());
-    for ch in rendered.chars() {
-        if let Some(byte) = private_byte_value(ch) {
-            out.push(byte);
-        } else {
-            let mut buf = [0; 4];
-            out.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
+    let mut chars = rendered.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != RAW_BYTE_MARKER {
+            push_char_bytes(&mut out, ch);
+            continue;
+        }
+        match chars.peek().copied() {
+            // A genuine marker, escaped by writing it twice.
+            Some(RAW_BYTE_MARKER) => {
+                chars.next();
+                push_char_bytes(&mut out, RAW_BYTE_MARKER);
+            }
+            // A raw byte, written as the marker and the byte's placeholder.
+            Some(next) => match private_byte_value(next) {
+                Some(byte) => {
+                    chars.next();
+                    out.push(byte);
+                }
+                None => push_char_bytes(&mut out, RAW_BYTE_MARKER),
+            },
+            None => push_char_bytes(&mut out, RAW_BYTE_MARKER),
         }
     }
     out
+}
+
+/// The bytes of a character.
+fn push_char_bytes(out: &mut Vec<u8>, ch: char) {
+    let mut buf = [0; 4];
+    out.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
 }
 
 impl LineBuffer {
@@ -249,16 +333,19 @@ impl LineBuffer {
         // this basis with `render_text` so cursor math and output agree.
         let mut abs_col = prompt_width;
         positions.push((0, (row, col)));
-        for (idx, ch) in self.decoded_char_indices() {
+        for (idx, unit) in self.decoded_units() {
             let start_row = row;
             let start_col = col;
-            let display = display_char(
-                ch,
-                options.output_meta,
-                options.byte_oriented,
-                options.utf8_locale,
-                abs_col,
-            );
+            let display = match unit {
+                DecodedUnit::Char(ch) => display_char(
+                    ch,
+                    options.output_meta,
+                    options.byte_oriented,
+                    options.utf8_locale,
+                    abs_col,
+                ),
+                DecodedUnit::Raw(byte) => display_raw_byte(byte, options.output_meta),
+            };
             for rendered in display.chars() {
                 if rendered == '\n' {
                     row += 1;
@@ -280,7 +367,9 @@ impl LineBuffer {
             // `render_text` and `horizontal_line`); byte-split rendering
             // advances by the rendered prefix.
             if next > idx + 1 {
-                if renders_byte_split(ch, options.byte_oriented, options.utf8_locale) {
+                if let DecodedUnit::Char(ch) = unit
+                    && renders_byte_split(ch, options.byte_oriented, options.utf8_locale)
+                {
                     let byte_len = next - idx;
                     for prefix_len in 1..byte_len {
                         let prefix = byte_split_prefix(ch, prefix_len, options.output_meta);
@@ -314,7 +403,7 @@ impl LineBuffer {
     ) -> crate::display::horizontal::DisplayLine {
         let mut line = crate::display::horizontal::DisplayLine::default();
         let region = self.region(mark, options.active_region);
-        for (idx, ch) in self.decoded_char_indices() {
+        for (idx, unit) in self.decoded_units() {
             if Some(idx) == region.map(|(start, _)| start) {
                 line.push_hidden(bytes_lossless(options.active_region_start.as_ref()));
             }
@@ -330,24 +419,31 @@ impl LineBuffer {
                     // the cell start; byte-split mode advances by the rendered
                     // prefix so the cursor sits between the constituent bytes.
                     line.point = line.width
-                        + if renders_byte_split(ch, options.byte_oriented, options.utf8_locale) {
-                            byte_split_prefix_width(ch, self.point - idx, options.output_meta)
-                        } else {
-                            0
+                        + match unit {
+                            DecodedUnit::Char(ch)
+                                if renders_byte_split(
+                                    ch,
+                                    options.byte_oriented,
+                                    options.utf8_locale,
+                                ) =>
+                            {
+                                byte_split_prefix_width(ch, self.point - idx, options.output_meta)
+                            }
+                            _ => 0,
                         };
                 }
             }
             // Keep horizontal mode on one row even for quoted newlines.
-            let display = if ch == '\n' {
-                "^J".to_string()
-            } else {
-                display_char(
+            let display = match unit {
+                DecodedUnit::Char('\n') => "^J".to_string(),
+                DecodedUnit::Char(ch) => display_char(
                     ch,
                     options.output_meta,
                     options.byte_oriented,
                     options.utf8_locale,
                     base_col + line.width,
-                )
+                ),
+                DecodedUnit::Raw(byte) => display_raw_byte(byte, options.output_meta),
             };
             let width = display.chars().map(char_width).sum();
             let bytes = self.next_char_boundary(idx) - idx;
@@ -381,7 +477,7 @@ impl LineBuffer {
         // TAB stops share the `screen_positions` basis: the unwrapped
         // absolute column from line start, restarted after each newline.
         let mut tab_col = base_col;
-        for (idx, ch) in self.decoded_char_indices() {
+        for (idx, unit) in self.decoded_units() {
             if Some(idx) == region.map(|(start, _)| start) {
                 append_bytes_lossless(&mut out, options.active_region_start.as_ref());
             }
@@ -398,32 +494,35 @@ impl LineBuffer {
                     // reachable via byte commands); byte-split mode advances
                     // by the rendered prefix.
                     point_width = width
-                        + if renders_byte_split(ch, options.byte_oriented, options.utf8_locale) {
-                            byte_split_prefix_width(ch, self.point - idx, options.output_meta)
-                        } else {
-                            0
+                        + match unit {
+                            DecodedUnit::Char(ch)
+                                if renders_byte_split(
+                                    ch,
+                                    options.byte_oriented,
+                                    options.utf8_locale,
+                                ) =>
+                            {
+                                byte_split_prefix_width(ch, self.point - idx, options.output_meta)
+                            }
+                            _ => 0,
                         };
                 }
             }
-            if ch == '\n' {
-                let display = display_char(
+            let display = match unit {
+                DecodedUnit::Char(ch) => display_char(
                     ch,
                     options.output_meta,
                     options.byte_oriented,
                     options.utf8_locale,
                     tab_col,
-                );
+                ),
+                DecodedUnit::Raw(byte) => display_raw_byte(byte, options.output_meta),
+            };
+            if matches!(unit, DecodedUnit::Char('\n')) {
                 out.push_str(&display);
                 tab_col = 0;
                 continue;
             }
-            let display = display_char(
-                ch,
-                options.output_meta,
-                options.byte_oriented,
-                options.utf8_locale,
-                tab_col,
-            );
             let w = display.chars().map(char_width).sum::<usize>();
             width += w;
             tab_col += w;
@@ -486,12 +585,10 @@ mod tests {
 
     #[test]
     fn output_meta_uses_locale_and_preserves_raw_invalid_bytes() {
-        let invalid = private_byte_char(0xff);
-        let raw_invalid = display_char(invalid, true, false, true, 0);
+        let raw_invalid = display_raw_byte(0xff, true);
         assert_eq!(rendered_string_to_bytes(&raw_invalid), vec![0xff]);
-        assert_eq!(display_char(invalid, false, false, true, 0), "\\377");
-        let raw_byte_oriented = display_char(invalid, true, true, true, 0);
-        assert_eq!(rendered_string_to_bytes(&raw_byte_oriented), vec![0xff]);
+        assert_eq!(display_raw_byte(0xff, false), "\\377");
+        assert_eq!(display_raw_byte(0x01, true), "\\001");
 
         assert_eq!(display_char('é', false, false, true, 0), "é");
         assert_eq!(display_char('é', false, false, false, 0), "\\303\\251");
@@ -502,5 +599,44 @@ mod tests {
         assert_eq!(display_char('é', false, true, true, 0), "\\303\\251");
         assert_eq!(display_char('\x01', false, false, true, 0), "^A");
         assert_eq!(display_char('\x7f', false, false, true, 0), "^?");
+    }
+
+    #[test]
+    fn a_private_use_character_is_not_read_as_a_raw_byte() {
+        // An application may use the private-use area for its own glyphs.
+        // Such a character is written as itself, so the bytes the terminal
+        // receives are the character's own.
+        for ch in ['\u{e000}', '\u{e0b0}', '\u{e0ff}'] {
+            let rendered = display_char(ch, true, false, true, 0);
+            assert_eq!(rendered, ch.to_string());
+            assert_eq!(
+                rendered_string_to_bytes(&rendered),
+                ch.to_string().into_bytes()
+            );
+        }
+    }
+
+    #[test]
+    fn a_raw_byte_next_to_a_private_use_character_keeps_both() {
+        let raw = display_raw_byte(0xff, true);
+        let text = format!("{raw}\u{e0ff}{raw}");
+        assert_eq!(
+            rendered_string_to_bytes(&text),
+            vec![0xff, 0xee, 0x83, 0xbf, 0xff]
+        );
+    }
+
+    #[test]
+    fn the_raw_byte_marker_is_escaped_in_genuine_text() {
+        // The marker is a character an application may use in its own text,
+        // so a genuine one is written twice and read back as one.
+        let escaped = escape_raw_marker("a\u{200b}b");
+        assert_eq!(rendered_string_to_bytes(&escaped), "a\u{200b}b".as_bytes());
+        // A marked byte beside a genuine marker is still one byte.
+        let marked = format!("{RAW_BYTE_MARKER}{RAW_BYTE_MARKER}");
+        assert_eq!(
+            rendered_string_to_bytes(&marked),
+            RAW_BYTE_MARKER.to_string().into_bytes()
+        );
     }
 }

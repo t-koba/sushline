@@ -2,7 +2,8 @@ mod render;
 mod word;
 pub(crate) use render::RenderOptions;
 pub(crate) use render::{
-    append_bytes_lossless, bytes_decoded_lossless, bytes_lossless, rendered_string_to_bytes,
+    append_bytes_lossless, bytes_decoded_lossless, bytes_lossless, escape_raw_marker,
+    rendered_string_to_bytes,
 };
 use word::*;
 
@@ -11,6 +12,20 @@ use word::*;
 pub enum WordStyle {
     /// Readline.
     Readline,
+}
+
+/// A decoded unit of the buffer: a character the bytes spell out, or a byte
+/// that spells out no character.
+///
+/// The two are told apart so that rendered text can carry the bytes the
+/// terminal is to receive: a character is written as itself, and a byte
+/// that spells out no character is written as a marked placeholder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DecodedUnit {
+    /// A character the bytes spell out.
+    Char(char),
+    /// A byte that spells out no character.
+    Raw(u8),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -245,6 +260,32 @@ impl LineBuffer {
             current = next;
         }
         previous
+    }
+
+    /// The decoded units of the buffer, with the byte index each starts at.
+    fn decoded_units(&self) -> Vec<(usize, DecodedUnit)> {
+        let mut out = Vec::new();
+        let mut idx = 0;
+        while idx < self.bytes.len() {
+            let first = self.bytes[idx];
+            let needed = utf8_sequence_len(first);
+            if needed > 1
+                && idx + needed <= self.bytes.len()
+                && let Ok(text) = std::str::from_utf8(&self.bytes[idx..idx + needed])
+                && let Some(ch) = text.chars().next()
+            {
+                out.push((idx, DecodedUnit::Char(ch)));
+                idx += needed;
+                continue;
+            }
+            if first < 0x80 {
+                out.push((idx, DecodedUnit::Char(first as char)));
+            } else {
+                out.push((idx, DecodedUnit::Raw(first)));
+            }
+            idx += 1;
+        }
+        out
     }
 
     fn decoded_char_indices(&self) -> Vec<(usize, char)> {

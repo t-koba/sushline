@@ -1,3 +1,4 @@
+use crate::buffer::escape_raw_marker;
 use crate::width::char_width;
 
 /// The backslash sequences a prompt's text is read as.
@@ -44,6 +45,7 @@ pub struct Prompt {
     visible: String,
     width: usize,
     escapes: PromptEscapes,
+    marked: bool,
 }
 
 impl Prompt {
@@ -67,6 +69,23 @@ impl Prompt {
             visible,
             width,
             escapes,
+            marked: false,
+        }
+    }
+
+    /// A prompt whose text is already rendered text.
+    ///
+    /// The text carries the raw-byte markers of the render domain, so a
+    /// marker in it is not escaped: it is read as the mark of a byte.
+    pub(crate) fn marked_text(raw: impl Into<String>) -> Self {
+        let raw = raw.into();
+        let (visible, width) = strip_readline_markers(&raw, PromptEscapes::None);
+        Self {
+            raw,
+            visible,
+            width,
+            escapes: PromptEscapes::None,
+            marked: true,
         }
     }
 
@@ -95,14 +114,20 @@ impl Prompt {
         let mut line = crate::display::horizontal::DisplayLine::default();
         let mut span = String::new();
         let mut was_hidden = false;
+        let marked = self.marked;
         let flush = |line: &mut crate::display::horizontal::DisplayLine,
                      span: &mut String,
                      hidden: bool| {
-            if hidden {
-                line.push_hidden(std::mem::take(span));
+            let text = if marked {
+                std::mem::take(span)
             } else {
-                line.push_prompt_text(span);
-                span.clear();
+                escape_raw_marker(span)
+            };
+            span.clear();
+            if hidden {
+                line.push_hidden(text);
+            } else {
+                line.push_prompt_text(&text);
             }
         };
         parse_prompt(&self.raw, self.escapes, |ch, hidden| {

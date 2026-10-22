@@ -308,3 +308,30 @@ fn vertical_move_down_lands_on_scalar_boundary() {
     assert_eq!(buffer.as_bytes(), "aX中".as_bytes());
     assert_eq!(std::str::from_utf8(buffer.as_bytes()).unwrap(), "aX中");
 }
+
+#[test]
+fn a_private_use_character_in_the_line_is_rendered_as_itself() {
+    // An application may use the private-use area for its own glyphs, so a
+    // character there is drawn as itself and reaches the terminal as its
+    // own bytes.
+    for text in ["\u{e000}", "\u{e0b0}", "\u{e0ff}"] {
+        let bytes = text.as_bytes().to_vec();
+        let buffer = LineBuffer::from_bytes(bytes.clone());
+        let (rendered, point_width) = buffer.render_text(None, RenderOptions::default(), 0);
+        assert_eq!(rendered, text, "{text}");
+        assert_eq!(rendered_string_to_bytes(&rendered), bytes, "{text}");
+        assert_eq!(point_width, 1, "{text}");
+    }
+}
+
+#[test]
+fn a_raw_byte_and_a_private_use_character_keep_their_own_bytes() {
+    // A byte that spells out no character is written as itself, and the
+    // private-use character beside it is not read as a byte.
+    let mut bytes = vec![0xff];
+    bytes.extend_from_slice("\u{e0ff}".as_bytes());
+    bytes.push(0xfe);
+    let buffer = LineBuffer::from_bytes(bytes.clone());
+    let (rendered, _) = buffer.render_text(None, RenderOptions::default(), 0);
+    assert_eq!(rendered_string_to_bytes(&rendered), bytes);
+}

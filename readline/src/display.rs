@@ -72,12 +72,12 @@ where
     pub(crate) fn effective_prompt(&self, state: &EditorState) -> (String, usize) {
         if let Some(prompt) = active_search_prompt(state) {
             let width = last_line_width(&prompt);
-            return (prompt, width);
+            return (crate::buffer::escape_raw_marker(&prompt), width);
         }
         if let Some(search) = state.search.non_incremental_search.as_ref() {
             let prompt = search.prompt_text();
             let width = last_line_width(&prompt);
-            return (prompt, width);
+            return (crate::buffer::escape_raw_marker(&prompt), width);
         }
         if let Some(indicator) = numeric_arg_indicator(state) {
             // GNU Readline draws the pending argument in place of the whole
@@ -90,7 +90,11 @@ where
         let prefix_width = mode.width() + last_line_width(&decorations);
         let width = state.prompt.width_after_prefix(prefix_width);
         (
-            format!("{}{decorations}{}", mode.visible(), state.prompt.visible()),
+            format!(
+                "{}{decorations}{}",
+                mode.visible(),
+                crate::buffer::escape_raw_marker(state.prompt.visible())
+            ),
             width,
         )
     }
@@ -339,7 +343,9 @@ where
                 .map(bytes_lossless)
                 .unwrap_or_else(|| "@".to_string()),
         };
-        Prompt::new(raw)
+        // The mode string is read as bytes, so its text is rendered text
+        // already: it carries the raw-byte markers of the render domain.
+        Prompt::marked_text(raw)
     }
 }
 

@@ -543,3 +543,20 @@ fn horizontal_scroll_mode_measures_the_window_in_bytes() {
         );
     }
 }
+
+#[test]
+fn a_private_use_character_in_the_prompt_and_the_line_is_written_as_itself() {
+    // An application may use the private-use area for its own glyphs, both
+    // in the prompt it sets and in the text the user types. Each character
+    // reaches the terminal as its own bytes.
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes("\u{e0ff}".as_bytes().to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("\u{e0b0}> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line("\u{e0ff}".as_bytes().to_vec()));
+    let out = &line.terminal().out;
+    assert!(out.contains("\u{e0b0}> "), "out: {out:?}");
+    assert!(out.contains('\u{e0ff}'), "out: {out:?}");
+}

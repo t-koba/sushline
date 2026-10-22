@@ -449,7 +449,7 @@ fn unique_tmp_path(base: &Path, nonce: u64) -> PathBuf {
 }
 
 fn is_timestamp_record(line: &[u8]) -> bool {
-    line.len() >= 2 && line[0] == b'#' && line[1].is_ascii_digit()
+    line.len() >= 2 && line[0] == super::TIMESTAMP_MARKER && line[1].is_ascii_digit()
 }
 
 fn write_entry(

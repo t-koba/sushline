@@ -7,6 +7,9 @@ mod file;
 
 use std::borrow::Cow;
 
+/// The marker that begins a timestamp record.
+const TIMESTAMP_MARKER: u8 = b'#';
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// HistoryEntry.
 pub struct HistoryEntry {
@@ -24,6 +27,73 @@ impl HistoryEntry {
     /// Line.
     pub fn line(&self) -> Cow<'_, str> {
         String::from_utf8_lossy(&self.line_bytes)
+    }
+
+    /// The seconds the entry's timestamp record carries.
+    ///
+    /// The record's text is the `#`-plus-digits form the reader recognizes,
+    /// and the seconds are the number that follows the `#`, parsed in base
+    /// 10. Leading ASCII whitespace and a sign are accepted, and the digits
+    /// end at the first other character. Missing digits or a value outside
+    /// `i64` yields `None`.
+    ///
+    /// GNU's function reports the absence of a time as zero, so there a
+    /// record whose time is the epoch cannot be told from a record without
+    /// one; this reports the absence instead, so the two are told apart.
+    /// Unlike this accessor, GNU's `history_get_time` uses the mutable
+    /// `history_comment_char` and returns zero when the marker does not match
+    /// or conversion fails. On the installed GNU History 8.2 library, that
+    /// character was zero by default, so a `#` record returned zero until the
+    /// caller set it to `#`. Readline 8.3 source likewise checks the current
+    /// comment character before calling `strtol`.
+    pub fn timestamp_seconds(&self) -> Option<i64> {
+        let text = self.timestamp.as_deref()?;
+        let digits = text.strip_prefix(TIMESTAMP_MARKER as char)?;
+        parse_seconds(digits)
+    }
+}
+
+/// Read the base-10 integer prefix after a timestamp record's marker.
+/// Leading ASCII whitespace and a sign are accepted; no digits or a value
+/// outside `i64` has no value.
+fn parse_seconds(text: &str) -> Option<i64> {
+    let bytes = text.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() && bytes[index].is_ascii_whitespace() {
+        index += 1;
+    }
+    let negative = match bytes.get(index) {
+        Some(b'-') => {
+            index += 1;
+            true
+        }
+        Some(b'+') => {
+            index += 1;
+            false
+        }
+        _ => false,
+    };
+    let first_digit = index;
+    let mut magnitude: u64 = 0;
+    while index < bytes.len() && bytes[index].is_ascii_digit() {
+        magnitude = magnitude
+            .checked_mul(10)?
+            .checked_add(u64::from(bytes[index] - b'0'))?;
+        index += 1;
+    }
+    if index == first_digit {
+        return None;
+    }
+    if negative {
+        if magnitude > (1u64 << 63) {
+            return None;
+        }
+        Some(-(magnitude as i128) as i64)
+    } else {
+        if magnitude > i64::MAX as u64 {
+            return None;
+        }
+        Some(magnitude as i64)
     }
 }
 

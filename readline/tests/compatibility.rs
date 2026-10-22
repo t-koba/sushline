@@ -189,6 +189,7 @@ fn compatibility_document_classifies_editor_bind_and_history_coverage() {
     // Rows whose first column names a long list of methods are locked by
     // their status alone, so the lock does not depend on the rest of the row.
     for (row_start, status) in [
+        ("| List information: `history_list`", "Mixed"),
         ("| Files: `read_history`", "Mixed"),
         ("| File range: `read_history_range`", "Mixed"),
     ] {

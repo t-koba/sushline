@@ -6,7 +6,7 @@ use history::expansion::{
     expand_history_with_status_with_state, get_history_event, history_arg_extract,
     history_tokenize,
 };
-use history::{History, HistoryDirection, HistoryMultiline, HistoryUndoEntry};
+use history::{History, HistoryDirection, HistoryEntry, HistoryMultiline, HistoryUndoEntry};
 
 #[test]
 fn navigates_history_and_restores_current_edit() {
@@ -815,6 +815,60 @@ fn history_files_preserve_embedded_nul_bytes() {
     assert_eq!(joined.entries()[0].line_bytes, b"alpha\0tail\nbeta");
     assert_eq!(joined.entries()[1].timestamp.as_deref(), Some("#456"));
     assert_eq!(joined.entries()[1].line_bytes, b"last");
+}
+
+#[test]
+fn history_entry_timestamp_seconds_parse_decimal_prefixes_and_overflow() {
+    let cases = [
+        ("#0", Some(0)),
+        ("#1700000000", Some(1_700_000_000)),
+        ("#+17", Some(17)),
+        ("# -17tail", Some(-17)),
+        ("# \t+17tail", Some(17)),
+        ("#17tail", Some(17)),
+        ("#9223372036854775807", Some(i64::MAX)),
+        ("#-9223372036854775808", Some(i64::MIN)),
+        ("#9223372036854775808", None),
+        ("#-9223372036854775809", None),
+        ("#18446744073709551616", None),
+        ("#", None),
+        ("#+", None),
+        ("#not-a-number", None),
+        ("1700000000", None),
+    ];
+
+    for (timestamp, expected) in cases {
+        let entry = HistoryEntry {
+            line_bytes: Vec::new(),
+            timestamp: Some(timestamp.to_string()),
+            modified: false,
+            undo_list: Vec::new(),
+        };
+        assert_eq!(
+            entry.timestamp_seconds(),
+            expected,
+            "timestamp {timestamp:?}"
+        );
+    }
+
+    let entry_without_timestamp = HistoryEntry {
+        line_bytes: Vec::new(),
+        timestamp: None,
+        modified: false,
+        undo_list: Vec::new(),
+    };
+    assert_eq!(entry_without_timestamp.timestamp_seconds(), None);
+}
+
+#[test]
+fn history_file_entries_expose_their_timestamp_seconds() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(&path, "#0\nepoch\n#1700000000\nlater\n").unwrap();
+
+    let loaded = History::read_file(&path).unwrap();
+    assert_eq!(loaded.entries()[0].timestamp_seconds(), Some(0));
+    assert_eq!(loaded.entries()[1].timestamp_seconds(), Some(1_700_000_000));
 }
 
 #[test]

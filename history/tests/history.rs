@@ -1348,6 +1348,48 @@ fn range_bounds_match_the_measured_gnu_range_call() {
 }
 
 #[test]
+fn the_bounds_at_or_below_from_are_the_products_own_rule() {
+    // Measured against GNU 8.2 on the fixture the oracle job measures: for a
+    // TO at or below FROM the shell returns the command line at FROM for a
+    // FROM of 1 and 3 and nothing for a FROM of 0 and 2, while on a file
+    // without timestamp records it returns the command line at FROM for each
+    // FROM the file holds a command line at. Those bounds are this product's
+    // own rule: equal bounds select the command line at FROM and a TO below
+    // FROM leaves the range open to the end of the file.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(&path, "#1700000000\nA0\nA1\n#1700000001\nB0\nB1\nB2\n").unwrap();
+
+    let lines = |history: &History| -> Vec<String> {
+        history
+            .entries()
+            .iter()
+            .map(|entry| entry.line().into_owned())
+            .collect()
+    };
+
+    // Equal bounds select the command line at FROM.
+    let equal = History::read_file_range(&path, 0, Some(0)).unwrap();
+    assert_eq!(lines(&equal), vec!["A0".to_string()]);
+    let equal = History::read_file_range(&path, 2, Some(2)).unwrap();
+    assert_eq!(lines(&equal), vec!["B0".to_string()]);
+
+    // A TO below FROM leaves the range open to the end of the file.
+    let reversed = History::read_file_range(&path, 2, Some(1)).unwrap();
+    assert_eq!(
+        lines(&reversed),
+        vec!["B0".to_string(), "B1".to_string(), "B2".to_string()]
+    );
+
+    // The joined grouping applies to the selected lines, so a range that
+    // starts inside a block selects the rest of that block alone.
+    let joined =
+        History::read_file_range_with_multiline(&path, 3, Some(3), HistoryMultiline::Joined)
+            .unwrap();
+    assert_eq!(lines(&joined), vec!["B1".to_string()]);
+}
+
+#[test]
 fn range_bounds_count_physical_command_lines() {
     // The range FROM/TO bounds count physical command lines, not the entries
     // a grouping policy makes of them. The fixture holds three command lines

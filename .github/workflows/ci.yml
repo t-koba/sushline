@@ -384,11 +384,33 @@ jobs:
               return 0;
           }
           PROBE
+                    # The probe calls the history library, which the release ships as
+          # its own library beside the readline one, so the link names it
+          # when the pinned build produced one, and the loader is asked which
+          # library answered the calls. The runpath is written as the older
+          # DT_RPATH, which a dependency inherits, so the pinned readline
+          # library's own history dependency is resolved inside the prefix
+          # and not from the image.
+          history_libraries=(-lreadline)
+          if [ -e "$readline/lib/libhistory.so" ]; then
+            history_libraries+=(-lhistory)
+          fi
           cc -o /tmp/history_range_probe /tmp/history_range_probe.c \
-            -I"$readline/include" -L"$readline/lib" -Wl,-rpath,"$readline/lib" -lreadline
+            -I"$readline/include" -L"$readline/lib" \
+            -Wl,--disable-new-dtags -Wl,-rpath,"$readline/lib" \
+            "${history_libraries[@]}"
           # The probe has to link the pinned release, not the image's
           # library, or the check repeats an observation made elsewhere.
-          env -u SHELLOPTS ldd /tmp/history_range_probe | grep -F "$readline/lib/libreadline"
+          # Every readline and history library the probe loads has to come
+          # from the pinned prefix, so a call answered by the image's history
+          # library stops the job.
+          loader_report=$(env -u SHELLOPTS ldd /tmp/history_range_probe)
+          echo "$loader_report"
+          printf '%s\n' "$loader_report" | grep -F "$readline/lib/libreadline"
+          if printf '%s\n' "$loader_report" | grep -E 'lib(readline|history)' | grep -v -F "$readline/lib/"; then
+            echo "the history probe loaded a readline or history library outside the pinned prefix" >&2
+            exit 1
+          fi
           printf '#1700000000\nA0\nA1\n#1700000001\nB0\nB1\nB2\n' > /tmp/history_range_fixture
           # The bounds count the file's command lines and the selected lines
           # are grouped afterwards, so a range can end with a partial block.

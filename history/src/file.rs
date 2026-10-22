@@ -62,13 +62,16 @@ impl History {
     /// The FROM/TO bounds count physical command lines and blank lines are
     /// not counted; the selected lines are then grouped by the policy, so a
     /// range can end with a partial block. That is what GNU's own range call
-    /// does, as measured against the GNU history library.
+    /// does, as measured against the installed GNU 8.2 release; the oracle job
+    /// repeats the measurement against the pinned 8.3 release.
     ///
     /// For a FROM below TO the TO bound is exclusive; equal bounds select the
     /// command line at FROM, and a TO below FROM leaves the range open to
-    /// the end of the file. Those bounds are this product's own rule: the
-    /// measured GNU release returns the command line at FROM for a file
-    /// without timestamp records, and nothing for some files with them.
+    /// the end of the file. Those bounds are this product's own rule: on the
+    /// fixture the oracle job measures, GNU 8.2 returns the command line at FROM
+    /// for a FROM of 1 and 3 and nothing for a FROM of 0 and 2, while on a file
+    /// without timestamp records it returns the command line at FROM for each
+    /// FROM the file holds a command line at.
     pub fn read_file_range_with_multiline(
         path: impl AsRef<Path>,
         from: usize,
@@ -142,13 +145,16 @@ impl History {
     /// The FROM/TO bounds count physical command lines and blank lines are
     /// not counted; the selected lines are then grouped by the policy, so a
     /// range can end with a partial block. That is what GNU's own range call
-    /// does, as measured against the GNU history library.
+    /// does, as measured against the installed GNU 8.2 release; the oracle job
+    /// repeats the measurement against the pinned 8.3 release.
     ///
     /// For a FROM below TO the TO bound is exclusive; equal bounds select the
     /// command line at FROM, and a TO below FROM leaves the range open to
-    /// the end of the file. Those bounds are this product's own rule: the
-    /// measured GNU release returns the command line at FROM for a file
-    /// without timestamp records, and nothing for some files with them.
+    /// the end of the file. Those bounds are this product's own rule: on the
+    /// fixture the oracle job measures, GNU 8.2 returns the command line at FROM
+    /// for a FROM of 1 and 3 and nothing for a FROM of 0 and 2, while on a file
+    /// without timestamp records it returns the command line at FROM for each
+    /// FROM the file holds a command line at.
     pub fn load_file_range_with_multiline(
         &mut self,
         path: impl AsRef<Path>,

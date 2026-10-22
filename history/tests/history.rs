@@ -3825,3 +3825,80 @@ fn a_file_that_does_not_begin_with_a_timestamp_record_is_read_as_this_library_re
         ]
     );
 }
+
+#[test]
+fn history_expansion_answers_match_the_measured_c_library() {
+    // Measured against the installed GNU History 8.2 library: the event and
+    // word designators, the modifiers the library knows, the substitution,
+    // the relative event and the quick substitution answer the same here.
+    let mut history = History::new();
+    history.push("echo previous");
+    history.push("echo a b");
+    history.push("echo a b");
+    let policy = HistoryExpansionPolicy::default();
+    for (input, expected) in [
+        ("!!", "echo a b"),
+        ("!$", "b"),
+        ("!:0", "echo"),
+        ("!!:h", "echo a b"),
+        ("!!:t", "echo a b"),
+        ("!!:r", "echo a b"),
+        ("!!:e", "echo a b"),
+        ("!!:q", "'echo a b'"),
+        ("!!:p", "echo a b"),
+        ("!!:x", "'echo' 'a' 'b'"),
+        ("!!:s/b/B/", "echo a B"),
+        ("!-2", "echo a b"),
+        ("echo ^a^b", "echo ^a^b"),
+    ] {
+        assert_eq!(
+            expand_history(
+                input.as_bytes(),
+                &history,
+                HistoryChars::parse("!^#"),
+                &policy,
+                |_| false,
+            )
+            .unwrap(),
+            expected.as_bytes(),
+            "input={input:?}"
+        );
+    }
+    // The library rejects the modifiers it does not know and reports the
+    // event it cannot find; this library rejects them too.
+    assert_eq!(
+        expand_history(
+            b"!!:u",
+            &history,
+            HistoryChars::parse("!^#"),
+            &policy,
+            |_| false,
+        ),
+        Err(HistoryExpansionError::BadWordSpecifier("u".to_string()))
+    );
+    assert_eq!(
+        expand_history(
+            b"!nonexistent",
+            &history,
+            HistoryChars::parse("!^#"),
+            &policy,
+            |_| false,
+        ),
+        Err(HistoryExpansionError::EventNotFound(
+            "!nonexistent".to_string()
+        ))
+    );
+    // The library expands inside single quotes; this library leaves the
+    // expansion alone.
+    assert_eq!(
+        expand_history(
+            b"echo '!!",
+            &history,
+            HistoryChars::parse("!^#"),
+            &policy,
+            |_| false,
+        )
+        .unwrap(),
+        b"echo '!!"
+    );
+}

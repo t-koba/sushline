@@ -1297,6 +1297,57 @@ fn reads_history_file_ranges_and_controls_timestamp_writes() {
 }
 
 #[test]
+fn range_bounds_match_the_measured_gnu_range_call() {
+    // Measured against GNU's own range call: the bounds count the file's
+    // command lines and the selected lines are grouped afterwards, so a
+    // range can end with a partial block. The oracle job repeats the
+    // measurement against the pinned release.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(&path, "#1700000000\nA0\nA1\n#1700000001\nB0\nB1\nB2\n").unwrap();
+
+    // The bounds count the command lines A0, A1 and B0: the TO bound is
+    // exclusive, so B1 is outside the range.
+    let per_line = History::read_file_range(&path, 0, Some(3)).unwrap();
+    assert_eq!(
+        per_line
+            .entries()
+            .iter()
+            .map(|entry| entry.line().into_owned())
+            .collect::<Vec<_>>(),
+        vec!["A0".to_string(), "A1".to_string(), "B0".to_string()]
+    );
+
+    // The joined grouping applies to the selected lines, so the first
+    // block is whole and the second one is partial.
+    let joined =
+        History::read_file_range_with_multiline(&path, 0, Some(3), HistoryMultiline::Joined)
+            .unwrap();
+    assert_eq!(
+        joined
+            .entries()
+            .iter()
+            .map(|entry| entry.line().into_owned())
+            .collect::<Vec<_>>(),
+        vec!["A0\nA1".to_string(), "B0".to_string()]
+    );
+
+    // A range that starts inside a block selects the rest of that block
+    // alone, and the block that follows it as a partial one.
+    let partial =
+        History::read_file_range_with_multiline(&path, 1, Some(3), HistoryMultiline::Joined)
+            .unwrap();
+    assert_eq!(
+        partial
+            .entries()
+            .iter()
+            .map(|entry| entry.line().into_owned())
+            .collect::<Vec<_>>(),
+        vec!["A1".to_string(), "B0".to_string()]
+    );
+}
+
+#[test]
 fn range_bounds_count_physical_command_lines() {
     // The range FROM/TO bounds count physical command lines, not the entries
     // a grouping policy makes of them. The fixture holds three command lines

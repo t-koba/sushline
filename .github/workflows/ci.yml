@@ -334,6 +334,68 @@ jobs:
           env -u SHELLOPTS ldd /tmp/readline_probe_pinned | grep -F "$readline/lib/libreadline"
           grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/readline_probe_pinned.report
           grep -qx 'prompt_in_stdout=1' /tmp/readline_probe_pinned.report
+      - name: Measure the pinned release's history range bounds
+        run: |
+          set -euo pipefail
+          readline="$HOME/.cache/sushline/readline-oracle"
+          # The compatibility row's file-range claim rests on a measurement of
+          # GNU's own range call, so the measurement is repeated here against
+          # the pinned release and the row's claim is checked there. The probe
+          # asks the library for the entries a range selects, which is the
+          # behavior the row describes.
+          cat > /tmp/history_range_probe.c <<'PROBE'
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <readline/history.h>
+
+          static void show(const char *label) {
+              HIST_ENTRY **entries = history_list();
+              printf("%s:", label);
+              if (entries == NULL) {
+                  printf(" (none)\n");
+                  return;
+              }
+              for (int i = 0; entries[i] != NULL; i++) {
+                  printf(" {");
+                  for (const char *p = entries[i]->line; p != NULL && *p; p++) {
+                      if (*p == '\n') {
+                          printf("\\n");
+                      } else {
+                          putchar(*p);
+                      }
+                  }
+                  printf("}");
+              }
+              printf("\n");
+          }
+
+          int main(int argc, char **argv) {
+              const char *path = argv[1];
+              int from = atoi(argv[2]);
+              int to = atoi(argv[3]);
+              int multiline = atoi(argv[4]);
+              history_multiline_entries = multiline;
+              using_history();
+              clear_history();
+              read_history_range(path, from, to);
+              char label[64];
+              snprintf(label, sizeof label, "multiline=%d from=%d to=%d", multiline, from, to);
+              show(label);
+              return 0;
+          }
+          PROBE
+          cc -o /tmp/history_range_probe /tmp/history_range_probe.c \
+            -I"$readline/include" -L"$readline/lib" -Wl,-rpath,"$readline/lib" -lreadline
+          # The probe has to link the pinned release, not the image's
+          # library, or the check repeats an observation made elsewhere.
+          env -u SHELLOPTS ldd /tmp/history_range_probe | grep -F "$readline/lib/libreadline"
+          printf '#1700000000\nA0\nA1\n#1700000001\nB0\nB1\nB2\n' > /tmp/history_range_fixture
+          # The bounds count the file's command lines and the selected lines
+          # are grouped afterwards, so a range can end with a partial block.
+          /tmp/history_range_probe /tmp/history_range_fixture 0 3 0 | tee /tmp/history_range_per_line.out
+          grep -qx 'multiline=0 from=0 to=3: {A0} {A1} {B0}' /tmp/history_range_per_line.out
+          /tmp/history_range_probe /tmp/history_range_fixture 0 3 1 | tee /tmp/history_range_joined.out
+          grep -qx 'multiline=1 from=0 to=3: {A0\\nA1} {B0}' /tmp/history_range_joined.out
       - name: Run the oracle suite
         run: |
           set -euo pipefail

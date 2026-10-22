@@ -60,10 +60,15 @@ impl History {
     /// Read file range with a multiline policy.
     ///
     /// The FROM/TO bounds count physical command lines and blank lines are
-    /// not counted. For a FROM below TO the TO bound is exclusive; equal
-    /// bounds select the command line at FROM, and a TO below FROM leaves the
-    /// range open to the end of the file. The selected lines are then grouped
-    /// by the policy.
+    /// not counted; the selected lines are then grouped by the policy, so a
+    /// range can end with a partial block. That is what GNU's own range call
+    /// does, as measured against the GNU history library.
+    ///
+    /// For a FROM below TO the TO bound is exclusive; equal bounds select the
+    /// command line at FROM, and a TO below FROM leaves the range open to
+    /// the end of the file. Those bounds are this product's own rule: the
+    /// measured GNU release returns the command line at FROM for a file
+    /// without timestamp records, and nothing for some files with them.
     pub fn read_file_range_with_multiline(
         path: impl AsRef<Path>,
         from: usize,
@@ -135,10 +140,15 @@ impl History {
     /// Load file range with a multiline policy.
     ///
     /// The FROM/TO bounds count physical command lines and blank lines are
-    /// not counted. For a FROM below TO the TO bound is exclusive; equal
-    /// bounds select the command line at FROM, and a TO below FROM leaves the
-    /// range open to the end of the file. The selected lines are then grouped
-    /// by the policy.
+    /// not counted; the selected lines are then grouped by the policy, so a
+    /// range can end with a partial block. That is what GNU's own range call
+    /// does, as measured against the GNU history library.
+    ///
+    /// For a FROM below TO the TO bound is exclusive; equal bounds select the
+    /// command line at FROM, and a TO below FROM leaves the range open to
+    /// the end of the file. Those bounds are this product's own rule: the
+    /// measured GNU release returns the command line at FROM for a file
+    /// without timestamp records, and nothing for some files with them.
     pub fn load_file_range_with_multiline(
         &mut self,
         path: impl AsRef<Path>,

@@ -183,7 +183,8 @@ fn the_shell_spelling_reads_exactly_three_octal_digits() {
     assert_eq!(shell("A\\1B> ").visible(), "A\\1B> ");
     assert_eq!(shell("A\\12B> ").visible(), "A\\12B> ");
     assert_eq!(shell("A\\0B> ").visible(), "A\\0B> ");
-    // The value is one byte, so the eighth bit is what the shell keeps.
+    // The shell writes one byte, 0xff. A UTF-8 prompt string cannot hold a lone byte
+    // above 0x7f, so the value is carried as the character with that code point.
     assert_eq!(shell("A\\377B> ").visible(), "A\u{ff}B> ");
     // A NUL byte cannot be in the shell's prompt.
     assert_eq!(shell("A\\000B> ").visible(), "AB> ");
@@ -204,4 +205,17 @@ fn the_shell_spelling_reads_the_sequences_the_host_reads() {
     assert_eq!(shell("A\\\\eB> ").visible(), "A\\eB> ");
     assert_eq!(shell("A\\\\\\eB> ").visible(), "A\\\u{1b}B> ");
     assert_eq!(shell("A\\\\\\\\eB> ").visible(), "A\\eB> ");
+}
+
+#[test]
+fn the_shell_spelling_reads_a_run_of_backslashes_before_a_quoting_character() {
+    // Measured against GNU Bash 5.3: a run of backslashes before a quoting
+    // character keeps the backslash the shell keeps, and the quoting the
+    // shell's expansion removes is removed from the character that follows.
+    // The shell then expands what is left, so the text after the run is the
+    // shell's expansion of it; the Shell mode leaves it as it was written.
+    assert_eq!(shell("A\\$B> ").visible(), "A$B> ");
+    assert_eq!(shell("A\\\\$B> ").visible(), "A$B> ");
+    assert_eq!(shell("A\\\\\\$B> ").visible(), "A\\$B> ");
+    assert_eq!(shell("A\\\\\\\\$B> ").visible(), "A\\$B> ");
 }

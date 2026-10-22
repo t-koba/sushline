@@ -20,10 +20,20 @@ pub enum PromptEscapes {
     /// escapes, the second removes the quoting its expansion removes. The
     /// escapes the first pass reads are `\\`, `\a`, `\e`, `\n` and `\r`, `\[`
     /// and `\]` mark a non-printing span, and `\NNN` with exactly three
-    /// octal digits is one byte. The second pass reads `\\`, `\"`, `\$` and
+    /// octal digits is one byte, or the character with that code point when
+    /// the byte is above 0x7f. The second pass reads `\\`, `\"`, `\$` and
     /// `` \` ``. Every other backslash sequence is left as it was written.
-    /// The shell's own prompt sequences (`\u`, `\w`, `\t`, ...) name the
-    /// shell's variables and are not read here.
+    ///
+    /// What a shell does with the result is its own work: the shell's prompt
+    /// sequences (`\u`, `\w`, `\t`, ...) name the shell's variables, and
+    /// the shell expands the parameters and commands a prompt holds. Neither
+    /// is read here, so a prompt the shell would expand is drawn here as it
+    /// was written, with the escapes read the way the shell reads them.
+    ///
+    /// A byte above 0x7f has no single-byte spelling in a UTF-8 prompt, so
+    /// an octal escape above it is carried as the character with that code
+    /// point, and the prompt is drawn as UTF-8 rather than as the bytes the
+    /// shell writes.
     Shell,
 }
 

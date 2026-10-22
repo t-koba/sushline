@@ -334,6 +334,83 @@ jobs:
           env -u SHELLOPTS ldd /tmp/readline_probe_pinned | grep -F "$readline/lib/libreadline"
           grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/readline_probe_pinned.report
           grep -qx 'prompt_in_stdout=1' /tmp/readline_probe_pinned.report
+      - name: Measure literal prompt handling against the pinned release
+        run: |
+          set -euo pipefail
+          readline="$HOME/.cache/sushline/readline-oracle"
+          # The prompt contract is a Readline library behavior, not Bash's
+          # expansion of PS1, so call readline(prompt) directly in a program
+          # linked to the exact pinned release. This records byte behavior
+          # for literal shell-looking sequences and Readline's own markers.
+          cat > /tmp/readline_prompt_probe.c <<'PROBE'
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <readline/readline.h>
+
+          extern int rl_readline_version;
+
+          int main(void) {
+              const char *prompt = getenv("SUSHLINE_PROMPT_PROBE");
+              if (prompt == NULL)
+                  return 2;
+              fprintf(stderr, "readline_release=%d.%d\n", rl_readline_version >> 8,
+                      rl_readline_version & 0xff);
+              char *line = readline(prompt);
+              free(line);
+              return 0;
+          }
+          PROBE
+          cc -o /tmp/readline_prompt_probe /tmp/readline_prompt_probe.c \
+            -I"$readline/include" -L"$readline/lib" \
+            -Wl,-rpath,"$readline/lib" -lreadline
+          # The loader must resolve every Readline library from the pinned
+          # prefix. The runtime release number below independently checks the
+          # code that answered readline(prompt).
+          loader_report=$(env -u SHELLOPTS ldd /tmp/readline_prompt_probe)
+          echo "$loader_report"
+          readline_libraries=$(printf '%s\n' "$loader_report" | grep 'libreadline' || true)
+          if [ -z "$readline_libraries" ]; then
+            echo "the prompt probe loaded no Readline library" >&2
+            exit 1
+          fi
+          if printf '%s\n' "$readline_libraries" | grep -v -F "$readline/lib/" > /dev/null; then
+            echo "the prompt probe loaded Readline outside the pinned prefix" >&2
+            exit 1
+          fi
+          python3 - <<'PYPROBE'
+          import os
+          import subprocess
+
+          fixtures = [
+              ("literal_backslash_e", b"A\\eB> ", b"A\\eB> \n"),
+              ("literal_octal", b"A\\101B> ", b"A\\101B> \n"),
+              ("literal_brackets", b"A\\[\\e[31m\\]B> ", b"A\\[\\e[31m\\]B> \n"),
+              ("readline_invisible_markers", b"A\x01\x1b[31m\x02B> ", b"A\x1b[31mB> \n"),
+          ]
+          expected_release = os.environ["READLINE_ORACLE_VERSION"]
+          for label, prompt, expected in fixtures:
+              env = os.environ.copy()
+              env["INPUTRC"] = "/dev/null"
+              env["LC_ALL"] = "C"
+              env["SUSHLINE_PROMPT_PROBE"] = prompt.decode("latin-1")
+              result = subprocess.run(
+                  ["/tmp/readline_prompt_probe"],
+                  input=b"\n",
+                  stdout=subprocess.PIPE,
+                  stderr=subprocess.PIPE,
+                  env=env,
+              )
+              release_report = f"readline_release={expected_release}\n".encode()
+              print(
+                  f"{label}: returncode={result.returncode} "
+                  f"release={result.stderr.decode('ascii', 'replace').strip()} "
+                  f"prompt_hex={result.stdout.hex()}"
+              )
+              if result.returncode != 0 or result.stderr != release_report:
+                  raise SystemExit(f"{label}: expected {release_report!r}, got {result.stderr!r}")
+              if result.stdout != expected:
+                  raise SystemExit(f"{label}: expected prompt bytes {expected.hex()}, got {result.stdout.hex()}")
+          PYPROBE
       - name: Measure the pinned release's history range bounds
         run: |
           set -euo pipefail

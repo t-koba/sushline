@@ -335,3 +335,15 @@ fn a_raw_byte_and_a_private_use_character_keep_their_own_bytes() {
     let (rendered, _) = buffer.render_text(None, RenderOptions::default(), 0);
     assert_eq!(rendered_string_to_bytes(&rendered), bytes);
 }
+
+#[test]
+fn a_raw_byte_is_rendered_one_cell_wide() {
+    // The mark that carries a byte is a zero-width character, so the byte
+    // keeps the cell width of the character it stands for.
+    let mut bytes = vec![0xff];
+    bytes.extend_from_slice(b"x");
+    let buffer = LineBuffer::from_bytes(bytes);
+    let (rendered, point_width) = buffer.render_text(None, RenderOptions::default(), 0);
+    assert_eq!(rendered_string_to_bytes(&rendered), vec![0xff, b'x']);
+    assert_eq!(point_width, 2);
+}

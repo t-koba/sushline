@@ -3721,7 +3721,10 @@ fn a_file_that_does_not_begin_with_a_timestamp_record_is_read_as_this_library_re
     // into one entry. This library reads a '#'-plus-digits line as a
     // timestamp record wherever it stands, and the joined setting keeps
     // such a file's lines apart, so the two differ there and the
-    // compatibility document names the difference.
+    // compatibility document names the difference. The writer emits a
+    // record before an entry that carries one, so a file it writes can
+    // begin with a command line and hold a record later, which is how
+    // the case is reached from the product's own files.
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");
     fs::write(&path, "A0\n#1700000000\nB0\n").unwrap();

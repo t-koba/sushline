@@ -45,11 +45,15 @@ reads the same signals from that library, so the job log names them as well.
 The job also runs the output-stream probe against that pinned release, so
 the claim the output-stream row makes is checked on the release this
 document targets and not only observed on the 8.2 release the runner image
-ships. That job has not run on the tree that carries these steps, so the 8.3
-baseline of the claims below rests on the release number the reference
-host's image exports and on the observations made against that host; the
-pinned build of the release this document names has not been exercised yet.
-The tarball's digest is pinned in the job, so the fetch is a checked one.
+ships. That job has run on a tree that carries these steps and passed, so
+the pinned build of the release this document names has been exercised in
+CI: the job built it from the pinned digest, linked the pinned host
+against it, checked the output-stream claim on it, and ran the suite
+against that host, which reported the release it carries. The 8.3
+baseline of the claims below therefore rests on that run as well as on
+the observations made against the reference host. The steps this document
+adds after that run have not run yet. The tarball's digest is pinned in
+the job, so the fetch is a checked one.
 Bash language, shell runtime, and builtin compatibility are not goals. The C
 ABI is out of scope. Claims below are limited to the cited oracle tests and
 their asserted fixtures; test modules are pointers to that evidence, not claims of complete

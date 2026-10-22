@@ -290,7 +290,11 @@ policy. The default, `HistoryMultiline::PerLine`, makes each physical command
 line an entry of its own, which is GNU's default `history_multiline_entries`
 mode: the first line after a timestamp record carries that timestamp, the lines
 after it carry none, and blank lines carry no entry. `HistoryMultiline::Joined`
-makes the lines that follow a timestamp record one entry, which is GNU's mode 1.
+makes the lines that follow a timestamp record one entry, which is GNU's mode 1
+for a file in GNU's timestamp format. A `#`-plus-digits line is a timestamp
+record wherever it stands, while GNU decides a file's format from its first
+line and treats every line of a file that does not begin with a timestamp
+record as a command, so the two read such a file differently.
 `read_file`/`load_file` and their range variants take the default; the
 `read_file_with_multiline`, `load_file_with_multiline`,
 `read_file_range_with_multiline` and `load_file_range_with_multiline` entry

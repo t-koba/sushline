@@ -190,6 +190,7 @@ fn compatibility_document_classifies_editor_bind_and_history_coverage() {
     // their status alone, so the lock does not depend on the rest of the row.
     for (row_start, status) in [
         ("| List information: `history_list`", "Mixed"),
+        ("| Search: `history_search`", "Mixed"),
         ("| Files: `read_history`", "Mixed"),
         ("| File range: `read_history_range`", "Mixed"),
     ] {

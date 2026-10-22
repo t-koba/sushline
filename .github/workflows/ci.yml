@@ -397,17 +397,24 @@ jobs:
           fi
           cc -o /tmp/history_range_probe /tmp/history_range_probe.c \
             -I"$readline/include" -L"$readline/lib" \
-            -Wl,--disable-new-dtags -Wl,-rpath,"$readline/lib" \
+            -Wl,--no-as-needed -Wl,--disable-new-dtags -Wl,-rpath,"$readline/lib" \
             "${history_libraries[@]}"
           # The probe has to link the pinned release, not the image's
           # library, or the check repeats an observation made elsewhere.
-          # Every readline and history library the probe loads has to come
-          # from the pinned prefix, so a call answered by the image's history
-          # library stops the job.
+          # The loader's report has to name the pinned prefix for the
+          # libraries that carry the history code, and to name nothing else
+          # for them either, so a call answered by the image's history
+          # library stops the job. The runpath is written as the older
+          # DT_RPATH, which a dependency inherits, so the pinned library's own
+          # dependency is resolved inside the prefix as well.
           loader_report=$(env -u SHELLOPTS ldd /tmp/history_range_probe)
           echo "$loader_report"
-          printf '%s\n' "$loader_report" | grep -F "$readline/lib/libreadline"
-          if printf '%s\n' "$loader_report" | grep -E 'lib(readline|history)' | grep -v -F "$readline/lib/"; then
+          history_libraries_in_report=$(printf '%s\n' "$loader_report" | grep -E 'lib(readline|history)' || true)
+          if [ -z "$history_libraries_in_report" ]; then
+            echo "the history probe loaded no readline or history library" >&2
+            exit 1
+          fi
+          if printf '%s\n' "$history_libraries_in_report" | grep -v -F "$readline/lib/" > /dev/null; then
             echo "the history probe loaded a readline or history library outside the pinned prefix" >&2
             exit 1
           fi

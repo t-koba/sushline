@@ -32,10 +32,10 @@ impl HistoryEntry {
     /// The seconds the entry's timestamp record carries.
     ///
     /// The record's text is the `#`-plus-digits form the reader recognizes,
-    /// and the seconds are the number that follows the `#`, parsed in base
-    /// 10. Leading ASCII whitespace and a sign are accepted, and the digits
-    /// end at the first other character. Missing digits or a value outside
-    /// `i64` yields `None`.
+    /// and the seconds are the number that follows the `#`, read the way
+    /// the C library's number conversion reads it: the whitespace that
+    /// conversion skips, an optional sign, then a decimal prefix. Missing
+    /// digits or a value outside `i64` yields `None`.
     ///
     /// GNU's function reports the absence of a time as zero, so there a
     /// record whose time is the epoch cannot be told from a record without
@@ -54,12 +54,12 @@ impl HistoryEntry {
 }
 
 /// Read the base-10 integer prefix after a timestamp record's marker.
-/// Leading ASCII whitespace and a sign are accepted; no digits or a value
-/// outside `i64` has no value.
+/// The whitespace the C library's number conversion skips and a sign are
+/// accepted; no digits or a value outside `i64` has no value.
 fn parse_seconds(text: &str) -> Option<i64> {
     let bytes = text.as_bytes();
     let mut index = 0;
-    while index < bytes.len() && bytes[index].is_ascii_whitespace() {
+    while index < bytes.len() && is_c_whitespace(bytes[index]) {
         index += 1;
     }
     let negative = match bytes.get(index) {
@@ -95,6 +95,14 @@ fn parse_seconds(text: &str) -> Option<i64> {
         }
         Some(magnitude as i64)
     }
+}
+
+/// The whitespace the C library's number conversion skips.
+///
+/// It is the ASCII whitespace set plus the vertical tab, which the C
+/// library counts and Rust's ASCII whitespace set leaves out.
+fn is_c_whitespace(byte: u8) -> bool {
+    matches!(byte, b' ' | b'\t' | b'\n' | 0x0b | b'\x0c' | b'\r')
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

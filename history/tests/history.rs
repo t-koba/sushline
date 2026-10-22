@@ -825,6 +825,11 @@ fn history_entry_timestamp_seconds_parse_decimal_prefixes_and_overflow() {
         ("#+17", Some(17)),
         ("# -17tail", Some(-17)),
         ("# \t+17tail", Some(17)),
+        // The C library's number conversion counts the vertical tab as
+        // whitespace, so a record whose text carries one after the marker
+        // still carries a time.
+        ("#\u{b}1700000000", Some(1_700_000_000)),
+        ("#\u{b}-17", Some(-17)),
         ("#17tail", Some(17)),
         ("#9223372036854775807", Some(i64::MAX)),
         ("#-9223372036854775808", Some(i64::MIN)),

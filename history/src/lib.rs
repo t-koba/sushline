@@ -51,11 +51,17 @@ pub enum HistoryDirection {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum HistoryMultiline {
     /// Each physical line is an entry of its own. This is GNU's default:
-    /// `history_multiline_entries` is 0 unless the caller changes it.
+    /// `history_multiline_entries` is 0 unless the caller changes it. A
+    /// `#`-plus-digits line is a timestamp record wherever it stands, while
+    /// GNU reads such a line as a command in a file that does not begin with a
+    /// timestamp record.
     #[default]
     PerLine,
     /// The physical lines that follow a timestamp record make one entry.
-    /// This is GNU's `history_multiline_entries` mode 1.
+    /// This is GNU's `history_multiline_entries` mode 1 for a file in GNU's
+    /// timestamp format: GNU's mode 1 drops a blank line inside a block, and it
+    /// joins the lines of a file that does not begin with a timestamp record
+    /// into one entry, which this grouping does not.
     Joined,
 }
 

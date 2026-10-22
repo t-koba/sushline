@@ -3712,3 +3712,51 @@ fn history_expansion_preserves_backslashes_before_ordinary_bytes() {
         b"echo aXb".to_vec(),
     );
 }
+
+#[test]
+fn a_file_that_does_not_begin_with_a_timestamp_record_is_read_as_this_library_reads_it() {
+    // Measured against GNU 8.2: GNU decides a file's format from its first
+    // line, so every line of a file that does not begin with a timestamp
+    // record is a command to it, and its mode 1 joins such a file's lines
+    // into one entry. This library reads a '#'-plus-digits line as a
+    // timestamp record wherever it stands, and the joined setting keeps
+    // such a file's lines apart, so the two differ there and the
+    // compatibility document names the difference.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(&path, "A0\n#1700000000\nB0\n").unwrap();
+
+    // The '#' line is a timestamp record, so it opens the block of the
+    // lines that follow it and carries no command of its own.
+    let loaded = History::read_file(&path).unwrap();
+    assert_eq!(
+        loaded
+            .entries()
+            .iter()
+            .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
+            .collect::<Vec<_>>(),
+        vec![
+            (None, "A0".to_string()),
+            (Some("#1700000000"), "B0".to_string()),
+        ]
+    );
+
+    // A file whose lines are all commands keeps them apart under the
+    // joined setting, where GNU's mode 1 joins them into one entry.
+    let plain = dir.path().join("plain");
+    fs::write(&plain, "C0\nC1\nC2\nC3\n").unwrap();
+    let joined = History::read_file_with_multiline(&plain, HistoryMultiline::Joined).unwrap();
+    assert_eq!(
+        joined
+            .entries()
+            .iter()
+            .map(|entry| entry.line().into_owned())
+            .collect::<Vec<_>>(),
+        vec![
+            "C0".to_string(),
+            "C1".to_string(),
+            "C2".to_string(),
+            "C3".to_string(),
+        ]
+    );
+}

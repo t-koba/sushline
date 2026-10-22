@@ -30,7 +30,9 @@ impl History {
     ///
     /// The policy decides how the file's physical lines are grouped into
     /// entries; the default groups one entry per physical line, which is
-    /// GNU's default `history_multiline_entries` mode.
+    /// GNU's default `history_multiline_entries` mode. A `#`-plus-digits line
+    /// is a timestamp record wherever it stands, while GNU reads such a line
+    /// as a command in a file that does not begin with a timestamp record.
     pub fn read_file_with_multiline(
         path: impl AsRef<Path>,
         multiline: HistoryMultiline,
@@ -62,8 +64,11 @@ impl History {
     /// The FROM/TO bounds count physical command lines and blank lines are
     /// not counted; the selected lines are then grouped by the policy, so a
     /// range can end with a partial block. That is what GNU's own range call
-    /// does, as measured against the installed GNU 8.2 release; the oracle job
-    /// repeats the measurement against the pinned 8.3 release.
+    /// does for a file in GNU's timestamp format with no blank line in it, as
+    /// measured against the installed GNU 8.2 release; the oracle job repeats
+    /// the measurement against the pinned 8.3 release. A blank line counts
+    /// towards GNU's bounds and not towards these, and GNU counts the lines
+    /// of a file that does not begin with a timestamp record as commands.
     ///
     /// For a FROM below TO the TO bound is exclusive; equal bounds select the
     /// command line at FROM, and a TO below FROM leaves the range open to
@@ -103,7 +108,9 @@ impl History {
     ///
     /// The policy decides how the file's physical lines are grouped into
     /// entries; the default groups one entry per physical line, which is
-    /// GNU's default `history_multiline_entries` mode.
+    /// GNU's default `history_multiline_entries` mode. A `#`-plus-digits line
+    /// is a timestamp record wherever it stands, while GNU reads such a line
+    /// as a command in a file that does not begin with a timestamp record.
     pub fn load_file_with_multiline(
         &mut self,
         path: impl AsRef<Path>,
@@ -145,8 +152,11 @@ impl History {
     /// The FROM/TO bounds count physical command lines and blank lines are
     /// not counted; the selected lines are then grouped by the policy, so a
     /// range can end with a partial block. That is what GNU's own range call
-    /// does, as measured against the installed GNU 8.2 release; the oracle job
-    /// repeats the measurement against the pinned 8.3 release.
+    /// does for a file in GNU's timestamp format with no blank line in it, as
+    /// measured against the installed GNU 8.2 release; the oracle job repeats
+    /// the measurement against the pinned 8.3 release. A blank line counts
+    /// towards GNU's bounds and not towards these, and GNU counts the lines
+    /// of a file that does not begin with a timestamp record as commands.
     ///
     /// For a FROM below TO the TO bound is exclusive; equal bounds select the
     /// command line at FROM, and a TO below FROM leaves the range open to

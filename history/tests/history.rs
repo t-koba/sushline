@@ -1300,8 +1300,9 @@ fn reads_history_file_ranges_and_controls_timestamp_writes() {
 fn range_bounds_match_the_measured_gnu_range_call() {
     // Measured against GNU's own range call: the bounds count the file's
     // command lines and the selected lines are grouped afterwards, so a
-    // range can end with a partial block. The oracle job repeats the
-    // measurement against the pinned release.
+    // range can end with a partial block. The oracle job measures the same
+    // against the pinned release, and there the pinned release's own range
+    // call answers and selects the same command lines.
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");
     fs::write(&path, "#1700000000\nA0\nA1\n#1700000001\nB0\nB1\nB2\n").unwrap();
@@ -1349,11 +1350,13 @@ fn range_bounds_match_the_measured_gnu_range_call() {
 
 #[test]
 fn the_bounds_at_or_below_from_are_the_products_own_rule() {
-    // Measured against GNU 8.2 on the fixture the oracle job measures: for a
-    // TO at or below FROM the shell returns the command line at FROM for a
-    // FROM of 1 and 3 and nothing for a FROM of 0 and 2, while on a file
-    // without timestamp records it returns the command line at FROM for each
-    // FROM the file holds a command line at. Those bounds are this product's
+    // Measured against the installed GNU 8.2 release on the fixture the
+    // oracle job measures: for a TO at or below FROM the shell returns the
+    // command line at FROM for a FROM of 1 and 3 and nothing for a FROM of 0
+    // and 2, while on a file without timestamp records it returns the
+    // command line at FROM for each FROM the file holds a command line at.
+    // No CI step measures those bounds, so this rests on that local
+    // measurement alone. Those bounds are this product's
     // own rule: equal bounds select the command line at FROM and a TO below
     // FROM leaves the range open to the end of the file.
     let dir = tempfile::tempdir().unwrap();

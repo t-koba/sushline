@@ -65,10 +65,12 @@ impl History {
     /// not counted; the selected lines are then grouped by the policy, so a
     /// range can end with a partial block. That is what GNU's own range call
     /// does for a file in GNU's timestamp format with no blank line in it, as
-    /// measured against the installed GNU 8.2 release; the oracle job repeats the
-    /// measurement of a FROM below a TO against the pinned 8.3 release. A blank
+    /// measured against the installed GNU 8.2 release; the oracle job measures the
+    /// same against the pinned 8.3 release, and there the pinned release's own
+    /// range call answers and selects the same command lines. A blank
     /// line counts towards GNU's bounds and not towards these, and GNU counts the
-    /// lines of a file that does not begin with a timestamp record as commands.
+    /// lines of a file that does not begin with a timestamp record as commands,
+    /// which the pinned release's own range call does as well.
     ///
     /// For a FROM below TO the TO bound is exclusive; equal bounds select the
     /// command line at FROM, and a TO below FROM leaves the range open to
@@ -153,10 +155,12 @@ impl History {
     /// not counted; the selected lines are then grouped by the policy, so a
     /// range can end with a partial block. That is what GNU's own range call
     /// does for a file in GNU's timestamp format with no blank line in it, as
-    /// measured against the installed GNU 8.2 release; the oracle job repeats the
-    /// measurement of a FROM below a TO against the pinned 8.3 release. A blank
+    /// measured against the installed GNU 8.2 release; the oracle job measures the
+    /// same against the pinned 8.3 release, and there the pinned release's own
+    /// range call answers and selects the same command lines. A blank
     /// line counts towards GNU's bounds and not towards these, and GNU counts the
-    /// lines of a file that does not begin with a timestamp record as commands.
+    /// lines of a file that does not begin with a timestamp record as commands,
+    /// which the pinned release's own range call does as well.
     ///
     /// For a FROM below TO the TO bound is exclusive; equal bounds select the
     /// command line at FROM, and a TO below FROM leaves the range open to

@@ -296,4 +296,16 @@ fn the_prompt_is_drawn_as_given_and_the_shell_spelling_is_opt_in() {
     // prompt is drawn as the host draws it.
     let sushline_shell = run_sushline(r"A\e[31mB> ", true);
     assert!(sushline_shell.contains("\x1b[31mB> "), "{sushline_shell:?}");
+
+    // The shell's spelling decodes what the shell decodes: an octal
+    // escape with three digits is the byte the shell produces, and an
+    // escape the shell leaves alone stays as it was written.
+    let bash_octal = run_bash(r"A\101B> ");
+    assert!(bash_octal.contains("AAB> "), "{bash_octal:?}");
+    let sushline_octal = run_sushline(r"A\101B> ", true);
+    assert!(sushline_octal.contains("AAB> "), "{sushline_octal:?}");
+    let bash_literal = run_bash(r"A\qB> ");
+    assert!(bash_literal.contains(r"A\qB> "), "{bash_literal:?}");
+    let sushline_literal = run_sushline(r"A\qB> ", true);
+    assert!(sushline_literal.contains(r"A\qB> "), "{sushline_literal:?}");
 }

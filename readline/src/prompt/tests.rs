@@ -147,3 +147,61 @@ fn prefix_width_applies_only_without_prompt_newline() {
     assert_eq!(Prompt::new("12\n345").width_after_prefix(99), 3);
     assert_eq!(Prompt::new("XY").width_after_prefix(3), 5);
 }
+
+#[test]
+fn the_shell_spelling_reads_the_escapes_the_shell_reads() {
+    // Measured against GNU Bash 5.3: the shell decodes these sequences
+    // before the editor sees the prompt.
+    assert_eq!(shell("A\\\\B> ").visible(), "A\\B> ");
+    assert_eq!(shell("A\\\"B> ").visible(), "A\"B> ");
+    assert_eq!(shell("A\\$B> ").visible(), "A$B> ");
+    assert_eq!(shell("A\\`B> ").visible(), "A`B> ");
+    assert_eq!(shell("A\\aB> ").visible(), "A\u{7}B> ");
+    assert_eq!(shell("A\\eB> ").visible(), "A\u{1b}B> ");
+    assert_eq!(shell("A\\nB> ").visible(), "A\nB> ");
+    assert_eq!(shell("A\\rB> ").visible(), "A\rB> ");
+}
+
+#[test]
+fn the_shell_spelling_leaves_the_escapes_the_shell_leaves() {
+    // Measured against GNU Bash 5.3: an escape the shell does not decode
+    // stays as it was written, the backslash included.
+    assert_eq!(shell("A\\qB> ").visible(), "A\\qB> ");
+    assert_eq!(shell("A\\EB> ").visible(), "A\\EB> ");
+    assert_eq!(shell("A\\bB> ").visible(), "A\\bB> ");
+    assert_eq!(shell("A\\%B> ").visible(), "A\\%B> ");
+}
+
+#[test]
+fn the_shell_spelling_reads_exactly_three_octal_digits() {
+    // Measured against GNU Bash 5.3: the shell decodes an octal escape only
+    // when three octal digits follow, and the value is one byte.
+    assert_eq!(shell("A\\101B> ").visible(), "AAB> ");
+    assert_eq!(shell("A\\012B> ").visible(), "A\nB> ");
+    assert_eq!(shell("A\\007B> ").visible(), "A\u{7}B> ");
+    // Fewer than three digits stay as they were written.
+    assert_eq!(shell("A\\1B> ").visible(), "A\\1B> ");
+    assert_eq!(shell("A\\12B> ").visible(), "A\\12B> ");
+    assert_eq!(shell("A\\0B> ").visible(), "A\\0B> ");
+    // The value is one byte, so the eighth bit is what the shell keeps.
+    assert_eq!(shell("A\\377B> ").visible(), "A\u{ff}B> ");
+    // A NUL byte cannot be in the shell's prompt.
+    assert_eq!(shell("A\\000B> ").visible(), "AB> ");
+}
+
+#[test]
+fn the_shell_spelling_reads_the_sequences_the_host_reads() {
+    // Measured against GNU Bash 5.3: the shell reads these sequences in a
+    // prompt, and the two passes it reads them in are visible in the
+    // backslash runs.
+    assert_eq!(shell("A\\\\B> ").visible(), "A\\B> ");
+    assert_eq!(shell("A\\$B> ").visible(), "A$B> ");
+    assert_eq!(shell("A\\\"B> ").visible(), "A\"B> ");
+    assert_eq!(shell("A\\`B> ").visible(), "A`B> ");
+    // Two backslashes are read as one, and the character after them is left
+    // as it was written, because the escapes are read before the quoting is
+    // removed.
+    assert_eq!(shell("A\\\\eB> ").visible(), "A\\eB> ");
+    assert_eq!(shell("A\\\\\\eB> ").visible(), "A\\\u{1b}B> ");
+    assert_eq!(shell("A\\\\\\\\eB> ").visible(), "A\\eB> ");
+}

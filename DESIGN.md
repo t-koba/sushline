@@ -219,7 +219,9 @@ rendered string plus point widths, including control-character and meta-byte
 display semantics. `prompt.rs` owns prompt marker parsing, including hidden
 regions, and the prompt's escape policy: the prompt text is drawn as it is
 given and only Readline's own invisible markers are read, while the shell's
-prompt spelling is an explicit choice (`PromptEscapes::Shell`).
+prompt spelling is an explicit choice (`PromptEscapes::Shell`). That choice
+reads the backslash sequences a shell reads in a prompt, in the two passes a
+shell reads them: the escapes, then the quoting the shell's expansion removes.
 `completion/display.rs` owns completion candidate layout and pagination.
 
 `width.rs` centralizes shared cell-width primitives and ANSI-aware output
@@ -301,7 +303,8 @@ save timing remains controlled by the embedder.
 The embedder supplies:
 
 - Expanding prompts before passing them to `Editor::read_line`. The editor draws the prompt it is
-  given; `PromptEscapes::Shell` reads the shell's spelling of a prompt instead.
+  given; `PromptEscapes::Shell` reads the shell's spelling of a prompt instead, so a
+  caller holding a prompt the shell would expand can hand it over as it is written.
 - Initializing process locale state when locale-sensitive completion ordering
   is wanted. Completion sorting delegates ordering to libc `strcoll`, so the
   candidates are ordered by the process locale whichever path matches them;

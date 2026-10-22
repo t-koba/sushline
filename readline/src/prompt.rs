@@ -13,8 +13,17 @@ pub enum PromptEscapes {
     /// read.
     #[default]
     None,
-    /// The shell's prompt spelling: `\[` and `\]` mark a non-printing span,
-    /// `\e` (or `\E`) is the escape character, and `\NNN` is an octal escape.
+    /// The shell's prompt spelling: the backslash sequences a shell reads in
+    /// a prompt.
+    ///
+    /// A shell reads the prompt escapes in two passes: the first reads the
+    /// escapes, the second removes the quoting its expansion removes. The
+    /// escapes the first pass reads are `\\`, `\a`, `\e`, `\n` and `\r`, `\[`
+    /// and `\]` mark a non-printing span, and `\NNN` with exactly three
+    /// octal digits is one byte. The second pass reads `\\`, `\"`, `\$` and
+    /// `` \` ``. Every other backslash sequence is left as it was written.
+    /// The shell's own prompt sequences (`\u`, `\w`, `\t`, ...) name the
+    /// shell's variables and are not read here.
     Shell,
 }
 
@@ -146,61 +155,165 @@ fn strip_readline_markers(raw: &str, escapes: PromptEscapes) -> (String, usize) 
     (visible, width)
 }
 
-fn parse_prompt(raw: &str, escapes: PromptEscapes, mut push_decoded: impl FnMut(char, bool)) {
-    let mut hidden_soh = false;
-    let mut hidden_bracket = false;
-    let mut chars = raw.chars().peekable();
+/// The characters the shell's first pass reads.
+///
+/// The first pass reads the prompt escapes: the control characters and the
+/// backslash itself. Every other backslash sequence is left as it was
+/// written.
+fn prompt_escape(c: char) -> Option<char> {
+    match c {
+        '\\' => Some('\\'),
+        'a' => Some('\x07'),
+        'e' => Some('\x1b'),
+        'n' => Some('\n'),
+        'r' => Some('\r'),
+        _ => None,
+    }
+}
 
-    while let Some(ch) = chars.next() {
+/// The characters the shell's second pass reads.
+///
+/// The second pass removes the quoting the shell's expansion removes, so a
+/// quoted character loses its backslash.
+fn quoted_escape(c: char) -> Option<char> {
+    match c {
+        '\\' => Some('\\'),
+        '"' => Some('"'),
+        '$' => Some('$'),
+        '`' => Some('`'),
+        _ => None,
+    }
+}
+
+/// The prompt as a shell spells it, with the spans the shell marks as
+/// non-printing.
+fn decode_shell_prompt(raw: &str) -> Vec<(char, bool)> {
+    let chars: Vec<char> = raw.chars().collect();
+    let mut decoded: Vec<(char, bool)> = Vec::with_capacity(chars.len());
+    let mut hidden = false;
+    let mut i = 0;
+    while i < chars.len() {
+        let ch = chars[i];
         if ch == '\x01' {
-            hidden_soh = true;
+            hidden = true;
+            i += 1;
             continue;
         }
         if ch == '\x02' {
-            hidden_soh = false;
+            hidden = false;
+            i += 1;
             continue;
         }
-        if escapes == PromptEscapes::Shell && ch == '\\' {
-            match chars.peek().copied() {
-                Some('[') => {
-                    chars.next();
-                    hidden_bracket = true;
-                    continue;
-                }
-                Some(']') => {
-                    chars.next();
-                    hidden_bracket = false;
-                    continue;
-                }
-                Some('e' | 'E') => {
-                    chars.next();
-                    push_decoded('\x1b', hidden_soh || hidden_bracket);
-                    continue;
-                }
-                Some(c) if c.is_ascii_digit() && c < '8' => {
-                    let mut value = 0u32;
-                    let mut consumed = 0;
-                    while consumed < 3 {
-                        let Some(next) = chars.peek().copied() else {
-                            break;
-                        };
-                        if !next.is_ascii_digit() || next >= '8' {
-                            break;
-                        }
-                        chars.next();
-                        value = value * 8 + next.to_digit(8).unwrap_or(0);
-                        consumed += 1;
+        if ch != '\\' {
+            decoded.push((ch, hidden));
+            i += 1;
+            continue;
+        }
+        let Some(&next) = chars.get(i + 1) else {
+            decoded.push((ch, hidden));
+            i += 1;
+            continue;
+        };
+        match next {
+            '[' => {
+                hidden = true;
+                i += 2;
+            }
+            ']' => {
+                hidden = false;
+                i += 2;
+            }
+            '0'..='7' => {
+                // The shell reads an octal escape only when three octal
+                // digits follow, and the value it produces is one byte.
+                let octal = chars.get(i + 1..i + 4).filter(|digits| {
+                    digits
+                        .iter()
+                        .all(|digit| digit.is_ascii_digit() && *digit < '8')
+                });
+                if let Some(digits) = octal {
+                    let value = digits
+                        .iter()
+                        .fold(0u32, |acc, digit| acc * 8 + u32::from(*digit as u8 - b'0'));
+                    match (value & 0xff) as u8 {
+                        // A NUL byte cannot be in the shell's prompt.
+                        0 => {}
+                        // The invisible-region markers.
+                        0x01 => hidden = true,
+                        0x02 => hidden = false,
+                        byte => decoded.push((char::from(byte), hidden)),
                     }
-                    if let Some(decoded) = char::from_u32(value) {
-                        push_decoded(decoded, hidden_soh || hidden_bracket);
-                    }
-                    continue;
+                    i += 4;
+                } else {
+                    decoded.push((ch, hidden));
+                    i += 1;
                 }
-                _ => {}
+            }
+            other => match prompt_escape(other) {
+                Some(decoded_char) => {
+                    decoded.push((decoded_char, hidden));
+                    i += 2;
+                }
+                None => {
+                    decoded.push((ch, hidden));
+                    decoded.push((other, hidden));
+                    i += 2;
+                }
+            },
+        }
+    }
+
+    // The second pass removes the quoting the shell's expansion removes.
+    let mut quoted: Vec<(char, bool)> = Vec::with_capacity(decoded.len());
+    let mut i = 0;
+    while i < decoded.len() {
+        let (ch, hidden) = decoded[i];
+        let next = decoded.get(i + 1).map(|(next, _)| *next);
+        match (ch, next) {
+            ('\\', Some(next)) => match quoted_escape(next) {
+                Some(quoted_char) => {
+                    quoted.push((quoted_char, hidden));
+                    i += 2;
+                }
+                None => {
+                    if next == '\n' {
+                        i += 2;
+                    } else {
+                        quoted.push((ch, hidden));
+                        i += 1;
+                    }
+                }
+            },
+            _ => {
+                quoted.push((ch, hidden));
+                i += 1;
             }
         }
+    }
+    quoted
+}
 
-        push_decoded(ch, hidden_soh || hidden_bracket);
+fn parse_prompt(raw: &str, escapes: PromptEscapes, mut push_decoded: impl FnMut(char, bool)) {
+    match escapes {
+        PromptEscapes::None => {
+            let mut hidden = false;
+            for ch in raw.chars() {
+                if ch == '\x01' {
+                    hidden = true;
+                    continue;
+                }
+                if ch == '\x02' {
+                    hidden = false;
+                    continue;
+                }
+                push_decoded(ch, hidden);
+            }
+        }
+        PromptEscapes::Shell => {
+            for (ch, hidden) in decode_shell_prompt(raw) {
+                push_decoded(ch, hidden);
+            }
+        }
     }
 }
 

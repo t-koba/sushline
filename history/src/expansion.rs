@@ -1355,11 +1355,18 @@ fn join_words(words: &[Vec<u8>]) -> Vec<u8> {
     out
 }
 
-fn split_history_quoting_words(line: &[u8]) -> Vec<Vec<u8>> {
-    line.split(u8::is_ascii_whitespace)
-        .filter(|word| !word.is_empty())
-        .map(Vec::from)
-        .collect()
+fn quote_history_fields_preserving_separators(line: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(line.len());
+    let mut field_start = 0;
+    for (idx, byte) in line.iter().copied().enumerate() {
+        if matches!(byte, b' ' | b'\t' | b'\n') {
+            out.extend_from_slice(&quote_history_word(&line[field_start..idx]));
+            out.push(byte);
+            field_start = idx + 1;
+        }
+    }
+    out.extend_from_slice(&quote_history_word(&line[field_start..]));
+    out
 }
 
 fn replace_once_checked(line: &[u8], old: &[u8], new: &[u8]) -> Option<Vec<u8>> {
@@ -1493,12 +1500,7 @@ fn history_extension(value: &[u8]) -> Vec<u8> {
 fn apply_history_quote_mode(line: Vec<u8>, mode: Option<HistoryQuoteMode>) -> Vec<u8> {
     match mode {
         Some(HistoryQuoteMode::Whole) => quote_history_word(&line),
-        Some(HistoryQuoteMode::EachWord) => join_words(
-            &split_history_quoting_words(&line)
-                .into_iter()
-                .map(|word| quote_history_word(&word))
-                .collect::<Vec<_>>(),
-        ),
+        Some(HistoryQuoteMode::EachWord) => quote_history_fields_preserving_separators(&line),
         None => line,
     }
 }

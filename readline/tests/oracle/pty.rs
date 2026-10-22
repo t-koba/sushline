@@ -287,18 +287,22 @@ fn bash_history_expand_output(expansion: &str, history: &[&str]) -> std::process
         .expect("bash must be available for history oracle tests")
 }
 
-pub(super) fn run_bash_history_expand(expansion: &str, history: &[&str]) -> String {
+pub(super) fn run_bash_history_expand_bytes(expansion: &str, history: &[&str]) -> Vec<u8> {
     let output = bash_history_expand_output(expansion, history);
     assert!(
         output.status.success(),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .last()
-        .unwrap_or_default()
-        .to_string()
+    output
+        .stdout
+        .strip_suffix(b"\n")
+        .unwrap_or(&output.stdout)
+        .to_vec()
+}
+
+pub(super) fn run_bash_history_expand(expansion: &str, history: &[&str]) -> String {
+    String::from_utf8_lossy(&run_bash_history_expand_bytes(expansion, history)).into_owned()
 }
 
 /// The shell's own streams for a failing history expansion, separated.

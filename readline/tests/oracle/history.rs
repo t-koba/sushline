@@ -1192,6 +1192,43 @@ fn bash_readline_and_sushline_apply_same_history_quote_inhibit_policy() {
 }
 
 #[test]
+fn bash_history_x_modifier_preserves_separators_and_empty_fields() {
+    // Runtime observations through Bash 5.3's history -p/GNU History path;
+    // compare raw bytes so tabs, newlines, and CR/FF remain distinguishable.
+    let cases: &[(&[&str], &str, &[u8])] = &[
+        (&["echo  one   two"], "!!:x", b"'echo' '' 'one' '' '' 'two'"),
+        (&["  echo  one "], "!!:x", b"'' '' 'echo' '' 'one' ''"),
+        (
+            &["echo\tone\t\ttwo\nlast"],
+            "!!:x",
+            b"'echo'\t'one'\t''\t'two'\n'last'",
+        ),
+        (&["echo\n"], "!!:x", b"'echo'\n''"),
+        (
+            &["echo\rone\x0c two\x0bone"],
+            "!!:x",
+            b"'echo\rone\x0c' 'two\x0bone'",
+        ),
+        (&["don't stop"], "!!:x", b"'don'\\''t' 'stop'"),
+        (&[""], "!!:x", b"''"),
+        (&["   "], "!!:x", b"'' '' '' ''"),
+        (
+            &["echo  one   two"],
+            "^one^new^:x",
+            b"'echo' '' 'new' '' '' 'two'",
+        ),
+    ];
+
+    for (history, typed, expected) in cases {
+        assert_eq!(
+            run_bash_history_expand_bytes(typed, history),
+            *expected,
+            "{typed}: history={history:?}"
+        );
+    }
+}
+
+#[test]
 fn bash_history_quote_modifiers_apply_once_after_the_modifier_chain() {
     let inputrc = r#""\C-x\C-a": history-expand-line"#;
     let word_history = ["echo one two"];

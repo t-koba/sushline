@@ -2012,6 +2012,45 @@ fn history_quote_modifiers_apply_once_after_the_modifier_chain() {
 }
 
 #[test]
+fn history_x_modifier_preserves_separators_empty_fields_and_other_whitespace() {
+    let mut history = History::new();
+    let policy = HistoryExpansionPolicy::default();
+    let histchars = HistoryChars::parse("!^#");
+    let cases: &[(&[u8], &[u8], &[u8])] = &[
+        (b"echo  one   two", b"!!:x", b"'echo' '' 'one' '' '' 'two'"),
+        (b"  echo  one ", b"!!:x", b"'' '' 'echo' '' 'one' ''"),
+        (
+            b"echo\tone\t\ttwo\nlast",
+            b"!!:x",
+            b"'echo'\t'one'\t''\t'two'\n'last'",
+        ),
+        (
+            b"echo\rone\x0c two\x0bone",
+            b"!!:x",
+            b"'echo\rone\x0c' 'two\x0bone'",
+        ),
+        (b"don't stop", b"!!:x", b"'don'\\''t' 'stop'"),
+        (b"", b"!!:x", b"''"),
+        (b"   ", b"!!:x", b"'' '' '' ''"),
+        (
+            b"echo  one   two",
+            b"^one^new^:x",
+            b"'echo' '' 'new' '' '' 'two'",
+        ),
+    ];
+
+    for (entry, typed, expected) in cases {
+        history.clear();
+        history.push_bytes(entry.to_vec());
+        assert_eq!(
+            expand_history(typed, &history, histchars, &policy, |_| false).unwrap(),
+            *expected,
+            "entry={entry:?}, typed={typed:?}"
+        );
+    }
+}
+
+#[test]
 fn history_expansion_preserves_quoted_history_words() {
     let mut history = History::new();
     history.push("printf \"two words\" $'ansi word' tail");

@@ -245,8 +245,8 @@ impl History {
         for entry in self.entries.iter().skip(from) {
             write_entry(&mut file, entry, write_timestamps)?;
         }
-        // Close-only durability matches GNU: no fsync, close surfaces writes.
-        Ok(())
+        // Report close errors without requesting fsync or crash durability.
+        close_file(file)
     }
 
     /// Append new to default file.
@@ -375,7 +375,8 @@ fn write_atomic(
             }
             let mut file = file;
             write_tmp(&mut file)?;
-            // Close-only durability matches GNU: no fsync before rename.
+            // Publish only after a successful close; no fsync is requested.
+            close_file(file)?;
             fs::rename(&tmp, &dest)
         })();
         if result.is_err() {
@@ -405,7 +406,50 @@ fn write_in_place(
         .truncate(true)
         .open(path)?;
     write_tmp(&mut file)?;
-    // Close-only durability matches GNU: no fsync for non-regular destinations.
+    // Report close errors without requesting fsync or crash durability.
+    close_file(file)
+}
+
+// Consume ownership before closing: a failed close must never be retried, even
+// on EINTR, because the descriptor/handle may already have been released.
+fn close_file(file: fs::File) -> io::Result<()> {
+    close_file_os(file)?;
+    #[cfg(test)]
+    if tests::FAIL_CLOSE.with(|fail| fail.replace(false)) {
+        return Err(io::Error::other("injected close error"));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn close_file_os(file: fs::File) -> io::Result<()> {
+    use std::os::fd::IntoRawFd;
+
+    // SAFETY: into_raw_fd transfers sole ownership; close is called exactly once.
+    if unsafe { libc::close(file.into_raw_fd()) } == -1 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+fn close_file_os(file: fs::File) -> io::Result<()> {
+    use std::os::windows::io::IntoRawHandle;
+
+    // SAFETY: into_raw_handle transfers sole ownership of this file handle;
+    // CloseHandle is called exactly once and the handle is never reused here.
+    if unsafe { windows_sys::Win32::Foundation::CloseHandle(file.into_raw_handle()) } == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn close_file_os(file: fs::File) -> io::Result<()> {
+    // No checked close binding on these targets: retain drop-only behavior.
+    drop(file);
     Ok(())
 }
 
@@ -633,4 +677,109 @@ fn history_tmp_path(path: &Path) -> std::path::PathBuf {
             .map(|ext| format!("{ext}."))
             .unwrap_or_default()
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    // Thread-local, one-shot failure after the actual close: parallel tests
+    // cannot interfere and injected failures never leak an open file handle.
+    thread_local! {
+        pub(super) static FAIL_CLOSE: Cell<bool> = const { Cell::new(false) };
+    }
+
+    fn with_close_error(operation: impl FnOnce() -> io::Result<()>) {
+        struct Reset;
+        impl Drop for Reset {
+            fn drop(&mut self) {
+                FAIL_CLOSE.with(|fail| fail.set(false));
+            }
+        }
+        assert!(!FAIL_CLOSE.with(|fail| fail.replace(true)));
+        let _reset = Reset;
+        let error = operation().unwrap_err();
+        assert_eq!(error.to_string(), "injected close error");
+        assert!(!FAIL_CLOSE.with(Cell::get), "close seam was not reached");
+    }
+
+    #[test]
+    fn atomic_close_failure_preserves_destination_and_removes_temp() {
+        for existing in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("history");
+            if existing {
+                fs::write(&path, b"sentinel\n").unwrap();
+            }
+            let mut history = History::new();
+            history.push("replacement");
+            with_close_error(|| history.write_file(&path));
+            if existing {
+                assert_eq!(fs::read(&path).unwrap(), b"sentinel\n");
+            } else {
+                assert!(!path.exists());
+            }
+            assert_eq!(
+                fs::read_dir(dir.path()).unwrap().count(),
+                usize::from(existing)
+            );
+
+            // A later successful close publishes the replacement normally.
+            history.write_file(&path).unwrap();
+            assert_eq!(fs::read(&path).unwrap(), b"replacement\n");
+            assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+        }
+    }
+
+    #[test]
+    fn atomic_write_failure_preserves_primary_error_and_removes_temp() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history");
+        fs::write(&path, b"sentinel\n").unwrap();
+        let error = write_atomic(&path, |file| {
+            file.write_all(b"partial")?;
+            Err(io::Error::other("write failure"))
+        })
+        .unwrap_err();
+        assert_eq!(error.to_string(), "write failure");
+        assert_eq!(fs::read(&path).unwrap(), b"sentinel\n");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn append_close_failure_does_not_advance_loaded_watermark() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history");
+        fs::write(&path, b"loaded\n").unwrap();
+        let mut history = History::read_file(&path).unwrap();
+        history.push("new");
+        history.add_time("#123");
+        let loaded = history.file_loaded_len;
+        with_close_error(|| history.append_new_to_file_with_timestamps(&path, true));
+        assert_eq!(history.file_loaded_len, loaded);
+        // Append is not transactional: bytes may already have been written.
+        assert_eq!(fs::read(&path).unwrap(), b"loaded\n#123\nnew\n");
+        history
+            .append_new_to_file_with_timestamps(&path, true)
+            .unwrap();
+        assert_eq!(history.file_loaded_len, history.entries.len());
+        assert_eq!(fs::read(&path).unwrap(), b"loaded\n#123\nnew\n#123\nnew\n");
+    }
+
+    #[test]
+    fn in_place_write_reports_close_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history");
+        with_close_error(|| write_in_place(&path, |file| file.write_all(b"new\n")));
+        assert_eq!(fs::read(&path).unwrap(), b"new\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_regular_write_reports_close_failure() {
+        let mut history = History::new();
+        history.push("discarded");
+        with_close_error(|| history.write_file("/dev/null"));
+    }
 }

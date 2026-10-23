@@ -285,8 +285,17 @@ preserved, and `truncate_file` rejects non-regular destinations with an error
 like GNU. Reads (`read_file`/`load_file` and range variants) check the opened
 descriptor and reject non-regular inputs with an error like GNU, while symlinks
 resolve to their target descriptor. Full writes to regular destinations reset the mode to `0600` on Unix
-even when the destination pre-existed with a wider mode, and all writes are
-close-only with no fsync, matching GNU. Concurrent-writer merging is embedder policy.
+even when the destination pre-existed with a wider mode. On Unix and Windows,
+output files receive one explicit close attempt after successful writes; close
+errors are returned and never retried. Atomic replacements are renamed only
+following successful close, so a close error leaves the old destination unchanged
+(or a missing destination absent) and removes the temporary sibling on a
+best-effort basis without masking the error. Append and
+non-regular in-place writes can already have changed the destination when close
+fails; append-new does not advance its loaded-file boundary on failure. On other
+Rust targets, writes retain drop-only close behavior and cannot report close
+errors. No fsync or crash durability is promised on any target. Concurrent-writer
+merging is embedder policy.
 
 A history file's physical lines become entries through an explicit grouping
 policy. The default, `HistoryMultiline::PerLine`, makes each physical command

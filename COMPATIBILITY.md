@@ -357,7 +357,8 @@ Sushline-only extensions use the `Sushline extension` status.
 Inputrc variable-test evidence is limited to the finite Bash 5.3-hosted
 Readline PTY fixtures in [`oracle/inputrc.rs`](readline/tests/oracle/inputrc.rs),
 not a standalone pinned GNU Readline 8.3 library comparison. They observe
-ASCII case-insensitive names and raw string values: `editing-mode == EMACS`
+ASCII case-insensitive names and string comparisons with only the first
+ASCII-whitespace-delimited RHS token (without unquoting): `editing-mode == EMACS`
 and `COMPLETION-IGNORE-CASE == OFF` match, while quoted `"emacs"`/`"off"`,
 `0`, `false`, and `nonsense` do not match their unquoted mode/`off` values.
 The fixtures cover `=`, `==`, `!=`, unknown-name inequality returning false,
@@ -367,7 +368,11 @@ They retain the compact `mode=emacs` and `version>=8.3` controls, exercise
 single-token `comment-begin` values containing operators, and observe earlier
 `set` changes, nested `$else`, editing-mode changes, and an `emacs-meta`
 binding target. Variable tests use current mode/binding-target state rather
-than stale defaults. No multiword-value or shell-state behavior is claimed.
+than stale defaults. With stored `comment-begin` equal to `a`, RHS `a b`,
+`a  b`, `a<TAB>b`, `a # comment`, and `A B` match like `a`; `ab`, `a==b`,
+`a!=b`, and quoted `"a"` do not. With stored value `a b` set using quotes,
+neither RHS `a b` nor `"a b"` matches. These are finite tokenization and
+stored-multiword controls, not a general shell-state compatibility claim.
 
 ## History Expansion API
 

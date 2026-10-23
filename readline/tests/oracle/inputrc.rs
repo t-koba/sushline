@@ -1265,6 +1265,9 @@ fn bash_readline_and_sushline_compare_inputrc_variable_strings() {
         ("version>=8.3", true),
         ("comment-begin = a!=b>=c", true),
         ("comment-begin == a!=b>=c", true),
+        ("comment-begin == a!=b>=c trailing", true),
+        ("editing-mode == emacs\ttrailing", true),
+        ("unknown-variable != on trailing", false),
     ];
     let mut inputrc = String::from(
         "set editing-mode emacs\nset completion-ignore-case off\nset completion-query-items 100\nset comment-begin a!=b>=c\n",
@@ -1293,6 +1296,51 @@ fn bash_readline_and_sushline_compare_inputrc_variable_strings() {
         Some(expected.as_str()),
         "{sushline}"
     );
+}
+
+#[test]
+fn bash_readline_and_sushline_tokenize_inputrc_variable_rhs() {
+    // One PTY pair checks single-token and quoted multiword stored values.
+    let mut inputrc = String::from("set editing-mode emacs\n");
+    let mut keys = Vec::new();
+    let mut expected = String::new();
+    for (group, stored) in ["a", "\"a b\""].iter().enumerate() {
+        inputrc.push_str(&format!("set comment-begin {stored}\n"));
+        for (index, (rhs, matches_a)) in [
+            ("a", true),
+            ("a b", true),
+            ("a  b", true),
+            ("a\tb", true),
+            ("a # comment", true),
+            ("A B", true),
+            ("ab", false),
+            ("a==b", false),
+            ("a!=b", false),
+            ("\"a\"", false),
+            ("\"a b\"", false),
+        ]
+        .iter()
+        .enumerate()
+        {
+            let key = char::from(b'a' + (group * 11 + index) as u8);
+            let matched = group == 0 && *matches_a;
+            inputrc.push_str(&format!(
+                "$if comment-begin == {rhs}\n\"\\C-x{key}\": \"T\"\n$else\n\"\\C-x{key}\": \"F\"\n$endif\n",
+            ));
+            keys.extend_from_slice(&[0x18, key as u8]);
+            expected.push(if matched { 'T' } else { 'F' });
+        }
+    }
+    keys.push(b'\r');
+    let bash = run_bash_readline_with_inputrc_file(&keys, &inputrc);
+    let sushline = run_sushline_harness_with_inputrc(&keys, &inputrc);
+    for output in [&bash, &sushline] {
+        assert_eq!(
+            accepted_line(output).as_deref(),
+            Some(expected.as_str()),
+            "{output}"
+        );
+    }
 }
 
 #[test]

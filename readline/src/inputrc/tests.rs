@@ -905,6 +905,46 @@ fn variable_conditions_compare_raw_case_insensitive_strings() {
 }
 
 #[test]
+fn variable_conditions_compare_only_the_first_rhs_token() {
+    let config = Config::default();
+    let keymap = KeyMap::emacs_default();
+    let mut variables = Variables::default_for_config(&config);
+    for stored in ["a", "a b"] {
+        variables.insert("comment-begin".into(), stored.into());
+        for (rhs, matches_a) in [
+            ("a", true),
+            ("a b", true),
+            ("a  b", true),
+            ("a\tb", true),
+            ("a # comment", true),
+            ("A B", true),
+            ("ab", false),
+            ("a==b", false),
+            ("a!=b", false),
+            ("\"a\"", false),
+            ("\"a b\"", false),
+        ] {
+            for op in ["=", "==", "!="] {
+                let condition = format!("comment-begin {op} {rhs}");
+                let matched = stored == "a" && matches_a;
+                assert_eq!(
+                    eval_condition(
+                        &condition,
+                        &config,
+                        &keymap,
+                        &variables,
+                        KeyMapName::EmacsStandard,
+                        "8.3",
+                    ),
+                    if op == "!=" { !matched } else { matched },
+                    "stored={stored:?}, {condition}",
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn variable_conditions_follow_mode_and_binding_target_not_stale_defaults() {
     let config = Config::default();
     let mut keymap = KeyMap::emacs_default();

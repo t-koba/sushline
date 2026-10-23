@@ -634,13 +634,15 @@ fn eval_condition(
         }
         // Variable tests require a separate name token, unlike mode=emacs
         // and the other special conditions above. Values are strings, not
-        // inputrc `set` values: do not unquote or coerce them.
+        // inputrc `set` values: use only the first ASCII-whitespace-delimited
+        // RHS token, without unquoting or coercion.
         if !lhs.ends_with(char::is_whitespace)
             || !matches!(op, "=" | "==" | "!=")
             || !is_known_set_variable(&name)
         {
             return false;
         }
+        let expected = expected.split_ascii_whitespace().next().unwrap_or("");
         let value = match name.as_str() {
             "editing-mode" => Some(match keymap.current().canonical() {
                 KeyMapName::ViCommand | KeyMapName::ViInsert => "vi",

@@ -342,7 +342,7 @@ fn bind_submap_macro_formats_keep_ordinary_order_and_put_fallback_last() {
         );
         assert_eq!(
             api.print(BindQuery::PrintMacros),
-            "\"\\C-xa\" outputs CHILD\n\"a\" outputs FIRST\n\"z\" outputs LAST\n\"\" outputs ROOT\n",
+            "\\C-xa outputs CHILD\na outputs FIRST\nz outputs LAST\n outputs ROOT\n",
             "{map}"
         );
     }

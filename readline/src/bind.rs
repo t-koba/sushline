@@ -415,19 +415,31 @@ impl<'a> BindApi<'a> {
                 let line = if reusable {
                     format!("{}: \"{}\"", seq.display_inputrc(), escape_bytes(value))
                 } else {
-                    format!("{} outputs {}", seq.display_inputrc(), escape_bytes(value))
+                    format!(
+                        "{} outputs {}",
+                        seq.display_inputrc_body(),
+                        escape_bytes(value)
+                    )
                 };
                 // A submap's empty sequence represents its prefix fallback.
                 // Print it last without changing storage or dispatch order.
-                if seq.bytes().is_empty() {
-                    fallback = Some(line);
+                let entry = (seq, line);
+                if entry.0.bytes().is_empty() {
+                    fallback = Some(entry);
                 } else {
-                    lines.push(line);
+                    lines.push(entry);
                 }
             }
         }
-        lines.sort();
-        lines.extend(fallback);
+        if reusable {
+            // Reusable inputrc lines retain their established textual ordering.
+            lines.sort_by(|left, right| left.1.cmp(&right.1));
+        } else {
+            // `bind -S` orders unquoted key spellings by their underlying bytes.
+            lines.sort_by(|left, right| left.0.cmp(&right.0));
+        }
+        let mut lines = lines.into_iter().map(|(_, line)| line).collect::<Vec<_>>();
+        lines.extend(fallback.map(|(_, line)| line));
         lines.join("\n") + optional_newline(!lines.is_empty())
     }
 

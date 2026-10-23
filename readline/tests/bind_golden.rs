@@ -636,6 +636,65 @@ bind -m emacs -r '\C-xa'; bind -m emacs-ctlx -s
 }
 
 #[test]
+fn bind_nonreusable_macro_rendering_matches_bash_for_escaped_keys_and_payloads() {
+    let specs = [
+        r#""a": "A""#,
+        r#""\C-a": "CTRL""#,
+        r#""\C-xa": "SEQUENCE""#,
+        r#""\"": "QUOTE""#,
+        r#""\\": "BACKSLASH""#,
+        r#""m": "quote \" slash \\ end""#,
+    ];
+    let root = r#""\e": "ROOT""#;
+    let child = r#""a": "CHILD""#;
+    let mut script = specs
+        .iter()
+        .map(|spec| format!("bind -m emacs '{spec}'"))
+        .collect::<Vec<_>>()
+        .join("; ");
+    script.push_str(&format!(
+        "; printf '__NONREUSABLE__\\n'; bind -m emacs -S; \
+             bind -m emacs-standard '{root}'; bind -m emacs-meta '{child}'; \
+             printf '__SUBMAP_NONREUSABLE__\\n'; bind -m emacs-meta -S; \
+             printf '__SUBMAP_REUSABLE__\\n'; bind -m emacs-meta -s"
+    ));
+    let bash = bash_oracle_command()
+        .env("INPUTRC", "/dev/null")
+        .args(["--noprofile", "--norc", "-i", "-c", &script])
+        .output()
+        .expect("bash bind oracle");
+    assert!(
+        bash.status.success(),
+        "{}",
+        String::from_utf8_lossy(&bash.stderr)
+    );
+
+    let mut line = editor();
+    let mut bind = line.bind_api();
+    for spec in specs {
+        bind.apply_builtin_args(&["-m", "emacs", spec]).unwrap();
+    }
+    let nonreusable = bind.apply_builtin_args(&["-m", "emacs", "-S"]).unwrap();
+    let reusable = bind.apply_builtin_args(&["-m", "emacs", "-s"]).unwrap();
+    bind.apply_builtin_args(&["-m", "emacs-standard", root, "-m", "emacs-meta", child])
+        .unwrap();
+    let submap_nonreusable = bind
+        .apply_builtin_args(&["-m", "emacs-meta", "-S"])
+        .unwrap();
+    let submap_reusable = bind
+        .apply_builtin_args(&["-m", "emacs-meta", "-s"])
+        .unwrap();
+    let mut reusable_lines = specs.map(str::to_owned).to_vec();
+    reusable_lines.sort();
+    assert_eq!(reusable, reusable_lines.join("\n") + "\n");
+
+    let rust = format!(
+        "__NONREUSABLE__\n{nonreusable}__SUBMAP_NONREUSABLE__\n{submap_nonreusable}__SUBMAP_REUSABLE__\n{submap_reusable}"
+    );
+    assert_eq!(rust, String::from_utf8_lossy(&bash.stdout));
+}
+
+#[test]
 fn bind_emacs_submap_root_fallback_macro_is_printed_as_empty_sequence_like_bash() {
     for (map, prefix) in [("emacs-meta", r"\e"), ("emacs-ctlx", r"\C-x")] {
         let root = format!(r#""{prefix}": "ROOT""#);

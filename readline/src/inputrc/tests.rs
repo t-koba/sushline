@@ -1175,3 +1175,28 @@ $endif
     assert_eq!(variables["completion-query-items"], "42");
     assert_eq!(variables["completion-display-width"], "123");
 }
+
+#[test]
+fn meta_alias_conditions_observe_the_last_write_without_coercion() {
+    for (first, second) in [("input-meta", "meta-flag"), ("meta-flag", "input-meta")] {
+        for (initial, last) in [("on", "off"), ("off", "on")] {
+            let mut keymap = KeyMap::emacs_default();
+            let mut variables = Variables::new();
+            let inputrc = format!(
+                "set {first} {initial}\nset {second} {last}\n\
+                 $if {first} = {last}\nset comment-begin matched\n$else\nset comment-begin stale\n$endif\n\
+                 $if {second} = {last}\nset emacs-mode-string matched\n$endif\n\
+                 $if {first} = {}\nset comment-begin coerced\n$endif\n",
+                if last == "on" { "1" } else { "0" },
+            );
+            let diagnostics = InputrcParser::new()
+                .parse_str(&inputrc, &Config::default(), &mut keymap, &mut variables)
+                .unwrap();
+            assert!(diagnostics.is_empty(), "{diagnostics:?}");
+            assert_eq!(variables["comment-begin"], "matched", "{inputrc}");
+            assert_eq!(variables["emacs-mode-string"], "matched", "{inputrc}");
+            assert_eq!(variables[first], last);
+            assert_eq!(variables[second], last);
+        }
+    }
+}

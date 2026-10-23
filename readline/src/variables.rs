@@ -43,8 +43,6 @@ pub(crate) enum BoolVariable {
     ConvertMeta,
     /// InputMeta.
     InputMeta,
-    /// MetaFlag.
-    MetaFlag,
     /// SearchIgnoreCase.
     SearchIgnoreCase,
     /// SushlineViRegisters.
@@ -52,7 +50,7 @@ pub(crate) enum BoolVariable {
 }
 
 impl BoolVariable {
-    pub(crate) const COUNT: usize = 22;
+    pub(crate) const COUNT: usize = 21;
 
     #[cfg(test)]
     pub(crate) fn name(self) -> &'static str {
@@ -76,7 +74,6 @@ impl BoolVariable {
             Self::PageCompletions => "page-completions",
             Self::ConvertMeta => "convert-meta",
             Self::InputMeta => "input-meta",
-            Self::MetaFlag => "meta-flag",
             Self::SearchIgnoreCase => "search-ignore-case",
             Self::SushlineViRegisters => "sushline-vi-registers",
         }
@@ -102,8 +99,7 @@ impl BoolVariable {
             "menu-complete-display-prefix" => Self::MenuCompleteDisplayPrefix,
             "page-completions" => Self::PageCompletions,
             "convert-meta" => Self::ConvertMeta,
-            "input-meta" => Self::InputMeta,
-            "meta-flag" => Self::MetaFlag,
+            "input-meta" | "meta-flag" => Self::InputMeta,
             "search-ignore-case" => Self::SearchIgnoreCase,
             "sushline-vi-registers" => Self::SushlineViRegisters,
             _ => return None,
@@ -181,16 +177,17 @@ impl Variables {
 
     /// Get.
     pub fn get(&self, name: &str) -> Option<&String> {
-        self.strings.get(name)
+        self.strings.get(storage_name(name))
     }
 
     /// Get bytes.
     pub fn get_bytes(&self, name: &str) -> Option<&Vec<u8>> {
-        self.bytes.get(name)
+        self.bytes.get(storage_name(name))
     }
 
-    /// Insert.
+    /// Insert, returning the previous value even when written through the other alias.
     pub fn insert(&mut self, name: String, value: String) -> Option<String> {
+        let name = storage_name(&name).to_owned();
         self.bytes.insert(name.clone(), value.as_bytes().to_vec());
         if let Some(variable) = BoolVariable::from_name(&name) {
             self.flags[variable.index()] = bool_value_is_on(&value);
@@ -200,6 +197,7 @@ impl Variables {
 
     /// Insert bytes.
     pub fn insert_bytes(&mut self, name: String, value: Vec<u8>) {
+        let name = storage_name(&name).to_owned();
         let rendered = String::from_utf8_lossy(&value).into_owned();
         if let Some(variable) = BoolVariable::from_name(&name) {
             self.flags[variable.index()] = bool_value_is_on(&rendered);
@@ -210,24 +208,42 @@ impl Variables {
 
     /// Contains key.
     pub fn contains_key(&self, name: &str) -> bool {
-        self.strings.contains_key(name)
+        self.strings.contains_key(storage_name(name))
     }
 
-    /// Iter.
+    /// Iterate in name order, including both names of the input-meta alias.
     pub fn iter(&self) -> impl Iterator<Item = (&str, &str)> {
+        use std::ops::Bound::{Excluded, Included, Unbounded};
         self.strings
-            .iter()
+            .range::<str, _>((Unbounded, Excluded("meta-flag")))
             .map(|(name, value)| (name.as_str(), value.as_str()))
+            .chain(
+                self.get("input-meta")
+                    .map(|value| ("meta-flag", value.as_str())),
+            )
+            .chain(
+                self.strings
+                    .range::<str, _>((Included("meta-flag"), Unbounded))
+                    .map(|(name, value)| (name.as_str(), value.as_str())),
+            )
     }
 
-    /// Strings.
-    pub fn strings(&self) -> &BTreeMap<String, String> {
-        &self.strings
+    /// An owned string snapshot including both alias names.
+    /// Mutating this view does not change the variables; use the setters instead.
+    pub fn strings(&self) -> BTreeMap<String, String> {
+        self.iter()
+            .map(|(name, value)| (name.to_owned(), value.to_owned()))
+            .collect()
     }
 
-    /// Bytes.
-    pub fn bytes(&self) -> &BTreeMap<String, Vec<u8>> {
-        &self.bytes
+    /// An owned raw-byte snapshot including both alias names.
+    /// Unlike the lossy UTF-8 string view, this preserves inserted bytes exactly.
+    pub fn bytes(&self) -> BTreeMap<String, Vec<u8>> {
+        let mut view = self.bytes.clone();
+        if let Some(value) = self.get_bytes("input-meta") {
+            view.insert("meta-flag".to_owned(), value.clone());
+        }
+        view
     }
 
     /// Is on.
@@ -251,6 +267,16 @@ impl Variables {
     }
 }
 
+// Only input-meta owns storage and a typed flag. meta-flag is another public
+// name for that same value, including raw bytes and lossy string rendering.
+fn storage_name(name: &str) -> &str {
+    if name == "meta-flag" {
+        "input-meta"
+    } else {
+        name
+    }
+}
+
 pub(crate) fn bool_value_is_on(value: &str) -> bool {
     value.is_empty() || value.eq_ignore_ascii_case("on") || value == "1"
 }
@@ -259,7 +285,7 @@ impl Index<&str> for Variables {
     type Output = String;
 
     fn index(&self, index: &str) -> &Self::Output {
-        &self.strings[index]
+        &self.strings[storage_name(index)]
     }
 }
 
@@ -333,10 +359,6 @@ fn default_variable_strings(
     variables.insert(
         "menu-complete-display-prefix".to_string(),
         "off".to_string(),
-    );
-    variables.insert(
-        "meta-flag".to_string(),
-        if locale_meta { "on" } else { "off" }.to_string(),
     );
     variables.insert(
         "output-meta".to_string(),
@@ -490,10 +512,33 @@ mod tests {
         BoolVariable::PageCompletions,
         BoolVariable::ConvertMeta,
         BoolVariable::InputMeta,
-        BoolVariable::MetaFlag,
         BoolVariable::SearchIgnoreCase,
         BoolVariable::SushlineViRegisters,
     ];
+
+    #[test]
+    fn meta_alias_has_one_storage_key_and_flag() {
+        let mut variables =
+            Variables::with_terminal_defaults(&Config::default(), &DefaultCapabilities::default());
+        assert!(variables.strings.contains_key("input-meta"));
+        assert!(variables.bytes.contains_key("input-meta"));
+        assert!(!variables.strings.contains_key("meta-flag"));
+        assert!(!variables.bytes.contains_key("meta-flag"));
+        assert_eq!(
+            BoolVariable::from_name("meta-flag"),
+            Some(BoolVariable::InputMeta)
+        );
+        for name in ["input-meta", "meta-flag"] {
+            variables.insert(name.into(), "on".into());
+            assert!(variables.flag(BoolVariable::InputMeta));
+            variables.insert_bytes(name.into(), b"off".to_vec());
+            assert!(!variables.flag(BoolVariable::InputMeta));
+            variables.rebuild_flags();
+            assert!(!variables.flag(BoolVariable::InputMeta));
+            assert!(!variables.strings.contains_key("meta-flag"));
+            assert!(!variables.bytes.contains_key("meta-flag"));
+        }
+    }
 
     #[test]
     fn terminal_capabilities_control_active_region_and_paste_defaults() {

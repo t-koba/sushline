@@ -400,3 +400,90 @@ fn bracketed_paste_variable_enables_terminal_mode_and_pastes_literal_text() {
     assert!(line.terminal().out.contains("\x1b[?2004h"));
     assert!(line.terminal().out.contains("\x1b[?2004l"));
 }
+
+#[test]
+fn meta_aliases_share_all_public_views_and_setters() {
+    use readline::Variables;
+
+    fn check(variables: &Variables, raw: &[u8], on: bool) {
+        let rendered = String::from_utf8_lossy(raw);
+        let strings = variables.strings();
+        let bytes = variables.bytes();
+        for name in ["input-meta", "meta-flag"] {
+            assert!(variables.contains_key(name));
+            assert_eq!(
+                variables.get(name).map(String::as_str),
+                Some(rendered.as_ref())
+            );
+            assert_eq!(variables.get_bytes(name).map(Vec::as_slice), Some(raw));
+            assert_eq!(variables[name], rendered);
+            assert_eq!(variables.is_on(name), on);
+            assert_eq!(strings[name], rendered);
+            assert_eq!(bytes[name], raw);
+            assert_eq!(
+                variables
+                    .iter()
+                    .filter(|(key, _)| *key == name)
+                    .collect::<Vec<_>>(),
+                vec![(name, rendered.as_ref())]
+            );
+        }
+        assert_eq!(
+            variables.iter().collect::<Vec<_>>(),
+            strings
+                .iter()
+                .map(|(name, value)| (name.as_str(), value.as_str()))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    for (first, second) in [("input-meta", "meta-flag"), ("meta-flag", "input-meta")] {
+        for mut variables in [Variables::new(), Variables::default()] {
+            for name in [first, second] {
+                assert!(!variables.contains_key(name));
+                assert!(variables.get(name).is_none());
+                assert!(variables.get_bytes(name).is_none());
+                assert!(!variables.is_on(name));
+            }
+            assert!(variables.iter().next().is_none());
+            assert!(variables.strings().is_empty());
+            assert!(variables.bytes().is_empty());
+            assert_eq!(variables.insert(first.into(), "on".into()), None);
+            check(&variables, b"on", true);
+            assert_eq!(
+                variables.insert(second.into(), "off".into()),
+                Some("on".into())
+            );
+            check(&variables, b"off", false);
+            assert_eq!(
+                variables.insert(first.into(), "on".into()),
+                Some("off".into())
+            );
+            check(&variables, b"on", true);
+            // Both setters and both names preserve raw bytes, rendering only
+            // the string view lossily. Direct insertion does not normalize.
+            for name in [first, second] {
+                for (raw, on) in [(b"off".as_slice(), false), (b"ON", true), (b"\xff", false)] {
+                    variables.insert_bytes(name.into(), raw.to_vec());
+                    check(&variables, raw, on);
+                }
+            }
+            assert_eq!(
+                variables.insert(second.into(), "on".into()),
+                Some("\u{fffd}".into())
+            );
+            check(&variables, b"on", true);
+            let mut strings = variables.strings();
+            let mut bytes = variables.bytes();
+            strings.insert(first.into(), "off".into());
+            bytes.insert(second.into(), b"off".to_vec());
+            check(&variables, b"on", true);
+        }
+    }
+    let variables = Variables::default_for_config(&Config::default());
+    check(
+        &variables,
+        variables.get_bytes("input-meta").unwrap(),
+        variables.is_on("input-meta"),
+    );
+}

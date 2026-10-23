@@ -1607,3 +1607,35 @@ fn bash_readline_and_sushline_dispatch_explicit_emacs_submaps() {
         );
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_meta_alias_conditions_observe_the_last_write() {
+    // Four measured ordered writes in one PTY pair; each C-x a leaf records
+    // the condition immediately after that write, before the next setting.
+    let cases = [
+        ("input-meta", "on", "meta-flag", "off"),
+        ("input-meta", "off", "meta-flag", "on"),
+        ("meta-flag", "on", "input-meta", "off"),
+        ("meta-flag", "off", "input-meta", "on"),
+    ];
+    let mut inputrc = String::from("set editing-mode emacs\n");
+    let mut keys = Vec::new();
+    for (index, (first, initial, second, last)) in cases.iter().enumerate() {
+        let leaf = char::from(b'a' + index as u8);
+        inputrc.push_str(&format!(
+            "set {first} {initial}\nset {second} {last}\n\
+             $if {first} = {last}\n\"\\C-xa{leaf}\": \"{index}T\"\n\
+             $else\n\"\\C-xa{leaf}\": \"{index}F\"\n$endif\n"
+        ));
+        keys.extend_from_slice(&[0x18, b'a', leaf as u8]);
+    }
+    keys.push(b'\r');
+    let bash = run_bash_readline_with_inputrc_file(&keys, &inputrc);
+    let sushline = run_sushline_harness_with_inputrc(&keys, &inputrc);
+    assert_eq!(accepted_line(&bash).as_deref(), Some("0T1T2T3T"), "{bash}");
+    assert_eq!(
+        accepted_line(&sushline).as_deref(),
+        Some("0T1T2T3T"),
+        "{sushline}"
+    );
+}

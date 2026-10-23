@@ -678,3 +678,48 @@ fn bind_emacs_submap_root_fallback_macro_is_printed_as_empty_sequence_like_bash(
         assert_eq!(rust_lines, bash_lines, "{map}");
     }
 }
+
+#[test]
+fn bind_meta_alias_output_observes_the_last_write_under_both_names() {
+    let cases = [
+        ("input-meta", "on", "meta-flag", "off"),
+        ("input-meta", "off", "meta-flag", "on"),
+        ("meta-flag", "on", "input-meta", "off"),
+        ("meta-flag", "off", "input-meta", "on"),
+    ];
+    let mut script = String::new();
+    let mut sushline = Vec::new();
+    let mut expected = Vec::new();
+    let mut line = editor();
+    for (first, initial, second, last) in cases {
+        script.push_str(&format!(
+            "bind 'set {first} {initial}'; bind 'set {second} {last}'; bind -v;"
+        ));
+        line.load_inputrc_str(&format!("set {first} {initial}\nset {second} {last}\n"))
+            .unwrap();
+        sushline.extend(selected_variable_lines(
+            &line.bind_api().print(BindQuery::PrintVariablesReusable),
+            &["input-meta", "meta-flag"],
+        ));
+        expected.extend([
+            format!("set input-meta {last}"),
+            format!("set meta-flag {last}"),
+        ]);
+    }
+    let bash = bash_oracle_command_with_inherited_term()
+        .args(["--noprofile", "--norc", "-i", "-c", &script])
+        .output()
+        .expect("bash must be available for bind oracle tests");
+    assert!(
+        bash.status.success(),
+        "{}",
+        String::from_utf8_lossy(&bash.stderr)
+    );
+    let bash: Vec<_> = String::from_utf8_lossy(&bash.stdout)
+        .lines()
+        .filter(|line| line.starts_with("set input-meta ") || line.starts_with("set meta-flag "))
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(bash, expected);
+    assert_eq!(sushline, expected);
+}

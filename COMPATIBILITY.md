@@ -375,6 +375,20 @@ than stale defaults. With stored `comment-begin` equal to `a`, RHS `a b`,
 neither RHS `a b` nor `"a b"` matches. These are finite tokenization and
 stored-multiword controls, not a general shell-state compatibility claim.
 
+`input-meta` and `meta-flag` share one stored value and boolean flag. A finite
+four-case Bash 5.3-hosted Readline PTY fixture writes `on` then `off`, or
+`off` then `on`, in both name orders; each equality test through the first
+name sees the last write. A consolidated `bind -v` comparison checks that
+both output names report that last value for the same four ordered writes.
+Tests: [`oracle/inputrc.rs`](readline/tests/oracle/inputrc.rs),
+[`bind_golden.rs`](readline/tests/bind_golden.rs). This is not a standalone
+pinned-library measurement or a broader input-processing claim. Comparison
+operands are not coerced. Local tests cover both setters, byte preservation
+and lossy UTF-8 string rendering, defaults, flags, and all public read views.
+`Variables::strings()` and `Variables::bytes()` return owned snapshots with
+both names; mutating a snapshot does not change the variables. Use `insert`
+or `insert_bytes` to update the shared value.
+
 Legacy inputrc `mode=` and `term=` tests have a separate, finite twelve-case
 Bash 5.3-hosted PTY comparison, not a standalone pinned-library measurement.
 With editing mode `emacs` and `TERM=xterm-256-color`, `term=xterm`,

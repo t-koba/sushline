@@ -632,17 +632,7 @@ bind -m emacs -r '\C-xa'; bind -m emacs-ctlx -s
     ] {
         rust.push_str(&bind.apply_builtin_args(&args).unwrap());
     }
-    // Unbound-query punctuation is an existing bind-output difference, not a
-    // submap behavior. Preserve the assertion on removal, excluding only it.
-    let bash = String::from_utf8_lossy(&bash.stdout);
-    assert!(bash.contains("abort is not bound to any keys.\n"));
-    assert_eq!(
-        rust,
-        bash.replace(
-            "abort is not bound to any keys.\n",
-            "abort is not bound to any keys\n"
-        )
-    );
+    assert_eq!(rust, String::from_utf8_lossy(&bash.stdout));
 }
 
 #[test]
@@ -669,13 +659,7 @@ fn bind_emacs_submap_root_fallback_macro_is_printed_as_empty_sequence_like_bash(
             .unwrap();
         let bash = String::from_utf8_lossy(&bash.stdout);
         assert!(bash.contains("\"\": \"ROOT\"\n"));
-        // Compare binding contents, not traversal order: Bash emits its
-        // special root-fallback slot last, while our store sorts sequences.
-        let mut rust_lines: Vec<_> = rust.lines().collect();
-        let mut bash_lines: Vec<_> = bash.lines().collect();
-        rust_lines.sort_unstable();
-        bash_lines.sort_unstable();
-        assert_eq!(rust_lines, bash_lines, "{map}");
+        assert_eq!(rust, bash, "{map}");
     }
 }
 
@@ -722,4 +706,43 @@ fn bind_meta_alias_output_observes_the_last_write_under_both_names() {
         .collect();
     assert_eq!(bash, expected);
     assert_eq!(sushline, expected);
+}
+
+#[test]
+fn bind_unbound_query_and_print_punctuation_match_bash() {
+    for map in [
+        "emacs-standard",
+        "emacs-meta",
+        "emacs-ctlx",
+        "vi-insert",
+        "vi-command",
+    ] {
+        let script = format!(
+            "bind -m {map} -u abort; bind -m {map} -q abort || :; bind -m {map} -P | grep '^abort '"
+        );
+        let bash = bash_oracle_command()
+            .env("INPUTRC", "/dev/null")
+            .args(["--noprofile", "--norc", "-i", "-c", &script])
+            .output()
+            .expect("bash bind oracle");
+        assert!(
+            bash.status.success(),
+            "{}",
+            String::from_utf8_lossy(&bash.stderr)
+        );
+        let mut line = editor();
+        let mut bind = line.bind_api();
+        let mut rust = bind
+            .apply_builtin_args(&["-m", map, "-u", "abort", "-q", "abort"])
+            .unwrap();
+        let printed = bind.print(BindQuery::PrintFunctions);
+        rust.push_str(
+            printed
+                .lines()
+                .find(|line| line.starts_with("abort "))
+                .unwrap(),
+        );
+        rust.push('\n');
+        assert_eq!(rust, String::from_utf8_lossy(&bash.stdout), "{map}");
+    }
 }

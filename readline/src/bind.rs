@@ -377,7 +377,11 @@ impl<'a> BindApi<'a> {
         bindings.sort();
         bindings.dedup();
         if bindings.is_empty() {
-            format!("{command} is not bound to any keys")
+            let suffix = match kind {
+                FunctionLineKind::Print => "",
+                FunctionLineKind::Query => ".",
+            };
+            format!("{command} is not bound to any keys{suffix}")
         } else {
             let phrase = match kind {
                 FunctionLineKind::Print => "can be found on",
@@ -405,24 +409,25 @@ impl<'a> BindApi<'a> {
 
     fn print_macros(&self, reusable: bool) -> String {
         let mut lines = Vec::new();
+        let mut fallback = None;
         for (_, seq, binding) in self.keymap.iter_map(self.target_map) {
             if let KeyBinding::Macro(value) = binding {
-                if reusable {
-                    lines.push(format!(
-                        "{}: \"{}\"",
-                        seq.display_inputrc(),
-                        escape_bytes(value)
-                    ));
+                let line = if reusable {
+                    format!("{}: \"{}\"", seq.display_inputrc(), escape_bytes(value))
                 } else {
-                    lines.push(format!(
-                        "{} outputs {}",
-                        seq.display_inputrc(),
-                        escape_bytes(value)
-                    ));
+                    format!("{} outputs {}", seq.display_inputrc(), escape_bytes(value))
+                };
+                // A submap's empty sequence represents its prefix fallback.
+                // Print it last without changing storage or dispatch order.
+                if seq.bytes().is_empty() {
+                    fallback = Some(line);
+                } else {
+                    lines.push(line);
                 }
             }
         }
         lines.sort();
+        lines.extend(fallback);
         lines.join("\n") + optional_newline(!lines.is_empty())
     }
 

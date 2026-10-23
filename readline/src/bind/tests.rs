@@ -118,19 +118,19 @@ fn bind_builtin_args_cover_common_query_options() {
     api.apply_builtin_args(&["-r", "\"\\C-y\""]).unwrap();
     assert_eq!(
         api.apply_builtin_args(&["-q", "yank"]).unwrap(),
-        "yank is not bound to any keys\n"
+        "yank is not bound to any keys.\n"
     );
     api.apply_builtin_args(&["-m", "vi-insert", "-r", "\"\\C-y\""])
         .unwrap();
     assert_eq!(
         api.apply_builtin_args(&["-q", "yank"]).unwrap(),
-        "yank is not bound to any keys\n"
+        "yank is not bound to any keys.\n"
     );
     api.apply_builtin_args(&["-m", "vi-command", "-r", "\"\\C-y\""])
         .unwrap();
     assert_eq!(
         api.apply_builtin_args(&["-q", "yank"]).unwrap(),
-        "yank is not bound to any keys\n"
+        "yank is not bound to any keys.\n"
     );
 }
 
@@ -268,7 +268,7 @@ fn bind_api_emacs_submap_queries_and_mutations_use_relative_sequences() {
     api.unbind_command("beginning-of-line").unwrap();
     assert_eq!(
         api.print(BindQuery::QueryFunction("beginning-of-line".into())),
-        "beginning-of-line is not bound to any keys\n"
+        "beginning-of-line is not bound to any keys.\n"
     );
     // Application-command print/remove paths use the same view as macros/functions.
     api.bind_application_command("z", "app").unwrap();
@@ -287,4 +287,63 @@ fn bind_api_emacs_submap_queries_and_mutations_use_relative_sequences() {
     api.apply_builtin_args(&["-m", "emacs", "-r", r#""\C-xa""#])
         .unwrap();
     assert_eq!(api.print(BindQuery::PrintMacrosReusable), "");
+}
+
+#[test]
+fn bind_unbound_query_period_does_not_change_function_listing() {
+    for map in [
+        "emacs-standard",
+        "emacs-meta",
+        "emacs-ctlx",
+        "vi-insert",
+        "vi-command",
+    ] {
+        let mut keymap = KeyMap::emacs_default();
+        let mut vars = Variables::new();
+        let mut api = BindApi::with_config(&mut keymap, &mut vars, &Config::default());
+        api.apply_builtin_args(&["-m", map, "-u", "abort"]).unwrap();
+        assert_eq!(
+            api.print(BindQuery::QueryFunction("abort".into())),
+            "abort is not bound to any keys.\n",
+            "{map}"
+        );
+        assert_eq!(
+            api.print(BindQuery::PrintFunctions)
+                .lines()
+                .find(|line| line.starts_with("abort ")),
+            Some("abort is not bound to any keys"),
+            "{map}"
+        );
+    }
+}
+
+#[test]
+fn bind_submap_macro_formats_keep_ordinary_order_and_put_fallback_last() {
+    for (map, prefix) in [("emacs-meta", r"\e"), ("emacs-ctlx", r"\C-x")] {
+        let mut keymap = KeyMap::emacs_default();
+        let mut vars = Variables::new();
+        let mut api = BindApi::with_config(&mut keymap, &mut vars, &Config::default());
+        let root = format!(r#""{prefix}": "ROOT""#);
+        api.apply_builtin_args(&[
+            "-m",
+            "emacs-standard",
+            &root,
+            "-m",
+            map,
+            r#""z": "LAST""#,
+            r#""\C-xa": "CHILD""#,
+            r#""a": "FIRST""#,
+        ])
+        .unwrap();
+        assert_eq!(
+            api.print(BindQuery::PrintMacrosReusable),
+            "\"\\C-xa\": \"CHILD\"\n\"a\": \"FIRST\"\n\"z\": \"LAST\"\n\"\": \"ROOT\"\n",
+            "{map}"
+        );
+        assert_eq!(
+            api.print(BindQuery::PrintMacros),
+            "\"\\C-xa\" outputs CHILD\n\"a\" outputs FIRST\n\"z\" outputs LAST\n\"\" outputs ROOT\n",
+            "{map}"
+        );
+    }
 }

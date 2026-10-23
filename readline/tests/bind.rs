@@ -73,7 +73,7 @@ fn bind_query_reports_function_bindings() {
     let unknown = bind.print(BindQuery::QueryFunction("not-a-command".to_string()));
 
     assert_eq!(yank, "yank can be invoked via \"\\C-y\".\n");
-    assert_eq!(unbound, "vi-append-eol is not bound to any keys\n");
+    assert_eq!(unbound, "vi-append-eol is not bound to any keys.\n");
     assert_eq!(unknown, "not-a-command is not a function\n");
 }
 
@@ -154,14 +154,14 @@ fn bind_can_unbind_keys_and_commands() {
     assert!(bind.unbind_key("\"\\C-y\"").unwrap());
     assert_eq!(
         bind.print(BindQuery::QueryFunction("yank".to_string())),
-        "yank is not bound to any keys\n"
+        "yank is not bound to any keys.\n"
     );
 
     bind.apply_builtin_args(&["-m", "emacs"]).unwrap();
     assert!(bind.unbind_command("yank-pop").unwrap() > 0);
     assert_eq!(
         bind.print(BindQuery::QueryFunction("yank-pop".to_string())),
-        "yank-pop is not bound to any keys\n"
+        "yank-pop is not bound to any keys.\n"
     );
     assert!(bind.unbind_command("not-a-command").is_err());
 }

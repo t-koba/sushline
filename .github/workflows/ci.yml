@@ -3,9 +3,9 @@ name: ci
 on: [push, pull_request]
 
 env:
-  # The oracle host is pinned by digest, not only by URL: the tarball is
-  # verified before it is built, and the build is cached under the same
-  # digest.
+  # The oracle host is the unpatched Bash 5.3 release (patchlevel 0): CI
+  # builds this pinned tarball without applying later standalone patches.
+  # It is pinned by digest, not only by URL, and cached under that digest.
   BASH_ORACLE_VERSION: "5.3"
   BASH_ORACLE_SHA256: 0d5cd86965f869a26cf64f4b71be7b96f90a3ba8b3d74e27e8e9d9d5550f31ba
   # The Readline release the oracle host is built against. It is the release

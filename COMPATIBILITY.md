@@ -5,9 +5,12 @@ Readline and History Library observable behavior where that behavior belongs
 inside a line editor or history component.
 
 The compatibility target is GNU Readline 8.3 patch level 0 and GNU History
-Library behavior, limited to Sushline's Rust editor and history APIs. Oracle
-comparisons use GNU Bash 5.3 as a host, and the oracle suite requires that
-version on `PATH` and stops without evidence on any other host. The Readline
+Library behavior, limited to Sushline's Rust editor and history APIs. The CI
+oracle host is GNU Bash 5.3 patch level 0, built from the pinned
+release tarball without later standalone Bash patches. The local oracle-suite
+gate checks only GNU Bash major.minor 5.3, so a later patch level on `PATH` can
+pass that gate; observations from such a local host are not patchlevel-0
+evidence. The suite rejects other major.minor versions. The Readline
 the host carries is part of that baseline: the suite reads the release
 number, the version label and the command list the host's Readline carries
 ([`oracle/host_readline.rs`](readline/tests/oracle/host_readline.rs)), names

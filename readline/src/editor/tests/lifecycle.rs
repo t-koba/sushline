@@ -1622,3 +1622,48 @@ fn character_motion_in_utf8_without_byte_oriented_preserves_current_motion() {
         vec![0xe4, 0xb8, 0xad, 0x78, 0x59]
     );
 }
+
+#[test]
+fn explicit_emacs_submaps_dispatch_across_input_chunk_boundaries() {
+    for (map, prefix) in [("emacs-meta", 0x1b), ("emacs-ctlx", 0x18)] {
+        let keys = [prefix, 0x18, b'a', b'\r'];
+        for chunk_size in [1, 2, keys.len()] {
+            let terminal = MemoryTerminal::with_events(
+                keys.chunks(chunk_size)
+                    .map(|bytes| TerminalEvent::Bytes(bytes.to_vec()))
+                    .collect(),
+            );
+            let mut line = Editor::new(Config::default(), terminal, History::new());
+            line.load_inputrc_str(&format!("set keymap {map}\n\"\\C-xa\": \"NESTED\"\n\"\\C-x\": \"FALLBACK\"\nset keymap emacs")).unwrap();
+            assert_eq!(
+                line.read_line(Prompt::new("P>"), &mut ()).unwrap(),
+                ReadlineResult::Line(b"NESTED".to_vec()),
+                "{map}, chunk size {chunk_size}"
+            );
+        }
+    }
+}
+
+#[test]
+fn emacs_submap_user_identity_protects_terminal_refreshes() {
+    for (map, prefix) in [(KeyMapName::EmacsMeta, 0x1b), (KeyMapName::EmacsCtlx, 0x18)] {
+        for remove in [false, true] {
+            let terminal = MemoryTerminal {
+                tty_special: vec![(prefix, "delete-char")],
+                ..Default::default()
+            };
+            let mut line = Editor::new(Config::default(), terminal, History::new());
+            let key = crate::keymap::KeySequence::new(vec![]);
+            let binding = KeyBinding::Macro(b"USER".to_vec());
+            line.keymap.bind_user(map, key.clone(), binding.clone());
+            if remove {
+                line.keymap.unbind_key(map, &key);
+            }
+            line.bind_tty_special_chars();
+            assert_eq!(
+                line.keymap.lookup(KeyMapName::Emacs, &[prefix]),
+                if remove { None } else { Some(&binding) }
+            );
+        }
+    }
+}

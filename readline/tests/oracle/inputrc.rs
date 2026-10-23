@@ -1453,3 +1453,111 @@ $endif
         "{sushline}"
     );
 }
+
+#[test]
+fn bash_readline_and_sushline_dispatch_explicit_emacs_submaps() {
+    // These are unconditional bindings: map installation/dispatch is independent
+    // of inputrc condition parsing. Each fixture starts a fresh pair of editors.
+    let cases: &[(&str, &str, &[u8], &str)] = &[
+        (
+            "simple meta macro",
+            "set keymap emacs-meta\n\"a\": \"SIMPLE\"",
+            b"\x1ba\r",
+            "SIMPLE",
+        ),
+        (
+            "nested meta macro",
+            "set keymap emacs-meta\n\"\\C-xa\": \"NESTED\"",
+            b"\x1b\x18a\r",
+            "NESTED",
+        ),
+        (
+            "meta function",
+            "set keymap emacs-meta\n\"a\": beginning-of-line",
+            b"abc\x1baX\r",
+            "Xabc",
+        ),
+        (
+            "nested meta function",
+            "set keymap emacs-meta\n\"\\C-xa\": beginning-of-line",
+            b"abc\x1b\x18aX\r",
+            "Xabc",
+        ),
+        (
+            "ctlx macro",
+            "set keymap emacs-ctlx\n\"a\": \"CTLX\"",
+            b"\x18a\r",
+            "CTLX",
+        ),
+        (
+            "ctlx function",
+            "set keymap emacs-ctlx\n\"a\": beginning-of-line",
+            b"abc\x18aX\r",
+            "Xabc",
+        ),
+        (
+            "root overwrites meta",
+            "set keymap emacs-meta\n\"a\": \"META\"\nset keymap emacs\n\"\\ea\": \"ROOT\"",
+            b"\x1ba\r",
+            "ROOT",
+        ),
+        (
+            "meta overwrites root",
+            "set keymap emacs\n\"\\ea\": \"ROOT\"\nset keymap emacs-meta\n\"a\": \"META\"",
+            b"\x1ba\r",
+            "META",
+        ),
+        (
+            "meta overwrites default",
+            "set keymap emacs-meta\n\"b\": \"CUSTOM\"",
+            b"\x1bb\r",
+            "CUSTOM",
+        ),
+        ("default meta function", "", b"one two\x1bbX\r", "one Xtwo"),
+        (
+            "ESC binding preserves meta",
+            "set keymap emacs-meta\n\"a\": \"META\"\nset keymap emacs\n\"\\e\": \"ESC\"",
+            b"\x1ba\r",
+            "META",
+        ),
+        (
+            "C-x binding preserves ctlx",
+            "set keymap emacs-ctlx\n\"a\": \"CTLX\"\nset keymap emacs\n\"\\C-x\": \"PREFIX\"",
+            b"\x18a\r",
+            "CTLX",
+        ),
+        (
+            "nested prefix binding preserves descendants",
+            "set keymap emacs-meta\n\"\\C-xa\": \"NESTED\"\n\"\\C-x\": \"PREFIX\"",
+            b"\x1b\x18a\r",
+            "NESTED",
+        ),
+        (
+            "ESC fallback",
+            "set keymap emacs\n\"\\e\": \"ESC\"",
+            b"\x1bz\r",
+            "ESCz",
+        ),
+        (
+            "C-x fallback",
+            "set keymap emacs\n\"\\C-x\": \"CTLX\"",
+            b"\x18z\r",
+            "CTLXz",
+        ),
+    ];
+    for (name, bindings, keys, expected) in cases {
+        let inputrc = format!("set editing-mode emacs\n{bindings}\nset keymap emacs\n");
+        let bash = run_bash_readline_with_inputrc_file(keys, &inputrc);
+        let rust = run_sushline_harness_with_inputrc(keys, &inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(*expected),
+            "{name}: bash={bash:?}"
+        );
+        assert_eq!(
+            accepted_line(&rust).as_deref(),
+            Some(*expected),
+            "{name}: rust={rust:?}"
+        );
+    }
+}

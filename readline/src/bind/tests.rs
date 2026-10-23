@@ -231,3 +231,60 @@ fn bind_builtin_args_reject_compound_options_that_need_arguments() {
         "-q: option requires an argument"
     );
 }
+
+#[test]
+fn bind_api_emacs_submap_queries_and_mutations_use_relative_sequences() {
+    let mut keymap = KeyMap::emacs_default();
+    let mut vars = Variables::new();
+    let mut api = BindApi::with_config(&mut keymap, &mut vars, &Config::default());
+    api.apply_builtin_args(&["-m", "emacs-meta", r#""a": "META""#])
+        .unwrap();
+    assert_eq!(
+        api.print(BindQuery::PrintMacrosReusable),
+        "\"a\": \"META\"\n"
+    );
+    api.apply_builtin_args(&["-m", "emacs", r#""\ea": "ROOT""#])
+        .unwrap();
+    assert_eq!(
+        api.print(BindQuery::PrintMacrosReusable),
+        "\"\\ea\": \"ROOT\"\n"
+    );
+    api.apply_builtin_args(&["-m", "emacs-meta"]).unwrap();
+    assert_eq!(
+        api.print(BindQuery::PrintMacrosReusable),
+        "\"a\": \"ROOT\"\n"
+    );
+    assert!(api.unbind_key("a").unwrap());
+    assert_eq!(api.print(BindQuery::PrintMacrosReusable), "");
+    api.apply_line(r#""\C-xa": beginning-of-line"#).unwrap();
+    assert!(
+        api.print(BindQuery::QueryFunction("beginning-of-line".into()))
+            .contains(r#""\C-xa""#)
+    );
+    assert!(
+        api.print(BindQuery::PrintReusable)
+            .contains(r#""\C-xa": beginning-of-line"#)
+    );
+    api.unbind_command("beginning-of-line").unwrap();
+    assert_eq!(
+        api.print(BindQuery::QueryFunction("beginning-of-line".into())),
+        "beginning-of-line is not bound to any keys\n"
+    );
+    // Application-command print/remove paths use the same view as macros/functions.
+    api.bind_application_command("z", "app").unwrap();
+    assert_eq!(
+        api.print(BindQuery::PrintApplicationCommandsReusable),
+        "\"z\" \"app\"\n"
+    );
+    api.apply_builtin_args(&["-m", "emacs"]).unwrap();
+    assert!(api.unbind_application_command(r#""\ez""#).unwrap());
+    api.apply_builtin_args(&["-m", "emacs-ctlx", r#""a": "CTLX""#])
+        .unwrap();
+    assert_eq!(
+        api.print(BindQuery::PrintMacrosReusable),
+        "\"a\": \"CTLX\"\n"
+    );
+    api.apply_builtin_args(&["-m", "emacs", "-r", r#""\C-xa""#])
+        .unwrap();
+    assert_eq!(api.print(BindQuery::PrintMacrosReusable), "");
+}

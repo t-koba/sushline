@@ -54,6 +54,23 @@ impl KeyMapName {
         }
     }
 
+    // Named Emacs submaps are views into the one standard-map binding store.
+    fn storage(self) -> (Self, &'static [u8]) {
+        match self.canonical() {
+            Self::EmacsMeta => (Self::EmacsStandard, b"\x1b"),
+            Self::EmacsCtlx => (Self::EmacsStandard, b"\x18"),
+            map => (map, b""),
+        }
+    }
+
+    fn storage_key(self, key: &[u8]) -> (Self, KeySequence) {
+        let (map, prefix) = self.storage();
+        let mut bytes = Vec::with_capacity(prefix.len() + key.len());
+        bytes.extend_from_slice(prefix);
+        bytes.extend_from_slice(key);
+        (map, KeySequence::new(bytes))
+    }
+
     /// As str.
     pub fn as_str(self) -> &'static str {
         match self {
@@ -445,7 +462,11 @@ pub enum KeyBinding {
 }
 
 #[derive(Debug, Clone)]
-/// KeyMap.
+/// Key bindings with named Emacs submap views.
+///
+/// `EmacsMeta` and `EmacsCtlx` address standard-map bindings after an ESC or
+/// C-x prefix. Binding, querying, or removing through either view changes the
+/// same binding; user-override protection also uses that single identity.
 pub struct KeyMap {
     maps: BTreeMap<KeyMapName, BTreeMap<KeySequence, KeyBinding>>,
     current: KeyMapName,
@@ -471,7 +492,7 @@ impl KeyMap {
     /// Set current.
     pub fn set_current(&mut self, name: KeyMapName) {
         self.current = name.canonical();
-        self.maps.entry(self.current).or_default();
+        self.maps.entry(self.current.storage().0).or_default();
     }
 
     /// Bind.
@@ -479,10 +500,8 @@ impl KeyMap {
     /// Low-level binding used for built-in defaults and terminal-special
     /// refreshes; it does not mark the key as an explicit user override.
     pub fn bind(&mut self, map: KeyMapName, key: KeySequence, binding: KeyBinding) {
-        self.maps
-            .entry(map.canonical())
-            .or_default()
-            .insert(key, binding);
+        let (map, key) = map.storage_key(key.bytes());
+        self.maps.entry(map).or_default().insert(key, binding);
     }
 
     /// Bind user.
@@ -490,7 +509,7 @@ impl KeyMap {
     /// Explicit user binding from inputrc or the bind API. The key is
     /// remembered per map so terminal-special refreshes preserve it.
     pub(crate) fn bind_user(&mut self, map: KeyMapName, key: KeySequence, binding: KeyBinding) {
-        self.user_keys.insert((map.canonical(), key.clone()));
+        self.user_keys.insert(map.storage_key(key.bytes()));
         self.bind(map, key, binding);
     }
 
@@ -498,35 +517,45 @@ impl KeyMap {
     ///
     /// Whether the key was explicitly bound or unbound by the user in this map.
     pub(crate) fn is_user_binding(&self, map: KeyMapName, key: &KeySequence) -> bool {
-        self.user_keys.contains(&(map.canonical(), key.clone()))
+        self.user_keys.contains(&map.storage_key(key.bytes()))
     }
 
     /// Lookup.
     pub fn lookup(&self, map: KeyMapName, key: &[u8]) -> Option<&KeyBinding> {
-        self.maps
-            .get(&map.canonical())
-            .and_then(|m| m.get(&KeySequence::new(key.to_vec())))
+        let (map, key) = map.storage_key(key);
+        self.maps.get(&map).and_then(|m| m.get(&key))
     }
 
     /// Has prefix.
     pub fn has_prefix(&self, map: KeyMapName, prefix: &[u8]) -> bool {
-        self.maps.get(&map.canonical()).is_some_and(|m| {
-            m.keys()
-                .any(|seq| seq.bytes().len() > prefix.len() && seq.bytes().starts_with(prefix))
+        let (map, prefix) = map.storage_key(prefix);
+        self.maps.get(&map).is_some_and(|m| {
+            m.keys().any(|seq| {
+                seq.bytes().len() > prefix.bytes().len() && seq.bytes().starts_with(prefix.bytes())
+            })
         })
     }
 
-    /// Longest matching prefix.
+    /// Longest matching nonempty prefix, with a length relative to the requested map.
+    /// An empty binding (including a submap root fallback) consumes no input
+    /// and is never returned.
     pub fn longest_matching_prefix(
         &self,
         map: KeyMapName,
         bytes: &[u8],
     ) -> Option<(usize, &KeyBinding)> {
-        self.maps.get(&map.canonical()).and_then(|m| {
-            m.iter()
-                .filter(|(seq, _)| bytes.starts_with(seq.bytes()))
+        let (storage, prefix) = map.storage();
+        let (_, bytes) = map.storage_key(bytes);
+        self.maps.get(&storage).and_then(|bindings| {
+            bindings
+                .iter()
+                .filter(|(seq, _)| {
+                    seq.bytes().len() > prefix.len()
+                        && seq.bytes().starts_with(prefix)
+                        && bytes.bytes().starts_with(seq.bytes())
+                })
                 .max_by_key(|(seq, _)| seq.bytes().len())
-                .map(|(seq, binding)| (seq.bytes().len(), binding))
+                .map(|(seq, binding)| (seq.bytes().len() - prefix.len(), binding))
         })
     }
 
@@ -560,19 +589,15 @@ impl KeyMap {
         map: KeyMapName,
         command: &str,
     ) -> Vec<KeySequence> {
-        self.maps
-            .get(&map.canonical())
-            .into_iter()
-            .flat_map(|bindings| {
-                bindings.iter().filter_map(|(seq, binding)| match binding {
-                    KeyBinding::Command(bound) if command_name_matches(bound.as_str(), command) => {
-                        Some(seq.clone())
-                    }
-                    KeyBinding::NamedCommand(bound) if command_name_matches(bound, command) => {
-                        Some(seq.clone())
-                    }
-                    _ => None,
-                })
+        self.iter_map(map)
+            .filter_map(|(_, seq, binding)| match binding {
+                KeyBinding::Command(bound) if command_name_matches(bound.as_str(), command) => {
+                    Some(seq)
+                }
+                KeyBinding::NamedCommand(bound) if command_name_matches(bound, command) => {
+                    Some(seq)
+                }
+                _ => None,
             })
             .collect()
     }
@@ -582,10 +607,11 @@ impl KeyMap {
     /// Explicit user removal; the key stays protected from terminal-special
     /// refreshes even when no binding existed.
     pub fn unbind_key(&mut self, map: KeyMapName, key: &KeySequence) -> Option<KeyBinding> {
-        self.user_keys.insert((map.canonical(), key.clone()));
+        self.user_keys.insert(map.storage_key(key.bytes()));
+        let (map, key) = map.storage_key(key.bytes());
         self.maps
-            .get_mut(&map.canonical())
-            .and_then(|bindings| bindings.remove(key))
+            .get_mut(&map)
+            .and_then(|bindings| bindings.remove(&key))
     }
 
     /// Unbind command.
@@ -623,29 +649,11 @@ impl KeyMap {
     /// Explicit user removal; removed keys stay protected from
     /// terminal-special refreshes.
     pub fn unbind_command_in_map(&mut self, map: KeyMapName, command: &str) -> usize {
-        let canonical = map.canonical();
-        let Some(bindings) = self.maps.get_mut(&canonical) else {
-            return 0;
-        };
-        let removed_here: Vec<KeySequence> = bindings
-            .iter()
-            .filter(|(_, binding)| match binding {
-                KeyBinding::Command(bound) => command_name_matches(bound.as_str(), command),
-                KeyBinding::NamedCommand(bound) => command_name_matches(bound, command),
-                _ => false,
-            })
-            .map(|(seq, _)| seq.clone())
-            .collect();
-        for seq in removed_here {
-            self.user_keys.insert((canonical, seq));
+        let keys = self.bindings_for_command_name_in_map(map, command);
+        for key in &keys {
+            self.unbind_key(map, key);
         }
-        let before = bindings.len();
-        bindings.retain(|_, binding| match binding {
-            KeyBinding::Command(bound) => !command_name_matches(bound.as_str(), command),
-            KeyBinding::NamedCommand(bound) => !command_name_matches(bound, command),
-            _ => true,
-        });
-        before - bindings.len()
+        keys.len()
     }
 
     /// Iter.
@@ -657,17 +665,25 @@ impl KeyMap {
         })
     }
 
-    /// Iter map.
+    /// Iterate a map view. Submap sequences are relative to their ESC or C-x
+    /// prefix, including an empty sequence for the prefix's own fallback binding.
+    /// The all-map iterator exposes each stored root binding only once.
     pub fn iter_map(
         &self,
         map: KeyMapName,
-    ) -> impl Iterator<Item = (KeyMapName, &KeySequence, &KeyBinding)> {
+    ) -> impl Iterator<Item = (KeyMapName, KeySequence, &KeyBinding)> {
         let map = map.canonical();
-        self.maps.get(&map).into_iter().flat_map(move |bindings| {
-            bindings
-                .iter()
-                .map(move |(seq, binding)| (map, seq, binding))
-        })
+        let (storage, prefix) = map.storage();
+        self.maps
+            .get(&storage)
+            .into_iter()
+            .flat_map(move |bindings| {
+                bindings.iter().filter_map(move |(seq, binding)| {
+                    seq.bytes()
+                        .strip_prefix(prefix)
+                        .map(|bytes| (map, KeySequence::new(bytes.to_vec()), binding))
+                })
+            })
     }
 }
 

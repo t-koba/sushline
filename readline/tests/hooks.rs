@@ -21,10 +21,11 @@ fn line_with_history(
         history.push(*entry);
     }
     let mut line = Editor::new(Config::default(), terminal, history);
+    // Use a dedicated nonprefix key for expansion so default C-x submaps stay unrelated.
     line.load_inputrc_str(
         r#"
 "\C-o": history-expand-line
-"\C-x": shell-expand-line
+"\C-]": shell-expand-line
 "\C-y": yank-last-arg
 "\C-f": shell-forward-word
         "#,
@@ -91,7 +92,7 @@ fn expand_line_receives_context_and_can_set_point() {
     let result = line_with_history(
         vec![
             TerminalEvent::Bytes(b"abcd".to_vec()),
-            TerminalEvent::Bytes(vec![0x02, 0x02, 0x18]),
+            TerminalEvent::Bytes(vec![0x02, 0x02, 0x1d]),
             TerminalEvent::Bytes(b"!\r".to_vec()),
         ],
         &[],

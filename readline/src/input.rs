@@ -435,8 +435,7 @@ where
         // GNU `rl_insert_text` groups only single-byte inserts: buffer an
         // incomplete UTF-8 lead across events (like a keymap prefix) while it
         // takes the default SelfInsert path, so torn reads assemble into one
-        // insert before undo grouping; exact and custom bindings still fire
-        // at once, ahead of keymap-prefix buffering.
+        // insert before undo grouping; complete bindings dispatch below.
         if is_incomplete_utf8_prefix(&pending)
             && matches!(
                 self.keymap.lookup(self.keymap.current(), &pending[..1]),
@@ -447,14 +446,17 @@ where
             return Ok(EditorOutcome::Continue);
         }
 
-        if let Some(binding) = self.keymap.lookup(self.keymap.current(), &pending).cloned() {
-            state.input.prefix_meta_command_len = 0;
-            return self.apply_binding(state, binding, &pending, hooks);
-        }
-
+        // A binding on a prefix is the fallback, not a replacement for its
+        // submap. In particular, a direct ESC/C-x binding must not disconnect
+        // explicit emacs-meta/emacs-ctlx bindings.
         if self.keymap.has_prefix(self.keymap.current(), &pending) {
             state.input.pending_key = pending;
             return Ok(EditorOutcome::Continue);
+        }
+
+        if let Some(binding) = self.keymap.lookup(self.keymap.current(), &pending).cloned() {
+            state.input.prefix_meta_command_len = 0;
+            return self.apply_binding(state, binding, &pending, hooks);
         }
 
         if let Some((len, binding)) = self

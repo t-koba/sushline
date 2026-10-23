@@ -8,8 +8,6 @@ impl KeyMap {
         };
         for name in [
             KeyMapName::EmacsStandard,
-            KeyMapName::EmacsMeta,
-            KeyMapName::EmacsCtlx,
             KeyMapName::ViCommand,
             KeyMapName::ViInsert,
         ] {

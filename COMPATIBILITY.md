@@ -375,6 +375,24 @@ than stale defaults. With stored `comment-begin` equal to `a`, RHS `a b`,
 neither RHS `a b` nor `"a b"` matches. These are finite tokenization and
 stored-multiword controls, not a general shell-state compatibility claim.
 
+Legacy inputrc `mode=` and `term=` tests have a separate, finite twelve-case
+Bash 5.3-hosted PTY comparison, not a standalone pinned-library measurement.
+With editing mode `emacs` and `TERM=xterm-256-color`, `term=xterm`,
+`term=xterm-256-color`, `TERM=xterm`, `mode=emacs`, and `mode=EMACS` match;
+`term=xterm-256`, `term==xterm`, `term!=vt100`, `term = xterm`, `mode==emacs`,
+`mode!=vi`, and `mode = emacs` do not. These legacy tests use compact single
+`=` syntax rather than general variable-comparison operators. Terminal tests
+match the full name or the base before its first hyphen, not an arbitrary
+hyphen-separated prefix. Additional bounded Bash 5.3 `bind -f` observations
+show `term=XTERM-256-COLOR`, `term=xterm trailing`, and `mode=emacs trailing`
+matching, but `term= xterm` and `mode= emacs` not matching: comparison folds
+ASCII case and stops at the first RHS whitespace without skipping leading
+whitespace. Local tests also check that `mode=` follows earlier inputrc
+editing-mode mutations instead of configuration defaults. Tests:
+[`oracle/inputrc.rs`](readline/tests/oracle/inputrc.rs),
+[`inputrc/tests.rs`](readline/src/inputrc/tests.rs). General variable and
+version comparisons keep their separate syntax and semantics described above.
+
 Numeric inputrc storage is covered by twenty finite Bash 5.3-hosted Readline
 fixtures (five settings, four spellings each), not a standalone pinned 8.3
 library comparison. For `completion-display-width`,

@@ -1239,6 +1239,52 @@ fn bash_and_sushline_abort_discards_nested_inputrc_macro_expansions() {
 }
 
 #[test]
+fn bash_readline_and_sushline_use_legacy_mode_and_term_condition_syntax() {
+    // One PTY pair, with TERM preserved explicitly instead of the usual
+    // xterm-256color override. Distinct C-x a/b leaves avoid default bindings.
+    let cases = [
+        ("term=xterm", true),
+        ("term=xterm-256-color", true),
+        ("TERM=xterm", true),
+        ("mode=emacs", true),
+        ("mode=EMACS", true),
+        ("term=xterm-256", false),
+        ("term==xterm", false),
+        ("term!=vt100", false),
+        ("term = xterm", false),
+        ("mode==emacs", false),
+        ("mode!=vi", false),
+        ("mode = emacs", false),
+    ];
+    let mut inputrc = String::from("set editing-mode emacs\n");
+    let mut keys = Vec::new();
+    let mut expected = String::new();
+    for (index, (condition, matched)) in cases.iter().enumerate() {
+        let prefix = if *matched { b'a' } else { b'b' };
+        let leaf = b'a' + index as u8;
+        let sequence = format!("\\C-x{}{}", char::from(prefix), char::from(leaf));
+        inputrc.push_str(&format!(
+            "$if {condition}\n\"{sequence}\": \"{index}T\"\n$else\n\"{sequence}\": \"{index}F\"\n$endif\n",
+        ));
+        keys.extend_from_slice(&[0x18, prefix, leaf]);
+        expected.push_str(&format!("{index}{}", if *matched { 'T' } else { 'F' }));
+    }
+    keys.push(b'\r');
+    let bash = run_bash_readline_with_term(&keys, &inputrc, Some("xterm-256-color"));
+    let sushline = run_sushline_harness_with_term(&keys, &inputrc, Some("xterm-256-color"));
+    assert_eq!(
+        accepted_line(&bash).as_deref(),
+        Some(expected.as_str()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline).as_deref(),
+        Some(expected.as_str()),
+        "{sushline}"
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_compare_inputrc_variable_strings() {
     // One PTY pair covers both branches without a launch per comparison.
     let cases = [

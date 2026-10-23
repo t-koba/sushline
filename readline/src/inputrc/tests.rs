@@ -947,6 +947,7 @@ fn variable_conditions_compare_raw_case_insensitive_strings() {
                 &variables,
                 KeyMapName::EmacsStandard,
                 "8.3",
+                None,
             ),
             expected,
             "{condition}",
@@ -959,6 +960,7 @@ fn variable_conditions_compare_raw_case_insensitive_strings() {
         &variables,
         KeyMapName::EmacsStandard,
         "8.3",
+        None,
     ));
 }
 
@@ -993,6 +995,7 @@ fn variable_conditions_compare_only_the_first_rhs_token() {
                         &variables,
                         KeyMapName::EmacsStandard,
                         "8.3",
+                        None,
                     ),
                     if op == "!=" { !matched } else { matched },
                     "stored={stored:?}, {condition}",
@@ -1016,6 +1019,7 @@ fn variable_conditions_follow_mode_and_binding_target_not_stale_defaults() {
             &variables,
             KeyMapName::EmacsMeta,
             "8.3",
+            None,
         ));
     }
 }
@@ -1075,4 +1079,99 @@ $endif
         keymap.lookup(KeyMapName::EmacsMeta, &[0x18, b'a']),
         Some(&KeyBinding::Macro(b"right-map".to_vec()))
     );
+}
+
+#[test]
+fn legacy_mode_and_term_conditions_use_compact_assignment_syntax() {
+    let config = Config::default();
+    let keymap = KeyMap::emacs_default();
+    let variables = Variables::default_for_config(&config);
+    // Inject TERM rather than changing process-global state in parallel tests.
+    for (condition, expected) in [
+        ("term=xterm", true),
+        ("term=xterm-256-color", true),
+        ("TERM=xterm", true),
+        ("mode=emacs", true),
+        ("mode=EMACS", true),
+        ("term=xterm-256", false),
+        ("term==xterm", false),
+        ("term!=vt100", false),
+        ("term = xterm", false),
+        ("mode==emacs", false),
+        ("mode!=vi", false),
+        ("mode = emacs", false),
+    ] {
+        assert_eq!(
+            eval_condition(
+                condition,
+                &config,
+                &keymap,
+                &variables,
+                KeyMapName::EmacsStandard,
+                "8.3",
+                Some("xterm-256-color"),
+            ),
+            expected,
+            "{condition}",
+        );
+    }
+}
+
+#[test]
+fn legacy_conditions_preserve_rhs_spacing_and_fold_ascii_case() {
+    let config = Config::default();
+    let keymap = KeyMap::emacs_default();
+    let variables = Variables::default_for_config(&config);
+    // Additional bounded Bash 5.3 bind -f observations, not general comparisons.
+    for (condition, expected) in [
+        ("term=XTERM-256-COLOR", true),
+        ("term= xterm", false),
+        ("term=xterm trailing", true),
+        ("mode= emacs", false),
+        ("mode=emacs trailing", true),
+    ] {
+        assert_eq!(
+            eval_condition(
+                condition,
+                &config,
+                &keymap,
+                &variables,
+                KeyMapName::EmacsStandard,
+                "8.3",
+                Some("xterm-256-color"),
+            ),
+            expected,
+            "{condition}",
+        );
+    }
+}
+
+#[test]
+fn legacy_mode_conditions_follow_inputrc_mutations_not_config_defaults() {
+    let config = Config::default();
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::default_for_config(&config);
+    InputrcParser::new()
+        .parse_str(
+            r#"
+set editing-mode vi
+$if mode=VI
+  set completion-query-items 42
+$else
+  set completion-query-items 7
+$endif
+set editing-mode emacs
+$if mode=EMACS
+  set completion-display-width 123
+$else
+  set completion-display-width 7
+$endif
+"#,
+            &config,
+            &mut keymap,
+            &mut variables,
+        )
+        .unwrap();
+    assert_eq!(variables["completion-query-items"], "42");
+    assert_eq!(variables["completion-display-width"], "123");
 }

@@ -210,6 +210,7 @@ impl InputrcParser {
                             ctx.variables,
                             *ctx.binding_map,
                             self.readline_version.as_str(),
+                            std::env::var("TERM").ok().as_deref(),
                         );
                         let parent = *active_stack.last().unwrap_or(&true);
                         condition_stack.push(matched);
@@ -595,10 +596,35 @@ fn eval_condition(
     variables: &Variables,
     binding_map: KeyMapName,
     readline_version: &str,
+    terminal_name: Option<&str>,
 ) -> bool {
     let cond = cond.trim();
     if cond.eq_ignore_ascii_case(&config.application_name) {
         return true;
+    }
+    // Legacy mode=/term= tests are compact assignments, not the general
+    // comparison grammar. Preserve leading RHS whitespace (an empty token),
+    // and ignore text after the first token, as the Bash-hosted fixtures do.
+    if let Some((name, rhs)) = cond.split_once('=')
+        && !rhs.starts_with('=')
+    {
+        let expected = rhs
+            .split(|c: char| c.is_ascii_whitespace())
+            .next()
+            .unwrap_or("");
+        if name.eq_ignore_ascii_case("mode") {
+            return match keymap.current() {
+                KeyMapName::ViCommand | KeyMapName::ViInsert => expected.eq_ignore_ascii_case("vi"),
+                KeyMapName::EmacsStandard => expected.eq_ignore_ascii_case("emacs"),
+                _ => false,
+            };
+        }
+        if name.eq_ignore_ascii_case("term") {
+            return terminal_name.is_some_and(|value| {
+                let base = value.split_once('-').map_or(value, |(base, _)| base);
+                value.eq_ignore_ascii_case(expected) || base.eq_ignore_ascii_case(expected)
+            });
+        }
     }
     if let Some((op, lhs, rhs)) = parse_condition_comparison(cond) {
         let name = lhs.trim().to_ascii_lowercase();
@@ -607,33 +633,8 @@ fn eval_condition(
             let ordering = compare_versions(readline_version, expected);
             return comparison_matches(ordering, op);
         }
-        if name == "term" {
-            if !matches!(op, "=" | "==" | "!=") {
-                return false;
-            }
-            return std::env::var("TERM")
-                .map(|value| {
-                    let matched = value == expected || value.starts_with(&format!("{expected}-"));
-                    if op == "!=" { !matched } else { matched }
-                })
-                .unwrap_or(false);
-        }
-        if name == "mode" {
-            if !matches!(op, "=" | "==" | "!=") {
-                return false;
-            }
-            let matched = match expected {
-                "vi" => matches!(
-                    keymap.current(),
-                    KeyMapName::ViCommand | KeyMapName::ViInsert
-                ),
-                "emacs" => matches!(keymap.current(), KeyMapName::EmacsStandard),
-                _ => false,
-            };
-            return if op == "!=" { !matched } else { matched };
-        }
-        // Variable tests require a separate name token, unlike mode=emacs
-        // and the other special conditions above. Values are strings, not
+        // Variable tests require a separate name token, unlike mode=emacs.
+        // Values are strings, not
         // inputrc `set` values: use only the first ASCII-whitespace-delimited
         // RHS token, without unquoting or coercion.
         if !lhs.ends_with(char::is_whitespace)

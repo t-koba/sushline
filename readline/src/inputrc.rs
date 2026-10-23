@@ -772,9 +772,6 @@ fn is_quoted(value: &str) -> bool {
 
 fn normalize_variable_value(name: &str, value: &str) -> Option<String> {
     let value = value.trim();
-    if name == "history-size" && value.parse::<isize>().is_err() {
-        return Some("0".to_string());
-    }
     if matches!(
         name,
         "completion-display-width"
@@ -783,10 +780,14 @@ fn normalize_variable_value(name: &str, value: &str) -> Option<String> {
             | "history-size"
             | "keyseq-timeout"
     ) {
-        if value.parse::<isize>().is_ok() {
-            return Some(value.to_string());
+        let mut number = value.parse::<isize>().unwrap_or(0);
+        if matches!(
+            name,
+            "completion-prefix-display-length" | "completion-query-items" | "keyseq-timeout"
+        ) {
+            number = number.max(0);
         }
-        return Some("0".to_string());
+        return Some(number.to_string());
     }
     if name == "editing-mode" {
         return canonical_editing_mode(unquote_set_value(value)).map(str::to_string);

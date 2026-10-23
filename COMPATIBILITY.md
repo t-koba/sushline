@@ -374,6 +374,20 @@ than stale defaults. With stored `comment-begin` equal to `a`, RHS `a b`,
 neither RHS `a b` nor `"a b"` matches. These are finite tokenization and
 stored-multiword controls, not a general shell-state compatibility claim.
 
+Numeric inputrc storage is covered by twenty finite Bash 5.3-hosted Readline
+fixtures (five settings, four spellings each), not a standalone pinned 8.3
+library comparison. For `completion-display-width`,
+`completion-prefix-display-length`, `completion-query-items`, `history-size`,
+and `keyseq-timeout`, setting `100`, `0100`, or `+100` stores the canonical
+string `100`. Setting `-1` stores `-1` for display width and history size,
+and `0` for prefix display length, query items, and key-sequence timeout.
+The paired [`oracle/inputrc.rs`](readline/tests/oracle/inputrc.rs) fixtures
+observe these stored strings through equality conditions, including that
+RHS `0100` and `+100` do not match after setting `0100`: storage is normalized,
+not the comparison operands. Local [`inputrc/tests.rs`](readline/src/inputrc/tests.rs)
+also retain the existing invalid/overflow-to-zero parsing behavior and
+nonnumeric string values; these are not broader GNU parsing/range claims.
+
 ## History Expansion API
 
 | Feature | Status | Notes |

@@ -53,6 +53,64 @@ fn accepts_the_set_values_gnu_readline_accepts() {
 }
 
 #[test]
+fn numeric_set_values_store_canonical_strings() {
+    // Twenty measured Bash-hosted Readline cases: four spellings per setting.
+    for (name, negative) in [
+        ("completion-display-width", "-1"),
+        ("completion-prefix-display-length", "0"),
+        ("completion-query-items", "0"),
+        ("history-size", "-1"),
+        ("keyseq-timeout", "0"),
+    ] {
+        for (value, expected) in [
+            ("100", "100"),
+            ("0100", "100"),
+            ("+100", "100"),
+            ("-1", negative),
+        ] {
+            let mut keymap = KeyMap::emacs_default();
+            let mut variables = Variables::new();
+            let diagnostics = InputrcParser::new()
+                .parse_str(
+                    &format!("set {name} {value}\n"),
+                    &Config::default(),
+                    &mut keymap,
+                    &mut variables,
+                )
+                .unwrap();
+            assert!(diagnostics.is_empty(), "{name} {value}: {diagnostics:?}");
+            assert_eq!(variables[name], expected, "set {name} {value}");
+            assert_eq!(
+                variables.get_bytes(name).map(Vec::as_slice),
+                Some(expected.as_bytes()),
+            );
+        }
+    }
+}
+
+#[test]
+fn numeric_set_normalization_preserves_parse_failures_and_nonnumeric_values() {
+    for name in [
+        "completion-display-width",
+        "completion-prefix-display-length",
+        "completion-query-items",
+        "history-size",
+        "keyseq-timeout",
+    ] {
+        // Preserve the existing isize parse grammar and invalid/overflow fallback.
+        for value in ["many", "9999999999999999999999999999999999999999"] {
+            assert_eq!(normalize_variable_value(name, value).as_deref(), Some("0"));
+        }
+    }
+    for value in ["0100", "+100", "-1", "a b"] {
+        assert_eq!(
+            normalize_variable_value("comment-begin", value).as_deref(),
+            Some(value),
+        );
+    }
+}
+
+#[test]
 fn unquotes_set_values_like_gnu_readline() {
     let mut keymap = KeyMap::emacs_default();
     let mut variables = Variables::new();

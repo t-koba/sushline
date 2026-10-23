@@ -1299,6 +1299,57 @@ fn bash_readline_and_sushline_compare_inputrc_variable_strings() {
 }
 
 #[test]
+fn bash_readline_and_sushline_canonicalize_numeric_inputrc_storage() {
+    // One PTY pair observes all twenty set fixtures through string conditions.
+    // Use only the unbound C-x a/b prefixes, with at most 26 leaves per prefix.
+    let mut inputrc = String::from("set editing-mode emacs\n");
+    let mut keys = Vec::new();
+    let mut expected = String::new();
+    for (group, (name, negative)) in [
+        ("completion-display-width", "-1"),
+        ("completion-prefix-display-length", "0"),
+        ("completion-query-items", "0"),
+        ("history-size", "-1"),
+        ("keyseq-timeout", "0"),
+    ]
+    .iter()
+    .enumerate()
+    {
+        for (index, (value, rhs, matched)) in [
+            ("100", "100", true),
+            ("0100", "100", true),
+            ("0100", "0100", false),
+            ("0100", "+100", false),
+            ("+100", "100", true),
+            ("-1", *negative, true),
+            ("-1", if *negative == "0" { "-1" } else { "0" }, false),
+        ]
+        .iter()
+        .enumerate()
+        {
+            let binding = group * 7 + index;
+            let prefix = char::from(b'a' + (binding / 26) as u8);
+            let key = char::from(b'a' + (binding % 26) as u8);
+            inputrc.push_str(&format!(
+                "set {name} {value}\n$if {name} == {rhs}\n\"\\C-x{prefix}{key}\": \"T\"\n$else\n\"\\C-x{prefix}{key}\": \"F\"\n$endif\n",
+            ));
+            keys.extend_from_slice(&[0x18, prefix as u8, key as u8]);
+            expected.push(if *matched { 'T' } else { 'F' });
+        }
+    }
+    keys.push(b'\r');
+    let bash = run_bash_readline_with_inputrc_file(&keys, &inputrc);
+    let sushline = run_sushline_harness_with_inputrc(&keys, &inputrc);
+    for output in [&bash, &sushline] {
+        assert_eq!(
+            accepted_line(output).as_deref(),
+            Some(expected.as_str()),
+            "{output}",
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_tokenize_inputrc_variable_rhs() {
     // One PTY pair checks single-token and quoted multiword stored values.
     let mut inputrc = String::from("set editing-mode emacs\n");

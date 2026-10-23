@@ -678,6 +678,103 @@ jobs:
           grep -qx 'forwards_from_first: 2' /tmp/history_position.out
           grep -qx 'from_first: 0' /tmp/history_position.out
           grep -qx 'from_second: 2' /tmp/history_position.out
+      - name: Measure the pinned release's history expansion
+        run: |
+          set -euo pipefail
+          readline="$HOME/.cache/sushline/readline-oracle"
+          # Measurement-only probe against the pinned history library: the
+          # fixtures mirror `history_expansion_answers_match_the_measured_c_library`
+          # and the quick-substitution suffix shape in
+          # `quick_substitution_processes_suffix_modifiers_and_further_expansion`.
+          # The probe prints the 8.3 library's answer per fixture as a stable
+          # label, the `history_expand` return status and the output bytes in
+          # hex, so quoting and errors stay unambiguous. The output is an 8.3
+          # measurement pending comparison to the Rust expansion, not a check:
+          # no value inferred from History 8.2 is asserted here. It compares
+          # library semantics only and claims neither Bash builtin nor public
+          # C ABI compatibility.
+          cat > /tmp/history_expand_probe.c <<'PROBE'
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <string.h>
+          #include <readline/history.h>
+
+          static void run(const char *label, const char *input) {
+              clear_history();
+              add_history("echo previous");
+              add_history("echo a b");
+              add_history("echo a b");
+              char *in = strdup(input);
+              if (in == NULL) {
+                  printf("%s: status=dup-failed output_hex=(null)\n", label);
+                  return;
+              }
+              char *output = NULL;
+              int status = history_expand(in, &output);
+              printf("%s: status=%d output_hex=", label, status);
+              if (output != NULL) {
+                  for (const unsigned char *p = (const unsigned char *)output; *p; p++) {
+                      printf("%02x", *p);
+                  }
+              } else {
+                  printf("(null)");
+              }
+              printf("\n");
+              fflush(stdout);
+              free(in);
+              free(output);
+          }
+
+          int main(void) {
+              using_history();
+              run("event_bang_bang", "!!");
+              run("last_word", "!$");
+              run("word_zero", "!:0");
+              run("quote_modifier", "!!:q");
+              run("quote_each", "!!:x");
+              run("substitute", "!!:s/b/B/");
+              run("relative", "!-2");
+              run("quick_suffix", "^a^A^ trailing");
+              run("unknown_modifier", "!!:u");
+              run("missing_event", "!nonexistent");
+              return 0;
+          }
+          PROBE
+          # The probe calls the history library, which the release ships as
+          # its own library beside the readline one, so the link names it
+          # when the pinned build produced one, and the loader is asked
+          # which library answered the calls. The runpath is written as the
+          # older DT_RPATH, which a dependency inherits, so the pinned
+          # readline library's own history dependency is resolved inside
+          # the prefix and not from the image.
+          history_libraries=(-lreadline)
+          if [ -e "$readline/lib/libhistory.so" ]; then
+            history_libraries+=(-lhistory)
+          fi
+          cc -o /tmp/history_expand_probe /tmp/history_expand_probe.c \
+            -I"$readline/include" -L"$readline/lib" \
+            -Wl,--no-as-needed -Wl,--disable-new-dtags -Wl,-rpath,"$readline/lib" \
+            "${history_libraries[@]}"
+          # The probe has to link the pinned release, not the image's
+          # library, or the measurement repeats an observation made
+          # elsewhere. The loader's report has to name the pinned prefix
+          # for the libraries that carry the history code, and to name
+          # nothing else for them either, so a call answered by the image's
+          # history library stops the job.
+          loader_report=$(env -u SHELLOPTS ldd /tmp/history_expand_probe)
+          echo "$loader_report"
+          history_libraries_in_report=$(printf '%s\n' "$loader_report" | grep -E 'lib(readline|history)' || true)
+          if [ -z "$history_libraries_in_report" ]; then
+            echo "the expansion probe loaded no readline or history library" >&2
+            exit 1
+          fi
+          if printf '%s\n' "$history_libraries_in_report" | grep -v -F "$readline/lib/" > /dev/null; then
+            echo "the expansion probe loaded a readline or history library outside the pinned prefix" >&2
+            exit 1
+          fi
+          # Measurement only: record the pinned library's answers without
+          # asserting values inferred from History 8.2.
+          /tmp/history_expand_probe | tee /tmp/history_expand.out
       - name: Run the oracle suite
         run: |
           set -euo pipefail

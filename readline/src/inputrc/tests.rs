@@ -841,3 +841,140 @@ fn set_keyword_accepts_case_insensitive_whitespace_runs() {
         assert_eq!(variables["bell-style"], "none", "line {line:?}");
     }
 }
+
+#[test]
+fn variable_conditions_compare_raw_case_insensitive_strings() {
+    let config = Config::default();
+    let keymap = KeyMap::emacs_default();
+    let mut variables = Variables::default_for_config(&config);
+    variables.insert("completion-ignore-case".into(), "off".into());
+    variables.insert("completion-query-items".into(), "100".into());
+    variables.insert("comment-begin".into(), "a!=b>=c".into());
+    // Arbitrary embedder entries are not Readline variables.
+    variables.insert("unknown-variable".into(), "off".into());
+    for (condition, expected) in [
+        ("editing-mode == emacs", true),
+        ("editing-mode != vi", true),
+        ("EDITING-MODE == EMACS", true),
+        ("editing-mode = emacs", true),
+        ("editing-mode\t==emacs", true),
+        ("editing-mode==emacs", false),
+        ("editing-mode > emacs", false),
+        ("editing-mode == \"emacs\"", false),
+        ("completion-ignore-case == off", true),
+        ("COMPLETION-IGNORE-CASE == OFF", true),
+        ("completion-ignore-case == on", false),
+        ("completion-ignore-case != on", true),
+        ("completion-ignore-case == 0", false),
+        ("completion-ignore-case == false", false),
+        ("completion-ignore-case == nonsense", false),
+        ("completion-ignore-case == \"off\"", false),
+        ("unknown-variable == off", false),
+        ("unknown-variable != on", false),
+        ("completion-query-items == 100", true),
+        ("completion-query-items == 0100", false),
+        ("completion-query-items != 0100", true),
+        ("comment-begin = a!=b>=c", true),
+        ("comment-begin == a!=b>=c", true),
+        ("comment-begin != a!=b>=c", false),
+        ("mode=emacs", true),
+        ("mode > vi", false),
+        ("version>=8.3", true),
+    ] {
+        assert_eq!(
+            eval_condition(
+                condition,
+                &config,
+                &keymap,
+                &variables,
+                KeyMapName::EmacsStandard,
+                "8.3",
+            ),
+            expected,
+            "{condition}",
+        );
+    }
+    assert!(eval_condition(
+        &config.application_name,
+        &config,
+        &keymap,
+        &variables,
+        KeyMapName::EmacsStandard,
+        "8.3",
+    ));
+}
+
+#[test]
+fn variable_conditions_follow_mode_and_binding_target_not_stale_defaults() {
+    let config = Config::default();
+    let mut keymap = KeyMap::emacs_default();
+    let variables = Variables::default_for_config(&config);
+    keymap.set_current(KeyMapName::ViCommand);
+    for condition in ["editing-mode == vi", "keymap == emacs-meta"] {
+        assert!(eval_condition(
+            condition,
+            &config,
+            &keymap,
+            &variables,
+            KeyMapName::EmacsMeta,
+            "8.3",
+        ));
+    }
+}
+
+#[test]
+fn variable_conditions_see_earlier_sets_and_respect_nested_else() {
+    let config = Config::default();
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::default_for_config(&config);
+    let diagnostics = InputrcParser::new()
+        .parse_str(
+            r#"
+set completion-ignore-case off
+$if completion-ignore-case == off
+  set completion-ignore-case on
+  $if completion-ignore-case == off
+    set emacs-mode-string wrong-inner
+  $else
+    set emacs-mode-string right-inner
+  $endif
+$else
+  set emacs-mode-string wrong-outer
+  $if completion-ignore-case == on
+    set bell-style none
+  $else
+    set bell-style visible
+  $endif
+$endif
+set editing-mode vi
+$if editing-mode == vi
+  set completion-query-items 42
+$endif
+set editing-mode emacs
+set keymap emacs-meta
+$if keymap == emacs-meta
+  "\C-xa": "right-map"
+$else
+  "\C-xa": "wrong-map"
+$endif
+set comment-begin a!=b>=c
+$if comment-begin = a!=b>=c
+  set completion-display-width 123
+$endif
+"#,
+            &config,
+            &mut keymap,
+            &mut variables,
+        )
+        .unwrap();
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    assert_eq!(variables["completion-ignore-case"], "on");
+    assert_eq!(variables["completion-query-items"], "42");
+    assert_eq!(variables["emacs-mode-string"], "right-inner");
+    assert_eq!(variables["bell-style"], "audible");
+    assert_eq!(variables["completion-display-width"], "123");
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsMeta, &[0x18, b'a']),
+        Some(&KeyBinding::Macro(b"right-map".to_vec()))
+    );
+}

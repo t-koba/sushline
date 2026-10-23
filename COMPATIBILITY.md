@@ -303,7 +303,7 @@ Sushline-only extensions use the `Sushline extension` status.
 | Key bindings by key name or quoted key sequence | Compatible | Functions and macros. Tests: [`oracle/inputrc.rs`](readline/tests/oracle/inputrc.rs). |
 | Recursive inputrc macros | Compatible | Direct and indirect macro cycles discard the recursive suffix with one nesting diagnostic and bell, preserve following input, and accept a later macro. The nesting diagnostic goes to the terminal's diagnostic sink, which the built-in terminal points at standard error like GNU Readline, while a custom backend keeps it in its own output stream. A diagnostic that does not reach the terminal's screen leaves the display untouched, so the redisplay after it starts at the rendered line again. Keyboard-macro replay/count semantics are unchanged. Tests: [`oracle/inputrc.rs`](readline/tests/oracle/inputrc.rs). |
 | Escape sequences `\C-`, `\M-`, `\e`, `\\`, `\"`, `\'`, `\a`, `\b`, `\d`, `\f`, `\n`, `\r`, `\t`, `\v`, octal, hex | Compatible | Decoded through `KeySequence`. Tests: [`oracle/inputrc.rs`](readline/tests/oracle/inputrc.rs). |
-| `$if`, `$else`, `$endif` | Compatible | Mode, term, version and application conditions; arbitrary variable comparisons are inactive. Tests: [`oracle/inputrc.rs`](readline/tests/oracle/inputrc.rs). |
+| `$if`, `$else`, `$endif` | Compatible | Mode, term, version and application conditions, plus library-owned variable string tests with `=`, `==`, and `!=` (see fixture scope below). Unknown names are false even with `!=`; arbitrary shell/application state is not inferred. Tests: [`oracle/inputrc.rs`](readline/tests/oracle/inputrc.rs), [`inputrc/tests.rs`](readline/src/inputrc/tests.rs). |
 | `$include` path rules | Compatible | CWD-relative includes, `~/` expansion via `HOME`, unexpanded literal `$HOME`, and skipping missing includes. Tests: [`oracle/inputrc.rs`](readline/tests/oracle/inputrc.rs). |
 | `~user` and recursive `$include` | Known deviation | Acyclic include chains apply. In an interactive terminal a recursive cycle kills GNU's shell with a segmentation fault (wait status 139) before the first prompt, while Sushline fails the inputrc load with the depth-limit error (`inputrc include depth exceeded`), which the editor records and continues from. `~user` handling uses best-effort pure-Rust lookup and skips without account data when unavailable. Tests: [`oracle/inputrc.rs`](readline/tests/oracle/inputrc.rs), [`inputrc/tests.rs`](readline/src/inputrc/tests.rs). |
 | Unsupported `$` directives | Compatible | Unknown directives ignored. Tests: [`oracle/inputrc.rs`](readline/tests/oracle/inputrc.rs). |
@@ -353,6 +353,21 @@ Sushline-only extensions use the `Sushline extension` status.
 | `search-ignore-case` (editor searches) | Compatible | Readline editor searches use owned-locale lowercase matching for valid UTF-8 in supported UTF-8 locales with ASCII byte folding otherwise. Vi `/` and `?` remain case-sensitive. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs), [`oracle/editing.rs`](readline/tests/oracle/editing.rs), [`state/search.rs`](readline/src/state/search.rs). |
 | `search-ignore-case` (public History byte API) | Sushline extension | The explicit public `History` byte-search API folds ASCII only; it is separate from the editor inputrc variable, which uses locale-aware matching. Tests: [`history.rs`](history/tests/history.rs). |
 | `histchars`, `history-word-delimiters`, `history-no-expand-chars`, `history-quotes-inhibit-expansion` | Sushline extension | These are not GNU Readline variables and inputrc ignores them; `HistoryChars` and `HistoryExpansionPolicy` are explicit Rust API configuration, with GNU defaults. Tests: [`inputrc/tests.rs`](readline/src/inputrc/tests.rs), [`history.rs`](history/tests/history.rs). |
+
+Inputrc variable-test evidence is limited to the finite Bash 5.3-hosted
+Readline PTY fixtures in [`oracle/inputrc.rs`](readline/tests/oracle/inputrc.rs),
+not a standalone pinned GNU Readline 8.3 library comparison. They observe
+ASCII case-insensitive names and raw string values: `editing-mode == EMACS`
+and `COMPLETION-IGNORE-CASE == OFF` match, while quoted `"emacs"`/`"off"`,
+`0`, `false`, and `nonsense` do not match their unquoted mode/`off` values.
+The fixtures cover `=`, `==`, `!=`, unknown-name inequality returning false,
+`100` versus `0100` without numeric coercion, required whitespace before the
+variable operator (`editing-mode==emacs` is false), and unsupported `>`.
+They retain the compact `mode=emacs` and `version>=8.3` controls, exercise
+single-token `comment-begin` values containing operators, and observe earlier
+`set` changes, nested `$else`, editing-mode changes, and an `emacs-meta`
+binding target. Variable tests use current mode/binding-target state rather
+than stale defaults. No multiword-value or shell-state behavior is claimed.
 
 ## History Expansion API
 

@@ -1237,3 +1237,120 @@ fn bash_and_sushline_abort_discards_nested_inputrc_macro_expansions() {
         );
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_compare_inputrc_variable_strings() {
+    // One PTY pair covers both branches without a launch per comparison.
+    let cases = [
+        ("editing-mode == emacs", true),
+        ("editing-mode != vi", true),
+        ("EDITING-MODE == EMACS", true),
+        ("editing-mode = emacs", true),
+        ("editing-mode==emacs", false),
+        ("editing-mode > emacs", false),
+        ("editing-mode == \"emacs\"", false),
+        ("completion-ignore-case == off", true),
+        ("COMPLETION-IGNORE-CASE == OFF", true),
+        ("completion-ignore-case == on", false),
+        ("completion-ignore-case != on", true),
+        ("completion-ignore-case == 0", false),
+        ("completion-ignore-case == false", false),
+        ("completion-ignore-case == nonsense", false),
+        ("completion-ignore-case == \"off\"", false),
+        ("unknown-variable != on", false),
+        ("completion-query-items == 100", true),
+        ("completion-query-items == 0100", false),
+        ("completion-query-items != 0100", true),
+        ("mode=emacs", true),
+        ("version>=8.3", true),
+        ("comment-begin = a!=b>=c", true),
+        ("comment-begin == a!=b>=c", true),
+    ];
+    let mut inputrc = String::from(
+        "set editing-mode emacs\nset completion-ignore-case off\nset completion-query-items 100\nset comment-begin a!=b>=c\n",
+    );
+    let mut keys = Vec::new();
+    let mut expected = String::new();
+    for (index, (condition, matched)) in cases.iter().enumerate() {
+        let key = b'a' + index as u8;
+        inputrc.push_str(&format!(
+            "$if {condition}\n\"\\C-x{}\": \"{index}T\"\n$else\n\"\\C-x{}\": \"{index}F\"\n$endif\n",
+            char::from(key), char::from(key),
+        ));
+        keys.extend_from_slice(&[0x18, key]);
+        expected.push_str(&format!("{index}{}", if *matched { 'T' } else { 'F' }));
+    }
+    keys.push(b'\r');
+    let bash = run_bash_readline_with_inputrc_file(&keys, &inputrc);
+    let sushline = run_sushline_harness_with_inputrc(&keys, &inputrc);
+    assert_eq!(
+        accepted_line(&bash).as_deref(),
+        Some(expected.as_str()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline).as_deref(),
+        Some(expected.as_str()),
+        "{sushline}"
+    );
+}
+
+#[test]
+fn bash_readline_and_sushline_test_changed_inputrc_variable_state() {
+    let inputrc = r#"
+set editing-mode emacs
+set completion-ignore-case off
+$if completion-ignore-case == off
+  "\C-xa": "off"
+$else
+  "\C-xa": "wrong-initial"
+$endif
+set completion-ignore-case on
+$if completion-ignore-case == on
+  $if completion-ignore-case == off
+    "\C-xb": "wrong-inner"
+  $else
+    "\C-xb": "on"
+  $endif
+$else
+  "\C-xb": "wrong-outer"
+$endif
+set editing-mode vi
+$if editing-mode == vi
+  set comment-begin vi
+$else
+  set comment-begin wrong-mode
+$endif
+set editing-mode emacs
+$if comment-begin == vi
+  "\C-xc": "vi"
+$else
+  "\C-xc": "wrong-changed"
+$endif
+set keymap emacs-meta
+$if keymap == emacs-meta
+  set comment-begin meta
+$else
+  set comment-begin wrong-map
+$endif
+set keymap emacs
+$if comment-begin == meta
+  "\C-xd": "meta"
+$else
+  "\C-xd": "wrong-map"
+$endif
+"#;
+    let keys = b"\x18a\x18b\x18c\x18d\r";
+    let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+    assert_eq!(
+        accepted_line(&bash).as_deref(),
+        Some("offonvimeta"),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline).as_deref(),
+        Some("offonvimeta"),
+        "{sushline}"
+    );
+}

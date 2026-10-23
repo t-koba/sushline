@@ -201,9 +201,10 @@ impl InputrcParser {
                 let mut parts = rest.split_whitespace();
                 match parts.next() {
                     Some("if") => {
-                        let cond = parts.collect::<Vec<_>>().join(" ");
+                        // Keep the separation before a variable operator and its raw RHS.
+                        let cond = rest.trim_start()["if".len()..].trim();
                         let matched = eval_condition(
-                            &cond,
+                            cond,
                             ctx.config,
                             ctx.keymap,
                             ctx.variables,
@@ -600,7 +601,7 @@ fn eval_condition(
         return true;
     }
     if let Some((op, lhs, rhs)) = parse_condition_comparison(cond) {
-        let name = lhs.to_ascii_lowercase();
+        let name = lhs.trim().to_ascii_lowercase();
         let expected = rhs.trim();
         if name == "version" {
             let ordering = compare_versions(readline_version, expected);
@@ -631,23 +632,45 @@ fn eval_condition(
             };
             return if op == "!=" { !matched } else { matched };
         }
-        let _ = (variables, binding_map);
+        // Variable tests require a separate name token, unlike mode=emacs
+        // and the other special conditions above. Values are strings, not
+        // inputrc `set` values: do not unquote or coerce them.
+        if !lhs.ends_with(char::is_whitespace)
+            || !matches!(op, "=" | "==" | "!=")
+            || !is_known_set_variable(&name)
+        {
+            return false;
+        }
+        let value = match name.as_str() {
+            "editing-mode" => Some(match keymap.current().canonical() {
+                KeyMapName::ViCommand | KeyMapName::ViInsert => "vi",
+                _ => "emacs",
+            }),
+            "keymap" => Some(match binding_map.canonical() {
+                KeyMapName::EmacsStandard => "emacs",
+                KeyMapName::ViCommand => "vi",
+                map => map.as_str(),
+            }),
+            _ => variables.get(&name).map(String::as_str),
+        };
+        return value.is_some_and(|value| {
+            let matched = value.eq_ignore_ascii_case(expected);
+            if op == "!=" { !matched } else { matched }
+        });
     }
     false
 }
 
 fn parse_condition_comparison(cond: &str) -> Option<(&str, &str, &str)> {
+    // Split at the first operator, never at a higher-priority operator in
+    // the raw value (for example `comment-begin = a!=b`). Preserve whitespace
+    // on the left so variable tests can require a separate name token.
+    let index = cond.find(['<', '>', '=', '!'])?;
+    let (lhs, rest) = cond.split_at(index);
     for op in ["<=", ">=", "==", "!=", "<", ">", "="] {
-        if let Some((lhs, rhs)) = cond.split_once(op) {
-            return Some((op, lhs.trim(), rhs.trim()));
+        if let Some(rhs) = rest.strip_prefix(op) {
+            return Some((op, lhs, rhs.trim()));
         }
-    }
-    let mut parts = cond.split_whitespace();
-    if let (Some(lhs), Some(op), Some(rhs), None) =
-        (parts.next(), parts.next(), parts.next(), parts.next())
-        && matches!(op, "<=" | ">=" | "==" | "!=" | "<" | ">" | "=")
-    {
-        return Some((op, lhs, rhs));
     }
     None
 }

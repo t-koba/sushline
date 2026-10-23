@@ -396,7 +396,7 @@ fn history_search_restores_origin_undo_after_overlay_navigation() {
 
 #[test]
 fn incremental_history_search_keeps_the_edit_when_matching_its_own_entry() {
-    for terminator in [b'\n', b'\x06', b'\r'] {
+    for terminator in *b"\n\x06\r" {
         let keys = [b"\x10\x05 EDIT\x12A".as_slice(), &[terminator], b"\r"].concat();
         let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(keys)]);
         let mut history = History::new();

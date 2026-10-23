@@ -2459,7 +2459,7 @@ fn history_search_preserves_origin_edit_after_overlay_navigation_like_bash() {
 #[test]
 fn incremental_history_search_keeps_the_edit_when_matching_its_own_entry_like_bash() {
     let inputrc = "set revert-all-at-newline off";
-    for terminator in [b'\n', b'\x06', b'\r'] {
+    for terminator in *b"\n\x06\r" {
         let keys = [b"\x10\x05 EDIT\x12A".as_slice(), &[terminator], b"\r"].concat();
         let bash = run_bash_readline_with_inputrc_file_and_history(&keys, inputrc, &["AAA"]);
         let sushline = run_sushline_harness_with_inputrc_and_history(&keys, inputrc, &["AAA"]);

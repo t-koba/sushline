@@ -434,6 +434,8 @@ nonnumeric string values; these are not broader GNU parsing/range claims.
 | Existing quote state | Compatible | `HistoryExpansionPolicy::quote_state`. Tests: [`history.rs`](history/tests/history.rs). |
 | Inhibit-expansion callback | Compatible | Per-call predicate. Tests: [`history.rs`](history/tests/history.rs). |
 
+Lexical word measurement is pending: the CI history-expansion step records bounded pinned-8.3 `history_tokenize`, `history_arg_extract(1, 1, input)`, and seeded-entry `!!:1` expansion output (hex, stable labels) for five extended-glob-shaped prefixes plus nested, quoted, escaped, command-substitution, process-substitution, and arithmetic controls. A local table records current Rust tokenization/extraction/selector baselines only; it does not assert GNU behavior. Pinned results await the normal CI event, and existing Bash 5.3-hosted and installed-8.2-scoped rows above remain separate.
+
 ## Editor History Expansion Commands
 
 The names below are the editor's history expansion commands. `magic-space`,

@@ -814,7 +814,13 @@ jobs:
           # Measurement-only probe against the pinned history library: the
           # fixtures mirror `history_expansion_answers_match_the_measured_c_library`
           # and the quick-substitution suffix shape in
-          # `quick_substitution_processes_suffix_modifiers_and_further_expansion`.
+          # `quick_substitution_processes_suffix_modifiers_and_further_expansion`,
+          # plus bounded lexical word cases for the five extended-glob-shaped
+          # prefixes `@(`, `!(`, `?(`, `+(`, `*(` and nested, quoted, escaped,
+          # command-substitution, process-substitution, and arithmetic
+          # controls. Each lexical case reports `history_tokenize` tokens,
+          # `history_arg_extract(1, 1, input)`, and `!!:1` expansion on the
+          # seeded entry, all as hex.
           # The probe prints the 8.3 library's answer per fixture as a stable
           # label, the `history_expand` return status and the output bytes in
           # hex, so quoting and errors stay unambiguous. The output is an 8.3
@@ -854,6 +860,76 @@ jobs:
               free(output);
           }
 
+          static void print_hex_bytes(const char *s) {
+              if (s == NULL) {
+                  printf("(null)");
+                  return;
+              }
+              for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
+                  printf("%02x", *p);
+              }
+          }
+
+          /* Lexical word measurement only: tokenize, single-word extract,
+             and word-selector expansion on the same seeded entry. Each
+             sub-measurement resets the history first, so cases stay
+             isolated. No value is asserted here; the lines are pinned 8.3
+             runtime evidence pending comparison with the Rust scanner. */
+          static void run_lexical(const char *label, const char *input) {
+              clear_history();
+              char **tokens = history_tokenize(input);
+              printf("%s_tokenize:", label);
+              if (tokens == NULL) {
+                  printf(" (null)\n");
+              } else {
+                  int count = 0;
+                  while (tokens[count] != NULL) {
+                      count++;
+                  }
+                  printf(" count=%d", count);
+                  for (int i = 0; tokens[i] != NULL; i++) {
+                      printf(" [%d]=", i);
+                      print_hex_bytes(tokens[i]);
+                  }
+                  printf("\n");
+                  for (int i = 0; tokens[i] != NULL; i++) {
+                      free(tokens[i]);
+                  }
+                  free(tokens);
+              }
+              fflush(stdout);
+              clear_history();
+              char *word = history_arg_extract(1, 1, input);
+              printf("%s_arg11_hex=", label);
+              if (word != NULL) {
+                  print_hex_bytes(word);
+                  printf("\n");
+                  free(word);
+              } else {
+                  printf("(null)\n");
+              }
+              fflush(stdout);
+              clear_history();
+              add_history(input);
+              char *selector = strdup("!!:1");
+              if (selector == NULL) {
+                  printf("%s_expand11: status=dup-failed output_hex=(null)\n", label);
+                  return;
+              }
+              char *expanded = NULL;
+              int status = history_expand(selector, &expanded);
+              printf("%s_expand11: status=%d output_hex=", label, status);
+              if (expanded != NULL) {
+                  print_hex_bytes(expanded);
+                  printf("\n");
+                  free(expanded);
+              } else {
+                  printf("(null)\n");
+              }
+              fflush(stdout);
+              free(selector);
+          }
+
           int main(void) {
               using_history();
               run("event_bang_bang", "!!");
@@ -866,6 +942,17 @@ jobs:
               run("quick_suffix", "^a^A^ trailing");
               run("unknown_modifier", "!!:u");
               run("missing_event", "!nonexistent");
+              run_lexical("lex_at", "echo @(a b) z");
+              run_lexical("lex_bang", "echo !(a b) z");
+              run_lexical("lex_ques", "echo ?(a b) z");
+              run_lexical("lex_plus", "echo +(a b) z");
+              run_lexical("lex_star", "echo *(a b) z");
+              run_lexical("lex_nested", "echo @((a b) c) z");
+              run_lexical("lex_quoted", "echo '@(a b)' z");
+              run_lexical("lex_escaped", "echo \\@(a b) z");
+              run_lexical("lex_dollar_paren", "echo $(a b) z");
+              run_lexical("lex_process_subst", "echo <(a b) z");
+              run_lexical("lex_arith", "echo $((1 + 2)) z");
               return 0;
           }
           PROBE

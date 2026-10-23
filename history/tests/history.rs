@@ -2527,6 +2527,96 @@ fn history_tokenize_matches_gnu_nested_command_delimiter_scanning() {
 }
 
 #[test]
+fn history_extended_glob_word_selection_baseline_is_recorded_separately() {
+    // These are the Rust scanner's current byte-level baselines for comparison
+    // with the pinned GNU History probe. They are not assertions about GNU
+    // tokenization: the five extended-glob prefixes intentionally remain split
+    // until pinned 8.3 runtime output is available.
+    let policy = HistoryExpansionPolicy::default();
+    type LexicalCase = (&'static [u8], &'static [&'static [u8]], &'static [u8]);
+    let cases: &[LexicalCase] = &[
+        (
+            b"echo @(a b) z",
+            &[b"echo", b"@", b"(", b"a", b"b", b")", b"z"],
+            b"@",
+        ),
+        (
+            b"echo !(a b) z",
+            &[b"echo", b"!", b"(", b"a", b"b", b")", b"z"],
+            b"!",
+        ),
+        (
+            b"echo ?(a b) z",
+            &[b"echo", b"?", b"(", b"a", b"b", b")", b"z"],
+            b"?",
+        ),
+        (
+            b"echo +(a b) z",
+            &[b"echo", b"+", b"(", b"a", b"b", b")", b"z"],
+            b"+",
+        ),
+        (
+            b"echo *(a b) z",
+            &[b"echo", b"*", b"(", b"a", b"b", b")", b"z"],
+            b"*",
+        ),
+        (
+            b"echo @((a b) c) z",
+            &[
+                b"echo", b"@", b"(", b"(", b"a", b"b", b")", b"c", b")", b"z",
+            ],
+            b"@",
+        ),
+        (
+            b"echo '@(a b)' z",
+            &[b"echo", b"'@(a b)'", b"z"],
+            b"'@(a b)'",
+        ),
+        (
+            b"echo \\@(a b) z",
+            &[b"echo", b"\\@", b"(", b"a", b"b", b")", b"z"],
+            b"\\@",
+        ),
+        (b"echo $(a b) z", &[b"echo", b"$(a b)", b"z"], b"$(a b)"),
+        (b"echo <(a b) z", &[b"echo", b"<(a b)", b"z"], b"<(a b)"),
+        (
+            b"echo $((1 + 2)) z",
+            &[b"echo", b"$((1 + 2))", b"z"],
+            b"$((1 + 2))",
+        ),
+    ];
+    for (input, expected_tokens, expected_arg) in cases {
+        assert_eq!(
+            history_tokenize(input, &policy),
+            expected_tokens
+                .iter()
+                .map(|token| token.to_vec())
+                .collect::<Vec<_>>(),
+            "tokenization for {input:?}"
+        );
+        assert_eq!(
+            history_arg_extract(1, 1, input, &policy).as_deref(),
+            Some(*expected_arg),
+            "argument extraction for {input:?}"
+        );
+        let mut history = History::new();
+        history.push(std::str::from_utf8(input).unwrap());
+        assert_eq!(
+            expand_history(
+                b"!!:1",
+                &history,
+                HistoryChars::parse("!^#"),
+                &policy,
+                |_| false,
+            )
+            .unwrap(),
+            *expected_arg,
+            "word-selection expansion for {input:?}"
+        );
+    }
+}
+
+#[test]
 fn history_tokenize_keeps_here_string_redirections_together() {
     let policy = HistoryExpansionPolicy::default();
     assert_eq!(

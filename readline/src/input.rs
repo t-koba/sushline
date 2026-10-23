@@ -942,7 +942,7 @@ where
         let outcome = match bytes {
             bytes if self.is_isearch_terminator(bytes) => {
                 state.search.quoted_pending = false;
-                let accepted = accept_search_line(&search);
+                let accepted = accept_search_line(state, &search);
                 // GNU point after terminate-without-execute (patch 0 Bash 5.3
                 // PTY oracle): empty query restores the original point;
                 // a match leaves point at the match start (`alpha` + C-J +
@@ -972,6 +972,14 @@ where
                     buffer.set_point(0);
                 }
                 state.buffer = buffer;
+                state.history_entry_index = if search.match_line.is_some() {
+                    search.match_index
+                } else {
+                    search.original_history_entry_index
+                };
+                if search.match_line.is_none() {
+                    state.undo = search.original_undo.clone();
+                }
                 // Keep the history cursor on the match so a later `n`/`N`
                 // (`vi-search-again`) steps exclusively past it instead of
                 // re-finding it from the pre-search position.
@@ -990,8 +998,16 @@ where
             }
             b"\r" | b"\n" => {
                 state.search.quoted_pending = false;
-                let accepted = accept_search_line(&search);
+                let accepted = accept_search_line(state, &search);
                 state.buffer = LineBuffer::from_bytes(accepted.clone());
+                state.history_entry_index = if search.match_line.is_some() {
+                    search.match_index
+                } else {
+                    search.original_history_entry_index
+                };
+                if search.match_line.is_none() {
+                    state.undo = search.original_undo.clone();
+                }
                 if search.match_line.is_none() && !search.query.is_empty() && search.exclude_cursor
                 {
                     self.ding()?;
@@ -1003,6 +1019,8 @@ where
             &[0x07] => {
                 state.search.quoted_pending = false;
                 state.buffer = LineBuffer::from_bytes(search.original_line.clone());
+                state.history_entry_index = search.original_history_entry_index;
+                state.undo = search.original_undo.clone();
                 state.after_non_kill_command();
                 EditorOutcome::Continue
             }
@@ -1020,6 +1038,8 @@ where
                 self.refresh_reverse_search_match(&mut search, false);
                 if !self.apply_search_match(state, &search) {
                     state.buffer = LineBuffer::from_bytes(search.original_line.clone());
+                    state.history_entry_index = search.original_history_entry_index;
+                    state.undo = search.original_undo.clone();
                 }
                 state.search.reverse_search = Some(search);
                 EditorOutcome::Continue
@@ -1072,8 +1092,12 @@ where
             return self.repeat_reverse_search(state, search, direction);
         }
         if command_binding.is_some() || self.keymap.has_prefix(self.keymap.current(), bytes) {
-            let accepted = accept_search_line(&search);
+            let accepted = accept_search_line(state, &search);
             state.buffer = LineBuffer::from_bytes(accepted);
+            if search.match_line.is_none() {
+                state.history_entry_index = search.original_history_entry_index;
+                state.undo = search.original_undo.clone();
+            }
             if let Some(index) = search.match_index {
                 self.history.set_pos(index);
             }
@@ -1141,7 +1165,7 @@ where
 
     fn apply_search_match(&mut self, state: &mut EditorState, search: &ReverseSearchState) -> bool {
         if let Some(line) = &search.match_line {
-            self.replace_from_history(state, line);
+            self.replace_from_history_at(state, search.match_index, line);
             true
         } else {
             false
@@ -1298,7 +1322,7 @@ where
                         index
                     };
                     self.history.set_pos(cursor);
-                    self.replace_from_history(state, &line);
+                    self.replace_from_history_at(state, Some(index), &line);
                 } else {
                     self.history.set_pos(search.original_history_pos);
                     self.ding()?;
@@ -1312,6 +1336,8 @@ where
             &[0x07] | &[0x1b] => {
                 state.search.quoted_pending = false;
                 state.buffer = LineBuffer::from_bytes(search.original_line.clone());
+                state.history_entry_index = search.original_history_entry_index;
+                state.undo = search.original_undo.clone();
                 self.history.set_pos(search.original_history_pos);
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
@@ -1546,11 +1572,14 @@ fn isearch_terminate_point(
     byte_offset
 }
 
-fn accept_search_line(search: &ReverseSearchState) -> Vec<u8> {
-    search
-        .match_line
-        .clone()
-        .unwrap_or_else(|| search.original_line.clone())
+fn accept_search_line(state: &EditorState, search: &ReverseSearchState) -> Vec<u8> {
+    if search.match_line.is_some() {
+        // A match on the buffer's own entry preserves its live edit, which
+        // may be newer than the line stored in the search result.
+        state.buffer.as_bytes().to_vec()
+    } else {
+        search.original_line.clone()
+    }
 }
 
 fn save_incremental_search(state: &mut EditorState, search: &ReverseSearchState) {

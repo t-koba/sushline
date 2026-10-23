@@ -46,6 +46,8 @@ pub(crate) struct EditorState {
     pub(crate) mark: Option<usize>,
     pub(crate) overwrite_mode: bool,
     pub(crate) original_line: Vec<u8>,
+    /// History entry represented by the buffer; a search overlay can differ from the cursor.
+    pub(crate) history_entry_index: Option<usize>,
 }
 
 impl EditorState {
@@ -71,6 +73,7 @@ impl EditorState {
             mark: None,
             overwrite_mode: false,
             original_line,
+            history_entry_index: None,
         }
     }
 

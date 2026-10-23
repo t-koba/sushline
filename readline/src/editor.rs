@@ -755,20 +755,59 @@ where
         (timeout > 0).then(|| Duration::from_millis(timeout as u64))
     }
 
+    /// Replace the buffer with a history line, preserving the edit left behind.
+    ///
+    /// The current history cursor normally identifies the entry represented by
+    /// `line`. Search overlays may display another entry without moving that
+    /// cursor, so callers with an overlay use `replace_from_history_at`.
     pub(crate) fn replace_from_history(&mut self, state: &mut EditorState, line: &[u8]) {
-        if !self.flag(BoolVariable::RevertAllAtNewline)
-            && let Some(index) = self.history.current_index()
-        {
-            self.history
-                .set_undo_list(index, state.undo_snapshot_lines());
+        let target = self.history.current_index();
+        self.replace_from_history_at(state, target, line);
+    }
+
+    /// Replace the buffer with a line from an explicit history entry.
+    ///
+    /// Before changing the displayed entry, persist the current buffer and its
+    /// undo state to the entry that owns it. This remains distinct from the
+    /// history cursor when an incremental or non-incremental search overlays
+    /// a match without moving the cursor.
+    pub(crate) fn replace_from_history_at(
+        &mut self,
+        state: &mut EditorState,
+        target: Option<usize>,
+        line: &[u8],
+    ) {
+        let target = target.filter(|index| self.history.get(*index).is_some());
+        let source = state.history_entry_index;
+        let source_is_current = source.is_some_and(|index| self.history.get(index).is_some());
+        let same_source = source_is_current && source == target;
+
+        if !self.flag(BoolVariable::RevertAllAtNewline) && source_is_current {
+            state.commit_pending_undo();
+            if !same_source && let Some(index) = source {
+                self.history
+                    .set_line_bytes(index, state.buffer.as_bytes().to_vec());
+            }
+            if let Some(index) = source {
+                self.history
+                    .set_undo_list(index, state.undo_snapshot_lines());
+            }
         }
+
+        // A line already owned by this entry is a no-op even when the buffer
+        // contains an edit newer than the stored line.
+        if same_source {
+            return;
+        }
+
         let point = state.buffer.point();
         state.buffer = LineBuffer::from_bytes(line.to_vec());
         state.original_line = line.to_vec();
+        state.history_entry_index = target;
         state.undo.undo_stack.clear();
         state.undo.pending_undo = None;
         if !self.flag(BoolVariable::RevertAllAtNewline)
-            && let Some(index) = self.history.current_index()
+            && let Some(index) = target
             && let Some(undo_list) = self.history.undo_list(index)
         {
             state.restore_undo_snapshot_lines(undo_list);

@@ -48,6 +48,53 @@ fn bash_readline_and_sushline_history_search_forward_restores_edit() {
 }
 
 #[test]
+fn bash_readline_and_sushline_history_navigation_preserves_edited_entry() {
+    let inputrc = "set revert-all-at-newline off";
+    let history = ["alpha old", "alpha new"];
+    // Edit the newest entry, visit the older one, and return. Readline 8.3
+    // preserves the modified history line while traversing away from it.
+    let keys = b"\x10\x05 EDIT\x10\x0e\r";
+    let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &history);
+    let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+
+    assert_eq!(
+        accepted_line(&bash),
+        Some("alpha new EDIT".to_string()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+}
+
+#[test]
+fn bash_readline_and_sushline_prefix_search_preserves_edited_entry() {
+    let inputrc = r#"set revert-all-at-newline off
+set history-preserve-point on
+"\C-]": history-search-backward
+"\C-^": history-search-forward"#;
+    let history = ["alpha old", "alpha new"];
+    // Search to the newest match, edit it, then search away and back using
+    // the same prefix. Readline 8.3 preserves the edit on its history entry.
+    let keys = b"alp\x1d\x05 EDIT\x01\x06\x06\x06\x1d\x1e\r";
+    let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &history);
+    let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+
+    assert_eq!(
+        accepted_line(&bash),
+        Some("alpha new EDIT".to_string()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_prefix_search_steps_past_current_entry() {
     let inputrc = r#""\C-]": history-search-backward
 "\C-^": history-search-forward"#;
@@ -2380,4 +2427,47 @@ fn bash_reports_a_failing_history_expansion_on_standard_error() {
         stderr.contains("!missing: history expansion failed"),
         "bash stderr: {stderr}"
     );
+}
+
+#[test]
+fn history_search_preserves_origin_edit_after_overlay_navigation_like_bash() {
+    let inputrc = "set revert-all-at-newline off\n\"\\C-o\": non-incremental-forward-search-history\n\"\\C-]\": forward-search-history";
+    let history = ["AAA", "BBB"];
+    for (case, search_keys) in [
+        ("incremental", &b"\x1dBBB\n\x10"[..]),
+        ("nonincremental", &b"\x0fBBB\r\x1b<"[..]),
+        ("incremental abort", &b"\x1dBBB\x07\x0e\x10"[..]),
+        ("nonincremental abort", &b"\x0fBBB\x07\x0e\x10"[..]),
+        ("failed incremental command", &b"\x1dBBBZ\x06\x1b<"[..]),
+    ] {
+        let keys = [b"\x10\x10\x05 EDIT".as_slice(), search_keys, b"\r"].concat();
+        let bash = run_bash_readline_with_inputrc_file_and_history(&keys, inputrc, &history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(&keys, inputrc, &history);
+        assert_eq!(
+            accepted_line(&bash),
+            Some("AAA EDIT".to_string()),
+            "{case}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{case}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
+fn incremental_history_search_keeps_the_edit_when_matching_its_own_entry_like_bash() {
+    let inputrc = "set revert-all-at-newline off";
+    for terminator in [b'\n', b'\x06', b'\r'] {
+        let keys = [b"\x10\x05 EDIT\x12A".as_slice(), &[terminator], b"\r"].concat();
+        let bash = run_bash_readline_with_inputrc_file_and_history(&keys, inputrc, &["AAA"]);
+        let sushline = run_sushline_harness_with_inputrc_and_history(&keys, inputrc, &["AAA"]);
+        assert_eq!(accepted_line(&bash), Some("AAA EDIT".to_string()), "{bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "bash={bash}\nsushline={sushline}"
+        );
+    }
 }

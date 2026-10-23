@@ -471,6 +471,8 @@ where
                     },
                     original_line: state.buffer.as_bytes().to_vec(),
                     original_history_pos,
+                    original_history_entry_index: state.history_entry_index,
+                    original_undo: state.undo.clone(),
                     vi: true,
                 });
                 state.kill.last_was_kill = false;

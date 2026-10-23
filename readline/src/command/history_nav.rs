@@ -185,6 +185,8 @@ where
                     original_line: state.buffer.as_bytes().to_vec(),
                     original_point,
                     original_history_pos,
+                    original_history_entry_index: state.history_entry_index,
+                    original_undo: state.undo.clone(),
                     ..Default::default()
                 });
                 state.kill.last_was_kill = false;
@@ -265,6 +267,8 @@ where
                     original_line: state.buffer.as_bytes().to_vec(),
                     original_point,
                     original_history_pos,
+                    original_history_entry_index: state.history_entry_index,
+                    original_undo: state.undo.clone(),
                     ..Default::default()
                 });
                 state.kill.last_was_kill = false;
@@ -367,6 +371,8 @@ where
                     },
                     original_line: state.buffer.as_bytes().to_vec(),
                     original_history_pos: self.history.where_history(),
+                    original_history_entry_index: state.history_entry_index,
+                    original_undo: state.undo.clone(),
                     vi: false,
                 });
                 state.after_non_kill_command();

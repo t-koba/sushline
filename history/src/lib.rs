@@ -326,6 +326,21 @@ impl History {
             .map(|entry| entry.undo_list.as_slice())
     }
 
+    /// Update an entry's line bytes, preserving its timestamp and undo list.
+    ///
+    /// The entry is marked modified only when the bytes actually change, so
+    /// traversing history without editing does not dirty entries.
+    pub fn set_line_bytes(&mut self, index: usize, line: Vec<u8>) -> bool {
+        let Some(entry) = self.entries.get_mut(index) else {
+            return false;
+        };
+        if entry.line_bytes != line {
+            entry.line_bytes = line;
+            entry.modified = true;
+        }
+        true
+    }
+
     /// Set undo list.
     pub fn set_undo_list(&mut self, index: usize, undo_list: Vec<HistoryUndoEntry>) -> bool {
         let Some(entry) = self.entries.get_mut(index) else {

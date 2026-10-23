@@ -1,6 +1,8 @@
 use crate::locale::LocaleLowercase;
 use history::{History, HistoryDirection, HistorySearchMatch};
 
+use super::UndoState;
+
 #[derive(Debug, Default)]
 pub(crate) struct SearchState {
     pub(crate) reverse_search: Option<ReverseSearchState>,
@@ -22,6 +24,8 @@ pub(crate) struct ReverseSearchState {
     pub(crate) original_line: Vec<u8>,
     pub(crate) original_point: usize,
     pub(crate) original_history_pos: usize,
+    pub(crate) original_history_entry_index: Option<usize>,
+    pub(crate) original_undo: UndoState,
     pub(crate) exclude_cursor: bool,
 }
 
@@ -31,6 +35,8 @@ pub(crate) struct NonIncrementalSearchState {
     pub(crate) direction: SearchDirection,
     pub(crate) original_line: Vec<u8>,
     pub(crate) original_history_pos: usize,
+    pub(crate) original_history_entry_index: Option<usize>,
+    pub(crate) original_undo: UndoState,
     /// True for vi `/`/`?` (prompts `/`/`?`, cursor-exclusive backward
     /// search); false for emacs non-incremental search (prompt `:`).
     pub(crate) vi: bool,

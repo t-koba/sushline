@@ -2725,6 +2725,31 @@ fn total_bytes_counts_resident_timestamps() {
     assert_eq!(history.total_bytes(), 0);
 }
 #[test]
+fn set_line_bytes_preserves_metadata_and_marks_only_changed_content() {
+    let mut history = History::new();
+    history.push("old timed");
+    assert!(history.add_time("#1700000000"));
+    let undo = vec![HistoryUndoEntry {
+        start: 1,
+        deleted: b"old".to_vec(),
+        inserted: b"new".to_vec(),
+    }];
+    assert!(history.set_undo_list(0, undo.clone()));
+
+    assert!(history.set_line_bytes(0, b"old timed".to_vec()));
+    assert!(!history.entries()[0].modified);
+    assert!(history.set_line_bytes(0, b"new timed".to_vec()));
+    assert!(history.entries()[0].modified);
+    assert_eq!(history.entries()[0].line_bytes, b"new timed");
+    assert_eq!(
+        history.entries()[0].timestamp.as_deref(),
+        Some("#1700000000")
+    );
+    assert_eq!(history.undo_list(0), Some(undo.as_slice()));
+    assert!(!history.set_line_bytes(1, b"missing".to_vec()));
+}
+
+#[test]
 fn replace_preserves_timestamps_undo_history_and_timestamped_serialization() {
     let mut history = History::new();
     history.push("old timed");

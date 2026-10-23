@@ -411,6 +411,135 @@ jobs:
               if result.stdout != expected:
                   raise SystemExit(f"{label}: expected prompt bytes {expected.hex()}, got {result.stdout.hex()}")
           PYPROBE
+      - name: Measure synthetic CS7 termios preparation against the pinned release
+        run: |
+          set -euo pipefail
+          readline="$HOME/.cache/sushline/readline-oracle"
+          # Linux PTYs can normalize CS7 to CS8. Interpose the termios boundary
+          # instead: this measures library requests from synthetic input, NOT
+          # live PTY behavior or kernel acceptance of CS7. No input is read.
+          # Each case runs in a fresh process, with initialization excluded.
+          cat > /tmp/readline_termios_probe.c <<'PROBE'
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <string.h>
+          #include <termios.h>
+          #include <readline/readline.h>
+
+          /* This boundary is synthetic: no kernel tty attributes are read or changed. */
+          static struct termios attributes;
+          static const char *phase = "initialize";
+          static unsigned gets, sets;
+
+          static void report(const char *label, const struct termios *t) {
+              printf("%s iflag=0x%lx oflag=0x%lx cflag=0x%lx lflag=0x%lx "
+                     "CSIZE=0x%lx ISTRIP=%d INPCK=%d\n", label,
+                     (unsigned long)t->c_iflag, (unsigned long)t->c_oflag,
+                     (unsigned long)t->c_cflag, (unsigned long)t->c_lflag,
+                     (unsigned long)(t->c_cflag & CSIZE),
+                     !!(t->c_iflag & ISTRIP), !!(t->c_iflag & INPCK));
+          }
+
+          int tcgetattr(int fd, struct termios *t) {
+              if (fd != fileno(rl_instream)) {
+                  fprintf(stderr, "unexpected tcgetattr fd=%d\n", fd);
+                  exit(1);
+              }
+              ++gets;
+              *t = attributes;
+              if (strcmp(phase, "initialize") != 0) {
+                  printf("phase=%s ", phase);
+                  report("supplied", t);
+              }
+              return 0;
+          }
+
+          int tcsetattr(int fd, int action, const struct termios *t) {
+              if (fd != fileno(rl_instream)) {
+                  fprintf(stderr, "unexpected tcsetattr fd=%d\n", fd);
+                  exit(1);
+              }
+              ++sets;
+              if (strcmp(phase, "initialize") != 0) {
+                  printf("phase=%s tcsetattr_action=%d ", phase, action);
+                  report("requested", t);
+              }
+              attributes = *t;
+              return 0;
+          }
+
+          int main(int argc, char **argv) {
+              if (argc != 3 || (strcmp(argv[1], "CS7") && strcmp(argv[1], "CS8")) ||
+                  (strcmp(argv[2], "0") && strcmp(argv[2], "1")))
+                  return 2;
+              struct termios input = {0};
+              input.c_iflag = ISTRIP | INPCK | ICRNL | IXON;
+              input.c_oflag = OPOST | ONLCR;
+              input.c_cflag = CREAD | (strcmp(argv[1], "CS7") == 0 ? CS7 : CS8);
+              input.c_lflag = ECHO | ICANON | ISIG | IEXTEN;
+              input.c_cc[VMIN] = 1;
+              input.c_cc[VTIME] = 0;
+              attributes = input;
+              rl_instream = stdin;
+              rl_outstream = fopen("/dev/null", "w");
+              if (!rl_outstream)
+                  return 1;
+              printf("readline_release=%d.%d\n", rl_readline_version >> 8,
+                     rl_readline_version & 0xff);
+              printf("boundary=synthetic-termios case=%s meta_flag=%s\n", argv[1], argv[2]);
+              if (rl_initialize() != 0 || rl_variable_bind("enable-meta-key", "on") != 0)
+                  return 1;
+              printf("initialize_gets=%u initialize_sets=%u (excluded from preparation)\n", gets, sets);
+              /* Initialization may query/change the boundary. Seed again only now. */
+              attributes = input;
+              gets = sets = 0;
+              phase = "prepare";
+              report("input", &input);
+              rl_prep_terminal(atoi(argv[2]));
+              printf("prepare_gets=%u prepare_sets=%u\n", gets, sets);
+              if (gets == 0 || sets == 0) {
+                  fprintf(stderr, "preparation did not use the interposed termios boundary\n");
+                  return 1;
+              }
+              gets = sets = 0;
+              phase = "restore";
+              rl_deprep_terminal();
+              printf("restore_gets=%u restore_sets=%u\n", gets, sets);
+              if (sets == 0 || attributes.c_iflag != input.c_iflag ||
+                  attributes.c_oflag != input.c_oflag || attributes.c_cflag != input.c_cflag ||
+                  attributes.c_lflag != input.c_lflag ||
+                  memcmp(attributes.c_cc, input.c_cc, sizeof input.c_cc) != 0) {
+                  fprintf(stderr, "restoration did not return the synthetic input\n");
+                  return 1;
+              }
+              fclose(rl_outstream);
+              return 0;
+          }
+          PROBE
+          cc -Wall -Wextra -Werror -o /tmp/readline_termios_probe /tmp/readline_termios_probe.c \
+            -I"$readline/include" -L"$readline/lib" \
+            -Wl,-rpath,"$readline/lib" -Wl,--export-dynamic -lreadline
+          loader_report=$(env -u SHELLOPTS ldd /tmp/readline_termios_probe)
+          echo "$loader_report"
+          readline_libraries=$(printf '%s\n' "$loader_report" | grep 'libreadline' || true)
+          if [ -z "$readline_libraries" ]; then
+            echo "the termios probe loaded no Readline library" >&2
+            exit 1
+          fi
+          if printf '%s\n' "$readline_libraries" | grep -v -F "$readline/lib/" > /dev/null; then
+            echo "the termios probe loaded Readline outside the pinned prefix" >&2
+            exit 1
+          fi
+          # Assert only the boundary instrumentation, restoration, and release
+          # identity, not prepared flag values inferred from another release.
+          for fixture in 'CS8 0' 'CS7 0' 'CS7 1'; do
+            read -r size meta_flag <<< "$fixture"
+            report=$(env INPUTRC=/dev/null LC_ALL=C TERM=dumb \
+              /tmp/readline_termios_probe "$size" "$meta_flag" < /dev/null)
+            printf '%s\n' "$report"
+            release=$(printf '%s\n' "$report" | sed -n 's/^readline_release=//p')
+            test "$release" = "$READLINE_ORACLE_VERSION"
+          done
       - name: Measure the pinned release's history range bounds
         run: |
           set -euo pipefail

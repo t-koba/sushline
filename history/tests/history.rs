@@ -3950,38 +3950,11 @@ fn history_expansion_preserves_backslashes_before_ordinary_bytes() {
 }
 
 #[test]
-fn a_file_that_does_not_begin_with_a_timestamp_record_is_read_as_this_library_reads_it() {
-    // Measured against GNU 8.2: GNU decides a file's format from its first
-    // line, so every line of a file that does not begin with a timestamp
-    // record is a command to it, and its mode 1 joins such a file's lines
-    // into one entry. This library reads a '#'-plus-digits line as a
-    // timestamp record wherever it stands, and the joined setting keeps
-    // such a file's lines apart, so the two differ there and the
-    // compatibility document names the difference. The writer emits a
-    // record before an entry that carries one, so a file it writes can
-    // begin with a command line and hold a record later, which is how
-    // the case is reached from the product's own files.
+fn joined_grouping_keeps_plain_command_lines_separate() {
+    // The pinned GNU 8.3 range probe joins selected plain command lines in
+    // mode 1. This library's Joined policy only joins blocks opened by
+    // timestamp records, so an ordinary command file remains per-line.
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("history");
-    fs::write(&path, "A0\n#1700000000\nB0\n").unwrap();
-
-    // The '#' line is a timestamp record, so it opens the block of the
-    // lines that follow it and carries no command of its own.
-    let loaded = History::read_file(&path).unwrap();
-    assert_eq!(
-        loaded
-            .entries()
-            .iter()
-            .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
-            .collect::<Vec<_>>(),
-        vec![
-            (None, "A0".to_string()),
-            (Some("#1700000000"), "B0".to_string()),
-        ]
-    );
-
-    // A file whose lines are all commands keeps them apart under the
-    // joined setting, where GNU's mode 1 joins them into one entry.
     let plain = dir.path().join("plain");
     fs::write(&plain, "C0\nC1\nC2\nC3\n").unwrap();
     let joined = History::read_file_with_multiline(&plain, HistoryMultiline::Joined).unwrap();

@@ -1002,9 +1002,9 @@ jobs:
           # partial line, interrupt, signal count and returned-line bytes
           # without assuming the pinned release's answer.
           cat > /tmp/readline_sigint_probe.c <<'PROBE'
+          #include <stdio.h>
           #include <readline/readline.h>
           #include <signal.h>
-          #include <stdio.h>
           #include <stdlib.h>
           #include <string.h>
 

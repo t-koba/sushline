@@ -532,11 +532,12 @@ jobs:
           fi
           # Assert only the boundary instrumentation, restoration, and release
           # identity, not prepared flag values inferred from another release.
+          : > /tmp/readline_termios.out
           for fixture in 'CS8 0' 'CS7 0' 'CS7 1'; do
             read -r size meta_flag <<< "$fixture"
             report=$(env INPUTRC=/dev/null LC_ALL=C TERM=dumb \
               /tmp/readline_termios_probe "$size" "$meta_flag" < /dev/null)
-            printf '%s\n' "$report"
+            printf '%s\n' "$report" | tee -a /tmp/readline_termios.out
             release=$(printf '%s\n' "$report" | sed -n 's/^readline_release=//p')
             test "$release" = "$READLINE_ORACLE_VERSION"
           done
@@ -744,7 +745,7 @@ jobs:
           cargo test -p sushline-history --test history \
             full_file_read_of_late_timestamp_line_reports_rust_behavior_only \
             -- --exact --nocapture 2>&1 | tee /tmp/history_rust_full_late_record.out
-          python3 - <<'PYCOMPARE'
+          python3 - <<'PYCOMPARE' | tee /tmp/history_full_file_comparison.out
           import json
           from pathlib import Path
 
@@ -1211,7 +1212,7 @@ jobs:
           # interactive input stream would. The transcript and C result show
           # whether Readline handles, restarts, clears or terminates. Bounded
           # waits and child cleanup keep the measurement safe on each outcome.
-          python3 - <<'PYPROBE'
+          python3 - <<'PYPROBE' | tee /tmp/readline_sigint.out
           import os
           import pty
           import select
@@ -1309,3 +1310,34 @@ jobs:
           # The host must carry the release the claims name, or the cases
           # scoped to that release would report nothing.
           grep -q "carrying Readline $READLINE_ORACLE_VERSION" /tmp/oracle.log
+      - name: Collect pinned oracle measurement reports
+        if: always()
+        run: |
+          set -euo pipefail
+          report_dir="$RUNNER_TEMP/sushline-oracle-measurements"
+          mkdir -p "$report_dir"
+          for report in \
+            /tmp/readline_termios.out \
+            /tmp/readline_sigint.out \
+            /tmp/history_range_per_line.out \
+            /tmp/history_range_joined.out \
+            /tmp/history_range_plain_joined.out \
+            /tmp/history_range_late_record.out \
+            /tmp/history_full_late_record.out \
+            /tmp/history_rust_full_late_record.out \
+            /tmp/history_full_file_comparison.out \
+            /tmp/history_time.out \
+            /tmp/history_position.out \
+            /tmp/history_expand.out; do
+            if [ -f "$report" ]; then
+              cp -- "$report" "$report_dir/"
+            fi
+          done
+      - name: Upload pinned oracle measurement reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-measurements
+          path: ${{ runner.temp }}/sushline-oracle-measurements/
+          if-no-files-found: warn
+          retention-days: 14

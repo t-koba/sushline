@@ -997,25 +997,41 @@ jobs:
           readline="$HOME/.cache/sushline/readline-oracle"
           # The SIGINT row describes the direct Readline library, not the Bash
           # builtin: call readline() directly in a program linked to the exact
-          # pinned release. This records prompt, partial-line, interrupt and
-          # returned-line bytes without assuming the pinned release's answer.
+          # pinned release. A minimal caller-owned handler lets Readline
+          # restore/restart through its normal signal path. Record the prompt,
+          # partial line, interrupt, signal count and returned-line bytes
+          # without assuming the pinned release's answer.
           cat > /tmp/readline_sigint_probe.c <<'PROBE'
+          #include <readline/readline.h>
+          #include <signal.h>
           #include <stdio.h>
           #include <stdlib.h>
           #include <string.h>
-          #include <readline/readline.h>
 
           extern int rl_readline_version;
+          static volatile sig_atomic_t signal_count;
+
+          static void application_sigint(int signal_number) {
+              if (signal_number == SIGINT)
+                  signal_count++;
+          }
 
           int main(void) {
+              struct sigaction action;
+              memset(&action, 0, sizeof action);
+              action.sa_handler = application_sigint;
+              sigemptyset(&action.sa_mask);
+              if (sigaction(SIGINT, &action, NULL) != 0)
+                  return 1;
               fprintf(stderr, "readline_release=%d.%d\n", rl_readline_version >> 8,
                       rl_readline_version & 0xff);
               fflush(stderr);
               char *line = readline("sigint> ");
               if (line == NULL) {
-                  fprintf(stderr, "result=null\n");
+                  fprintf(stderr, "result=null signal_count=%d\n", (int)signal_count);
               } else {
-                  fprintf(stderr, "result_len=%zu\n", strlen(line));
+                  fprintf(stderr, "result_len=%zu signal_count=%d\n", strlen(line),
+                          (int)signal_count);
                   fprintf(stderr, "result_hex=");
                   for (const unsigned char *p = (const unsigned char *)line; *p; p++)
                       fprintf(stderr, "%02x", *p);
@@ -1042,11 +1058,11 @@ jobs:
             echo "the SIGINT probe loaded Readline outside the pinned prefix" >&2
             exit 1
           fi
-          # Use a controlling PTY so readline() follows its interactive path.
-          # The parent sends SIGINT to the active direct-library process, then
-          # a follow-up line. The PTY transcript and C result record whether
-          # the call returned, restarted, cleared input or terminated. Bounded
-          # waits and child cleanup make this probe safe on every outcome.
+          # pty.fork gives the direct-library process a controlling PTY. Send
+          # a partial line, then Ctrl-C and suffix bytes in one write, as an
+          # interactive input stream would. The transcript and C result show
+          # whether Readline handles, restarts, clears or terminates. Bounded
+          # waits and child cleanup keep the measurement safe on each outcome.
           python3 - <<'PYPROBE'
           import os
           import pty
@@ -1098,12 +1114,7 @@ jobs:
               os.write(master, b"abc")
               if not read_until(b"abc", 2.0):
                   raise SystemExit("direct Readline probe did not display its partial line")
-              os.kill(pid, signal.SIGINT)
-              if poll_child() is None:
-                  try:
-                      os.write(master, b"X\r")
-                  except OSError:
-                      pass
+              os.write(master, b"\x03X\r")
               read_until(b"done\n", 5.0)
               exit_deadline = time.monotonic() + 1.0
               while poll_child() is None and time.monotonic() < exit_deadline:

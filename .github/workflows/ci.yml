@@ -743,7 +743,7 @@ jobs:
           # compared with the current library baseline, not a second copy of
           # expected Rust behavior embedded in this workflow.
           cargo test -p sushline-history --test history \
-            full_file_read_of_late_timestamp_line_reports_rust_behavior_only \
+            late_timestamp_line_is_command_text_in_an_untimestamped_file \
             -- --exact --nocapture 2>&1 | tee /tmp/history_rust_full_late_record.out
           python3 - <<'PYCOMPARE' | tee /tmp/history_full_file_comparison.out
           import json

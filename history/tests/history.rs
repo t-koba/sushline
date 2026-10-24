@@ -1547,18 +1547,16 @@ fn range_bounds_count_physical_command_lines() {
 }
 
 #[test]
-fn full_file_read_of_late_timestamp_line_reports_rust_behavior_only() {
-    // Rust behavior only; pinned 8.3 comparison pending: the oracle job
-    // measures the same bytes with GNU's own full-file `read_history`.
-    // The Rust file reader treats a `#`-plus-digits line as a timestamp
-    // record wherever it stands.
+fn late_timestamp_line_is_command_text_in_an_untimestamped_file() {
+    // The pinned GNU History 8.3 full-file and range probes both read this
+    // input's late timestamp-looking line as command text: the first physical
+    // line selects the file format.
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");
     fs::write(&path, "A0\n#1700000000\nB0\n").unwrap();
 
     let loaded = History::read_file(&path).unwrap();
-    // This output lets the pinned CI probe compare the independent Rust
-    // baseline with GNU's measured full-file result in the same step.
+    // Keep the full-file result available for the pinned CI comparison.
     println!("RUST_BASELINE|entry_count={}", loaded.entries().len());
     for (index, entry) in loaded.entries().iter().enumerate() {
         println!(
@@ -1566,16 +1564,28 @@ fn full_file_read_of_late_timestamp_line_reports_rust_behavior_only() {
             entry.line().replace('\n', "\\n")
         );
     }
+    let expected = vec![
+        (None, "A0".to_string()),
+        (None, "#1700000000".to_string()),
+        (None, "B0".to_string()),
+    ];
     assert_eq!(
         loaded
             .entries()
             .iter()
             .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
             .collect::<Vec<_>>(),
-        vec![
-            (None, "A0".to_string()),
-            (Some("#1700000000"), "B0".to_string()),
-        ]
+        expected
+    );
+
+    let ranged = History::read_file_range(&path, 0, Some(3)).unwrap();
+    assert_eq!(
+        ranged
+            .entries()
+            .iter()
+            .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
+            .collect::<Vec<_>>(),
+        expected
     );
 }
 

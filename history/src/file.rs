@@ -30,9 +30,10 @@ impl History {
     ///
     /// The policy decides how the file's physical lines are grouped into
     /// entries; the default groups one entry per physical line, which is
-    /// GNU's default `history_multiline_entries` mode. A `#`-plus-digits line
-    /// is a timestamp record wherever it stands, while GNU reads such a line
-    /// as a command in a file that does not begin with a timestamp record.
+    /// GNU's default `history_multiline_entries` mode. The file's first
+    /// physical line selects its format: later `#`-plus-digits lines are
+    /// timestamp records only when the file begins with such a record;
+    /// otherwise they are command text, as in GNU History.
     pub fn read_file_with_multiline(
         path: impl AsRef<Path>,
         multiline: HistoryMultiline,
@@ -110,9 +111,10 @@ impl History {
     ///
     /// The policy decides how the file's physical lines are grouped into
     /// entries; the default groups one entry per physical line, which is
-    /// GNU's default `history_multiline_entries` mode. A `#`-plus-digits line
-    /// is a timestamp record wherever it stands, while GNU reads such a line
-    /// as a command in a file that does not begin with a timestamp record.
+    /// GNU's default `history_multiline_entries` mode. The file's first
+    /// physical line selects its format: later `#`-plus-digits lines are
+    /// timestamp records only when the file begins with such a record;
+    /// otherwise they are command text, as in GNU History.
     pub fn load_file_with_multiline(
         &mut self,
         path: impl AsRef<Path>,
@@ -539,6 +541,8 @@ fn read_history_blocks(file: fs::File) -> io::Result<Vec<HistoryBlock>> {
     let mut blocks: Vec<HistoryBlock> = Vec::new();
     let mut reader = io::BufReader::new(file);
     let mut line = Vec::new();
+    let mut first_line = true;
+    let mut timestamped_file = false;
     while reader.read_until(b'\n', &mut line)? != 0 {
         if !line.ends_with(b"\n") {
             // GNU ingests a physical line only when the scan hits LF, so a
@@ -551,11 +555,17 @@ fn read_history_blocks(file: fs::File) -> io::Result<Vec<HistoryBlock>> {
         if line.ends_with(b"\r") {
             line.pop();
         }
-        // GNU recognizes a timestamp record from its raw `#` plus ASCII
-        // digit prefix. Invalid UTF-8 in the remaining metadata must not turn
-        // the delimiter into command text; the public String field stores it
-        // with replacement characters.
-        if is_timestamp_record(&line) {
+        // GNU chooses the file format from its first physical line. In a
+        // timestamped file, later raw `#` plus ASCII digit prefixes delimit
+        // records; elsewhere the same bytes are command text. Invalid UTF-8
+        // in timestamp metadata must not turn a delimiter into command text;
+        // the public String field stores it with replacement characters.
+        let timestamp_record = is_timestamp_record(&line);
+        if first_line {
+            timestamped_file = timestamp_record;
+            first_line = false;
+        }
+        if timestamped_file && timestamp_record {
             // A timestamp record opens the block of the physical lines that
             // follow it.
             blocks.push(HistoryBlock {

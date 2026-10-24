@@ -1547,6 +1547,39 @@ fn range_bounds_count_physical_command_lines() {
 }
 
 #[test]
+fn full_file_read_of_late_timestamp_line_reports_rust_behavior_only() {
+    // Rust behavior only; pinned 8.3 comparison pending: the oracle job
+    // measures the same bytes with GNU's own full-file `read_history`.
+    // The Rust file reader treats a `#`-plus-digits line as a timestamp
+    // record wherever it stands.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(&path, "A0\n#1700000000\nB0\n").unwrap();
+
+    let loaded = History::read_file(&path).unwrap();
+    // This output lets the pinned CI probe compare the independent Rust
+    // baseline with GNU's measured full-file result in the same step.
+    println!("RUST_BASELINE|entry_count={}", loaded.entries().len());
+    for (index, entry) in loaded.entries().iter().enumerate() {
+        println!(
+            "RUST_BASELINE|entry_{index}={}",
+            entry.line().replace('\n', "\\n")
+        );
+    }
+    assert_eq!(
+        loaded
+            .entries()
+            .iter()
+            .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
+            .collect::<Vec<_>>(),
+        vec![
+            (None, "A0".to_string()),
+            (Some("#1700000000"), "B0".to_string()),
+        ]
+    );
+}
+
+#[test]
 fn append_new_can_suppress_timestamp_writes() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");

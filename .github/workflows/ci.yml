@@ -641,6 +641,148 @@ jobs:
           grep -qx 'multiline=1 from=0 to=3: {C0\\nC1\\nC2}' /tmp/history_range_plain_joined.out
           /tmp/history_range_probe /tmp/history_range_late_record 0 3 0 | tee /tmp/history_range_late_record.out
           grep -qx 'multiline=0 from=0 to=3: {A0} {#1700000000} {B0}' /tmp/history_range_late_record.out
+      - name: Measure the pinned release's full-file late timestamp rule
+        run: |
+          set -euo pipefail
+          readline="$HOME/.cache/sushline/readline-oracle"
+          # Measurement-only full-file companion to the range probe: the
+          # fixture begins with an ordinary command and holds a `#`-plus-digits
+          # line later, which the compatibility document names as the case
+          # where this library and GNU differ. The probe calls GNU's own
+          # full-file `read_history` and reports the exact entry text and
+          # count. No value inferred from another release is asserted here;
+          # the pinned 8.3 output is compared below with the Rust full-file
+          # baseline. Library semantics only, not shell or C ABI
+          # claims.
+          cat > /tmp/history_full_probe.c <<'PROBE'
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <readline/history.h>
+
+          extern int rl_readline_version;
+
+          int main(int argc, char **argv) {
+              if (argc != 2) {
+                  return 2;
+              }
+              printf("readline_release=%d.%d\n", rl_readline_version >> 8,
+                     rl_readline_version & 0xff);
+              history_multiline_entries = 0;
+              using_history();
+              clear_history();
+              if (read_history(argv[1]) != 0) {
+                  printf("read_history_status=failed\n");
+                  return 1;
+              }
+              printf("read_history_status=ok\n");
+              HIST_ENTRY **entries = history_list();
+              int count = 0;
+              if (entries != NULL) {
+                  while (entries[count] != NULL) {
+                      count++;
+                  }
+              }
+              printf("entry_count=%d\n", count);
+              if (entries != NULL) {
+                  for (int i = 0; entries[i] != NULL; i++) {
+                      printf("entry_%d=", i);
+                      for (const char *p = entries[i]->line; p != NULL && *p; p++) {
+                          if (*p == '\n') {
+                              printf("\\n");
+                          } else {
+                              putchar(*p);
+                          }
+                      }
+                      printf("\n");
+                  }
+              }
+              return 0;
+          }
+          PROBE
+          # The probe calls the history library, which the release ships as
+          # its own library beside the readline one, so the link names it
+          # when the pinned build produced one, and the loader is asked which
+          # library answered the calls. The runpath is written as the older
+          # DT_RPATH, which a dependency inherits, so the pinned readline
+          # library's own history dependency is resolved inside the prefix
+          # and not from the image.
+          history_libraries=(-lreadline)
+          if [ -e "$readline/lib/libhistory.so" ]; then
+            history_libraries+=(-lhistory)
+          fi
+          cc -o /tmp/history_full_probe /tmp/history_full_probe.c \
+            -I"$readline/include" -L"$readline/lib" \
+            -Wl,--no-as-needed -Wl,--disable-new-dtags -Wl,-rpath,"$readline/lib" \
+            "${history_libraries[@]}"
+          # The probe has to link the pinned release, not the image's
+          # library, or the measurement repeats an observation made elsewhere.
+          # The loader's report has to name the pinned prefix for the
+          # libraries that carry the history code, and to name nothing else
+          # for them either, so a call answered by the image's history
+          # library stops the job.
+          loader_report=$(env -u SHELLOPTS ldd /tmp/history_full_probe)
+          echo "$loader_report"
+          history_libraries_in_report=$(printf '%s\n' "$loader_report" | grep -E 'lib(readline|history)' || true)
+          if [ -z "$history_libraries_in_report" ]; then
+            echo "the full-file probe loaded no readline or history library" >&2
+            exit 1
+          fi
+          if printf '%s\n' "$history_libraries_in_report" | grep -v -F "$readline/lib/" > /dev/null; then
+            echo "the full-file probe loaded a readline or history library outside the pinned prefix" >&2
+            exit 1
+          fi
+          # The same bounded bytes the Rust baseline reads: a file that begins
+          # with an ordinary command and holds a `#`-plus-digits line later.
+          printf 'A0\n#1700000000\nB0\n' > /tmp/history_full_late_record
+          /tmp/history_full_probe /tmp/history_full_late_record | tee /tmp/history_full_late_record.out
+          # The executable answered as the pinned release; the entry lines and
+          # count above are the measurement, not an asserted GNU result.
+          grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/history_full_late_record.out
+          # Run the Rust fixture verbatim so the measured GNU result is
+          # compared with the current library baseline, not a second copy of
+          # expected Rust behavior embedded in this workflow.
+          cargo test -p sushline-history --test history \
+            full_file_read_of_late_timestamp_line_reports_rust_behavior_only \
+            -- --exact --nocapture 2>&1 | tee /tmp/history_rust_full_late_record.out
+          python3 - <<'PYCOMPARE'
+          import json
+          from pathlib import Path
+
+          rust_lines = []
+          for line in Path("/tmp/history_rust_full_late_record.out").read_text().splitlines():
+              marker = "RUST_BASELINE|"
+              if marker in line:
+                  value = line.split(marker, 1)[1]
+                  if value.startswith("entry_count=") or value.startswith("entry_"):
+                      rust_lines.append(value)
+
+          gnu_lines = []
+          for line in Path("/tmp/history_full_late_record.out").read_text().splitlines():
+              if line.startswith("entry_count=") or line.startswith("entry_"):
+                  gnu_lines.append(line)
+
+          def validate_entries(label, lines):
+              if not lines or not lines[0].startswith("entry_count="):
+                  raise SystemExit(f"missing {label} entry count")
+              try:
+                  count = int(lines[0].split("=", 1)[1])
+              except ValueError as error:
+                  raise SystemExit(f"invalid {label} entry count: {lines[0]}") from error
+              if count < 0 or len(lines) != count + 1:
+                  raise SystemExit(f"incomplete {label} entry list: {lines}")
+              if any(line.split("=", 1)[0] != f"entry_{index - 1}"
+                     for index, line in enumerate(lines[1:], start=1)):
+                  raise SystemExit(f"unordered {label} entry list: {lines}")
+
+          validate_entries("Rust", rust_lines)
+          validate_entries("pinned GNU", gnu_lines)
+          comparison = "match" if rust_lines == gnu_lines else "different"
+          print("history_full_file_comparison=" + json.dumps({
+              "result": comparison,
+              "rust_entries": rust_lines,
+              "gnu_entries": gnu_lines,
+          }, separators=(",", ":")))
+          PYCOMPARE
       - name: Measure the pinned release's history timestamp rule
         run: |
           set -euo pipefail

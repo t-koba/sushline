@@ -991,6 +991,153 @@ jobs:
           # Measurement only: record the pinned library's answers without
           # asserting values inferred from History 8.2.
           /tmp/history_expand_probe | tee /tmp/history_expand.out
+      - name: Measure direct-library SIGINT handling against the pinned release
+        run: |
+          set -euo pipefail
+          readline="$HOME/.cache/sushline/readline-oracle"
+          # The SIGINT row describes the direct Readline library, not the Bash
+          # builtin: call readline() directly in a program linked to the exact
+          # pinned release. This records prompt, partial-line, interrupt and
+          # returned-line bytes without assuming the pinned release's answer.
+          cat > /tmp/readline_sigint_probe.c <<'PROBE'
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <string.h>
+          #include <readline/readline.h>
+
+          extern int rl_readline_version;
+
+          int main(void) {
+              fprintf(stderr, "readline_release=%d.%d\n", rl_readline_version >> 8,
+                      rl_readline_version & 0xff);
+              fflush(stderr);
+              char *line = readline("sigint> ");
+              if (line == NULL) {
+                  fprintf(stderr, "result=null\n");
+              } else {
+                  fprintf(stderr, "result_len=%zu\n", strlen(line));
+                  fprintf(stderr, "result_hex=");
+                  for (const unsigned char *p = (const unsigned char *)line; *p; p++)
+                      fprintf(stderr, "%02x", *p);
+                  fprintf(stderr, "\n");
+                  free(line);
+              }
+              fprintf(stderr, "done\n");
+              fflush(stderr);
+              return 0;
+          }
+          PROBE
+          cc -o /tmp/readline_sigint_probe /tmp/readline_sigint_probe.c \
+            -I"$readline/include" -L"$readline/lib" \
+            -Wl,-rpath,"$readline/lib" -lreadline
+          # The probe has to load the pinned library, not the image's version.
+          loader_report=$(env -u SHELLOPTS ldd /tmp/readline_sigint_probe)
+          echo "$loader_report"
+          readline_libraries=$(printf '%s\n' "$loader_report" | grep 'libreadline' || true)
+          if [ -z "$readline_libraries" ]; then
+            echo "the SIGINT probe loaded no Readline library" >&2
+            exit 1
+          fi
+          if printf '%s\n' "$readline_libraries" | grep -v -F "$readline/lib/" > /dev/null; then
+            echo "the SIGINT probe loaded Readline outside the pinned prefix" >&2
+            exit 1
+          fi
+          # Use a controlling PTY so readline() follows its interactive path.
+          # The parent sends SIGINT to the active direct-library process, then
+          # a follow-up line. The PTY transcript and C result record whether
+          # the call returned, restarted, cleared input or terminated. Bounded
+          # waits and child cleanup make this probe safe on every outcome.
+          python3 - <<'PYPROBE'
+          import os
+          import pty
+          import select
+          import signal
+          import time
+
+          probe = "/tmp/readline_sigint_probe"
+          expected = os.environ["READLINE_ORACLE_VERSION"]
+          pid, master = pty.fork()
+          if pid == 0:
+              signal.signal(signal.SIGINT, signal.SIG_DFL)
+              env = os.environ.copy()
+              env["INPUTRC"] = "/dev/null"
+              env["LC_ALL"] = "C"
+              env["TERM"] = "dumb"
+              os.execve(probe, [probe], env)
+
+          transcript = bytearray()
+          status = None
+
+          def poll_child():
+              global status
+              if status is None:
+                  try:
+                      waited, child_status = os.waitpid(pid, os.WNOHANG)
+                  except ChildProcessError:
+                      return status
+                  if waited:
+                      status = child_status
+              return status
+
+          def read_until(marker, timeout):
+              deadline = time.monotonic() + timeout
+              while marker not in transcript and time.monotonic() < deadline:
+                  if poll_child() is not None:
+                      break
+                  ready, _, _ = select.select([master], [], [], 0.1)
+                  if ready:
+                      try:
+                          transcript.extend(os.read(master, 4096))
+                      except OSError:
+                          break
+              return marker in transcript
+
+          try:
+              if not read_until(b"sigint> ", 3.0):
+                  raise SystemExit("direct Readline probe did not display its prompt")
+              os.write(master, b"abc")
+              if not read_until(b"abc", 2.0):
+                  raise SystemExit("direct Readline probe did not display its partial line")
+              os.kill(pid, signal.SIGINT)
+              if poll_child() is None:
+                  try:
+                      os.write(master, b"X\r")
+                  except OSError:
+                      pass
+              read_until(b"done\n", 5.0)
+              exit_deadline = time.monotonic() + 1.0
+              while poll_child() is None and time.monotonic() < exit_deadline:
+                  time.sleep(0.01)
+              if poll_child() is None:
+                  # A bounded observation timeout is itself recorded. Do not
+                  # turn the unknown library result into an asserted outcome.
+                  print("observation_timeout=1")
+                  os.killpg(pid, signal.SIGKILL)
+                  _, status = os.waitpid(pid, 0)
+              else:
+                  print("observation_timeout=0")
+              returncode = (
+                  os.waitstatus_to_exitcode(status) if status is not None else "unknown"
+              )
+              print(f"readline_expected={expected} returncode={returncode} "
+                    f"transcript_len={len(transcript)} transcript_hex={transcript.hex()}")
+              if f"readline_release={expected}".encode() not in transcript:
+                  raise SystemExit(f"expected pinned release {expected} in probe output")
+          finally:
+              if poll_child() is None:
+                  try:
+                      os.killpg(pid, signal.SIGKILL)
+                  except ProcessLookupError:
+                      pass
+                  try:
+                      _, status = os.waitpid(pid, 0)
+                  except ChildProcessError:
+                      pass
+              try:
+                  os.close(master)
+              except OSError:
+                  pass
+          PYPROBE
       - name: Run the oracle suite
         run: |
           set -euo pipefail

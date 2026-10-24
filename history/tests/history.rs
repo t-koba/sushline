@@ -2527,45 +2527,22 @@ fn history_tokenize_matches_gnu_nested_command_delimiter_scanning() {
 }
 
 #[test]
-fn history_extended_glob_word_selection_baseline_is_recorded_separately() {
-    // These are the Rust scanner's current byte-level baselines for comparison
-    // with the pinned GNU History probe. They are not assertions about GNU
-    // tokenization: the five extended-glob prefixes intentionally remain split
-    // until pinned 8.3 runtime output is available.
+fn history_extended_glob_word_selection_matches_pinned_history_83() {
+    // Pinned GNU History 8.3 keeps these unquoted, balanced forms together.
+    // Quoted, escaped, command/process substitution, and arithmetic cases are
+    // controls; this checks lexical word behavior, not glob expansion.
     let policy = HistoryExpansionPolicy::default();
     type LexicalCase = (&'static [u8], &'static [&'static [u8]], &'static [u8]);
     let cases: &[LexicalCase] = &[
-        (
-            b"echo @(a b) z",
-            &[b"echo", b"@", b"(", b"a", b"b", b")", b"z"],
-            b"@",
-        ),
-        (
-            b"echo !(a b) z",
-            &[b"echo", b"!", b"(", b"a", b"b", b")", b"z"],
-            b"!",
-        ),
-        (
-            b"echo ?(a b) z",
-            &[b"echo", b"?", b"(", b"a", b"b", b")", b"z"],
-            b"?",
-        ),
-        (
-            b"echo +(a b) z",
-            &[b"echo", b"+", b"(", b"a", b"b", b")", b"z"],
-            b"+",
-        ),
-        (
-            b"echo *(a b) z",
-            &[b"echo", b"*", b"(", b"a", b"b", b")", b"z"],
-            b"*",
-        ),
+        (b"echo @(a b) z", &[b"echo", b"@(a b)", b"z"], b"@(a b)"),
+        (b"echo !(a b) z", &[b"echo", b"!(a b)", b"z"], b"!(a b)"),
+        (b"echo ?(a b) z", &[b"echo", b"?(a b)", b"z"], b"?(a b)"),
+        (b"echo +(a b) z", &[b"echo", b"+(a b)", b"z"], b"+(a b)"),
+        (b"echo *(a b) z", &[b"echo", b"*(a b)", b"z"], b"*(a b)"),
         (
             b"echo @((a b) c) z",
-            &[
-                b"echo", b"@", b"(", b"(", b"a", b"b", b")", b"c", b")", b"z",
-            ],
-            b"@",
+            &[b"echo", b"@((a b) c)", b"z"],
+            b"@((a b) c)",
         ),
         (
             b"echo '@(a b)' z",

@@ -1130,6 +1130,16 @@ fn command_word_spans(line: &[u8], policy: &HistoryExpansionPolicy) -> Vec<(usiz
             idx += 2;
             continue;
         }
+        if matches!(byte, b'@' | b'!' | b'?' | b'+' | b'*')
+            && line.get(idx + 1) == Some(&b'(')
+            && let Some(end) = paired_group_end(line, idx + 2, b'(', b')')
+        {
+            // GNU History 8.3 keeps the five extended-glob-shaped prefixes
+            // and their balanced parenthesized word together during tokenization.
+            word_start.get_or_insert(idx);
+            idx = end;
+            continue;
+        }
         if byte == b'$' && line.get(idx + 1) == Some(&b'(') {
             word_start.get_or_insert(idx);
             idx = command_substitution_end(line, idx);

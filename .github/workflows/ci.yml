@@ -1083,6 +1083,7 @@ jobs:
               run("root_modifier", "!!:r");
               run("extension_modifier", "!!:e");
               run("quote_modifier", "!!:q");
+              run("single_quote_context", "echo '!!");
               run("print_only_modifier", "!!:p");
               run("quote_each", "!!:x");
               run("substitute", "!!:s/b/B/");

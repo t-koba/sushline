@@ -935,11 +935,17 @@ jobs:
               run("event_bang_bang", "!!");
               run("last_word", "!$");
               run("word_zero", "!:0");
+              run("head_modifier", "!!:h");
+              run("tail_modifier", "!!:t");
+              run("root_modifier", "!!:r");
+              run("extension_modifier", "!!:e");
               run("quote_modifier", "!!:q");
+              run("print_only_modifier", "!!:p");
               run("quote_each", "!!:x");
               run("substitute", "!!:s/b/B/");
               run("relative", "!-2");
               run("quick_suffix", "^a^A^ trailing");
+              run("literal_caret_prefix", "echo ^a^b");
               run("unknown_modifier", "!!:u");
               run("missing_event", "!nonexistent");
               run_lexical("lex_at", "echo @(a b) z");

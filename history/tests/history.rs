@@ -3980,6 +3980,7 @@ fn history_expansion_answers_match_the_measured_c_library() {
         ("!!:x", "'echo' 'a' 'b'"),
         ("!!:s/b/B/", "echo a B"),
         ("!-2", "echo a b"),
+        ("^a^A^ trailing", "echo A b trailing"),
         ("echo ^a^b", "echo ^a^b"),
     ] {
         assert_eq!(

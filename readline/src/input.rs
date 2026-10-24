@@ -29,10 +29,10 @@ where
     ) -> Result<Option<ReadlineResult>, ReadlineError> {
         #[cfg(unix)]
         if signal == libc::SIGINT {
-            // The terminal keeps the input that arrived with the interrupt.
-            // GNU Readline clears the line, keeps reading and accepts those
-            // bytes as the next line, so the editor does not discard the
-            // terminal's queued bytes here.
+            // Preserve bytes the terminal queued after the signal, but keep
+            // Sushline's public Interrupted result for the current read. The
+            // pinned GNU 8.3 direct-library fixture instead returned its
+            // pre-signal text and following byte from the same read.
             self.terminal.restore_mode()?;
             self.echo_signal_interrupt(state)?;
             return Ok(Some(ReadlineResult::Interrupted));
@@ -125,10 +125,10 @@ where
             let (byte, tail) = rest.split_at(1);
             rest = tail;
             if byte[0] == 0x03 && !state.input.quoted_insert && !state.paste.bracketed_paste {
-                // The bytes that arrived with the interrupt stay in the
-                // input stream. GNU Readline clears the line, keeps reading
-                // and accepts them as the next line, so the next read
-                // continues with them.
+                // Sushline reports Interrupted for the current line and
+                // keeps the bytes after this control byte in the input
+                // stream for the next read. Pinned GNU 8.3 instead returned
+                // the pre-signal text and following byte in the same line.
                 self.echo_signal_interrupt(state)?;
                 state.input.interrupted = true;
                 return Ok((EditorOutcome::Continue, rest.to_vec(), drawn));

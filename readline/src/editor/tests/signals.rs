@@ -15,9 +15,10 @@ fn interrupted_readline_cleans_up_terminal_modes() {
 
 #[test]
 fn interrupt_keeps_the_input_that_arrived_with_it() {
-    // GNU Readline clears the line on an interrupt, keeps reading and
-    // accepts the bytes that arrived with the interrupt as the next line, so
-    // the editor keeps them in the input stream.
+    // Sushline returns Interrupted for the current line, then accepts only
+    // the bytes after Ctrl-C on the next read. The pinned GNU 8.3 direct
+    // library fixture instead returned the pre-signal prefix and following
+    // byte together from one read.
     let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(b"abc\x03X\r".to_vec())]);
     let mut line = Editor::new(Config::default(), terminal, History::new());
 

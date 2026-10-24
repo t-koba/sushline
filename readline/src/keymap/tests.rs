@@ -134,17 +134,16 @@ fn bind_function_table_separates_editor_and_embedder_responsibility() {
 }
 
 #[test]
-fn octal_escapes_wrap_to_low_eight_bits_like_gnu() {
-    // GNU accumulates `\\nnn` into an eight-bit byte: verified against the
-    // Bash 5.3 oracle (`"\\400"` binds `\\C-@`, `"\\777"` binds `\\377`).
+fn octal_escapes_wrap_to_low_eight_bits() {
+    // Regression coverage for octal values accumulating into an eight-bit byte.
     assert_eq!(KeySequence::parse("\"\\400\"").unwrap().bytes(), &[0x00]);
     assert_eq!(KeySequence::parse("\"\\777\"").unwrap().bytes(), &[0xff]);
     assert_eq!(KeySequence::parse("\"\\377\"").unwrap().bytes(), &[0xff]);
 }
 
 #[test]
-fn empty_hex_escape_is_literal_x_like_gnu() {
-    // GNU binds `"\\x"` to `x` (`"x": beginning-of-line` in `bind -p`).
+fn empty_hex_escape_is_literal_x() {
+    // Regression coverage for an empty hexadecimal escape producing a literal `x`.
     assert_eq!(KeySequence::parse("\"\\x\"").unwrap().bytes(), b"x");
     assert_eq!(KeySequence::parse("\"\\x41\"").unwrap().bytes(), &[0x41]);
     assert_eq!(

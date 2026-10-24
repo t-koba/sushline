@@ -107,6 +107,13 @@ pub trait TerminalIo {
     fn set_meta_key_enabled(&mut self, _enabled: bool) -> io::Result<()> {
         Ok(())
     }
+    /// Notifies the backend of Readline's input-meta flag before raw-mode entry.
+    ///
+    /// The built-in terminal uses it to prepare eight-bit input for CS7;
+    /// custom backends may apply their own input policy.
+    fn set_input_meta_enabled(&mut self, _enabled: bool) -> io::Result<()> {
+        Ok(())
+    }
     /// Enables or disables application keypad mode.
     fn set_application_keypad_enabled(&mut self, _enabled: bool) -> io::Result<()> {
         Ok(())
@@ -127,6 +134,7 @@ pub struct Terminal {
     raw: bool,
     catch_signals: bool,
     catch_sigwinch: bool,
+    input_meta_enabled: bool,
     /// Input that was read before a signal was noticed.
     ///
     /// The signal is reported before the data, like GNU Readline, which
@@ -146,6 +154,7 @@ impl Terminal {
             raw: false,
             catch_signals: true,
             catch_sigwinch: true,
+            input_meta_enabled: false,
             #[cfg(unix)]
             pending: Vec::new(),
             #[cfg(unix)]
@@ -197,6 +206,11 @@ impl Drop for Terminal {
 }
 
 impl TerminalIo for Terminal {
+    fn set_input_meta_enabled(&mut self, enabled: bool) -> io::Result<()> {
+        self.input_meta_enabled = enabled;
+        Ok(())
+    }
+
     fn enter_raw_mode(&mut self) -> io::Result<()> {
         if self.raw {
             return Ok(());
@@ -215,7 +229,9 @@ impl TerminalIo for Terminal {
             // Acquire terminal state before installing process-global handlers
             // so a failed entry (for example ENOTTY on non-TTY stdin) leaves
             // no handlers behind and releases the process-wide raw-mode lease.
-            if let Err(error) = enable_readline_mode(&mut self.saved_termios) {
+            if let Err(error) =
+                enable_readline_mode(&mut self.saved_termios, self.input_meta_enabled)
+            {
                 RAW_TERMINAL_ACTIVE.store(false, Ordering::SeqCst);
                 return Err(error);
             }
@@ -379,7 +395,7 @@ fn same_device(left: libc::c_int, right: libc::c_int) -> bool {
 }
 
 #[cfg(unix)]
-fn prepare_readline_termios(readline: &mut libc::termios) {
+fn prepare_readline_termios(readline: &mut libc::termios, input_meta_enabled: bool) {
     // Preserve configured software flow control. When enabled, the line
     // discipline consumes VSTOP/VSTART instead of dispatching them as editor
     // keys, matching the tested Bash PTY behavior.
@@ -387,18 +403,21 @@ fn prepare_readline_termios(readline: &mut libc::termios) {
     // no policy knob: CR/NL translation off unconditionally so RET (CR) stays
     // distinct from C-J (LF) for isearch dispatch.
     readline.c_iflag &= !(libc::ICRNL | libc::INLCR);
-    // Match GNU `rltty.c:prepare_terminal_settings` eight-bit preparation for
-    // the CS8 case: an inherited ISTRIP would strip high bits in the kernel
-    // before any input-meta decoder could recover them, corrupting UTF-8.
-    // Narrower than GNU (which also covers CS7+meta_flag): CS7 behavior is
-    // left unchanged.
-    if readline.c_cflag & libc::CSIZE == libc::CS8 {
+    // Match GNU `rltty.c:prepare_terminal_settings` eight-bit preparation:
+    // CS8 always clears inherited strip/parity checking, and CS7 does so when
+    // input-meta is enabled so the kernel cannot strip high bits before the
+    // editor decodes them.
+    let character_size = readline.c_cflag & libc::CSIZE;
+    if character_size == libc::CS8 || (input_meta_enabled && character_size == libc::CS7) {
         readline.c_iflag &= !(libc::ISTRIP | libc::INPCK);
     }
 }
 
 #[cfg(unix)]
-fn enable_readline_mode(saved: &mut Option<libc::termios>) -> io::Result<()> {
+fn enable_readline_mode(
+    saved: &mut Option<libc::termios>,
+    input_meta_enabled: bool,
+) -> io::Result<()> {
     let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
     let rc = unsafe { libc::tcgetattr(libc::STDIN_FILENO, termios.as_mut_ptr()) };
     if rc != 0 {
@@ -411,7 +430,7 @@ fn enable_readline_mode(saved: &mut Option<libc::termios>) -> io::Result<()> {
     }
 
     let mut readline = original;
-    prepare_readline_termios(&mut readline);
+    prepare_readline_termios(&mut readline, input_meta_enabled);
 
     readline.c_lflag &= !(libc::ICANON | libc::ECHO | libc::IEXTEN);
     readline.c_cc[libc::VMIN] = 1;
@@ -840,24 +859,25 @@ mod tests {
     }
 
     #[test]
-    fn synthetic_cs8_clears_istrip_and_inpck_while_cs7_preserves() {
+    fn synthetic_eight_bit_mode_prepares_strip_flags_by_character_size_and_meta() {
         unsafe {
             let mut cs8: libc::termios = std::mem::zeroed();
             cs8.c_cflag = libc::CS8;
             cs8.c_iflag = libc::ISTRIP | libc::INPCK | libc::IXON;
-            prepare_readline_termios(&mut cs8);
+            prepare_readline_termios(&mut cs8, false);
             assert_eq!(cs8.c_iflag & libc::ISTRIP, 0, "CS8 must clear ISTRIP");
             assert_eq!(cs8.c_iflag & libc::INPCK, 0, "CS8 must clear INPCK");
 
             let mut cs7: libc::termios = std::mem::zeroed();
             cs7.c_cflag = libc::CS7;
             cs7.c_iflag = libc::ISTRIP | libc::INPCK;
-            prepare_readline_termios(&mut cs7);
-            assert_ne!(
-                cs7.c_iflag & libc::ISTRIP,
-                0,
-                "synthetic CS7 keeps ISTRIP in this helper"
-            );
+            prepare_readline_termios(&mut cs7, false);
+            assert_ne!(cs7.c_iflag & libc::ISTRIP, 0);
+            assert_ne!(cs7.c_iflag & libc::INPCK, 0);
+
+            prepare_readline_termios(&mut cs7, true);
+            assert_eq!(cs7.c_iflag & libc::ISTRIP, 0, "CS7+meta must clear ISTRIP");
+            assert_eq!(cs7.c_iflag & libc::INPCK, 0, "CS7+meta must clear INPCK");
         }
     }
 }

@@ -26,6 +26,17 @@ fn editor_new_retains_initial_inputrc_error_and_try_new_reports_it() {
 }
 
 #[test]
+fn input_meta_setting_reaches_terminal_before_raw_mode_entry() {
+    let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(vec![b'\r'])]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set input-meta on").unwrap();
+
+    line.read_line(Prompt::new("P>"), &mut ()).unwrap();
+
+    assert_eq!(line.terminal.input_meta_on_raw_entry, [true]);
+}
+
+#[test]
 fn inputrc_diagnostics_go_to_the_terminal_diagnostic_sink() {
     let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(vec![b'\r'])]);
     let mut line = Editor::new(Config::default(), terminal, History::new());

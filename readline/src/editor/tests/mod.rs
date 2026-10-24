@@ -203,6 +203,8 @@ struct MemoryTerminal {
     columns: u16,
     tty_special: Vec<(u8, &'static str)>,
     meta_enabled: Vec<bool>,
+    input_meta: bool,
+    input_meta_on_raw_entry: Vec<bool>,
     keypad_enabled: Vec<bool>,
     moved_columns: Vec<u16>,
     moved_up: Vec<u16>,
@@ -220,6 +222,8 @@ impl MemoryTerminal {
             columns: 80,
             tty_special: Vec::new(),
             meta_enabled: Vec::new(),
+            input_meta: false,
+            input_meta_on_raw_entry: Vec::new(),
             keypad_enabled: Vec::new(),
             moved_columns: Vec::new(),
             moved_up: Vec::new(),
@@ -236,6 +240,7 @@ impl MemoryTerminal {
 
 impl TerminalIo for MemoryTerminal {
     fn enter_raw_mode(&mut self) -> io::Result<()> {
+        self.input_meta_on_raw_entry.push(self.input_meta);
         Ok(())
     }
 
@@ -309,6 +314,11 @@ impl TerminalIo for MemoryTerminal {
 
     fn set_meta_key_enabled(&mut self, enabled: bool) -> io::Result<()> {
         self.meta_enabled.push(enabled);
+        Ok(())
+    }
+
+    fn set_input_meta_enabled(&mut self, enabled: bool) -> io::Result<()> {
+        self.input_meta = enabled;
         Ok(())
     }
 

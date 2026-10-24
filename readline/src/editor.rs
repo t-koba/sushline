@@ -281,6 +281,8 @@ where
 
     /// Reset after signal.
     pub fn reset_after_signal(&mut self) -> Result<(), ReadlineError> {
+        self.terminal
+            .set_input_meta_enabled(self.flag(BoolVariable::InputMeta))?;
         self.terminal.enter_raw_mode()?;
         self.terminal
             .set_meta_key_enabled(self.flag(BoolVariable::EnableMetaKey))?;

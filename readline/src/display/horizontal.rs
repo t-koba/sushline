@@ -164,7 +164,11 @@ impl HorizontalViewport {
         // placement should trigger automatic wrapping in horizontal mode.
         let capacity = columns.saturating_sub(1);
         if capacity == 0 {
+            // With no displayable cells, there is no viewport to preserve.
+            // Reset both coordinates so a later resize cannot reuse a margin
+            // that no longer matches the cleared byte offset.
             self.offset = 0;
+            self.margin = 0;
             self.visible = 0..0;
             return (line.prefix.clone(), 0);
         }
@@ -585,6 +589,22 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn zero_capacity_layout_resets_viewport_before_resize() {
+        let text = "a".repeat(100);
+        let mut viewport = HorizontalViewport::default();
+        let _ = viewport.layout(&line("P>", &text, text.len()), 80);
+        let _ = viewport.layout(&line("P>", &text, text.len()), 1);
+
+        // The cursor may move while no cells are available. After resizing,
+        // layout must use the current line, not the stale margin from before
+        // the zero-capacity interval.
+        let moved = line("P>", &text, 29);
+        let reused = viewport.layout(&moved, 12);
+        let mut fresh = HorizontalViewport::default();
+        assert_eq!(reused, fresh.layout(&moved, 12));
     }
 
     #[test]

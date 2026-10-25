@@ -2100,11 +2100,11 @@ jobs:
                       raise RuntimeError(f"{disposition}: child not reaped after SIGKILL")
 
               try:
-                  # Wait for the observational hook before typing into the PTY.
-                  # Both echo and the hook's buffer observation gate SIGQUIT;
-                  # no wrapper, callback, or post-signal outcome is required.
-                  hook_seen = read_until(b"active_quit_application_handler=", 3.0)
-                  if hook_seen and poll_child() is None:
+                  # Match the prompt-first SIGINT fixture: wait for the prompt,
+                  # then type partial input. PTY echo and the hook's buffer
+                  # observation both gate SIGQUIT; no post-signal outcome is required.
+                  prompt_seen = read_until(b"quit> ", 3.0)
+                  if prompt_seen and poll_child() is None:
                       try:
                           os.write(master, b"abc")
                           partial_input_sent = True

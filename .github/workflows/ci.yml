@@ -1147,10 +1147,9 @@ jobs:
           readline="$HOME/.cache/sushline/readline-oracle"
           # The SIGINT row describes the direct Readline library, not the Bash
           # builtin: call readline() directly in a program linked to the exact
-          # pinned release. A minimal caller-owned handler lets Readline
-          # restore/restart through its normal signal path. Record the prompt,
-          # partial line, interrupt, signal count and returned-line bytes
-          # without assuming the pinned release's answer.
+          # pinned release. Measure both a caller-owned handler and SIG_DFL;
+          # record the prompt, partial line, interrupt, signal count and
+          # returned-line bytes without assuming the pinned release's answer.
           cat > /tmp/readline_sigint_probe.c <<'PROBE'
           #include <stdio.h>
           #include <readline/readline.h>
@@ -1167,12 +1166,20 @@ jobs:
           }
 
           int main(void) {
-              struct sigaction action;
-              memset(&action, 0, sizeof action);
-              action.sa_handler = application_sigint;
-              sigemptyset(&action.sa_mask);
-              if (sigaction(SIGINT, &action, NULL) != 0)
-                  return 1;
+              const char *disposition = getenv("SUSHLINE_SIGINT_DISPOSITION");
+              if (disposition == NULL ||
+                  (strcmp(disposition, "caller-handler") != 0 &&
+                   strcmp(disposition, "default") != 0))
+                  return 2;
+              if (strcmp(disposition, "caller-handler") == 0) {
+                  struct sigaction action;
+                  memset(&action, 0, sizeof action);
+                  action.sa_handler = application_sigint;
+                  sigemptyset(&action.sa_mask);
+                  if (sigaction(SIGINT, &action, NULL) != 0)
+                      return 1;
+              }
+              fprintf(stderr, "sigint_disposition=%s\n", disposition);
               fprintf(stderr, "readline_release=%d.%d\n", rl_readline_version >> 8,
                       rl_readline_version & 0xff);
               fflush(stderr);
@@ -1208,11 +1215,10 @@ jobs:
             echo "the SIGINT probe loaded Readline outside the pinned prefix" >&2
             exit 1
           fi
-          # pty.fork gives the direct-library process a controlling PTY. Send
-          # a partial line, then Ctrl-C and suffix bytes in one write, as an
-          # interactive input stream would. The transcript and C result show
-          # whether Readline handles, restarts, clears or terminates. Bounded
-          # waits and child cleanup keep the measurement safe on each outcome.
+          # Each disposition gets a fresh child with a controlling PTY. Send
+          # the same partial line, Ctrl-C and suffix bytes; transcript, status
+          # and C result remain observational. Bounded waits and cleanup apply
+          # independently to both runs.
           python3 - <<'PYPROBE' | tee /tmp/readline_sigint.out
           import os
           import pty
@@ -1222,82 +1228,89 @@ jobs:
 
           probe = "/tmp/readline_sigint_probe"
           expected = os.environ["READLINE_ORACLE_VERSION"]
-          pid, master = pty.fork()
-          if pid == 0:
-              signal.signal(signal.SIGINT, signal.SIG_DFL)
-              env = os.environ.copy()
-              env["INPUTRC"] = "/dev/null"
-              env["LC_ALL"] = "C"
-              env["TERM"] = "dumb"
-              os.execve(probe, [probe], env)
 
-          transcript = bytearray()
-          status = None
+          def measure(disposition):
+              print(f"measurement_disposition={disposition}")
+              pid, master = pty.fork()
+              if pid == 0:
+                  signal.signal(signal.SIGINT, signal.SIG_DFL)
+                  env = os.environ.copy()
+                  env["INPUTRC"] = "/dev/null"
+                  env["LC_ALL"] = "C"
+                  env["TERM"] = "dumb"
+                  env["SUSHLINE_SIGINT_DISPOSITION"] = disposition
+                  os.execve(probe, [probe], env)
 
-          def poll_child():
-              global status
-              if status is None:
-                  try:
-                      waited, child_status = os.waitpid(pid, os.WNOHANG)
-                  except ChildProcessError:
-                      return status
-                  if waited:
-                      status = child_status
-              return status
+              transcript = bytearray()
+              status = None
 
-          def read_until(marker, timeout):
-              deadline = time.monotonic() + timeout
-              while marker not in transcript and time.monotonic() < deadline:
-                  if poll_child() is not None:
-                      break
-                  ready, _, _ = select.select([master], [], [], 0.1)
-                  if ready:
+              def poll_child():
+                  nonlocal status
+                  if status is None:
                       try:
-                          transcript.extend(os.read(master, 4096))
-                      except OSError:
-                          break
-              return marker in transcript
+                          waited, child_status = os.waitpid(pid, os.WNOHANG)
+                      except ChildProcessError:
+                          return status
+                      if waited:
+                          status = child_status
+                  return status
 
-          try:
-              if not read_until(b"sigint> ", 3.0):
-                  raise SystemExit("direct Readline probe did not display its prompt")
-              os.write(master, b"abc")
-              if not read_until(b"abc", 2.0):
-                  raise SystemExit("direct Readline probe did not display its partial line")
-              os.write(master, b"\x03X\r")
-              read_until(b"done\n", 5.0)
-              exit_deadline = time.monotonic() + 1.0
-              while poll_child() is None and time.monotonic() < exit_deadline:
-                  time.sleep(0.01)
-              if poll_child() is None:
-                  # A bounded observation timeout is itself recorded. Do not
-                  # turn the unknown library result into an asserted outcome.
-                  print("observation_timeout=1")
-                  os.killpg(pid, signal.SIGKILL)
-                  _, status = os.waitpid(pid, 0)
-              else:
-                  print("observation_timeout=0")
-              returncode = (
-                  os.waitstatus_to_exitcode(status) if status is not None else "unknown"
-              )
-              print(f"readline_expected={expected} returncode={returncode} "
-                    f"transcript_len={len(transcript)} transcript_hex={transcript.hex()}")
-              if f"readline_release={expected}".encode() not in transcript:
-                  raise SystemExit(f"expected pinned release {expected} in probe output")
-          finally:
-              if poll_child() is None:
-                  try:
-                      os.killpg(pid, signal.SIGKILL)
-                  except ProcessLookupError:
-                      pass
-                  try:
-                      _, status = os.waitpid(pid, 0)
-                  except ChildProcessError:
-                      pass
+              def read_until(marker, timeout):
+                  deadline = time.monotonic() + timeout
+                  while marker not in transcript and time.monotonic() < deadline:
+                      if poll_child() is not None:
+                          break
+                      ready, _, _ = select.select([master], [], [], 0.1)
+                      if ready:
+                          try:
+                              transcript.extend(os.read(master, 4096))
+                          except OSError:
+                              break
+                  return marker in transcript
+
               try:
-                  os.close(master)
-              except OSError:
-                  pass
+                  if not read_until(b"sigint> ", 3.0):
+                      raise SystemExit(f"{disposition}: probe did not display its prompt")
+                  os.write(master, b"abc")
+                  if not read_until(b"abc", 2.0):
+                      raise SystemExit(f"{disposition}: probe did not display partial line")
+                  os.write(master, b"\x03X\r")
+                  read_until(b"done\n", 5.0)
+                  exit_deadline = time.monotonic() + 1.0
+                  while poll_child() is None and time.monotonic() < exit_deadline:
+                      time.sleep(0.01)
+                  if poll_child() is None:
+                      print("observation_timeout=1")
+                      os.killpg(pid, signal.SIGKILL)
+                      _, status = os.waitpid(pid, 0)
+                  else:
+                      print("observation_timeout=0")
+                  returncode = (
+                      os.waitstatus_to_exitcode(status) if status is not None else "unknown"
+                  )
+                  print(f"readline_expected={expected} returncode={returncode} "
+                        f"transcript_len={len(transcript)} transcript_hex={transcript.hex()}")
+                  if f"sigint_disposition={disposition}".encode() not in transcript:
+                      raise SystemExit(f"{disposition}: disposition missing from probe output")
+                  if f"readline_release={expected}".encode() not in transcript:
+                      raise SystemExit(f"{disposition}: expected pinned release {expected}")
+              finally:
+                  if poll_child() is None:
+                      try:
+                          os.killpg(pid, signal.SIGKILL)
+                      except ProcessLookupError:
+                          pass
+                      try:
+                          _, status = os.waitpid(pid, 0)
+                      except ChildProcessError:
+                          pass
+                  try:
+                      os.close(master)
+                  except OSError:
+                      pass
+
+          for disposition in ("caller-handler", "default"):
+              measure(disposition)
           PYPROBE
       - name: Run the oracle suite
         run: |

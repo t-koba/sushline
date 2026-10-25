@@ -1205,11 +1205,12 @@ jobs:
               }
           }
 
-          /* Lexical word measurement only: tokenize, single-word extract,
-             and word-selector expansion on the same seeded entry. Each
-             sub-measurement resets the history first, so cases stay
-             isolated. No value is asserted here; the lines are pinned 8.3
-             runtime evidence pending comparison with the Rust scanner. */
+          /* Emit pinned GNU 8.3 lexical observations: tokenize, single-word
+             extract, and word-selector expansion on the same seeded entry.
+             Each sub-measurement resets the history first, so cases stay
+             isolated. The surrounding CI step asserts the exact outputs
+             against the matching Rust fixtures. This measures History word
+             handling, not shell parsing or glob expansion. */
           static void run_lexical(const char *label, const char *input) {
               clear_history();
               char **tokens = history_tokenize(input);

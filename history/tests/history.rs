@@ -1700,7 +1700,10 @@ fn history_expansion_tracks_escaped_quotes_in_context() {
             br"echo \' !!".as_slice(),
             br"echo \' echo previous".as_slice(),
         ),
-        (br#"echo \"'!!"#.as_slice(), br#"echo \"'!!"#.as_slice()),
+        (
+            br#"echo \"'!!"#.as_slice(),
+            br#"echo \"'echo previous"#.as_slice(),
+        ),
         (
             br#"echo "a\"'!!"#.as_slice(),
             br#"echo "a\"'echo previous"#.as_slice(),
@@ -3975,9 +3978,10 @@ fn joined_grouping_keeps_plain_command_lines_separate() {
 
 #[test]
 fn history_expansion_answers_match_the_measured_c_library() {
-    // Measured against the installed GNU History 8.2 library: the event and
-    // word designators, the modifiers the library knows, the substitution,
-    // the relative event and the quick substitution answer the same here.
+    // Event and word designators, modifiers, substitutions, relative events,
+    // and quick substitution were measured against the installed GNU History
+    // 8.2 library. The pinned GNU History 8.3 probe also covers the exact
+    // open-single-quote input below.
     let mut history = History::new();
     history.push("echo previous");
     history.push("echo a b");
@@ -4036,14 +4040,29 @@ fn history_expansion_answers_match_the_measured_c_library() {
             "!nonexistent".to_string()
         ))
     );
-    // The library expands inside single quotes; this library leaves the
-    // expansion alone.
+    // Pinned GNU History 8.3 reports status 1 and bytes `echo 'echo a b`
+    // for this direct-library input with the latest event seeded above.
     assert_eq!(
         expand_history(
             b"echo '!!",
             &history,
             HistoryChars::parse("!^#"),
             &policy,
+            |_| false,
+        )
+        .unwrap(),
+        b"echo 'echo a b"
+    );
+    let inhibited_policy = HistoryExpansionPolicy {
+        quotes_inhibit_expansion: true,
+        ..policy.clone()
+    };
+    assert_eq!(
+        expand_history(
+            b"echo '!!",
+            &history,
+            HistoryChars::parse("!^#"),
+            &inhibited_policy,
             |_| false,
         )
         .unwrap(),

@@ -650,8 +650,12 @@ where
     fn history_expansion_policy(&self) -> HistoryExpansionPolicy {
         // GNU has no inputrc variables for the remaining policy fields;
         // embedders configure them per call through `HistoryExpansionPolicy`.
+        // The Readline editor keeps single-quote inhibition for the measured
+        // Bash prompt path; the pure History API has a distinct direct-library
+        // default that expands the pinned `echo '!!` input.
         HistoryExpansionPolicy {
             quick_substitution: false,
+            quotes_inhibit_expansion: true,
             ..HistoryExpansionPolicy::default()
         }
     }

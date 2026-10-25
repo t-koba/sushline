@@ -1221,9 +1221,10 @@ fn bash_readline_and_sushline_do_not_quick_substitute_from_history_expand_line()
 
 #[test]
 fn bash_readline_and_sushline_apply_same_history_quote_inhibit_policy() {
-    // GNU inhibits `!` expansion inside single quotes by default with no
-    // variable involved; the unknown variable is ignored on both sides.
-    // The real-prompt path is required: `read -e` under `-c` never expands.
+    // Bash 5.3's Readline prompt path leaves this single-quoted `!!`
+    // unchanged; direct GNU History 8.3 library expansion is measured
+    // separately. The unknown variable is ignored on both sides. The
+    // real-prompt path is required: `read -e` under `-c` never expands.
     let inputrc = r#""\C-x\C-a": history-expand-line"#;
     let history = ["echo alpha"];
     let keys = b"'!!'\x18\x01\r";

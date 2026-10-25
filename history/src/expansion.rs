@@ -70,21 +70,48 @@ pub struct HistoryEvent {
     pub matched_word: Option<Vec<u8>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Outcome of a successful History expansion.
+pub enum HistoryExpansionStatus {
+    /// No event or quick substitution was expanded (GNU status 0).
+    Unchanged,
+    /// At least one event or quick substitution was expanded (GNU status 1).
+    Expanded,
+    /// A print-only modifier requested output without replacing the input (GNU status 2).
+    PrintOnly,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-/// HistoryExpansion.
+/// Result of expanding one line of history.
 pub struct HistoryExpansion {
-    /// Line.
+    /// Expanded line bytes.
     pub line: Vec<u8>,
-    /// Print only.
-    pub print_only: bool,
+    /// Outcome of the expansion.
+    pub status: HistoryExpansionStatus,
 }
 
 impl HistoryExpansion {
-    /// Unchanged.
+    /// Return an unchanged line.
     pub fn unchanged(line: &[u8]) -> Self {
         Self {
             line: line.to_vec(),
-            print_only: false,
+            status: HistoryExpansionStatus::Unchanged,
+        }
+    }
+
+    /// Return a line that was expanded from history.
+    pub fn expanded(line: Vec<u8>) -> Self {
+        Self {
+            line,
+            status: HistoryExpansionStatus::Expanded,
+        }
+    }
+
+    /// Return a print-only expansion.
+    pub fn print_only(line: Vec<u8>) -> Self {
+        Self {
+            line,
+            status: HistoryExpansionStatus::PrintOnly,
         }
     }
 }
@@ -222,6 +249,7 @@ pub fn expand_history_with_status_with_state(
     let mut idx = 0;
     let mut quote = policy.quote_state;
     let mut at_word_start = true;
+    let mut did_expand = false;
     let mut modifier_status = HistoryModifierStatus::default();
     // GNU Readline 8.3: a leading quick-substitution marker is not history
     // expansion while the embedder reports single-quote state.
@@ -239,6 +267,7 @@ pub fn expand_history_with_status_with_state(
         state.last_substitution = Some((old.clone(), new.clone()));
         let substituted = replace_once_checked(&last.line_bytes, &old, &new)
             .ok_or(HistoryExpansionError::SubstitutionFailed)?;
+        did_expand = true;
         let mut event = substituted;
         let mut next = next_after_fields;
         modifier_status.quote_mode = None;
@@ -310,6 +339,7 @@ pub fn expand_history_with_status_with_state(
                 parsed_event.matched_word,
             )
         };
+        did_expand = true;
         modifier_status.quote_mode = None;
         if line.get(next) == Some(&b':') {
             next += 1;
@@ -369,10 +399,14 @@ pub fn expand_history_with_status_with_state(
         out.extend_from_slice(&event);
         idx = next;
     }
-    Ok(HistoryExpansion {
-        line: out,
-        print_only: modifier_status.print_only,
-    })
+    let status = if modifier_status.print_only {
+        HistoryExpansionStatus::PrintOnly
+    } else if did_expand {
+        HistoryExpansionStatus::Expanded
+    } else {
+        HistoryExpansionStatus::Unchanged
+    };
+    Ok(HistoryExpansion { line: out, status })
 }
 
 /// Parse leading quick-substitution fields with escape handling.

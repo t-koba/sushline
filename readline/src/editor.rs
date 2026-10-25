@@ -11,6 +11,7 @@ use crate::variables::{BoolVariable, Variables};
 use history::History;
 use history::expansion::{
     HistoryChars, HistoryExpansion, HistoryExpansionPolicy, HistoryExpansionState,
+    HistoryExpansionStatus,
 };
 use std::fmt;
 use std::io;
@@ -706,7 +707,7 @@ where
         hooks: &mut impl Hooks,
     ) -> Result<Option<Vec<u8>>, ReadlineError> {
         match self.expand_history_line(line, hooks) {
-            Ok(expanded) if expanded.print_only => {
+            Ok(expanded) if expanded.status == HistoryExpansionStatus::PrintOnly => {
                 // The print-only result is not error text, but GNU writes it
                 // to standard error as well, so it takes the same sink.
                 let result = String::from_utf8_lossy(&expanded.line);

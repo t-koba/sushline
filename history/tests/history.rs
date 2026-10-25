@@ -2,7 +2,7 @@ use std::fs;
 
 use history::expansion::{
     HistoryChars, HistoryExpansionError, HistoryExpansionPolicy, HistoryExpansionState,
-    expand_history, expand_history_with_state, expand_history_with_status,
+    HistoryExpansionStatus, expand_history, expand_history_with_state, expand_history_with_status,
     expand_history_with_status_with_state, get_history_event, history_arg_extract,
     history_tokenize,
 };
@@ -1643,7 +1643,7 @@ fn history_expansion_supports_line_so_far_status_and_policy() {
     )
     .unwrap();
     assert_eq!(printed.line, b"echo alpha beta");
-    assert!(printed.print_only);
+    assert_eq!(printed.status, HistoryExpansionStatus::PrintOnly);
 
     let policy = HistoryExpansionPolicy {
         quotes_inhibit_expansion: true,
@@ -3078,7 +3078,7 @@ fn quick_substitution_processes_suffix_modifiers_and_further_expansion() {
         expand_history_with_status(b"^old^new^:p", &history, histchars, &policy, |_| false)
             .unwrap();
     assert_eq!(printed.line, b"echo new");
-    assert!(printed.print_only);
+    assert_eq!(printed.status, HistoryExpansionStatus::PrintOnly);
 
     let printed_trailing = expand_history_with_status(
         b"^old^new^:p trailing",
@@ -3089,7 +3089,7 @@ fn quick_substitution_processes_suffix_modifiers_and_further_expansion() {
     )
     .unwrap();
     assert_eq!(printed_trailing.line, b"echo new trailing");
-    assert!(printed_trailing.print_only);
+    assert_eq!(printed_trailing.status, HistoryExpansionStatus::PrintOnly);
 
     assert_eq!(
         expand_history(
@@ -4050,6 +4050,42 @@ fn history_expansion_answers_match_the_measured_c_library() {
             "!nonexistent".to_string()
         ))
     );
+    // The pinned GNU History 8.3 artifact distinguishes status 0 (no
+    // expansion), status 1 (event expansion), and status 2 (print-only).
+    for (input, expected, status) in [
+        (
+            b"echo ^a^b".as_slice(),
+            b"echo ^a^b".as_slice(),
+            HistoryExpansionStatus::Unchanged,
+        ),
+        (
+            b"!!".as_slice(),
+            b"echo a b".as_slice(),
+            HistoryExpansionStatus::Expanded,
+        ),
+        (
+            b"!!:p".as_slice(),
+            b"echo a b".as_slice(),
+            HistoryExpansionStatus::PrintOnly,
+        ),
+        (
+            b"^a^A^ trailing".as_slice(),
+            b"echo A b trailing".as_slice(),
+            HistoryExpansionStatus::Expanded,
+        ),
+    ] {
+        let result = expand_history_with_status(
+            input,
+            &history,
+            HistoryChars::parse("!^#"),
+            &policy,
+            |_| false,
+        )
+        .unwrap();
+        assert_eq!(result.line, expected, "input={input:?}");
+        assert_eq!(result.status, status, "input={input:?}");
+    }
+
     // Pinned GNU History 8.3 reports status 1 and bytes `echo 'echo a b`
     // for this direct-library input with the latest event seeded above.
     assert_eq!(

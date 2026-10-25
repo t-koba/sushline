@@ -167,7 +167,7 @@ fn history_expansion_hook_can_return_print_only_status() {
             assert_eq!(context.line, b"!!");
             Ok(HistoryExpansion {
                 line: b"hook-expanded".to_vec(),
-                print_only: true,
+                status: history::expansion::HistoryExpansionStatus::PrintOnly,
             })
         }
     }
@@ -236,7 +236,7 @@ fn history_expansion_hook_can_replace_core_expander() {
             assert_eq!(context.line, b"!!");
             Ok(HistoryExpansion {
                 line: b"hook-expanded".to_vec(),
-                print_only: false,
+                status: history::expansion::HistoryExpansionStatus::Expanded,
             })
         }
     }

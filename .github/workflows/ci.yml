@@ -1409,9 +1409,9 @@ jobs:
           readline="$HOME/.cache/sushline/readline-oracle"
           # The SIGINT row describes the direct Readline library, not the Bash
           # builtin: call readline() directly in a program linked to the exact
-          # pinned release. The PTY probe records the prompt, partial-line,
-          # signal and returned-line observations; assertions below pin both
-          # direct-library outcomes.
+          # pinned release. The PTY probe measures a caller-owned handler,
+          # SIG_DFL and SIG_IGN. Assertions pin the first two outcomes; record
+          # SIG_IGN preservation before deciding whether to pin it as well.
           cat > /tmp/readline_sigint_probe.c <<'PROBE'
           #include <stdio.h>
           #include <readline/readline.h>
@@ -1431,15 +1431,25 @@ jobs:
               const char *disposition = getenv("SUSHLINE_SIGINT_DISPOSITION");
               if (disposition == NULL ||
                   (strcmp(disposition, "caller-handler") != 0 &&
-                   strcmp(disposition, "default") != 0))
+                   strcmp(disposition, "default") != 0 &&
+                   strcmp(disposition, "ignored") != 0))
                   return 2;
-              if (strcmp(disposition, "caller-handler") == 0) {
+              if (strcmp(disposition, "caller-handler") == 0 ||
+                  strcmp(disposition, "ignored") == 0) {
                   struct sigaction action;
                   memset(&action, 0, sizeof action);
-                  action.sa_handler = application_sigint;
+                  action.sa_handler = strcmp(disposition, "ignored") == 0
+                      ? SIG_IGN : application_sigint;
                   sigemptyset(&action.sa_mask);
                   if (sigaction(SIGINT, &action, NULL) != 0)
                       return 1;
+                  if (strcmp(disposition, "ignored") == 0) {
+                      struct sigaction current;
+                      if (sigaction(SIGINT, NULL, &current) != 0)
+                          return 1;
+                      fprintf(stderr, "pre_sigint_ignored=%d\n",
+                              current.sa_handler == SIG_IGN);
+                  }
               }
               fprintf(stderr, "sigint_disposition=%s\n", disposition);
               fprintf(stderr, "readline_release=%d.%d\n", rl_readline_version >> 8,
@@ -1456,6 +1466,13 @@ jobs:
                       fprintf(stderr, "%02x", *p);
                   fprintf(stderr, "\n");
                   free(line);
+              }
+              if (strcmp(disposition, "ignored") == 0) {
+                  struct sigaction action;
+                  if (sigaction(SIGINT, NULL, &action) != 0)
+                      return 1;
+                  fprintf(stderr, "post_sigint_ignored=%d\n",
+                          action.sa_handler == SIG_IGN);
               }
               fprintf(stderr, "done\n");
               fflush(stderr);
@@ -1478,9 +1495,9 @@ jobs:
             exit 1
           fi
           # Each disposition gets a fresh child with a controlling PTY. Send
-          # the same partial line, Ctrl-C and suffix bytes. The assertions
-          # below pin these two direct-library outcomes; bounded waits and
-          # cleanup apply independently to both runs.
+          # the same partial line, Ctrl-C and suffix bytes. Caller-handler and
+          # SIG_DFL outcomes stay pinned; SIG_IGN is recorded for repeatability
+          # review. Bounded waits and cleanup apply independently to all runs.
           python3 - <<'PYPROBE' | tee /tmp/readline_sigint.out
           import os
           import pty
@@ -1541,12 +1558,16 @@ jobs:
                   exit_deadline = time.monotonic() + 1.0
                   while poll_child() is None and time.monotonic() < exit_deadline:
                       time.sleep(0.01)
+                  timeout_label = (
+                      "ignored_observation_timeout" if disposition == "ignored"
+                      else "observation_timeout"
+                  )
                   if poll_child() is None:
-                      print("observation_timeout=1")
+                      print(f"{timeout_label}=1")
                       os.killpg(pid, signal.SIGKILL)
                       _, status = os.waitpid(pid, 0)
                   else:
-                      print("observation_timeout=0")
+                      print(f"{timeout_label}=0")
                   returncode = (
                       os.waitstatus_to_exitcode(status) if status is not None else "unknown"
                   )
@@ -1571,11 +1592,11 @@ jobs:
                   except OSError:
                       pass
 
-          for disposition in ("caller-handler", "default"):
+          for disposition in ("caller-handler", "default", "ignored"):
               measure(disposition)
           PYPROBE
-          # Repeated successful pinned runs produced these exact controlled-
-          # PTY observations; reject timeouts and transcript drift.
+          # Pin the caller-handler and SIG_DFL outcomes from repeated runs.
+          # Keep the new SIG_IGN observation unasserted pending repeatability.
           grep -Fqx 'measurement_disposition=caller-handler' /tmp/readline_sigint.out
           grep -Fqx 'measurement_disposition=default' /tmp/readline_sigint.out
           test "$(grep -Fxc 'observation_timeout=0' /tmp/readline_sigint.out)" -eq 2

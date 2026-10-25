@@ -1135,11 +1135,11 @@ jobs:
           grep -qx 'forwards_from_first: 2' /tmp/history_position.out
           grep -qx 'from_first: 0' /tmp/history_position.out
           grep -qx 'from_second: 2' /tmp/history_position.out
-      - name: Measure the pinned release's history expansion
+      - name: Measure and assert pinned History expansion fixtures
         run: |
           set -euo pipefail
           readline="$HOME/.cache/sushline/readline-oracle"
-          # Measurement-only probe against the pinned history library: the
+          # Direct-library probe against the pinned history library: the
           # fixtures mirror `history_expansion_answers_match_the_measured_c_library`
           # and the quick-substitution suffix shape in
           # `quick_substitution_processes_suffix_modifiers_and_further_expansion`,
@@ -1151,11 +1151,11 @@ jobs:
           # seeded entry, all as hex.
           # The probe prints the 8.3 library's answer per fixture as a stable
           # label, the `history_expand` return status and the output bytes in
-          # hex, so quoting and errors stay unambiguous. The output is an 8.3
-          # measurement pending comparison to the Rust expansion, not a check:
-          # no value inferred from History 8.2 is asserted here. It compares
-          # library semantics only and claims neither Bash builtin nor public
-          # C ABI compatibility.
+          # hex, so quoting and errors stay unambiguous. The artifact retains
+          # the measurement; exact checks below cover the direct-library cases
+          # paired with Rust regressions. Other lexical cases remain
+          # measurement-only. These are GNU History library fixtures, not Bash
+          # builtin or public C ABI claims.
           cat > /tmp/history_expand_probe.c <<'PROBE'
           #include <stdio.h>
           #include <stdlib.h>
@@ -1323,9 +1323,34 @@ jobs:
             echo "the expansion probe loaded a readline or history library outside the pinned prefix" >&2
             exit 1
           fi
-          # Measurement only: record the pinned library's answers without
-          # asserting values inferred from History 8.2.
+          # Retain the complete measurement, then assert selected direct-
+          # library results paired with Rust history-expansion regressions.
+          # Expected values come from pinned GNU History 8.3, not 8.2 inference.
           /tmp/history_expand_probe | tee /tmp/history_expand.out
+          while IFS= read -r expected; do
+            grep -Fqx "$expected" /tmp/history_expand.out || {
+              echo "pinned history expansion mismatch: $expected" >&2
+              exit 1
+            }
+          done <<'EXPECTED'
+          event_bang_bang: status=1 output_hex=6563686f20612062
+          last_word: status=1 output_hex=62
+          word_zero: status=1 output_hex=6563686f
+          head_modifier: status=1 output_hex=6563686f20612062
+          tail_modifier: status=1 output_hex=6563686f20612062
+          root_modifier: status=1 output_hex=6563686f20612062
+          extension_modifier: status=1 output_hex=6563686f20612062
+          quote_modifier: status=1 output_hex=276563686f2061206227
+          single_quote_context: status=1 output_hex=6563686f20276563686f20612062
+          print_only_modifier: status=2 output_hex=6563686f20612062
+          quote_each: status=1 output_hex=276563686f272027612720276227
+          substitute: status=1 output_hex=6563686f20612042
+          relative: status=1 output_hex=6563686f20612062
+          quick_suffix: status=1 output_hex=6563686f2041206220747261696c696e67
+          literal_caret_prefix: status=0 output_hex=6563686f205e615e62
+          unknown_modifier: status=-1 output_hex=753a20756e7265636f676e697a656420686973746f7279206d6f646966696572
+          missing_event: status=-1 output_hex=216e6f6e6578697374656e743a206576656e74206e6f7420666f756e64
+          EXPECTED
       - name: Measure direct-library SIGINT handling against the pinned release
         run: |
           set -euo pipefail

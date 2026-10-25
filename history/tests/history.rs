@@ -4167,9 +4167,10 @@ fn joined_grouping_keeps_plain_command_lines_separate() {
 #[test]
 fn history_expansion_answers_match_the_measured_c_library() {
     // Event and word designators, modifiers, substitutions, relative events,
-    // and quick substitution were measured against the installed GNU History
-    // 8.2 library. The pinned GNU History 8.3 probe also covers the exact
-    // open-single-quote input below.
+    // and quick substitution were measured against installed GNU History 8.2.
+    // Selected outputs are also recorded and asserted against pinned GNU
+    // History 8.3 by the direct-library oracle step; that probe covers the
+    // exact open-single-quote input below as well.
     let mut history = History::new();
     history.push("echo previous");
     history.push("echo a b");

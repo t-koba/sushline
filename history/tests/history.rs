@@ -1567,6 +1567,34 @@ fn the_bounds_at_or_below_from_are_the_products_own_rule() {
 }
 
 #[test]
+fn ranges_beyond_eof_match_the_pinned_gnu_fixtures() {
+    // The pinned GNU History 8.3 out-of-file fixtures record these bounds;
+    // FROM beyond EOF is empty, while TO beyond EOF selects the remaining
+    // command lines, for both timestamped and plain files.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    let lines = |history: &History| -> Vec<String> {
+        history
+            .entries()
+            .iter()
+            .map(|entry| entry.line().into_owned())
+            .collect()
+    };
+
+    fs::write(&path, "#1700000000\nA0\nA1\n#1700000001\nB0\nB1\nB2\n").unwrap();
+    let beyond_from = History::read_file_range(&path, 5, Some(9)).unwrap();
+    assert!(lines(&beyond_from).is_empty());
+    let beyond_to = History::read_file_range(&path, 3, Some(9)).unwrap();
+    assert_eq!(lines(&beyond_to), vec!["B1".to_string(), "B2".to_string()]);
+
+    fs::write(&path, "C0\nC1\nC2\nC3\n").unwrap();
+    let beyond_from = History::read_file_range(&path, 4, Some(9)).unwrap();
+    assert!(lines(&beyond_from).is_empty());
+    let beyond_to = History::read_file_range(&path, 2, Some(9)).unwrap();
+    assert_eq!(lines(&beyond_to), vec!["C2".to_string(), "C3".to_string()]);
+}
+
+#[test]
 fn range_bounds_count_physical_command_lines() {
     // FROM/TO bounds count physical command lines, including blanks; timestamp
     // records are metadata and do not count. The fixture has three nonempty

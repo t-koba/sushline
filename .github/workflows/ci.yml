@@ -682,6 +682,10 @@ jobs:
             /tmp/history_range_probe /tmp/history_range_plain 4 9 0
             /tmp/history_range_probe /tmp/history_range_plain 2 9 0
           } | tee /tmp/history_range_oob_plain.out
+          grep -qx 'multiline=0 from=5 to=9: (none)' /tmp/history_range_oob_timestamped.out
+          grep -qx 'multiline=0 from=3 to=9: {B1} {B2}' /tmp/history_range_oob_timestamped.out
+          grep -qx 'multiline=0 from=4 to=9: (none)' /tmp/history_range_oob_plain.out
+          grep -qx 'multiline=0 from=2 to=9: {C2} {C3}' /tmp/history_range_oob_plain.out
       - name: Measure the pinned release's full-file late timestamp rule
         run: |
           set -euo pipefail

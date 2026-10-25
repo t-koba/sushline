@@ -1438,6 +1438,23 @@ fn range_bounds_match_the_measured_gnu_range_call() {
 }
 
 #[test]
+fn range_bounds_skip_blank_lines_in_sushline() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(&path, "#1700000000\nA0\n\nA1\n#1700000001\nB0\nB1\n").unwrap();
+
+    let history = History::read_file_range(&path, 0, Some(3)).unwrap();
+    assert_eq!(
+        history
+            .entries()
+            .iter()
+            .map(|entry| entry.line().into_owned())
+            .collect::<Vec<_>>(),
+        vec!["A0".to_string(), "A1".to_string(), "B0".to_string()]
+    );
+}
+
+#[test]
 fn the_bounds_at_or_below_from_are_the_products_own_rule() {
     // Measured against the installed GNU 8.2 release on the fixture the
     // oracle job measures: for a TO at or below FROM the shell returns the

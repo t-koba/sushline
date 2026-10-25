@@ -1875,7 +1875,8 @@ jobs:
           extern int rl_readline_version;
           static volatile sig_atomic_t signal_count;
           static int wrapper_observed;
-          static int line_seeded;
+          static int handler_observed;
+          static int line_observed;
           static int callback_observed;
 
           static void application_sigquit(int signal_number) {
@@ -1885,7 +1886,7 @@ jobs:
 
           static int observe_active_handler(void) {
               struct sigaction current;
-              if (!line_seeded) {
+              if (!handler_observed) {
                   if (sigaction(SIGQUIT, NULL, &current) != 0) {
                       perror("sigaction");
                       exit(1);
@@ -1899,10 +1900,13 @@ jobs:
                           current.sa_handler == SIG_DFL);
                   fprintf(stderr, "active_quit_application_handler=%d\n",
                           current.sa_handler == application_sigquit);
-                  /* The line is a controlled preexisting buffer, not PTY input. */
-                  rl_insert_text("abc");
-                  line_seeded = 1;
-                  fprintf(stderr, "line_buffer_seeded=1\n");
+                  handler_observed = 1;
+                  fflush(stderr);
+              }
+              if (!line_observed && rl_line_buffer != NULL &&
+                  strcmp(rl_line_buffer, "abc") == 0) {
+                  line_observed = 1;
+                  fprintf(stderr, "line_buffer_observed=1\n");
                   fflush(stderr);
               }
               if (!callback_observed && signal_count != 0) {
@@ -1965,7 +1969,7 @@ jobs:
                   free(line);
               }
               fprintf(stderr, "wrapper_observed=%d\n", wrapper_observed);
-              fprintf(stderr, "line_seeded=%d\n", line_seeded);
+              fprintf(stderr, "line_observed=%d\n", line_observed);
               fprintf(stderr, "callback_observed=%d\n", callback_observed);
               {
                   struct sigaction action;
@@ -2003,8 +2007,8 @@ jobs:
             exit 1
           fi
           # Each disposition gets a fresh child with a controlling PTY and
-          # core dumps disabled. SIGQUIT is sent after the line-seeded active
-          # marker for every disposition, including SIG_IGN without a wrapper.
+          # core dumps disabled. SIGQUIT is sent after PTY input is echoed and
+          # observed in the line buffer, including SIG_IGN without a wrapper.
           # Every read and wait is bounded and timed-out children are
           # reaped. The default-disposition outcome is recorded, not
           # asserted.
@@ -2041,6 +2045,7 @@ jobs:
               transcript = bytearray()
               status = None
               signal_sent = False
+              partial_input_sent = False
               input_sent = False
               cleanup_kill_sent = False
 
@@ -2095,10 +2100,19 @@ jobs:
                       raise RuntimeError(f"{disposition}: child not reaped after SIGKILL")
 
               try:
-                  # The hook seeds the line independently of the installed disposition.
-                  # Its marker, not the presence of a wrapper or PTY echo, gates SIGQUIT.
-                  line_seeded_marker_seen = read_until(b"line_buffer_seeded=1\r\n", 3.0)
-                  if line_seeded_marker_seen and poll_child() is None:
+                  # Wait for the observational hook before typing into the PTY.
+                  # Both echo and the hook's buffer observation gate SIGQUIT;
+                  # no wrapper, callback, or post-signal outcome is required.
+                  hook_seen = read_until(b"active_quit_application_handler=", 3.0)
+                  if hook_seen and poll_child() is None:
+                      try:
+                          os.write(master, b"abc")
+                          partial_input_sent = True
+                      except OSError:
+                          pass
+                  partial_echo_seen = read_until(b"abc", 3.0) if partial_input_sent else False
+                  line_observed_marker_seen = read_until(b"line_buffer_observed=1\r\n", 3.0)
+                  if partial_echo_seen and line_observed_marker_seen and poll_child() is None:
                       try:
                           os.kill(pid, signal.SIGQUIT)
                           signal_sent = True
@@ -2115,8 +2129,13 @@ jobs:
                               input_sent = True
                           except OSError:
                               pass
-                  read_until(b"done\r\n", 3.0)
-                  if not wait_for_exit(1.0):
+                  if disposition == "default":
+                      # Do not supply completion input: record this isolated child's status.
+                      exited = wait_for_exit(3.0)
+                  else:
+                      read_until(b"done\r\n", 3.0)
+                      exited = wait_for_exit(1.0)
+                  if not exited:
                       kill_and_reap()
                   # Drain bytes already written before exit, including the result fields.
                   read_until(b"\x00", 0.2)
@@ -2126,7 +2145,9 @@ jobs:
                   observation_timeout = cleanup_kill_sent and returncode == -signal.SIGKILL
                   print(f"wrapper_marker_seen={int(b'active_quit_wrapper=1' in transcript)}")
                   print(f"sigquit_sent={int(signal_sent)}")
-                  print(f"line_buffer_seeded_marker_seen={int(line_seeded_marker_seen)}")
+                  print(f"partial_input_sent={int(partial_input_sent)}")
+                  print(f"partial_echo_seen={int(partial_echo_seen)}")
+                  print(f"line_buffer_observed_marker_seen={int(line_observed_marker_seen)}")
                   print(f"application_callback_marker_seen="
                         f"{int(b'application_callback_marker=1' in transcript)}")
                   print(f"followup_input_sent={int(input_sent)}")
@@ -2144,7 +2165,7 @@ jobs:
                       "result_hex",
                       "signal_count",
                       "wrapper_observed",
-                      "line_seeded",
+                      "line_observed",
                       "callback_observed",
                       "post_quit_application_handler",
                       "post_sigquit_ignored",
@@ -2164,8 +2185,8 @@ jobs:
                         flush=True)
                   if f"readline_release={expected}\r\n".encode() not in transcript:
                       raise SystemExit(f"{disposition}: expected pinned release {expected}")
-                  if not line_seeded_marker_seen or not signal_sent:
-                      raise SystemExit(f"{disposition}: probe did not deliver SIGQUIT after line seeding")
+                  if not partial_echo_seen or not line_observed_marker_seen or not signal_sent:
+                      raise SystemExit(f"{disposition}: probe did not deliver SIGQUIT after PTY line readiness")
                   # No outcome, callback-count, wrapper, line, or restoration assertions.
               finally:
                   try:

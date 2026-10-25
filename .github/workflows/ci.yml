@@ -856,9 +856,16 @@ jobs:
           # with an ordinary command and holds a `#`-plus-digits line later.
           printf 'A0\n#1700000000\nB0\n' > /tmp/history_full_late_record
           /tmp/history_full_probe /tmp/history_full_late_record | tee /tmp/history_full_late_record.out
-          # The executable answered as the pinned release; the entry lines and
-          # count above are the measurement, not an asserted GNU result.
+          # Pin the direct-library result for this late marker in an
+          # otherwise plain file; the matching Rust test asserts its own
+          # entries and timestamp fields.
           grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/history_full_late_record.out
+          grep -qx 'history_multiline_entries=0' /tmp/history_full_late_record.out
+          grep -qx 'read_history_status=ok' /tmp/history_full_late_record.out
+          grep -qx 'entry_count=3' /tmp/history_full_late_record.out
+          grep -qx 'entry_0=A0' /tmp/history_full_late_record.out
+          grep -qx 'entry_1=#1700000000' /tmp/history_full_late_record.out
+          grep -qx 'entry_2=B0' /tmp/history_full_late_record.out
           # Keep binary input as bytes: these fixtures pin the observed GNU
           # History 8.3 treatment of embedded NULs and later physical lines.
           printf 'one\000hidden\nnext\000tail\nfinal\n' > /tmp/history_full_nul_plain

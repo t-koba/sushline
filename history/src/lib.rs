@@ -130,9 +130,10 @@ pub enum HistoryDirection {
 pub enum HistoryMultiline {
     /// Each physical line is an entry of its own. This is GNU's default:
     /// `history_multiline_entries` is 0 unless the caller changes it. A
-    /// `#`-plus-digits line is a timestamp record wherever it stands, while
-    /// GNU reads such a line as a command in a file that does not begin with a
-    /// timestamp record.
+    /// leading `#`-plus-digits line selects timestamped-file format; later
+    /// marker lines in that format delimit records. In a file whose first
+    /// physical line is a command, later marker-looking lines are command text,
+    /// matching the pinned GNU 8.3 full-file fixture.
     #[default]
     PerLine,
     /// The physical lines that follow a timestamp record make one entry.

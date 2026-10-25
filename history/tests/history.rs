@@ -1515,9 +1515,21 @@ fn range_edges_at_blank_physical_lines_keep_the_current_rule() {
 
         assert!(lines(1, 1).is_empty(), "{name}: equal blank-line bound");
         assert_eq!(lines(1, 3), vec![after_blank], "{name}: forward from blank");
-        assert_eq!(lines(1, 0), from_blank_to_eof, "{name}: reversed bounds from blank");
-        assert_eq!(lines(2, 1), from_blank_to_eof, "{name}: reversed bounds ending at blank");
-        assert_eq!(lines(2, 2), vec![after_blank], "{name}: equal nonblank bound");
+        assert_eq!(
+            lines(1, 0),
+            from_blank_to_eof,
+            "{name}: reversed bounds from blank"
+        );
+        assert_eq!(
+            lines(2, 1),
+            from_blank_to_eof,
+            "{name}: reversed bounds ending at blank"
+        );
+        assert_eq!(
+            lines(2, 2),
+            vec![after_blank],
+            "{name}: equal nonblank bound"
+        );
     }
 }
 

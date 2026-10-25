@@ -141,6 +141,8 @@ pub enum HistoryExpansionError {
     EventNotFound(String),
     /// BadWordSpecifier.
     BadWordSpecifier(String),
+    /// UnrecognizedHistoryModifier.
+    UnrecognizedHistoryModifier(String),
     /// SubstitutionFailed.
     SubstitutionFailed,
 }
@@ -151,6 +153,9 @@ impl HistoryExpansionError {
         match self {
             Self::EventNotFound(token) => format!("{token}: event not found"),
             Self::BadWordSpecifier(spec) => format!("{spec}: bad word specifier"),
+            Self::UnrecognizedHistoryModifier(modifier) => {
+                format!("{modifier}: unrecognized history modifier")
+            }
             Self::SubstitutionFailed => "substitution failed".to_string(),
         }
     }
@@ -947,7 +952,7 @@ fn apply_history_modifier(
             }
         }
         Some(ch) => {
-            return Err(HistoryExpansionError::BadWordSpecifier(
+            return Err(HistoryExpansionError::UnrecognizedHistoryModifier(
                 String::from_utf8_lossy(&[ch]).into_owned(),
             ));
         }

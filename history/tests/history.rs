@@ -1885,12 +1885,14 @@ fn caret_word_designator_errors_on_single_word_event() {
         (b"!!^".as_slice(), "^"),
         (b"!!:1".as_slice(), "1"),
     ] {
+        let error = expand_history(typed, &history, histchars, &policy, |_| false).unwrap_err();
         assert_eq!(
-            expand_history(typed, &history, histchars, &policy, |_| false),
-            Err(HistoryExpansionError::BadWordSpecifier(spec.to_string())),
+            error,
+            HistoryExpansionError::BadWordSpecifier(spec.to_string()),
             "{}",
             String::from_utf8_lossy(typed)
         );
+        assert_eq!(error.message(), format!("{spec}: bad word specifier"));
     }
 
     // Documented single-word successes stay intact.
@@ -4018,15 +4020,23 @@ fn history_expansion_answers_match_the_measured_c_library() {
     }
     // The library rejects the modifiers it does not know and reports the
     // event it cannot find; this library rejects them too.
+    // Pinned GNU History 8.3 returns this exact diagnostic for the
+    // unrecognized `:u` modifier.
+    let unknown_modifier = expand_history(
+        b"!!:u",
+        &history,
+        HistoryChars::parse("!^#"),
+        &policy,
+        |_| false,
+    )
+    .unwrap_err();
     assert_eq!(
-        expand_history(
-            b"!!:u",
-            &history,
-            HistoryChars::parse("!^#"),
-            &policy,
-            |_| false,
-        ),
-        Err(HistoryExpansionError::BadWordSpecifier("u".to_string()))
+        unknown_modifier,
+        HistoryExpansionError::UnrecognizedHistoryModifier("u".to_string())
+    );
+    assert_eq!(
+        unknown_modifier.message(),
+        "u: unrecognized history modifier"
     );
     assert_eq!(
         expand_history(

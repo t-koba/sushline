@@ -2448,9 +2448,12 @@ jobs:
                   finally:
                       os.close(master)
 
-          measure("payload_cr", [("frame", b"\x1b[200~A\rB\x1b[201~")])
-          measure("split_terminator", [("frame_and_terminator_prefix", b"\x1b[200~split\x1b[20"),
-                                       ("terminator_suffix", b"1~")])
+          for trial in (1, 2):
+              measure(f"payload_cr_trial_{trial}", [("frame", b"\x1b[200~A\rB\x1b[201~")])
+              measure(f"split_terminator_trial_{trial}", [
+                  ("frame_and_terminator_prefix", b"\x1b[200~split\x1b[20"),
+                  ("terminator_suffix", b"1~"),
+              ])
           PYPROBE
       - name: Run the oracle suite
         run: |

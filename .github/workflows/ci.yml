@@ -1945,6 +1945,7 @@ jobs:
               if (line == NULL) {
                   fprintf(stderr, "result=null\nsignal_count=%d\n", (int)signal_count);
               } else {
+                  fprintf(stderr, "result=%s\n", line);
                   fprintf(stderr, "result_len=%zu\nsignal_count=%d\n", strlen(line),
                           (int)signal_count);
                   fprintf(stderr, "result_hex=");

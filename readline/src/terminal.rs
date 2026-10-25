@@ -44,14 +44,17 @@ pub enum TerminalEvent {
 
 /// How an editor handles SIGINT and unquoted Ctrl-C input bytes.
 ///
-/// This policy does not install signal handlers or re-raise SIGINT. Other
-/// signals retain their existing handling.
+/// This policy selects the read result, not OS signal disposition. Before
+/// applying it, the built-in [`Terminal`] re-delivers a caught SIGINT through
+/// the caller's restored disposition. Other signals retain their handling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SigintPolicy {
-    /// Keep the partial line and continue the same read with queued input.
+    /// If the caller's re-delivered SIGINT disposition returns, keep the
+    /// partial line and continue the same read with queued input.
     Continue,
-    /// End the read with [`crate::ReadlineResult::Interrupted`].
-    /// Queued suffix bytes remain available to the next read.
+    /// If the caller's re-delivered SIGINT disposition returns, end the read
+    /// with [`crate::ReadlineResult::Interrupted`]. Queued suffix bytes remain
+    /// available to the next read.
     Interrupted,
 }
 
@@ -70,6 +73,15 @@ pub trait TerminalIo {
     fn enter_raw_mode(&mut self) -> io::Result<()>;
     /// Restores the previous terminal mode.
     fn restore_mode(&mut self) -> io::Result<()>;
+    /// Re-delivers a SIGINT caught by this backend after [`Self::restore_mode`].
+    ///
+    /// The editor calls this before applying [`SigintPolicy`]. The default is
+    /// a no-op, leaving custom backends' signal ownership unchanged. The built-in
+    /// [`Terminal`] raises only a SIGINT it actually caught, not an input byte
+    /// or a signal reported solely by an embedder hook.
+    fn reraise_caught_sigint(&mut self) -> io::Result<()> {
+        Ok(())
+    }
     /// Reads the next terminal event.
     fn read_event(&mut self, timeout: Option<Duration>) -> io::Result<TerminalEvent>;
     /// Writes UTF-8 text to the terminal.
@@ -166,6 +178,8 @@ pub struct Terminal {
     pending: Vec<u8>,
     #[cfg(unix)]
     saved_termios: Option<libc::termios>,
+    #[cfg(unix)]
+    caught_sigint: bool,
 }
 
 impl Terminal {
@@ -181,6 +195,8 @@ impl Terminal {
             pending: Vec::new(),
             #[cfg(unix)]
             saved_termios: None,
+            #[cfg(unix)]
+            caught_sigint: false,
         }
     }
 
@@ -195,7 +211,11 @@ impl Terminal {
     /// which can report pending signals through `Hooks::check_signals`.
     /// This is built-in `Terminal` policy, not policy for custom [`TerminalIo`]
     /// implementations. A caught `SIGINT` follows the editor's
-    /// [`SigintPolicy`] (continuation by default), and is not re-raised.
+    /// [`SigintPolicy`] (continuation by default) after restoring terminal mode
+    /// and signal dispositions and re-delivering it to the caller's disposition.
+    /// With a simple caller handler, the measured direct GNU Readline 8.3
+    /// fixture invokes that handler once and continues `abc` + Ctrl-C + `X`
+    /// as `abcX`; this is not a claim about default dispositions or Bash.
     pub fn set_catch_signals(&mut self, catch: bool) {
         self.catch_signals = catch;
     }
@@ -260,6 +280,7 @@ impl TerminalIo for Terminal {
                 RAW_TERMINAL_ACTIVE.store(false, Ordering::SeqCst);
                 return Err(error);
             }
+            self.caught_sigint = false;
             install_signal_handlers(self.catch_signals, self.catch_sigwinch);
             self.raw = true;
             Ok(())
@@ -276,6 +297,12 @@ impl TerminalIo for Terminal {
             {
                 restore_readline_mode(&mut self.saved_termios)?;
                 restore_signal_handlers();
+                // A hook may report the caught SIGINT before read_event has
+                // consumed it. Retain it for re-delivery, but not as a second
+                // terminal event on the continuing read.
+                self.caught_sigint |= READLINE_SIGNAL_RECEIVED
+                    .compare_exchange(libc::SIGINT, 0, Ordering::SeqCst, Ordering::SeqCst)
+                    .is_ok();
                 self.raw = false;
                 RAW_TERMINAL_ACTIVE.store(false, Ordering::SeqCst);
             }
@@ -287,13 +314,29 @@ impl TerminalIo for Terminal {
         Ok(())
     }
 
+    fn reraise_caught_sigint(&mut self) -> io::Result<()> {
+        #[cfg(unix)]
+        if !self.raw && std::mem::take(&mut self.caught_sigint) {
+            // Run the caller's disposition via the OS only after restoration,
+            // never from handle_readline_signal itself.
+            if unsafe { libc::raise(libc::SIGINT) } != 0 {
+                return Err(io::Error::last_os_error());
+            }
+        }
+        Ok(())
+    }
+
     fn read_event(&mut self, timeout: Option<Duration>) -> io::Result<TerminalEvent> {
         #[cfg(unix)]
         {
             if !self.pending.is_empty() {
                 return Ok(TerminalEvent::Bytes(std::mem::take(&mut self.pending)));
             }
-            read_raw_event(timeout, &mut self.pending)
+            let event = read_raw_event(timeout, &mut self.pending)?;
+            if event == TerminalEvent::Signal(libc::SIGINT) {
+                self.caught_sigint = true;
+            }
+            Ok(event)
         }
 
         #[cfg(not(unix))]

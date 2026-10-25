@@ -26,8 +26,9 @@ pub enum ReadlineResult {
     /// The active read was interrupted before accepting a line, such as by Ctrl-C.
     ///
     /// Selected by [`SigintPolicy::Interrupted`]; the built-in terminal instead
-    /// continues the read by default. SIGINT is echoed and not re-raised. The
-    /// embedder decides whether to retry or propagate an interrupted result.
+    /// continues the read by default. The built-in terminal restores terminal
+    /// and signal state and re-delivers a caught SIGINT before this policy is
+    /// applied. The embedder decides whether to retry an interrupted result.
     Interrupted,
     /// End-of-file was reached before a line was accepted.
     Eof,

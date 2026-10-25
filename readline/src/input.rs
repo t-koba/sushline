@@ -30,6 +30,7 @@ where
         #[cfg(unix)]
         if signal == libc::SIGINT {
             self.terminal.restore_mode()?;
+            self.terminal.reraise_caught_sigint()?;
             self.handle_input_interrupt(state)?;
             if state.input.interrupted {
                 return Ok(Some(ReadlineResult::Interrupted));

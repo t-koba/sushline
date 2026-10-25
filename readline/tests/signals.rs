@@ -213,7 +213,8 @@ mod terminal_signal_options {
             ] {
                 for signal in SIGNALS {
                     let handler = if ignore
-                        && [libc::SIGALRM, libc::SIGQUIT, libc::SIGWINCH].contains(&signal)
+                        && [libc::SIGINT, libc::SIGALRM, libc::SIGQUIT, libc::SIGWINCH]
+                            .contains(&signal)
                     {
                         libc::SIG_IGN
                     } else if signal == libc::SIGQUIT {
@@ -254,7 +255,7 @@ mod terminal_signal_options {
                     assert_eq!(unsafe { libc::raise(signal) }, 0);
                     assert_eq!(
                         terminal.read_event(Some(Duration::ZERO)).unwrap(),
-                        if catch_signals {
+                        if catch_signals && !(ignore && signal == libc::SIGINT) {
                             TerminalEvent::Signal(signal)
                         } else {
                             TerminalEvent::Timeout
@@ -533,14 +534,25 @@ mod builtin_sigint_policy {
     use readline::{SigintPolicy, Terminal};
     use std::io::Write;
     use std::os::fd::{FromRawFd, OwnedFd};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     const PROBE_ENV: &str = "SUSHLINE_SIGINT_POLICY_PROBE";
-    extern "C" fn caller_handler(_: i32) {}
+    static HANDLER_CALLS: AtomicUsize = AtomicUsize::new(0);
+    static HANDLER_SAW_CANONICAL_MODE: AtomicBool = AtomicBool::new(false);
+
+    extern "C" fn caller_handler(_: i32) {
+        HANDLER_CALLS.fetch_add(1, Ordering::SeqCst);
+        let mut mode: libc::termios = unsafe { std::mem::zeroed() };
+        let restored = unsafe { libc::tcgetattr(libc::STDIN_FILENO, &mut mode) } == 0
+            && mode.c_lflag & libc::ICANON != 0;
+        HANDLER_SAW_CANONICAL_MODE.store(restored, Ordering::SeqCst);
+    }
 
     struct InputHook {
         master: std::fs::File,
         checks: usize,
         report_signal: bool,
+        deliver_signal: bool,
     }
 
     impl Hooks for InputHook {
@@ -552,7 +564,9 @@ mod builtin_sigint_policy {
                     // The prefix has been dispatched. Queue the suffix and
                     // deliver SIGINT without timing-dependent writer threads.
                     self.master.write_all(b"X\r").unwrap();
-                    assert_eq!(unsafe { libc::raise(libc::SIGINT) }, 0);
+                    if self.deliver_signal {
+                        assert_eq!(unsafe { libc::raise(libc::SIGINT) }, 0);
+                    }
                     if self.report_signal {
                         return Some(libc::SIGINT);
                     }
@@ -600,10 +614,18 @@ mod builtin_sigint_policy {
                 0
             );
         }
-        for report_signal in [false, true] {
+        // Cover terminal events, caught signals reported early by a hook,
+        // and caller-owned or hook-only reports without duplicate callbacks.
+        for (catch_signals, report_signal, deliver_signal) in [
+            (true, false, true),
+            (true, true, true),
+            (false, true, true),
+            (true, true, false),
+            (false, true, false),
+        ] {
             for interrupted in [false, true] {
                 let mut terminal = Terminal::new();
-                terminal.set_catch_signals(!report_signal);
+                terminal.set_catch_signals(catch_signals);
                 let mut line = Editor::new(Config::default(), terminal, History::new());
                 assert_eq!(line.sigint_policy(), SigintPolicy::Continue);
                 if interrupted {
@@ -613,8 +635,22 @@ mod builtin_sigint_policy {
                     master: master.try_clone().unwrap(),
                     checks: 0,
                     report_signal,
+                    deliver_signal,
                 };
+                HANDLER_CALLS.store(0, Ordering::SeqCst);
+                HANDLER_SAW_CANONICAL_MODE.store(false, Ordering::SeqCst);
                 let first = line.read_line(Prompt::new("> "), &mut hook).unwrap();
+                assert_eq!(
+                    HANDLER_CALLS.load(Ordering::SeqCst),
+                    usize::from(deliver_signal),
+                    "caller handler count (catch={catch_signals}, hook={report_signal}, delivered={deliver_signal}, interrupted={interrupted})"
+                );
+                if catch_signals && deliver_signal {
+                    assert!(
+                        HANDLER_SAW_CANONICAL_MODE.load(Ordering::SeqCst),
+                        "caught SIGINT must be re-delivered after termios restoration"
+                    );
+                }
                 if interrupted {
                     assert_eq!(first, ReadlineResult::Interrupted);
                     assert_eq!(
@@ -630,6 +666,10 @@ mod builtin_sigint_policy {
                     0
                 );
                 assert_eq!(action.sa_sigaction, caller_handler as *const () as usize);
+                assert_eq!(
+                    HANDLER_CALLS.load(Ordering::SeqCst),
+                    usize::from(deliver_signal)
+                );
             }
         }
         unsafe { libc::alarm(0) };

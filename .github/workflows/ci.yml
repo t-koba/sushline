@@ -1620,6 +1620,7 @@ jobs:
           extern int rl_readline_version;
           static volatile sig_atomic_t signal_count;
           static int wrapper_observed;
+          static int callback_observed;
 
           static void application_sigwinch(int signal_number) {
               if (signal_number == SIGWINCH)
@@ -1632,6 +1633,14 @@ jobs:
                   current.sa_handler != application_sigwinch) {
                   wrapper_observed = 1;
                   fprintf(stderr, "active_winch_wrapper=1\n");
+                  fflush(stderr);
+              }
+              if (!callback_observed && signal_count != 0) {
+                  callback_observed = 1;
+                  /* End the fixture from normal event-loop context after the
+                     saved handler has run; do not depend on more PTY input. */
+                  rl_done = 1;
+                  fprintf(stderr, "application_callback_marker=1\n");
                   fflush(stderr);
               }
               return 0;
@@ -1661,6 +1670,7 @@ jobs:
               }
               fprintf(stderr, "signal_count=%d\n", (int)signal_count);
               fprintf(stderr, "wrapper_observed=%d\n", wrapper_observed);
+              fprintf(stderr, "callback_observed=%d\n", callback_observed);
               if (sigaction(SIGWINCH, NULL, &action) != 0)
                   return 1;
               fprintf(stderr, "post_winch_application_handler=%d\n",
@@ -1705,6 +1715,7 @@ jobs:
           status = None
           observation_timeout = False
           signal_sent = False
+          callback_marker_seen = False
 
           def poll_child():
               global status
@@ -1737,17 +1748,25 @@ jobs:
               # about 8.3; never count an application handler alone as chaining.
               wrapper_ready = read_until(b"active_winch_wrapper=1", 3.0)
               print(f"wrapper_marker_seen={int(wrapper_ready)}")
-              # Give the marker-emitting event hook a short settle interval
-              # to return before signaling; this is not a return handshake.
-              # Send the complete line immediately after SIGWINCH, without
-              # another event-hook marker or partial input across the signal.
+              # Prime the line buffer before SIGWINCH. Once the saved handler
+              # has run, the event hook ends this measurement from normal
+              # context; this avoids depending on input after the signal.
               if wrapper_ready:
+                  os.write(master, b"abcX")
                   time.sleep(0.05)
                   os.kill(pid, signal.SIGWINCH)
                   signal_sent = True
-              # Even without a wrapper, finish and measure the absence safely.
-              # The post-read signal_count records any application callback.
-              os.write(master, b"abcX\r")
+              else:
+                  # Even without a wrapper, finish and measure the absence safely.
+                  os.write(master, b"abcX\r")
+              if signal_sent:
+                  callback_marker_seen = read_until(
+                      b"application_callback_marker=1", 1.0
+                  )
+                  if not callback_marker_seen:
+                      # Permit a bounded return even if the callback or the
+                      # follow-up event hook was not observed.
+                      os.write(master, b"\r")
               done = read_until(b"done", 5.0)
               exit_deadline = time.monotonic() + 1.0
               while poll_child() is None and time.monotonic() < exit_deadline:
@@ -1775,6 +1794,7 @@ jobs:
                   os.waitstatus_to_exitcode(status) if status is not None else "unknown"
               )
               print(f"sigwinch_sent={int(signal_sent)}")
+              print(f"application_callback_marker_seen={int(callback_marker_seen)}")
               print(f"observation_timeout={int(observation_timeout)}")
               print(f"readline_expected={expected} returncode={returncode} "
                     f"transcript_len={len(transcript)} transcript_hex={transcript.hex()}")

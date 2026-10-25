@@ -1620,7 +1620,6 @@ jobs:
           extern int rl_readline_version;
           static volatile sig_atomic_t signal_count;
           static int wrapper_observed;
-          static int callback_observed;
 
           static void application_sigwinch(int signal_number) {
               if (signal_number == SIGWINCH)
@@ -1633,12 +1632,6 @@ jobs:
                   current.sa_handler != application_sigwinch) {
                   wrapper_observed = 1;
                   fprintf(stderr, "active_winch_wrapper=1\n");
-                  fflush(stderr);
-              }
-              // Report the callback only from normal event-hook context.
-              if (!callback_observed && signal_count > 0) {
-                  callback_observed = 1;
-                  fprintf(stderr, "application_winch_callback=1\n");
                   fflush(stderr);
               }
               return 0;
@@ -1712,7 +1705,6 @@ jobs:
           status = None
           observation_timeout = False
           signal_sent = False
-          callback_seen = False
 
           def poll_child():
               global status
@@ -1745,15 +1737,16 @@ jobs:
               # about 8.3; never count an application handler alone as chaining.
               wrapper_ready = read_until(b"active_winch_wrapper=1", 3.0)
               print(f"wrapper_marker_seen={int(wrapper_ready)}")
-              # Keep partial input out of Readline across SIGWINCH. Wait
-              # boundedly for the event hook to observe the application
-              # callback, but record absence rather than assert behavior.
+              # Give the marker-emitting event hook a short settle interval
+              # to return before signaling; this is not a return handshake.
+              # Send the complete line immediately after SIGWINCH, without
+              # another event-hook marker or partial input across the signal.
               if wrapper_ready:
+                  time.sleep(0.05)
                   os.kill(pid, signal.SIGWINCH)
                   signal_sent = True
-                  callback_seen = read_until(b"application_winch_callback=1", 3.0)
-              # Even without a wrapper or callback marker, send a complete
-              # line so the probe can finish and record the absence safely.
+              # Even without a wrapper, finish and measure the absence safely.
+              # The post-read signal_count records any application callback.
               os.write(master, b"abcX\r")
               done = read_until(b"done", 5.0)
               exit_deadline = time.monotonic() + 1.0
@@ -1782,7 +1775,6 @@ jobs:
                   os.waitstatus_to_exitcode(status) if status is not None else "unknown"
               )
               print(f"sigwinch_sent={int(signal_sent)}")
-              print(f"application_callback_marker_seen={int(callback_seen)}")
               print(f"observation_timeout={int(observation_timeout)}")
               print(f"readline_expected={expected} returncode={returncode} "
                     f"transcript_len={len(transcript)} transcript_hex={transcript.hex()}")

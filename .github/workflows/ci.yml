@@ -2237,6 +2237,221 @@ jobs:
           # The report records the release identity and the Python probe above
           # checks only the independently measured pinned-8.3 outcomes.
           grep -Fqx "child_readline_release=$READLINE_ORACLE_VERSION" /tmp/readline_sigquit.out
+      - name: Measure direct-library bracketed paste against the pinned release
+        run: |
+          set -euo pipefail
+          ulimit -c 0
+          readline="$HOME/.cache/sushline/readline-oracle"
+          # Measurement only: no Bash or public-C-ABI claim and no outcome
+          # assertions until two independent pinned 8.3 reports agree.
+          cat > /tmp/readline_paste_probe.c <<'PROBE'
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <string.h>
+          #include <readline/readline.h>
+
+          static int report_ready(void) {
+              rl_event_hook = NULL;
+              fprintf(stderr, "\npaste_hook_ready=1\n");
+              fflush(stderr);
+              return 0;
+          }
+
+          int main(void) {
+              fprintf(stderr, "readline_release=%d.%d\n", rl_readline_version >> 8,
+                      rl_readline_version & 0xff);
+              rl_initialize();
+              /* Enable the behavior under measurement, with no inputrc overrides. */
+              if (rl_variable_bind("enable-bracketed-paste", "on") != 0)
+                  return 1;
+              fprintf(stderr, "bracketed_paste_requested=on\n");
+              rl_event_hook = report_ready;
+              fflush(stderr);
+              char *line = readline("paste> ");
+              fprintf(stderr, "\nresult_is_null=%d\n", line == NULL);
+              if (line != NULL) {
+                  fprintf(stderr, "result_len=%zu\nresult_hex=", strlen(line));
+                  for (const unsigned char *p = (const unsigned char *)line; *p; p++)
+                      fprintf(stderr, "%02x", *p);
+                  fprintf(stderr, "\n");
+                  free(line);
+              }
+              fprintf(stderr, "done\n");
+              fflush(stderr);
+              return 0;
+          }
+          PROBE
+          cc -Wall -Wextra -Werror -o /tmp/readline_paste_probe /tmp/readline_paste_probe.c \
+            -I"$readline/include" -L"$readline/lib" \
+            -Wl,-rpath,"$readline/lib" -lreadline
+          loader_report=$(env -u SHELLOPTS ldd /tmp/readline_paste_probe)
+          printf '%s\n' "$loader_report" | tee /tmp/readline_paste.out
+          readline_libraries=$(printf '%s\n' "$loader_report" | grep 'libreadline' || true)
+          if [ -z "$readline_libraries" ]; then
+            echo "the paste probe loaded no Readline library" >&2
+            exit 1
+          fi
+          if printf '%s\n' "$readline_libraries" | grep -v -F "$readline/lib/" > /dev/null; then
+            echo "the paste probe loaded Readline outside the pinned prefix" >&2
+            exit 1
+          fi
+          python3 - <<'PYPROBE' | tee -a /tmp/readline_paste.out
+          import os
+          import pty
+          import resource
+          import select
+          import signal
+          import time
+
+          probe = "/tmp/readline_paste_probe"
+          expected = os.environ["READLINE_ORACLE_VERSION"]
+
+          def measure(name, chunks):
+              print(f"measurement_case={name}", flush=True)
+              print("fixture_term=xterm-256color inputrc=/dev/null locale=C")
+              print("signals_sent=none split_settle_seconds=0.2")
+              pid, master = pty.fork()
+              if pid == 0:
+                  try:
+                      resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+                      env = os.environ.copy()
+                      env.update(INPUTRC="/dev/null", LC_ALL="C", TERM="xterm-256color")
+                      os.execve(probe, [probe], env)
+                  except Exception as error:
+                      os.write(2, f"probe child setup failed: {error}\n".encode())
+                  finally:
+                      os._exit(127)
+
+              transcript = bytearray()
+              status = None
+              cleanup_kill_sent = False
+              observation_timeout = False
+              hook_ready_seen = False
+              writes = []
+
+              def poll_child():
+                  nonlocal status
+                  if status is None:
+                      waited, child_status = os.waitpid(pid, os.WNOHANG)
+                      if waited:
+                          status = child_status
+                  return status
+
+              def read_until(marker, timeout):
+                  deadline = time.monotonic() + timeout
+                  while marker not in transcript:
+                      remaining = deadline - time.monotonic()
+                      if remaining <= 0:
+                          break
+                      ready, _, _ = select.select([master], [], [], min(0.05, remaining))
+                      if ready:
+                          try:
+                              data = os.read(master, 4096)
+                          except OSError:
+                              break
+                          if not data:
+                              break
+                          transcript.extend(data)
+                      elif poll_child() is not None:
+                          break
+                  return marker in transcript
+
+              def wait_for_exit(timeout):
+                  deadline = time.monotonic() + timeout
+                  while poll_child() is None and time.monotonic() < deadline:
+                      time.sleep(0.01)
+                  return poll_child() is not None
+
+              def kill_and_reap():
+                  nonlocal cleanup_kill_sent
+                  if poll_child() is None:
+                      try:
+                          os.killpg(pid, signal.SIGKILL)
+                          cleanup_kill_sent = True
+                      except ProcessLookupError:
+                          try:
+                              os.kill(pid, signal.SIGKILL)
+                              cleanup_kill_sent = True
+                          except ProcessLookupError:
+                              pass
+                  if not wait_for_exit(2.0):
+                      raise RuntimeError(f"{name}: child not reaped after SIGKILL")
+
+              try:
+                  os.set_blocking(master, False)
+                  # The event hook runs after terminal preparation, before input.
+                  hook_ready_seen = read_until(b"paste_hook_ready=1\r\n", 3.0)
+                  if hook_ready_seen:
+                      # Separate writes (and a bounded drain/settle) deliberately
+                      # split the terminator; the final CR accepts the pasted line.
+                      for label, data in chunks + [("accept", b"\r")]:
+                          count = "not_written"
+                          if poll_child() is None:
+                              _, writable, _ = select.select([], [master], [], 1.0)
+                              if writable:
+                                  try:
+                                      count = os.write(master, data)
+                                  except OSError as error:
+                                      count = f"error_errno_{error.errno}"
+                          writes.append((label, data, count))
+                          read_until(b"\x00", 0.2)
+                  done_seen = read_until(b"done\r\n", 3.0)
+                  if not wait_for_exit(1.0):
+                      observation_timeout = True
+                      kill_and_reap()
+                  # Drain remaining bytes even when the child has already exited.
+                  read_until(b"\x00", 0.2)
+                  returncode = os.waitstatus_to_exitcode(status)
+                  print(f"hook_ready_seen={int(hook_ready_seen)}")
+                  print(f"done_seen={int(done_seen)}")
+                  for index, (label, data, count) in enumerate(writes, 1):
+                      print(f"write_{index}_label={label} requested={len(data)} "
+                            f"count={count} hex={data.hex()}")
+                  print(f"observation_timeout={int(observation_timeout)}")
+                  print(f"cleanup_kill_sent={int(cleanup_kill_sent)}")
+                  print(f"child_reaped={int(status is not None)}")
+                  fields = {}
+                  for field in ("readline_release", "bracketed_paste_requested",
+                                "result_is_null", "result_len", "result_hex"):
+                      marker = field.encode("ascii") + b"="
+                      start = transcript.rfind(marker)
+                      end = transcript.find(b"\r\n", start) if start >= 0 else -1
+                      value = (transcript[start + len(marker):end].decode("ascii")
+                               if end >= 0 else "missing")
+                      fields[field] = value
+                      print(f"child_{field}={value}")
+                  print(f"readline_expected={expected} returncode={returncode} "
+                        f"transcript_len={len(transcript)} transcript_hex={transcript.hex()}")
+                  # Assert only probe identity/completeness, never paste outcomes.
+                  if fields["readline_release"] != expected:
+                      raise SystemExit(f"{name}: unexpected Readline release")
+                  if fields["bracketed_paste_requested"] != "on":
+                      raise SystemExit(f"{name}: bracketed-paste setup did not complete")
+                  if not hook_ready_seen:
+                      raise SystemExit(f"{name}: probe never became ready")
+                  if not done_seen or returncode != 0:
+                      raise SystemExit(f"{name}: probe did not complete successfully")
+                  if observation_timeout or cleanup_kill_sent:
+                      raise SystemExit(f"{name}: observation timed out or required cleanup kill")
+                  if any(count != len(data) for _, data, count in writes):
+                      raise SystemExit(f"{name}: PTY input write was incomplete")
+                  if fields["result_is_null"] not in ("0", "1"):
+                      raise SystemExit(f"{name}: returned-line status was not recorded")
+                  if fields["result_is_null"] == "0" and (
+                      fields["result_len"] == "missing" or fields["result_hex"] == "missing"
+                  ):
+                      raise SystemExit(f"{name}: returned-line bytes were not recorded")
+                  print("fixture_completed=1", flush=True)
+              finally:
+                  try:
+                      kill_and_reap()
+                  finally:
+                      os.close(master)
+
+          measure("payload_cr", [("frame", b"\x1b[200~A\rB\x1b[201~")])
+          measure("split_terminator", [("frame_and_terminator_prefix", b"\x1b[200~split\x1b[20"),
+                                       ("terminator_suffix", b"1~")])
+          PYPROBE
       - name: Run the oracle suite
         run: |
           set -euo pipefail
@@ -2260,6 +2475,7 @@ jobs:
             /tmp/readline_sigint.out \
             /tmp/readline_sigwinch.out \
             /tmp/readline_sigquit.out \
+            /tmp/readline_paste.out \
             /tmp/history_range_per_line.out \
             /tmp/history_range_joined.out \
             /tmp/history_range_plain_joined.out \

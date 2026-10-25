@@ -46,14 +46,15 @@ pub enum TerminalEvent {
 ///
 /// This policy selects the read result, not OS signal disposition. Before
 /// applying it, the built-in [`Terminal`] re-delivers a caught SIGINT through
-/// the caller's restored disposition. Other signals retain their handling.
+/// a caller-installed handler after restoring it. A default disposition leaves
+/// the signal to this policy rather than terminating the process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SigintPolicy {
-    /// If the caller's re-delivered SIGINT disposition returns, keep the
-    /// partial line and continue the same read with queued input.
+    /// After any caller-installed SIGINT handler returns, keep the partial
+    /// line and continue the same read with queued input.
     Continue,
-    /// If the caller's re-delivered SIGINT disposition returns, end the read
-    /// with [`crate::ReadlineResult::Interrupted`]. Queued suffix bytes remain
+    /// After any caller-installed SIGINT handler returns, end the read with
+    /// [`crate::ReadlineResult::Interrupted`]. Queued suffix bytes remain
     /// available to the next read.
     Interrupted,
 }
@@ -73,12 +74,13 @@ pub trait TerminalIo {
     fn enter_raw_mode(&mut self) -> io::Result<()>;
     /// Restores the previous terminal mode.
     fn restore_mode(&mut self) -> io::Result<()>;
-    /// Re-delivers a SIGINT caught by this backend after [`Self::restore_mode`].
+    /// Re-delivers a caught SIGINT after [`Self::restore_mode`].
     ///
     /// The editor calls this before applying [`SigintPolicy`]. The default is
     /// a no-op, leaving custom backends' signal ownership unchanged. The built-in
-    /// [`Terminal`] raises only a SIGINT it actually caught, not an input byte
-    /// or a signal reported solely by an embedder hook.
+    /// [`Terminal`] invokes the caller's saved non-default handler only for a
+    /// signal it actually caught, not an input byte or a signal reported solely
+    /// by an embedder hook. Default dispositions remain governed by the policy.
     fn reraise_caught_sigint(&mut self) -> io::Result<()> {
         Ok(())
     }
@@ -180,6 +182,8 @@ pub struct Terminal {
     saved_termios: Option<libc::termios>,
     #[cfg(unix)]
     caught_sigint: bool,
+    #[cfg(unix)]
+    caller_sigint_handler: bool,
 }
 
 impl Terminal {
@@ -197,6 +201,8 @@ impl Terminal {
             saved_termios: None,
             #[cfg(unix)]
             caught_sigint: false,
+            #[cfg(unix)]
+            caller_sigint_handler: false,
         }
     }
 
@@ -212,8 +218,9 @@ impl Terminal {
     /// This is built-in `Terminal` policy, not policy for custom [`TerminalIo`]
     /// implementations. A caught `SIGINT` follows the editor's
     /// [`SigintPolicy`] (continuation by default) after restoring terminal mode
-    /// and signal dispositions and re-delivering it to the caller's disposition.
-    /// With a simple caller handler, the measured direct GNU Readline 8.3
+    /// and signal dispositions. If the caller installed a handler, the built-in
+    /// terminal re-delivers the caught signal to it; default dispositions remain
+    /// governed by the policy. With a simple caller handler, the measured direct GNU Readline 8.3
     /// fixture invokes that handler once and continues `abc` + Ctrl-C + `X`
     /// as `abcX`; this is not a claim about default dispositions or Bash.
     pub fn set_catch_signals(&mut self, catch: bool) {
@@ -281,7 +288,8 @@ impl TerminalIo for Terminal {
                 return Err(error);
             }
             self.caught_sigint = false;
-            install_signal_handlers(self.catch_signals, self.catch_sigwinch);
+            self.caller_sigint_handler =
+                install_signal_handlers(self.catch_signals, self.catch_sigwinch);
             self.raw = true;
             Ok(())
         }
@@ -316,9 +324,10 @@ impl TerminalIo for Terminal {
 
     fn reraise_caught_sigint(&mut self) -> io::Result<()> {
         #[cfg(unix)]
-        if !self.raw && std::mem::take(&mut self.caught_sigint) {
-            // Run the caller's disposition via the OS only after restoration,
-            // never from handle_readline_signal itself.
+        if !self.raw && std::mem::take(&mut self.caught_sigint) && self.caller_sigint_handler {
+            // Run the caller's handler via the OS only after restoration,
+            // never from handle_readline_signal itself. A default disposition
+            // is handled by SigintPolicy instead of terminating the process.
             if unsafe { libc::raise(libc::SIGINT) } != 0 {
                 return Err(io::Error::last_os_error());
             }
@@ -611,15 +620,16 @@ const READLINE_SIGNALS: [libc::c_int; 8] = [
 ];
 
 #[cfg(unix)]
-fn install_signal_handlers(catch_signals: bool, catch_sigwinch: bool) {
+fn install_signal_handlers(catch_signals: bool, catch_sigwinch: bool) -> bool {
     if !catch_signals && !catch_sigwinch {
-        return;
+        return false;
     }
     // One process-global install state covers both groups. Restoration uses
     // the saved-action flags, not policy that may have changed since entry.
     if SIGNAL_HANDLERS_INSTALLED.swap(true, Ordering::SeqCst) {
-        return;
+        return false;
     }
+    let mut caller_sigint_handler = false;
     unsafe {
         if catch_sigwinch {
             let mut action: libc::sigaction = std::mem::zeroed();
@@ -640,7 +650,7 @@ fn install_signal_handlers(catch_signals: bool, catch_sigwinch: bool) {
             }
         }
         if !catch_signals {
-            return;
+            return false;
         }
         for (idx, signal) in READLINE_SIGNALS.iter().copied().enumerate() {
             let mut action: libc::sigaction = std::mem::zeroed();
@@ -652,12 +662,17 @@ fn install_signal_handlers(catch_signals: bool, catch_sigwinch: bool) {
                 if old_action.sa_sigaction == libc::SIG_IGN {
                     libc::sigaction(signal, &old_action, std::ptr::null_mut());
                 } else {
+                    if signal == libc::SIGINT {
+                        caller_sigint_handler = old_action.sa_sigaction != libc::SIG_DFL
+                            && old_action.sa_sigaction != 0;
+                    }
                     OLD_SIGNAL_ACTIONS[idx].write(old_action);
                     OLD_SIGNAL_ACTION_SAVED[idx].store(true, Ordering::SeqCst);
                 }
             }
         }
     }
+    caller_sigint_handler
 }
 
 #[cfg(unix)]

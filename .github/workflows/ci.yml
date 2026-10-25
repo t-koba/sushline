@@ -2169,11 +2169,27 @@ jobs:
                   if expected == "8.3":
                       if cleanup_kill_sent or observation_timeout:
                           raise SystemExit(f"{disposition}: observation timed out or needed cleanup kill")
-                      child_fields = {
-                          f"child_{line.split('=', 1)[0]}": line.split("=", 1)[1]
-                          for line in transcript.decode("ascii", errors="replace").splitlines()
-                          if "=" in line
-                      }
+                      child_fields = {}
+                      for field in (
+                          "result",
+                          "result_len",
+                          "result_hex",
+                          "signal_count",
+                          "active_quit_wrapper",
+                          "active_quit_ignored",
+                          "active_quit_default",
+                          "active_quit_application_handler",
+                          "post_quit_application_handler",
+                          "post_sigquit_ignored",
+                          "post_sigquit_default",
+                      ):
+                          marker = field.encode("ascii") + b"="
+                          start = transcript.rfind(marker)
+                          end = transcript.find(b"\r\n", start) if start >= 0 else -1
+                          if end >= 0:
+                              child_fields[f"child_{field}"] = transcript[
+                                  start + len(marker) : end
+                              ].decode("ascii")
                       if disposition == "caller-handler":
                           checks = {
                               "returncode": (returncode, 0),

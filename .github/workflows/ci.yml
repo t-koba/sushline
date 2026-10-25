@@ -1620,6 +1620,7 @@ jobs:
           extern int rl_readline_version;
           static volatile sig_atomic_t signal_count;
           static int wrapper_observed;
+          static int line_seeded;
           static int callback_observed;
 
           static void application_sigwinch(int signal_number) {
@@ -1633,6 +1634,13 @@ jobs:
                   current.sa_handler != application_sigwinch) {
                   wrapper_observed = 1;
                   fprintf(stderr, "active_winch_wrapper=1\n");
+                  fflush(stderr);
+              }
+              if (wrapper_observed && !line_seeded) {
+                  /* The line is a controlled preexisting buffer, not PTY input. */
+                  rl_replace_line("abcX", 0);
+                  line_seeded = 1;
+                  fprintf(stderr, "line_buffer_seeded=1\n");
                   fflush(stderr);
               }
               if (!callback_observed && signal_count != 0) {
@@ -1670,6 +1678,7 @@ jobs:
               }
               fprintf(stderr, "signal_count=%d\n", (int)signal_count);
               fprintf(stderr, "wrapper_observed=%d\n", wrapper_observed);
+              fprintf(stderr, "line_seeded=%d\n", line_seeded);
               fprintf(stderr, "callback_observed=%d\n", callback_observed);
               if (sigaction(SIGWINCH, NULL, &action) != 0)
                   return 1;
@@ -1715,6 +1724,7 @@ jobs:
           status = None
           observation_timeout = False
           signal_sent = False
+          line_seeded_marker_seen = False
           callback_marker_seen = False
 
           def poll_child():
@@ -1748,14 +1758,16 @@ jobs:
               # about 8.3; never count an application handler alone as chaining.
               wrapper_ready = read_until(b"active_winch_wrapper=1", 3.0)
               print(f"wrapper_marker_seen={int(wrapper_ready)}")
-              # Prime the line buffer before SIGWINCH. Once the saved handler
-              # has run, the event hook ends this measurement from normal
-              # context; this avoids depending on input after the signal.
+              # The program seeds a known active line buffer in its event hook;
+              # only signal after its marker, without relying on PTY echo/input.
               if wrapper_ready:
-                  os.write(master, b"abcX")
-                  time.sleep(0.05)
-                  os.kill(pid, signal.SIGWINCH)
-                  signal_sent = True
+                  line_seeded_marker_seen = read_until(b"line_buffer_seeded=1", 3.0)
+                  if line_seeded_marker_seen:
+                      time.sleep(0.05)
+                      os.kill(pid, signal.SIGWINCH)
+                      signal_sent = True
+                  else:
+                      os.write(master, b"abcX\r")
               else:
                   # Even without a wrapper, finish and measure the absence safely.
                   os.write(master, b"abcX\r")
@@ -1794,6 +1806,7 @@ jobs:
                   os.waitstatus_to_exitcode(status) if status is not None else "unknown"
               )
               print(f"sigwinch_sent={int(signal_sent)}")
+              print(f"line_buffer_seeded_marker_seen={int(line_seeded_marker_seen)}")
               print(f"application_callback_marker_seen={int(callback_marker_seen)}")
               print(f"observation_timeout={int(observation_timeout)}")
               print(f"readline_expected={expected} returncode={returncode} "

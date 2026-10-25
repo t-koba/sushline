@@ -49,10 +49,15 @@ impl History {
     ///
     /// The file is read with the default `HistoryMultiline` grouping. FROM/TO
     /// bounds count physical command lines, including blank lines that carry
-    /// no entry; timestamp records are metadata and do not count. For a FROM
-    /// FROM below TO makes TO exclusive. Equal bounds select the physical
-    /// position at FROM, which may be blank and produce no entry; TO below
-    /// FROM leaves the range open to the end of the file.
+    /// no entry; timestamp records are metadata and do not count. This
+    /// counting is pinned against GNU History 8.3 for the tested FROM<TO cases
+    /// (see the fixture-scoped results in `COMPATIBILITY.md`).
+    ///
+    /// FROM below TO makes TO exclusive. Equal and reversed-bound results are
+    /// Sushline product rules. Equal bounds select the physical position at
+    /// FROM, which may be blank and produce no entry; TO below FROM retains
+    /// remaining entries through EOF. The latter is retained because adopting
+    /// GNU's tested results would discard entries.
     pub fn read_file_range(
         path: impl AsRef<Path>,
         from: usize,
@@ -65,18 +70,16 @@ impl History {
     ///
     /// FROM/TO bounds count physical command lines, including blank lines
     /// that carry no entry; timestamp records are metadata and do not count.
-    /// The selected lines are then grouped by the policy, so a range can end
-    /// with a partial block. Pinned GNU History 8.3 range fixtures confirm
-    /// this blank-line behavior and are retained by the oracle job.
+    /// This counting is pinned against GNU History 8.3 for the tested FROM<TO
+    /// cases (see the fixture-scoped results in `COMPATIBILITY.md`). The
+    /// selected lines are then grouped by the policy, so a range can end with
+    /// a partial block.
     ///
-    /// FROM below TO makes TO exclusive. Equal bounds select the physical
-    /// position at FROM, which may be blank and produce no entry; TO below
-    /// FROM leaves the range open to the end of the file. Those bounds are
-    /// this product's own rule: on the
-    /// fixture the oracle job measures, GNU 8.2 returns the command line at FROM
-    /// for a FROM of 1 and 3 and nothing for a FROM of 0 and 2, while on a file
-    /// without timestamp records it returns the command line at FROM for each
-    /// FROM the file holds a command line at.
+    /// FROM below TO makes TO exclusive. Equal and reversed-bound results are
+    /// Sushline product rules. Equal bounds select the physical position at
+    /// FROM, which may be blank and produce no entry; TO below FROM retains
+    /// remaining entries through EOF. The latter is retained because adopting
+    /// GNU's tested results would discard entries.
     pub fn read_file_range_with_multiline(
         path: impl AsRef<Path>,
         from: usize,
@@ -129,10 +132,15 @@ impl History {
     ///
     /// The file is read with the default `HistoryMultiline` grouping. FROM/TO
     /// bounds count physical command lines, including blank lines that carry
-    /// no entry; timestamp records are metadata and do not count. For a FROM
-    /// FROM below TO makes TO exclusive. Equal bounds select the physical
-    /// position at FROM, which may be blank and produce no entry; TO below
-    /// FROM leaves the range open to the end of the file.
+    /// no entry; timestamp records are metadata and do not count. This
+    /// counting is pinned against GNU History 8.3 for the tested FROM<TO cases
+    /// (see the fixture-scoped results in `COMPATIBILITY.md`).
+    ///
+    /// FROM below TO makes TO exclusive. Equal and reversed-bound results are
+    /// Sushline product rules. Equal bounds select the physical position at
+    /// FROM, which may be blank and produce no entry; TO below FROM retains
+    /// remaining entries through EOF. The latter is retained because adopting
+    /// GNU's tested results would discard entries.
     pub fn load_file_range(
         &mut self,
         path: impl AsRef<Path>,
@@ -153,18 +161,16 @@ impl History {
     ///
     /// FROM/TO bounds count physical command lines, including blank lines
     /// that carry no entry; timestamp records are metadata and do not count.
-    /// The selected lines are then grouped by the policy, so a range can end
-    /// with a partial block. Pinned GNU History 8.3 range fixtures confirm
-    /// this blank-line behavior and are retained by the oracle job.
+    /// This counting is pinned against GNU History 8.3 for the tested FROM<TO
+    /// cases (see the fixture-scoped results in `COMPATIBILITY.md`). The
+    /// selected lines are then grouped by the policy, so a range can end with
+    /// a partial block.
     ///
-    /// FROM below TO makes TO exclusive. Equal bounds select the physical
-    /// position at FROM, which may be blank and produce no entry; TO below
-    /// FROM leaves the range open to the end of the file. Those bounds are
-    /// this product's own rule: on the
-    /// fixture the oracle job measures, GNU 8.2 returns the command line at FROM
-    /// for a FROM of 1 and 3 and nothing for a FROM of 0 and 2, while on a file
-    /// without timestamp records it returns the command line at FROM for each
-    /// FROM the file holds a command line at.
+    /// FROM below TO makes TO exclusive. Equal and reversed-bound results are
+    /// Sushline product rules. Equal bounds select the physical position at
+    /// FROM, which may be blank and produce no entry; TO below FROM retains
+    /// remaining entries through EOF. The latter is retained because adopting
+    /// GNU's tested results would discard entries.
     pub fn load_file_range_with_multiline(
         &mut self,
         path: impl AsRef<Path>,

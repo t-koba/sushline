@@ -1810,6 +1810,25 @@ jobs:
               print(f"line_buffer_seeded_marker_seen={int(line_seeded_marker_seen)}")
               print(f"application_callback_marker_seen={int(callback_marker_seen)}")
               print(f"observation_timeout={int(observation_timeout)}")
+              # Keep the C probe's measurements readable beside the raw PTY bytes.
+              for field in (
+                  "result_len",
+                  "result_hex",
+                  "signal_count",
+                  "wrapper_observed",
+                  "line_seeded",
+                  "callback_observed",
+                  "post_winch_application_handler",
+              ):
+                  marker = field.encode("ascii") + b"="
+                  start = transcript.rfind(marker)
+                  end = transcript.find(b"\r\n", start) if start >= 0 else -1
+                  value = (
+                      transcript[start + len(marker) : end].decode("ascii")
+                      if end >= 0
+                      else "missing"
+                  )
+                  print(f"child_{field}={value}")
               print(f"readline_expected={expected} returncode={returncode} "
                     f"transcript_len={len(transcript)} transcript_hex={transcript.hex()}")
               try:

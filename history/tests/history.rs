@@ -4301,3 +4301,37 @@ fn history_expansion_answers_match_the_measured_c_library() {
         b"echo '!!"
     );
 }
+
+#[test]
+fn joined_range_edges_at_blank_physical_lines_keep_current_rule() {
+    let dir = tempfile::tempdir().unwrap();
+    let fixtures = [
+        (
+            "timestamped",
+            "#1700000000\nA0\n\nA1\n#1700000001\nB0\nB1\n",
+            vec!["A1", "B0\nB1"],
+        ),
+        ("plain", "A0\n\nA1\nB0\nB1\n", vec!["A1", "B0", "B1"]),
+    ];
+
+    for (name, contents, reversed_to_eof) in fixtures {
+        let path = dir.path().join(name);
+        fs::write(&path, contents).unwrap();
+        let lines = |from, to| {
+            History::read_file_range_with_multiline(&path, from, Some(to), HistoryMultiline::Joined)
+                .unwrap()
+                .entries()
+                .iter()
+                .map(|entry| entry.line().into_owned())
+                .collect::<Vec<_>>()
+        };
+
+        assert!(lines(1, 1).is_empty(), "{name}: equal blank-line bound");
+        assert!(
+            lines(1, 2).is_empty(),
+            "{name}: exclusive TO leaves blank only"
+        );
+        assert_eq!(lines(2, 1), reversed_to_eof, "{name}: TO blank");
+        assert_eq!(lines(1, 0), reversed_to_eof, "{name}: FROM blank");
+    }
+}

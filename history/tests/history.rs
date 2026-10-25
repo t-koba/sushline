@@ -771,8 +771,9 @@ fn history_files_preserve_non_utf8_bytes() {
 
 #[test]
 fn history_files_preserve_embedded_nul_bytes() {
-    // Intentional boundary: the byte-oriented reader keeps NUL bytes as data
-    // while GNU C strings truncate at NUL. Ordinary NUL-free input agrees.
+    // The pinned GNU History 8.3 direct-library fixtures truncate each tested
+    // command at its first NUL, skip a leading-NUL command, and read later
+    // lines. This Rust reader intentionally preserves the raw file bytes.
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");
 

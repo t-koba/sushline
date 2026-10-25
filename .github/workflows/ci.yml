@@ -739,22 +739,30 @@ jobs:
           # The executable answered as the pinned release; the entry lines and
           # count above are the measurement, not an asserted GNU result.
           grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/history_full_late_record.out
-          # Keep binary input as bytes: these fixtures measure GNU History's
-          # treatment of embedded NULs and whether later physical lines remain
-          # readable. The output is evidence, not an expected value copied
-          # from another release.
+          # Keep binary input as bytes: these fixtures pin the observed GNU
+          # History 8.3 treatment of embedded NULs and later physical lines.
           printf 'one\000hidden\nnext\000tail\nfinal\n' > /tmp/history_full_nul_plain
           /tmp/history_full_probe /tmp/history_full_nul_plain | tee /tmp/history_full_nul_plain.out
           grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/history_full_nul_plain.out
           grep -qx 'read_history_status=ok' /tmp/history_full_nul_plain.out
+          grep -qx 'entry_count=3' /tmp/history_full_nul_plain.out
+          grep -qx 'entry_0=one' /tmp/history_full_nul_plain.out
+          grep -qx 'entry_1=next' /tmp/history_full_nul_plain.out
+          grep -qx 'entry_2=final' /tmp/history_full_nul_plain.out
           printf '\000hidden\nnext\n' > /tmp/history_full_nul_leading
           /tmp/history_full_probe /tmp/history_full_nul_leading | tee /tmp/history_full_nul_leading.out
           grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/history_full_nul_leading.out
           grep -qx 'read_history_status=ok' /tmp/history_full_nul_leading.out
+          grep -qx 'entry_count=1' /tmp/history_full_nul_leading.out
+          grep -qx 'entry_0=next' /tmp/history_full_nul_leading.out
           printf '#1700000000\none\000hidden\n#1700000001\nnext\000tail\nfinal\n' > /tmp/history_full_nul_timestamped
           /tmp/history_full_probe /tmp/history_full_nul_timestamped | tee /tmp/history_full_nul_timestamped.out
           grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/history_full_nul_timestamped.out
           grep -qx 'read_history_status=ok' /tmp/history_full_nul_timestamped.out
+          grep -qx 'entry_count=3' /tmp/history_full_nul_timestamped.out
+          grep -qx 'entry_0=one' /tmp/history_full_nul_timestamped.out
+          grep -qx 'entry_1=next' /tmp/history_full_nul_timestamped.out
+          grep -qx 'entry_2=final' /tmp/history_full_nul_timestamped.out
           # Run the Rust fixture verbatim so the measured GNU result is
           # compared with the current library baseline, not a second copy of
           # expected Rust behavior embedded in this workflow.

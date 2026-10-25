@@ -1631,7 +1631,8 @@ jobs:
           static int observe_active_handler(void) {
               struct sigaction current;
               if (!wrapper_observed && sigaction(SIGWINCH, NULL, &current) == 0 &&
-                  current.sa_handler != application_sigwinch) {
+                  current.sa_handler != application_sigwinch &&
+                  current.sa_handler != SIG_DFL && current.sa_handler != SIG_IGN) {
                   wrapper_observed = 1;
                   fprintf(stderr, "active_winch_wrapper=1\n");
                   fflush(stderr);

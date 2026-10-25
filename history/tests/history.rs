@@ -1457,10 +1457,13 @@ fn range_bounds_match_the_measured_gnu_range_call() {
 }
 
 #[test]
-fn range_bounds_skip_blank_lines_in_sushline() {
+fn timestamped_range_bounds_count_blank_lines() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");
     fs::write(&path, "#1700000000\nA0\n\nA1\n#1700000001\nB0\nB1\n").unwrap();
+
+    let blank_only = History::read_file_range(&path, 1, Some(1)).unwrap();
+    assert!(blank_only.entries().is_empty());
 
     let history = History::read_file_range(&path, 0, Some(3)).unwrap();
     assert_eq!(
@@ -1469,7 +1472,48 @@ fn range_bounds_skip_blank_lines_in_sushline() {
             .iter()
             .map(|entry| entry.line().into_owned())
             .collect::<Vec<_>>(),
-        vec!["A0".to_string(), "A1".to_string(), "B0".to_string()]
+        vec!["A0".to_string(), "A1".to_string()]
+    );
+
+    let joined =
+        History::read_file_range_with_multiline(&path, 0, Some(3), HistoryMultiline::Joined)
+            .unwrap();
+    assert_eq!(
+        joined
+            .entries()
+            .iter()
+            .map(|entry| entry.line().into_owned())
+            .collect::<Vec<_>>(),
+        vec!["A0\n\nA1".to_string()]
+    );
+}
+
+#[test]
+fn plain_range_bounds_count_blank_lines_in_both_modes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(&path, "A0\n\nA1\nB0\nB1\n").unwrap();
+
+    let per_line = History::read_file_range(&path, 0, Some(3)).unwrap();
+    assert_eq!(
+        per_line
+            .entries()
+            .iter()
+            .map(|entry| entry.line().into_owned())
+            .collect::<Vec<_>>(),
+        vec!["A0".to_string(), "A1".to_string()]
+    );
+
+    let joined =
+        History::read_file_range_with_multiline(&path, 0, Some(3), HistoryMultiline::Joined)
+            .unwrap();
+    assert_eq!(
+        joined
+            .entries()
+            .iter()
+            .map(|entry| entry.line().into_owned())
+            .collect::<Vec<_>>(),
+        vec!["A0".to_string(), "A1".to_string()]
     );
 }
 
@@ -1519,10 +1563,9 @@ fn the_bounds_at_or_below_from_are_the_products_own_rule() {
 
 #[test]
 fn range_bounds_count_physical_command_lines() {
-    // The range FROM/TO bounds count physical command lines, not the entries
-    // a grouping policy makes of them. The fixture holds three command lines
-    // ("line one", "line two" and "next") over five physical lines, and the
-    // timestamp records are not command lines.
+    // FROM/TO bounds count physical command lines, including blanks; timestamp
+    // records are metadata and do not count. The fixture has three nonempty
+    // commands and one blank line across two timestamped blocks.
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");
     fs::write(
@@ -1531,9 +1574,8 @@ fn range_bounds_count_physical_command_lines() {
     )
     .unwrap();
 
-    // The second command line is "line two"; the timestamp of its block
-    // belongs to the first command line, which the range leaves out.
-    let second = History::read_file_range(&path, 1, Some(2)).unwrap();
+    // The blank is at physical line index 1, so "line two" is at range index 2.
+    let second = History::read_file_range(&path, 2, Some(3)).unwrap();
     assert_eq!(
         second
             .entries()
@@ -1543,7 +1585,7 @@ fn range_bounds_count_physical_command_lines() {
         vec![(None, "line two".to_string())]
     );
 
-    let third = History::read_file_range(&path, 2, Some(3)).unwrap();
+    let third = History::read_file_range(&path, 3, Some(4)).unwrap();
     assert_eq!(
         third
             .entries()
@@ -1555,7 +1597,7 @@ fn range_bounds_count_physical_command_lines() {
 
     // Equal bounds select the command line at FROM, and a TO below FROM
     // leaves the range open to the end of the file.
-    let equal = History::read_file_range(&path, 1, Some(1)).unwrap();
+    let equal = History::read_file_range(&path, 2, Some(2)).unwrap();
     assert_eq!(
         equal
             .entries()
@@ -1565,7 +1607,7 @@ fn range_bounds_count_physical_command_lines() {
         vec![(None, "line two".to_string())]
     );
 
-    let reversed = History::read_file_range(&path, 1, Some(0)).unwrap();
+    let reversed = History::read_file_range(&path, 2, Some(1)).unwrap();
     assert_eq!(
         reversed
             .entries()
@@ -1578,10 +1620,10 @@ fn range_bounds_count_physical_command_lines() {
         ]
     );
 
-    // The joined grouping applies to the selected lines, so a range can end
-    // with a partial block.
+    // The joined grouping applies to the selected lines, so the blank inside
+    // the selected physical range remains inside the grouped entry.
     let joined =
-        History::read_file_range_with_multiline(&path, 0, Some(2), HistoryMultiline::Joined)
+        History::read_file_range_with_multiline(&path, 0, Some(3), HistoryMultiline::Joined)
             .unwrap();
     assert_eq!(
         joined
@@ -1593,7 +1635,7 @@ fn range_bounds_count_physical_command_lines() {
     );
 
     let partial =
-        History::read_file_range_with_multiline(&path, 1, Some(3), HistoryMultiline::Joined)
+        History::read_file_range_with_multiline(&path, 1, Some(4), HistoryMultiline::Joined)
             .unwrap();
     assert_eq!(
         partial

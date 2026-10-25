@@ -47,11 +47,12 @@ impl History {
 
     /// Read file range.
     ///
-    /// The file is read with the default `HistoryMultiline` grouping. The
-    /// FROM/TO bounds count physical command lines and blank lines are not
-    /// counted. For a FROM below TO the TO bound is exclusive; equal bounds
-    /// select the command line at FROM, and a TO below FROM leaves the range
-    /// open to the end of the file.
+    /// The file is read with the default `HistoryMultiline` grouping. FROM/TO
+    /// bounds count physical command lines, including blank lines that carry
+    /// no entry; timestamp records are metadata and do not count. For a FROM
+    /// FROM below TO makes TO exclusive. Equal bounds select the physical
+    /// position at FROM, which may be blank and produce no entry; TO below
+    /// FROM leaves the range open to the end of the file.
     pub fn read_file_range(
         path: impl AsRef<Path>,
         from: usize,
@@ -62,20 +63,16 @@ impl History {
 
     /// Read file range with a multiline policy.
     ///
-    /// The FROM/TO bounds count physical command lines and blank lines are
-    /// not counted; the selected lines are then grouped by the policy, so a
-    /// range can end with a partial block. That is what GNU's own range call
-    /// does for a file in GNU's timestamp format with no blank line in it, as
-    /// measured against the installed GNU 8.2 release; the oracle job measures the
-    /// same against the pinned 8.3 release, and there the pinned release's own
-    /// range call answers and selects the same command lines. A blank
-    /// line counts towards GNU's bounds and not towards these, and GNU counts the
-    /// lines of a file that does not begin with a timestamp record as commands,
-    /// which the pinned release's own range call does as well.
+    /// FROM/TO bounds count physical command lines, including blank lines
+    /// that carry no entry; timestamp records are metadata and do not count.
+    /// The selected lines are then grouped by the policy, so a range can end
+    /// with a partial block. Pinned GNU History 8.3 range fixtures confirm
+    /// this blank-line behavior and are retained by the oracle job.
     ///
-    /// For a FROM below TO the TO bound is exclusive; equal bounds select the
-    /// command line at FROM, and a TO below FROM leaves the range open to
-    /// the end of the file. Those bounds are this product's own rule: on the
+    /// FROM below TO makes TO exclusive. Equal bounds select the physical
+    /// position at FROM, which may be blank and produce no entry; TO below
+    /// FROM leaves the range open to the end of the file. Those bounds are
+    /// this product's own rule: on the
     /// fixture the oracle job measures, GNU 8.2 returns the command line at FROM
     /// for a FROM of 1 and 3 and nothing for a FROM of 0 and 2, while on a file
     /// without timestamp records it returns the command line at FROM for each
@@ -130,11 +127,12 @@ impl History {
 
     /// Load file range.
     ///
-    /// The file is read with the default `HistoryMultiline` grouping. The
-    /// FROM/TO bounds count physical command lines and blank lines are not
-    /// counted. For a FROM below TO the TO bound is exclusive; equal bounds
-    /// select the command line at FROM, and a TO below FROM leaves the range
-    /// open to the end of the file.
+    /// The file is read with the default `HistoryMultiline` grouping. FROM/TO
+    /// bounds count physical command lines, including blank lines that carry
+    /// no entry; timestamp records are metadata and do not count. For a FROM
+    /// FROM below TO makes TO exclusive. Equal bounds select the physical
+    /// position at FROM, which may be blank and produce no entry; TO below
+    /// FROM leaves the range open to the end of the file.
     pub fn load_file_range(
         &mut self,
         path: impl AsRef<Path>,
@@ -153,20 +151,16 @@ impl History {
 
     /// Load file range with a multiline policy.
     ///
-    /// The FROM/TO bounds count physical command lines and blank lines are
-    /// not counted; the selected lines are then grouped by the policy, so a
-    /// range can end with a partial block. That is what GNU's own range call
-    /// does for a file in GNU's timestamp format with no blank line in it, as
-    /// measured against the installed GNU 8.2 release; the oracle job measures the
-    /// same against the pinned 8.3 release, and there the pinned release's own
-    /// range call answers and selects the same command lines. A blank
-    /// line counts towards GNU's bounds and not towards these, and GNU counts the
-    /// lines of a file that does not begin with a timestamp record as commands,
-    /// which the pinned release's own range call does as well.
+    /// FROM/TO bounds count physical command lines, including blank lines
+    /// that carry no entry; timestamp records are metadata and do not count.
+    /// The selected lines are then grouped by the policy, so a range can end
+    /// with a partial block. Pinned GNU History 8.3 range fixtures confirm
+    /// this blank-line behavior and are retained by the oracle job.
     ///
-    /// For a FROM below TO the TO bound is exclusive; equal bounds select the
-    /// command line at FROM, and a TO below FROM leaves the range open to
-    /// the end of the file. Those bounds are this product's own rule: on the
+    /// FROM below TO makes TO exclusive. Equal bounds select the physical
+    /// position at FROM, which may be blank and produce no entry; TO below
+    /// FROM leaves the range open to the end of the file. Those bounds are
+    /// this product's own rule: on the
     /// fixture the oracle job measures, GNU 8.2 returns the command line at FROM
     /// for a FROM of 1 and 3 and nothing for a FROM of 0 and 2, while on a file
     /// without timestamp records it returns the command line at FROM for each
@@ -596,18 +590,20 @@ fn read_history_blocks(file: fs::File) -> io::Result<Vec<HistoryBlock>> {
 /// Group the blocks' physical lines into entries.
 ///
 /// The selection bounds the grouping to a run of physical command lines,
-/// the unit GNU's range bounds count; without it every command line of the
-/// file is grouped.
+/// including blank lines that yield no entries; timestamp records are not
+/// part of the indexed command lines. Without selection, every block is
+/// grouped.
 fn group_history_blocks(
     blocks: &[HistoryBlock],
     multiline: HistoryMultiline,
     selection: Option<(usize, usize)>,
 ) -> Vec<(Vec<u8>, Option<String>)> {
     let mut records = Vec::new();
-    let mut command_index = 0usize;
+    let mut range_index = 0usize;
     for block in blocks {
-        // The command lines of the block: the physical lines that carry an
-        // entry. A blank line carries none.
+        // The command lines of the block: physical lines that carry an
+        // entry. A blank line carries no entry but still advances a range
+        // bound.
         let command_lines: Vec<usize> = block
             .lines
             .iter()
@@ -615,8 +611,8 @@ fn group_history_blocks(
             .filter(|(_, line)| !line.is_empty())
             .map(|(index, _)| index)
             .collect();
-        let block_start = command_index;
-        command_index += command_lines.len();
+        let block_start = range_index;
+        range_index += block.lines.len();
 
         let selected: Vec<usize> = match selection {
             None => command_lines.clone(),
@@ -624,12 +620,10 @@ fn group_history_blocks(
                 let end = from.saturating_add(count);
                 command_lines
                     .iter()
-                    .enumerate()
-                    .filter(|(offset, _)| {
-                        let index = block_start + offset;
-                        index >= from && index < end
+                    .filter_map(|line| {
+                        let index = block_start + *line;
+                        (index >= from && index < end).then_some(*line)
                     })
-                    .map(|(_, line)| *line)
                     .collect()
             }
         };

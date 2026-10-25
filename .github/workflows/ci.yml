@@ -651,7 +651,9 @@ jobs:
           grep -qx 'multiline=1 from=0 to=3: {A0\\n\\nA1}' /tmp/history_range_blank_lines_joined.out
           printf 'A0\n\nA1\nB0\nB1\n' > /tmp/history_range_plain_blank_lines
           /tmp/history_range_probe /tmp/history_range_plain_blank_lines 0 3 0 | tee /tmp/history_range_plain_blank_lines.out
+          grep -qx 'multiline=0 from=0 to=3: {A0} {A1}' /tmp/history_range_plain_blank_lines.out
           /tmp/history_range_probe /tmp/history_range_plain_blank_lines 0 3 1 | tee /tmp/history_range_plain_blank_lines_joined.out
+          grep -qx 'multiline=1 from=0 to=3: {A0\\n\\nA1}' /tmp/history_range_plain_blank_lines_joined.out
       - name: Measure the pinned release's full-file late timestamp rule
         run: |
           set -euo pipefail

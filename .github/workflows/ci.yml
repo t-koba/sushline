@@ -661,11 +661,17 @@ jobs:
             /tmp/history_range_probe /tmp/history_range_fixture 2 2 0
             /tmp/history_range_probe /tmp/history_range_fixture 2 1 0
           } | tee /tmp/history_range_edge_timestamped.out
+          grep -qx 'multiline=0 from=0 to=0: (none)' /tmp/history_range_edge_timestamped.out
+          grep -qx 'multiline=0 from=2 to=2: (none)' /tmp/history_range_edge_timestamped.out
+          grep -qx 'multiline=0 from=2 to=1: (none)' /tmp/history_range_edge_timestamped.out
           {
             /tmp/history_range_probe /tmp/history_range_plain 0 0 0
             /tmp/history_range_probe /tmp/history_range_plain 2 2 0
             /tmp/history_range_probe /tmp/history_range_plain 2 1 0
           } | tee /tmp/history_range_edge_plain.out
+          grep -qx 'multiline=0 from=0 to=0: {C0}' /tmp/history_range_edge_plain.out
+          grep -qx 'multiline=0 from=2 to=2: {C2}' /tmp/history_range_edge_plain.out
+          grep -qx 'multiline=0 from=2 to=1: {C2}' /tmp/history_range_edge_plain.out
       - name: Measure the pinned release's full-file late timestamp rule
         run: |
           set -euo pipefail

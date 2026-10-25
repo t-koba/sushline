@@ -1519,15 +1519,10 @@ fn plain_range_bounds_count_blank_lines_in_both_modes() {
 
 #[test]
 fn the_bounds_at_or_below_from_are_the_products_own_rule() {
-    // Measured against the installed GNU 8.2 release on the fixture the
-    // oracle job measures: for a TO at or below FROM the shell returns the
-    // command line at FROM for a FROM of 1 and 3 and nothing for a FROM of 0
-    // and 2, while on a file without timestamp records it returns the
-    // command line at FROM for each FROM the file holds a command line at.
-    // No CI step measures those bounds, so this rests on that local
-    // measurement alone. Those bounds are this product's
-    // own rule: equal bounds select the command line at FROM and a TO below
-    // FROM leaves the range open to the end of the file.
+    // Pinned GNU History 8.3 returns no entries for these tested timestamped
+    // equal/reversed bounds, but returns the FROM line for the tested plain
+    // file bounds. Sushline retains its product rule: equal bounds select the
+    // command line at FROM and a TO below FROM leaves the range open to EOF.
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");
     fs::write(&path, "#1700000000\nA0\nA1\n#1700000001\nB0\nB1\nB2\n").unwrap();
@@ -1559,6 +1554,16 @@ fn the_bounds_at_or_below_from_are_the_products_own_rule() {
         History::read_file_range_with_multiline(&path, 3, Some(3), HistoryMultiline::Joined)
             .unwrap();
     assert_eq!(lines(&joined), vec!["B1".to_string()]);
+
+    // Without timestamp records, equal bounds select FROM and reversed
+    // bounds continue through EOF, matching the pinned plain-file fixture.
+    fs::write(&path, "C0\nC1\nC2\nC3\n").unwrap();
+    let equal = History::read_file_range(&path, 0, Some(0)).unwrap();
+    assert_eq!(lines(&equal), vec!["C0".to_string()]);
+    let equal = History::read_file_range(&path, 2, Some(2)).unwrap();
+    assert_eq!(lines(&equal), vec!["C2".to_string()]);
+    let reversed = History::read_file_range(&path, 2, Some(1)).unwrap();
+    assert_eq!(lines(&reversed), vec!["C2".to_string(), "C3".to_string()]);
 }
 
 #[test]

@@ -1875,9 +1875,6 @@ jobs:
           extern int rl_readline_version;
           static volatile sig_atomic_t signal_count;
           static int wrapper_observed;
-          static int handler_observed;
-          static int line_observed;
-          static int callback_observed;
 
           static void application_sigquit(int signal_number) {
               if (signal_number == SIGQUIT)
@@ -1886,34 +1883,22 @@ jobs:
 
           static int observe_active_handler(void) {
               struct sigaction current;
-              if (!handler_observed) {
-                  if (sigaction(SIGQUIT, NULL, &current) != 0) {
-                      perror("sigaction");
-                      exit(1);
-                  }
-                  wrapper_observed = current.sa_handler != application_sigquit &&
-                      current.sa_handler != SIG_DFL && current.sa_handler != SIG_IGN;
-                  fprintf(stderr, "active_quit_wrapper=%d\n", wrapper_observed);
-                  fprintf(stderr, "active_quit_ignored=%d\n",
-                          current.sa_handler == SIG_IGN);
-                  fprintf(stderr, "active_quit_default=%d\n",
-                          current.sa_handler == SIG_DFL);
-                  fprintf(stderr, "active_quit_application_handler=%d\n",
-                          current.sa_handler == application_sigquit);
-                  handler_observed = 1;
-                  fflush(stderr);
+              if (sigaction(SIGQUIT, NULL, &current) != 0) {
+                  perror("sigaction");
+                  exit(1);
               }
-              if (!line_observed && rl_line_buffer != NULL &&
-                  strcmp(rl_line_buffer, "abc") == 0) {
-                  line_observed = 1;
-                  fprintf(stderr, "line_buffer_observed=1\n");
-                  fflush(stderr);
-              }
-              if (!callback_observed && signal_count != 0) {
-                  callback_observed = 1;
-                  fprintf(stderr, "application_callback_marker=1\n");
-                  fflush(stderr);
-              }
+              wrapper_observed = current.sa_handler != application_sigquit &&
+                  current.sa_handler != SIG_DFL && current.sa_handler != SIG_IGN;
+              fprintf(stderr, "active_quit_wrapper=%d\n", wrapper_observed);
+              fprintf(stderr, "active_quit_ignored=%d\n",
+                      current.sa_handler == SIG_IGN);
+              fprintf(stderr, "active_quit_default=%d\n",
+                      current.sa_handler == SIG_DFL);
+              fprintf(stderr, "active_quit_application_handler=%d\n",
+                      current.sa_handler == application_sigquit);
+              rl_event_hook = NULL;
+              fprintf(stderr, "quit_hook_ready=1\n");
+              fflush(stderr);
               return 0;
           }
 
@@ -1969,8 +1954,6 @@ jobs:
                   free(line);
               }
               fprintf(stderr, "wrapper_observed=%d\n", wrapper_observed);
-              fprintf(stderr, "line_observed=%d\n", line_observed);
-              fprintf(stderr, "callback_observed=%d\n", callback_observed);
               {
                   struct sigaction action;
                   if (sigaction(SIGQUIT, NULL, &action) != 0)
@@ -2007,8 +1990,8 @@ jobs:
             exit 1
           fi
           # Each disposition gets a fresh child with a controlling PTY and
-          # core dumps disabled. SIGQUIT is sent once the C hook's active
-          # handler observation shows readline() is active, before any PTY
+          # core dumps disabled. SIGQUIT is sent once the C hook reports
+          # the active handler and disables itself, before any PTY
           # text; caller-handler/ignored cases then type a line after the
           # signal so they can return, while the default case receives no
           # completion input. Every read and wait is bounded and timed-out
@@ -2103,11 +2086,11 @@ jobs:
                       raise RuntimeError(f"{disposition}: child not reaped after SIGKILL")
 
               try:
-                  # Direct-library sequencing: wait for the C hook's active
-                  # handler observation confirming readline() is active, settle
+                  # Direct-library sequencing: wait for the C hook to report the
+                  # active handler and disable itself, settle
                   # briefly, then send SIGQUIT before any PTY text. A partial
                   # line before the signal is not needed for this measurement.
-                  hook_ready_seen = read_until(b"active_quit_application_handler=", 3.0)
+                  hook_ready_seen = read_until(b"quit_hook_ready=1\r\n", 3.0)
                   if hook_ready_seen and poll_child() is None:
                       time.sleep(0.2)
                   if hook_ready_seen and poll_child() is None:
@@ -2117,10 +2100,9 @@ jobs:
                       except ProcessLookupError:
                           pass
                   if signal_sent and disposition != "default":
-                      # Allow the caller callback to run, or briefly observe the ignored
-                      # case, then finish through normal input rather than setting rl_done.
-                      read_until(b"application_callback_marker=1\r\n",
-                                 1.0 if disposition == "caller-handler" else 0.2)
+                      # Settle briefly after the signal, then finish through normal
+                      # input rather than setting rl_done; signal_count is read on return.
+                      time.sleep(0.2)
                       if poll_child() is None:
                           try:
                               input_write_count = os.write(master, b"abc\r")
@@ -2144,10 +2126,6 @@ jobs:
                   print(f"wrapper_marker_seen={int(b'active_quit_wrapper=1' in transcript)}")
                   print(f"hook_ready_seen={int(hook_ready_seen)}")
                   print(f"sigquit_sent={int(signal_sent)}")
-                  line_marker_seen = b"line_buffer_observed=1" in transcript
-                  print(f"line_buffer_observed_marker_seen={int(line_marker_seen)}")
-                  print(f"application_callback_marker_seen="
-                        f"{int(b'application_callback_marker=1' in transcript)}")
                   print(f"followup_input_sent={int(input_sent)}")
                   write_count = input_write_count if input_write_count is not None else "failed"
                   print(f"followup_input_write_count={write_count}")
@@ -2165,8 +2143,6 @@ jobs:
                       "result_hex",
                       "signal_count",
                       "wrapper_observed",
-                      "line_observed",
-                      "callback_observed",
                       "post_quit_application_handler",
                       "post_sigquit_ignored",
                       "post_sigquit_default",

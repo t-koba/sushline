@@ -1467,9 +1467,9 @@ jobs:
             exit 1
           fi
           # Each disposition gets a fresh child with a controlling PTY. Send
-          # the same partial line, Ctrl-C and suffix bytes; transcript, status
-          # and C result remain observational. Bounded waits and cleanup apply
-          # independently to both runs.
+          # the same partial line, Ctrl-C and suffix bytes. The assertions
+          # below pin these two direct-library outcomes; bounded waits and
+          # cleanup apply independently to both runs.
           python3 - <<'PYPROBE' | tee /tmp/readline_sigint.out
           import os
           import pty
@@ -1563,6 +1563,13 @@ jobs:
           for disposition in ("caller-handler", "default"):
               measure(disposition)
           PYPROBE
+          # Repeated successful pinned runs produced these exact controlled-
+          # PTY observations; reject timeouts and transcript drift.
+          grep -Fqx 'measurement_disposition=caller-handler' /tmp/readline_sigint.out
+          grep -Fqx 'measurement_disposition=default' /tmp/readline_sigint.out
+          test "$(grep -Fxc 'observation_timeout=0' /tmp/readline_sigint.out)" -eq 2
+          grep -Fqx 'readline_expected=8.3 returncode=0 transcript_len=129 transcript_hex=736967696e745f646973706f736974696f6e3d63616c6c65722d68616e646c65720d0a726561646c696e655f72656c656173653d382e330d0a736967696e743e206162635e43580d0a726573756c745f6c656e3d34207369676e616c5f636f756e743d310d0a726573756c745f6865783d36313632363335380d0a646f6e650d0a' /tmp/readline_sigint.out
+          grep -Fqx 'readline_expected=8.3 returncode=-2 transcript_len=63 transcript_hex=736967696e745f646973706f736974696f6e3d64656661756c740d0a726561646c696e655f72656c656173653d382e330d0a736967696e743e206162635e43' /tmp/readline_sigint.out
       - name: Run the oracle suite
         run: |
           set -euo pipefail

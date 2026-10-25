@@ -194,7 +194,16 @@ their signal policy. An interrupted built-in poll/read without a caught event yi
 
 During an active `read_line`, Sushline may translate terminal and signal events
 into editor behavior; process-wide policy and post-read control flow remain the
-embedder's responsibility.
+embedder's responsibility. `TerminalIo::sigint_policy` supplies the editor's
+initial SIGINT policy: the built-in terminal continues the current read with
+its partial line, while custom backends default to `Interrupted`; the embedder
+can override either through `Editor::set_sigint_policy`. `Continue` echoes
+`^C` and processes queued bytes in the same read, while `Interrupted` returns
+`ReadlineResult::Interrupted` and leaves queued suffix bytes for the next read.
+This applies to SIGINT and unquoted Ctrl-C input only; other signals retain
+their existing path, and the policy does not install or re-raise signals. When
+built-in catching is disabled, caller-owned dispositions remain in force and
+hooks can report pending signals through `Hooks::check_signals`.
 
 Idle and input-available policy (GNU `rl_event_hook` / `rl_input_available_hook` /
 keyboard-input timeout) belongs to the embedder's `TerminalIo::read_event`

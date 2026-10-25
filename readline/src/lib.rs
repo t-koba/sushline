@@ -43,5 +43,5 @@ pub use hooks::{
 pub use inputrc::{InputrcDiagnostic, InputrcError, InputrcParser};
 pub use keymap::KeyMapName;
 pub use prompt::{Prompt, PromptEscapes};
-pub use terminal::{Terminal, TerminalEvent, TerminalIo, TerminalSize};
+pub use terminal::{SigintPolicy, Terminal, TerminalEvent, TerminalIo, TerminalSize};
 pub use variables::Variables;

@@ -6,7 +6,7 @@ use crate::inputrc::{InputrcDiagnostic, InputrcParser, discover_inputrc_path};
 use crate::keymap::{EditCommand, KeyBinding, KeyMap, KeyMapName};
 use crate::prompt::Prompt;
 use crate::state::*;
-use crate::terminal::{TerminalEvent, TerminalIo, escape};
+use crate::terminal::{SigintPolicy, TerminalEvent, TerminalIo, escape};
 use crate::variables::{BoolVariable, Variables};
 use history::History;
 use history::expansion::{
@@ -24,9 +24,9 @@ pub enum ReadlineResult {
     Line(Vec<u8>),
     /// The active read was interrupted before accepting a line, such as by Ctrl-C.
     ///
-    /// With the built-in [`crate::Terminal`] on Unix, a caught `SIGINT` is echoed
-    /// and returned as this result after terminal restoration instead of being
-    /// re-raised. The embedder decides whether to retry or propagate it.
+    /// Selected by [`SigintPolicy::Interrupted`]; the built-in terminal instead
+    /// continues the read by default. SIGINT is echoed and not re-raised. The
+    /// embedder decides whether to retry or propagate an interrupted result.
     Interrupted,
     /// End-of-file was reached before a line was accepted.
     Eof,
@@ -79,6 +79,7 @@ where
 {
     config: Config,
     pub(crate) terminal: T,
+    pub(crate) sigint_policy: SigintPolicy,
     pub(crate) history: History,
     pub(crate) keymap: KeyMap,
     pub(crate) variables: Variables,
@@ -134,6 +135,7 @@ where
         });
         Self {
             config,
+            sigint_policy: terminal.sigint_policy(),
             terminal,
             history,
             keymap,
@@ -156,6 +158,21 @@ where
             inputrc_report_pending: false,
             pending_input: Vec::new(),
         }
+    }
+
+    /// Returns the current SIGINT and unquoted Ctrl-C policy.
+    pub fn sigint_policy(&self) -> SigintPolicy {
+        self.sigint_policy
+    }
+
+    /// Sets the SIGINT and unquoted Ctrl-C policy for subsequent reads.
+    ///
+    /// The initial value comes from [`TerminalIo::sigint_policy`]: `Continue`
+    /// for the built-in terminal and `Interrupted` for custom backends unless
+    /// they opt in. This does not change caller-owned OS signal dispositions
+    /// or how non-SIGINT signals are handled.
+    pub fn set_sigint_policy(&mut self, policy: SigintPolicy) {
+        self.sigint_policy = policy;
     }
 
     /// Initial inputrc error.

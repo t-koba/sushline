@@ -526,3 +526,134 @@ fn failed_restore_can_be_retried() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[cfg(unix)]
+mod builtin_sigint_policy {
+    use super::*;
+    use readline::{SigintPolicy, Terminal};
+    use std::io::Write;
+    use std::os::fd::{FromRawFd, OwnedFd};
+
+    const PROBE_ENV: &str = "SUSHLINE_SIGINT_POLICY_PROBE";
+    extern "C" fn caller_handler(_: i32) {}
+
+    struct InputHook {
+        master: std::fs::File,
+        checks: usize,
+        report_signal: bool,
+    }
+
+    impl Hooks for InputHook {
+        fn check_signals(&mut self) -> Option<i32> {
+            self.checks += 1;
+            match self.checks {
+                1 => self.master.write_all(b"abc").unwrap(),
+                2 => {
+                    // The prefix has been dispatched. Queue the suffix and
+                    // deliver SIGINT without timing-dependent writer threads.
+                    self.master.write_all(b"X\r").unwrap();
+                    assert_eq!(unsafe { libc::raise(libc::SIGINT) }, 0);
+                    if self.report_signal {
+                        return Some(libc::SIGINT);
+                    }
+                }
+                _ => {}
+            }
+            None
+        }
+    }
+
+    #[test]
+    fn child_probe() {
+        if std::env::var(PROBE_ENV).as_deref() != Ok("1") {
+            return;
+        }
+        // Bound the isolated probe even if a regression leaves read_line waiting.
+        unsafe { libc::alarm(10) };
+        let mut master = -1;
+        let mut slave = -1;
+        unsafe {
+            assert_eq!(
+                libc::openpty(
+                    &mut master,
+                    &mut slave,
+                    std::ptr::null_mut(),
+                    std::ptr::null(),
+                    std::ptr::null()
+                ),
+                0
+            );
+        }
+        let master = unsafe { std::fs::File::from_raw_fd(master) };
+        let _slave = unsafe { OwnedFd::from_raw_fd(slave) };
+        unsafe {
+            assert!(libc::setsid() >= 0);
+            // Closing the controlling PTY at child exit must not kill the test.
+            libc::signal(libc::SIGHUP, libc::SIG_IGN);
+            assert_eq!(libc::ioctl(slave, libc::TIOCSCTTY, 0), 0);
+            assert_eq!(libc::dup2(slave, libc::STDIN_FILENO), libc::STDIN_FILENO);
+            let mut action: libc::sigaction = std::mem::zeroed();
+            action.sa_sigaction = caller_handler as *const () as usize;
+            libc::sigemptyset(&mut action.sa_mask);
+            assert_eq!(
+                libc::sigaction(libc::SIGINT, &action, std::ptr::null_mut()),
+                0
+            );
+        }
+        for report_signal in [false, true] {
+            for interrupted in [false, true] {
+                let mut terminal = Terminal::new();
+                terminal.set_catch_signals(!report_signal);
+                let mut line = Editor::new(Config::default(), terminal, History::new());
+                assert_eq!(line.sigint_policy(), SigintPolicy::Continue);
+                if interrupted {
+                    line.set_sigint_policy(SigintPolicy::Interrupted);
+                }
+                let mut hook = InputHook {
+                    master: master.try_clone().unwrap(),
+                    checks: 0,
+                    report_signal,
+                };
+                let first = line.read_line(Prompt::new("> "), &mut hook).unwrap();
+                if interrupted {
+                    assert_eq!(first, ReadlineResult::Interrupted);
+                    assert_eq!(
+                        line.read_line(Prompt::new("> "), &mut ()).unwrap(),
+                        ReadlineResult::Line(b"X".to_vec())
+                    );
+                } else {
+                    assert_eq!(first, ReadlineResult::Line(b"abcX".to_vec()));
+                }
+                let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+                assert_eq!(
+                    unsafe { libc::sigaction(libc::SIGINT, std::ptr::null(), &mut action) },
+                    0
+                );
+                assert_eq!(action.sa_sigaction, caller_handler as *const () as usize);
+            }
+        }
+        unsafe { libc::alarm(0) };
+    }
+
+    #[test]
+    fn builtin_continues_by_default_and_can_return_interrupted() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "builtin_sigint_policy::child_probe",
+                "--exact",
+                "--nocapture",
+            ])
+            .env(PROBE_ENV, "1")
+            .env("INPUTRC", "/dev/null")
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "SIGINT policy probe failed: {:?}\n{}\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}

@@ -1,4 +1,6 @@
-use readline::{Config, Editor, History, Hooks, Prompt, PromptEscapes, ReadlineResult, Terminal};
+use readline::{
+    Config, Editor, History, Hooks, Prompt, PromptEscapes, ReadlineResult, SigintPolicy, Terminal,
+};
 use std::process::ExitCode;
 use std::{fs, path::Path};
 
@@ -67,6 +69,9 @@ fn main() -> ExitCode {
 
     let mut hooks = HarnessApplication;
     let mut line = Editor::new(Config::default(), Terminal::new(), history);
+    if std::env::var("SUSHLINE_SIGINT_POLICY").as_deref() == Ok("interrupted") {
+        line.set_sigint_policy(SigintPolicy::Interrupted);
+    }
     if let Ok(inputrc) = std::env::var("SUSHLINE_INPUTRC")
         && let Err(err) = line.load_inputrc_str(&inputrc)
     {

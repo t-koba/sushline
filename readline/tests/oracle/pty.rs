@@ -728,6 +728,8 @@ pub(super) fn run_sushline_harness_with_inputrc(keys: &[u8], inputrc: &str) -> S
 
 pub(super) fn run_sushline_harness_until(keys: &[u8], inputrc: &str, stop_marker: &str) -> String {
     let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    // These interrupt fixtures exercise the explicit return-to-caller policy.
+    command.env("SUSHLINE_SIGINT_POLICY", "interrupted");
     command.env("SUSHLINE_INPUTRC", inputrc);
     command.env("SUSHLINE_PROMPT", READY_PROMPT);
     command.env("SUSHLINE_HISTORY", "");
@@ -769,6 +771,7 @@ pub(super) fn run_sushline_harness_after_ctrl_c_with_keys(keys: &[u8]) -> String
     command.env("SUSHLINE_HISTORY", "");
     command.env("SUSHLINE_READS", "2");
     command.env("SUSHLINE_CONTINUE_ON_INTERRUPT", "1");
+    command.env("SUSHLINE_SIGINT_POLICY", "interrupted");
     run_pty_steps_until(
         command,
         &[

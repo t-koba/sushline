@@ -3,7 +3,7 @@ use crate::editor::{Editor, EditorOutcome, ReadlineError, ReadlineResult};
 use crate::hooks::Hooks;
 use crate::keymap::{EditCommand, KeyBinding, KeyMapName};
 use crate::state::*;
-use crate::terminal::TerminalIo;
+use crate::terminal::{SigintPolicy, TerminalIo};
 use crate::variables::BoolVariable;
 use history::HistoryDirection;
 
@@ -29,13 +29,15 @@ where
     ) -> Result<Option<ReadlineResult>, ReadlineError> {
         #[cfg(unix)]
         if signal == libc::SIGINT {
-            // Preserve bytes the terminal queued after the signal, but keep
-            // Sushline's public Interrupted result for the current read. The
-            // pinned GNU 8.3 direct-library fixture instead returned its
-            // pre-signal text and following byte from the same read.
             self.terminal.restore_mode()?;
-            self.echo_signal_interrupt(state)?;
-            return Ok(Some(ReadlineResult::Interrupted));
+            self.handle_input_interrupt(state)?;
+            if state.input.interrupted {
+                return Ok(Some(ReadlineResult::Interrupted));
+            }
+            // Keep the current editor state and queued terminal bytes while
+            // restoring the editor's terminal modes for the continuing read.
+            self.reset_after_signal()?;
+            return Ok(None);
         }
         self.terminal.restore_mode()?;
         #[cfg(unix)]
@@ -48,6 +50,15 @@ where
         let _ = signal;
         self.terminal.enter_raw_mode()?;
         Ok(None)
+    }
+
+    pub(crate) fn handle_input_interrupt(
+        &mut self,
+        state: &mut EditorState,
+    ) -> Result<(), ReadlineError> {
+        self.echo_signal_interrupt(state)?;
+        state.input.interrupted = self.sigint_policy == SigintPolicy::Interrupted;
+        Ok(())
     }
 
     pub(super) fn handle_bytes(
@@ -125,13 +136,13 @@ where
             let (byte, tail) = rest.split_at(1);
             rest = tail;
             if byte[0] == 0x03 && !state.input.quoted_insert && !state.paste.bracketed_paste {
-                // Sushline reports Interrupted for the current line and
-                // keeps the bytes after this control byte in the input
-                // stream for the next read. Pinned GNU 8.3 instead returned
-                // the pre-signal text and following byte in the same line.
-                self.echo_signal_interrupt(state)?;
-                state.input.interrupted = true;
-                return Ok((EditorOutcome::Continue, rest.to_vec(), drawn));
+                self.handle_input_interrupt(state)?;
+                if state.input.interrupted {
+                    return Ok((EditorOutcome::Continue, rest.to_vec(), drawn));
+                }
+                self.render(state)?;
+                drawn = true;
+                continue;
             }
             let paste_active = state.paste.bracketed_paste;
             // A key that is not text interrupts the pending text, so the

@@ -42,8 +42,30 @@ pub enum TerminalEvent {
     Timeout,
 }
 
+/// How an editor handles SIGINT and unquoted Ctrl-C input bytes.
+///
+/// This policy does not install signal handlers or re-raise SIGINT. Other
+/// signals retain their existing handling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SigintPolicy {
+    /// Keep the partial line and continue the same read with queued input.
+    Continue,
+    /// End the read with [`crate::ReadlineResult::Interrupted`].
+    /// Queued suffix bytes remain available to the next read.
+    Interrupted,
+}
+
 /// TerminalIo.
 pub trait TerminalIo {
+    /// Default SIGINT policy for editors constructed with this backend.
+    ///
+    /// Custom backends retain the `Interrupted` default unless they opt in.
+    /// The built-in [`Terminal`] defaults to `Continue`. An editor can override
+    /// either default with [`crate::Editor::set_sigint_policy`].
+    fn sigint_policy(&self) -> SigintPolicy {
+        SigintPolicy::Interrupted
+    }
+
     /// Enters raw terminal mode.
     fn enter_raw_mode(&mut self) -> io::Result<()>;
     /// Restores the previous terminal mode.
@@ -172,9 +194,8 @@ impl Terminal {
     /// Disabling it leaves these process-wide dispositions to the embedder,
     /// which can report pending signals through `Hooks::check_signals`.
     /// This is built-in `Terminal` policy, not policy for custom [`TerminalIo`]
-    /// implementations. A caught `SIGINT` is returned as
-    /// [`crate::ReadlineResult::Interrupted`] after terminal restoration, not
-    /// re-raised.
+    /// implementations. A caught `SIGINT` follows the editor's
+    /// [`SigintPolicy`] (continuation by default), and is not re-raised.
     pub fn set_catch_signals(&mut self, catch: bool) {
         self.catch_signals = catch;
     }
@@ -206,6 +227,10 @@ impl Drop for Terminal {
 }
 
 impl TerminalIo for Terminal {
+    fn sigint_policy(&self) -> SigintPolicy {
+        SigintPolicy::Continue
+    }
+
     fn set_input_meta_enabled(&mut self, enabled: bool) -> io::Result<()> {
         self.input_meta_enabled = enabled;
         Ok(())

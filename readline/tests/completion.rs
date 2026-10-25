@@ -2184,3 +2184,54 @@ fn a_private_use_character_in_a_completion_display_is_written_as_itself() {
     let out = &line.terminal().out;
     assert!(out.contains('\u{e0b0}'), "out: {out:?}");
 }
+
+#[test]
+fn completion_prompts_follow_sigint_policy_without_losing_suffix() {
+    for pager in [false, true] {
+        for policy in [
+            readline::SigintPolicy::Continue,
+            readline::SigintPolicy::Interrupted,
+        ] {
+            for signal_event in [false, true] {
+                let mut events = vec![
+                    TerminalEvent::Bytes(b"abc".to_vec()),
+                    TerminalEvent::Bytes(vec![0x0f]),
+                ];
+                if signal_event {
+                    events.push(TerminalEvent::Signal(libc::SIGINT));
+                    events.push(TerminalEvent::Bytes(b"X\r".to_vec()));
+                } else {
+                    events.push(TerminalEvent::Bytes(b"\x03X\r".to_vec()));
+                }
+                let mut terminal = MemoryTerminal::with_events(events);
+                terminal.columns = 20;
+                terminal.rows = if pager { 5 } else { 24 };
+                let mut line = Editor::new(Config::default(), terminal, History::new());
+                line.set_sigint_policy(policy);
+                line.load_inputrc_str(if pager {
+                    "\"\\C-o\": possible-completions\nset completion-query-items 0\nset completion-display-width 20"
+                } else {
+                    "\"\\C-o\": possible-completions\nset completion-query-items 1"
+                }).unwrap();
+                let first = line
+                    .read_line(Prompt::new("> "), &mut ManyCompletion)
+                    .unwrap();
+                if policy == readline::SigintPolicy::Continue {
+                    assert_eq!(first, ReadlineResult::Line(b"abcX".to_vec()));
+                } else {
+                    assert_eq!(first, ReadlineResult::Interrupted);
+                    assert_eq!(
+                        line.read_line(Prompt::new("> "), &mut ()).unwrap(),
+                        ReadlineResult::Line(b"X".to_vec())
+                    );
+                }
+                assert!(line.terminal().out.contains(if pager {
+                    "--More--"
+                } else {
+                    "Display all"
+                }));
+                assert!(line.terminal().out.contains("^C\r\n"));
+            }
+        }
+    }
+}

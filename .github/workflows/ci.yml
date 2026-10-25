@@ -1836,6 +1836,21 @@ jobs:
               except OSError:
                   pass
           PYPROBE
+          # Assert only this direct-library pinned PTY measurement; it is not a
+          # terminal-resize, redisplay, Bash, or public-C-ABI claim.
+          grep -Fqx 'wrapper_marker_seen=1' /tmp/readline_sigwinch.out
+          grep -Fqx 'sigwinch_sent=1' /tmp/readline_sigwinch.out
+          grep -Fqx 'line_buffer_seeded_marker_seen=1' /tmp/readline_sigwinch.out
+          grep -Fqx 'application_callback_marker_seen=1' /tmp/readline_sigwinch.out
+          grep -Fqx 'observation_timeout=0' /tmp/readline_sigwinch.out
+          grep -Fqx 'child_result_len=4' /tmp/readline_sigwinch.out
+          grep -Fqx 'child_result_hex=61626358' /tmp/readline_sigwinch.out
+          grep -Fqx 'child_signal_count=1' /tmp/readline_sigwinch.out
+          grep -Fqx 'child_wrapper_observed=1' /tmp/readline_sigwinch.out
+          grep -Fqx 'child_line_seeded=1' /tmp/readline_sigwinch.out
+          grep -Fqx 'child_callback_observed=1' /tmp/readline_sigwinch.out
+          grep -Fqx 'child_post_winch_application_handler=1' /tmp/readline_sigwinch.out
+          grep -Fq 'readline_expected=8.3 returncode=0 transcript_len=' /tmp/readline_sigwinch.out
       - name: Run the oracle suite
         run: |
           set -euo pipefail

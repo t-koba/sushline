@@ -676,6 +676,20 @@ jobs:
           grep -qx 'multiline=0 from=2 to=1: {A1}' /tmp/history_range_blank_line_edges_plain.out
           grep -qx 'multiline=0 from=1 to=0: (none)' /tmp/history_range_blank_line_edges_plain.out
           grep -qx 'multiline=0 from=1 to=2: (none)' /tmp/history_range_blank_line_edges_plain.out
+          # Record the same blank-line boundary cases in joined mode; these
+          # pinned GNU 8.3 outputs are measurements, not assertions yet.
+          {
+            /tmp/history_range_probe /tmp/history_range_blank_lines 1 1 1
+            /tmp/history_range_probe /tmp/history_range_blank_lines 2 1 1
+            /tmp/history_range_probe /tmp/history_range_blank_lines 1 0 1
+            /tmp/history_range_probe /tmp/history_range_blank_lines 1 2 1
+          } | tee /tmp/history_range_blank_line_edges_joined_timestamped.out
+          {
+            /tmp/history_range_probe /tmp/history_range_plain_blank_lines 1 1 1
+            /tmp/history_range_probe /tmp/history_range_plain_blank_lines 2 1 1
+            /tmp/history_range_probe /tmp/history_range_plain_blank_lines 1 0 1
+            /tmp/history_range_probe /tmp/history_range_plain_blank_lines 1 2 1
+          } | tee /tmp/history_range_blank_line_edges_joined_plain.out
           # The installed GNU 8.2 measurements differ from the product's
           # equal and reversed-bound rules; retain the pinned 8.3 answers.
           {
@@ -1468,6 +1482,8 @@ jobs:
             /tmp/history_range_plain_blank_lines_joined.out \
             /tmp/history_range_blank_line_edges_timestamped.out \
             /tmp/history_range_blank_line_edges_plain.out \
+            /tmp/history_range_blank_line_edges_joined_timestamped.out \
+            /tmp/history_range_blank_line_edges_joined_plain.out \
             /tmp/history_range_edge_timestamped.out \
             /tmp/history_range_edge_plain.out \
             /tmp/history_range_oob_timestamped.out \

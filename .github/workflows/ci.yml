@@ -658,12 +658,14 @@ jobs:
           cat > /tmp/history_full_probe.c <<'PROBE'
           #include <stdio.h>
           #include <stdlib.h>
+          #include <string.h>
           #include <readline/history.h>
 
           extern int rl_readline_version;
 
           int main(int argc, char **argv) {
-              if (argc != 2) {
+              int show_timestamps = argc == 3 && strcmp(argv[2], "--timestamp") == 0;
+              if (argc < 2 || argc > 3 || (argc == 3 && !show_timestamps)) {
                   return 2;
               }
               printf("readline_release=%d.%d\n", rl_readline_version >> 8,
@@ -684,6 +686,25 @@ jobs:
                   }
               }
               printf("entry_count=%d\n", count);
+              if (show_timestamps) {
+                  printf("history_comment_char=%u\n", (unsigned char) history_comment_char);
+                  if (entries != NULL) {
+                      for (int i = 0; entries[i] != NULL; i++) {
+                          printf("timestamp_%d_hex=", i);
+                          if (entries[i]->timestamp != NULL) {
+                              for (const unsigned char *p =
+                                       (const unsigned char *) entries[i]->timestamp;
+                                   *p != 0; p++) {
+                                  printf("%02x", *p);
+                              }
+                          } else {
+                              printf("none");
+                          }
+                          printf("\nparsed_time_%d=%lld\n", i,
+                                 (long long) history_get_time(entries[i]));
+                      }
+                  }
+              }
               if (entries != NULL) {
                   for (int i = 0; entries[i] != NULL; i++) {
                       printf("entry_%d=", i);
@@ -763,6 +784,12 @@ jobs:
           grep -qx 'entry_0=one' /tmp/history_full_nul_timestamped.out
           grep -qx 'entry_1=next' /tmp/history_full_nul_timestamped.out
           grep -qx 'entry_2=final' /tmp/history_full_nul_timestamped.out
+          # A NUL inside the timestamp metadata line is measured separately:
+          # retain each entry's raw/parsed timestamp and the command list.
+          printf '#1700000000\000suffix\nalpha\nbeta\n' > /tmp/history_timestamp_nul
+          /tmp/history_full_probe /tmp/history_timestamp_nul --timestamp | tee /tmp/history_timestamp_nul.out
+          grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/history_timestamp_nul.out
+          grep -qx 'read_history_status=ok' /tmp/history_timestamp_nul.out
           # Run the Rust fixture verbatim so the measured GNU result is
           # compared with the current library baseline, not a second copy of
           # expected Rust behavior embedded in this workflow.
@@ -1365,6 +1392,7 @@ jobs:
             /tmp/history_full_nul_plain.out \
             /tmp/history_full_nul_leading.out \
             /tmp/history_full_nul_timestamped.out \
+            /tmp/history_timestamp_nul.out \
             /tmp/history_rust_full_late_record.out \
             /tmp/history_full_file_comparison.out \
             /tmp/history_time.out \

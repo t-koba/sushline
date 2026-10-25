@@ -816,6 +816,19 @@ fn history_files_preserve_embedded_nul_bytes() {
     assert_eq!(joined.entries()[0].line_bytes, b"alpha\0tail\nbeta");
     assert_eq!(joined.entries()[1].timestamp.as_deref(), Some("#456"));
     assert_eq!(joined.entries()[1].line_bytes, b"last");
+
+    // A NUL suffix in timestamp metadata is retained as Rust string data,
+    // while the leading `#digit` bytes still associate it with the first line.
+    std::fs::write(&path, b"#789\0suffix\nalpha\nbeta\n").unwrap();
+    let loaded = History::read_file(&path).unwrap();
+    assert_eq!(loaded.entries().len(), 2);
+    assert_eq!(
+        loaded.entries()[0].timestamp.as_deref(),
+        Some("#789\0suffix")
+    );
+    assert_eq!(loaded.entries()[0].line_bytes, b"alpha");
+    assert_eq!(loaded.entries()[1].timestamp.as_deref(), None);
+    assert_eq!(loaded.entries()[1].line_bytes, b"beta");
 }
 
 #[test]

@@ -1409,9 +1409,8 @@ jobs:
           readline="$HOME/.cache/sushline/readline-oracle"
           # The SIGINT row describes the direct Readline library, not the Bash
           # builtin: call readline() directly in a program linked to the exact
-          # pinned release. The PTY probe measures a caller-owned handler,
-          # SIG_DFL and SIG_IGN. Assertions pin the first two outcomes; record
-          # SIG_IGN preservation before deciding whether to pin it as well.
+          # pinned release. The PTY probe measures caller-handler, SIG_DFL
+          # and SIG_IGN cases; the assertions below pin their exact outcomes.
           cat > /tmp/readline_sigint_probe.c <<'PROBE'
           #include <stdio.h>
           #include <readline/readline.h>
@@ -1495,9 +1494,9 @@ jobs:
             exit 1
           fi
           # Each disposition gets a fresh child with a controlling PTY. Send
-          # the same partial line, Ctrl-C and suffix bytes. Caller-handler and
-          # SIG_DFL outcomes stay pinned; SIG_IGN is recorded for repeatability
-          # review. Bounded waits and cleanup apply independently to all runs.
+          # the same partial line, Ctrl-C and suffix bytes. Pin all three
+          # direct-library outcomes, including SIG_IGN preservation. Bounded
+          # waits and cleanup apply independently to all runs.
           python3 - <<'PYPROBE' | tee /tmp/readline_sigint.out
           import os
           import pty
@@ -1595,13 +1594,16 @@ jobs:
           for disposition in ("caller-handler", "default", "ignored"):
               measure(disposition)
           PYPROBE
-          # Pin the caller-handler and SIG_DFL outcomes from repeated runs.
-          # Keep the new SIG_IGN observation unasserted pending repeatability.
+          # Pin the exact SIG_IGN transcript measured by the pinned 8.3
+          # probe, including its pre/post disposition and returned line.
           grep -Fqx 'measurement_disposition=caller-handler' /tmp/readline_sigint.out
           grep -Fqx 'measurement_disposition=default' /tmp/readline_sigint.out
+          grep -Fqx 'measurement_disposition=ignored' /tmp/readline_sigint.out
           test "$(grep -Fxc 'observation_timeout=0' /tmp/readline_sigint.out)" -eq 2
+          grep -Fqx 'ignored_observation_timeout=0' /tmp/readline_sigint.out
           grep -Fqx 'readline_expected=8.3 returncode=0 transcript_len=129 transcript_hex=736967696e745f646973706f736974696f6e3d63616c6c65722d68616e646c65720d0a726561646c696e655f72656c656173653d382e330d0a736967696e743e206162635e43580d0a726573756c745f6c656e3d34207369676e616c5f636f756e743d310d0a726573756c745f6865783d36313632363335380d0a646f6e650d0a' /tmp/readline_sigint.out
           grep -Fqx 'readline_expected=8.3 returncode=-2 transcript_len=63 transcript_hex=736967696e745f646973706f736974696f6e3d64656661756c740d0a726561646c696e655f72656c656173653d382e330d0a736967696e743e206162635e43' /tmp/readline_sigint.out
+          grep -Fqx 'readline_expected=8.3 returncode=0 transcript_len=165 transcript_hex=7072655f736967696e745f69676e6f7265643d310d0a736967696e745f646973706f736974696f6e3d69676e6f7265640d0a726561646c696e655f72656c656173653d382e330d0a736967696e743e20616263580d0a726573756c745f6c656e3d34207369676e616c5f636f756e743d300d0a726573756c745f6865783d36313632363335380d0a706f73745f736967696e745f69676e6f7265643d310d0a646f6e650d0a' /tmp/readline_sigint.out
       - name: Run the oracle suite
         run: |
           set -euo pipefail

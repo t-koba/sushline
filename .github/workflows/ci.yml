@@ -530,8 +530,9 @@ jobs:
             echo "the termios probe loaded Readline outside the pinned prefix" >&2
             exit 1
           fi
-          # Assert only the boundary instrumentation, restoration, and release
-          # identity, not prepared flag values inferred from another release.
+          # Assert the boundary, restoration and release identity, then pin
+          # requested flags to repeated measurements from the exact target
+          # release rather than values inferred from another version.
           : > /tmp/readline_termios.out
           for fixture in 'CS8 0' 'CS7 0' 'CS7 1'; do
             read -r size meta_flag <<< "$fixture"
@@ -541,6 +542,16 @@ jobs:
             release=$(printf '%s\n' "$report" | sed -n 's/^readline_release=//p')
             test "$release" = "$READLINE_ORACLE_VERSION"
           done
+          while IFS= read -r expected; do
+            grep -Fqx "$expected" /tmp/readline_termios.out || {
+              echo "pinned termios mismatch: $expected" >&2
+              exit 1
+            }
+          done <<'EXPECTED'
+          phase=prepare tcsetattr_action=1 requested iflag=0x400 oflag=0x5 cflag=0xb0 lflag=0x8001 CSIZE=0x30 ISTRIP=0 INPCK=0
+          phase=prepare tcsetattr_action=1 requested iflag=0x430 oflag=0x5 cflag=0xa0 lflag=0x8001 CSIZE=0x20 ISTRIP=1 INPCK=1
+          phase=prepare tcsetattr_action=1 requested iflag=0x400 oflag=0x5 cflag=0xa0 lflag=0x8001 CSIZE=0x20 ISTRIP=0 INPCK=0
+          EXPECTED
       - name: Measure the pinned release's history range bounds
         run: |
           set -euo pipefail

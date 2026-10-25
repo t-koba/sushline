@@ -4335,3 +4335,39 @@ fn joined_range_edges_at_blank_physical_lines_keep_current_rule() {
         assert_eq!(lines(1, 0), reversed_to_eof, "{name}: FROM blank");
     }
 }
+
+#[test]
+fn full_file_blank_line_modes_preserve_current_grouping_policy() {
+    let dir = tempfile::tempdir().unwrap();
+    let fixtures = [
+        (
+            "timestamped",
+            "#1700000000\n\nA\n#1700000001\n\n\n#1700000002\nB\n\n",
+            vec!["A", "B"],
+            vec!["A", "B\n"],
+        ),
+        (
+            "plain",
+            "\nA\n\n\nB\n\n\nC\n\n",
+            vec!["A", "B", "C"],
+            vec!["A", "B", "C"],
+        ),
+    ];
+
+    for (name, contents, per_line, joined) in fixtures {
+        let path = dir.path().join(name);
+        fs::write(&path, contents).unwrap();
+        for (mode, expected) in [
+            (HistoryMultiline::PerLine, per_line),
+            (HistoryMultiline::Joined, joined),
+        ] {
+            let history = History::read_file_with_multiline(&path, mode).unwrap();
+            let lines = history
+                .entries()
+                .iter()
+                .map(|entry| entry.line().into_owned())
+                .collect::<Vec<_>>();
+            assert_eq!(lines, expected, "{name} {mode:?}");
+        }
+    }
+}

@@ -1409,9 +1409,9 @@ jobs:
           readline="$HOME/.cache/sushline/readline-oracle"
           # The SIGINT row describes the direct Readline library, not the Bash
           # builtin: call readline() directly in a program linked to the exact
-          # pinned release. Measure both a caller-owned handler and SIG_DFL;
-          # record the prompt, partial line, interrupt, signal count and
-          # returned-line bytes without assuming the pinned release's answer.
+          # pinned release. The PTY probe records the prompt, partial-line,
+          # signal and returned-line observations; assertions below pin both
+          # direct-library outcomes.
           cat > /tmp/readline_sigint_probe.c <<'PROBE'
           #include <stdio.h>
           #include <readline/readline.h>

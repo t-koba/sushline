@@ -728,6 +728,25 @@ fn history_files_group_physical_lines_by_multiline_policy() {
 }
 
 #[test]
+fn history_multiline_joined_keeps_plain_range_file_per_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(&path, "C0\nC1\nC2\nC3\n").unwrap();
+
+    let joined =
+        History::read_file_range_with_multiline(&path, 0, Some(3), HistoryMultiline::Joined)
+            .unwrap();
+    assert_eq!(
+        joined
+            .entries()
+            .iter()
+            .map(|entry| entry.line().into_owned())
+            .collect::<Vec<_>>(),
+        vec!["C0".to_string(), "C1".to_string(), "C2".to_string()]
+    );
+}
+
+#[test]
 fn load_file_variants_take_the_multiline_policy() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");

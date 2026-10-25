@@ -2007,11 +2007,13 @@ jobs:
             exit 1
           fi
           # Each disposition gets a fresh child with a controlling PTY and
-          # core dumps disabled. SIGQUIT is sent after PTY input is echoed and
-          # observed in the line buffer, including SIG_IGN without a wrapper.
-          # Every read and wait is bounded and timed-out children are
-          # reaped. The default-disposition outcome is recorded, not
-          # asserted.
+          # core dumps disabled. SIGQUIT is sent once the C hook's active
+          # handler observation shows readline() is active, before any PTY
+          # text; caller-handler/ignored cases then type a line after the
+          # signal so they can return, while the default case receives no
+          # completion input. Every read and wait is bounded and timed-out
+          # children are reaped. The default-disposition outcome is
+          # recorded, not asserted.
           python3 - <<'PYPROBE' | tee /tmp/readline_sigquit.out
           import os
           import pty
@@ -2045,8 +2047,9 @@ jobs:
               transcript = bytearray()
               status = None
               signal_sent = False
-              partial_input_sent = False
+              hook_ready_seen = False
               input_sent = False
+              input_write_count = None
               cleanup_kill_sent = False
 
               def poll_child():
@@ -2100,19 +2103,14 @@ jobs:
                       raise RuntimeError(f"{disposition}: child not reaped after SIGKILL")
 
               try:
-                  # Match the prompt-first SIGINT fixture: wait for the prompt,
-                  # then type partial input. PTY echo and the hook's buffer
-                  # observation both gate SIGQUIT; no post-signal outcome is required.
-                  prompt_seen = read_until(b"quit> ", 3.0)
-                  if prompt_seen and poll_child() is None:
-                      try:
-                          os.write(master, b"abc")
-                          partial_input_sent = True
-                      except OSError:
-                          pass
-                  partial_echo_seen = read_until(b"abc", 3.0) if partial_input_sent else False
-                  line_observed_marker_seen = read_until(b"line_buffer_observed=1\r\n", 3.0)
-                  if partial_echo_seen and line_observed_marker_seen and poll_child() is None:
+                  # Direct-library sequencing: wait for the C hook's active
+                  # handler observation confirming readline() is active, settle
+                  # briefly, then send SIGQUIT before any PTY text. A partial
+                  # line before the signal is not needed for this measurement.
+                  hook_ready_seen = read_until(b"active_quit_application_handler=", 3.0)
+                  if hook_ready_seen and poll_child() is None:
+                      time.sleep(0.2)
+                  if hook_ready_seen and poll_child() is None:
                       try:
                           os.kill(pid, signal.SIGQUIT)
                           signal_sent = True
@@ -2125,8 +2123,8 @@ jobs:
                                  1.0 if disposition == "caller-handler" else 0.2)
                       if poll_child() is None:
                           try:
-                              os.write(master, b"X\r")
-                              input_sent = True
+                              input_write_count = os.write(master, b"abc\r")
+                              input_sent = input_write_count == len(b"abc\r")
                           except OSError:
                               pass
                   if disposition == "default":
@@ -2144,13 +2142,15 @@ jobs:
                   # signal. Classify its actual wait status, not merely an expired wait.
                   observation_timeout = cleanup_kill_sent and returncode == -signal.SIGKILL
                   print(f"wrapper_marker_seen={int(b'active_quit_wrapper=1' in transcript)}")
+                  print(f"hook_ready_seen={int(hook_ready_seen)}")
                   print(f"sigquit_sent={int(signal_sent)}")
-                  print(f"partial_input_sent={int(partial_input_sent)}")
-                  print(f"partial_echo_seen={int(partial_echo_seen)}")
-                  print(f"line_buffer_observed_marker_seen={int(line_observed_marker_seen)}")
+                  line_marker_seen = b"line_buffer_observed=1" in transcript
+                  print(f"line_buffer_observed_marker_seen={int(line_marker_seen)}")
                   print(f"application_callback_marker_seen="
                         f"{int(b'application_callback_marker=1' in transcript)}")
                   print(f"followup_input_sent={int(input_sent)}")
+                  write_count = input_write_count if input_write_count is not None else "failed"
+                  print(f"followup_input_write_count={write_count}")
                   print(f"cleanup_kill_sent={int(cleanup_kill_sent)}")
                   print(f"observation_timeout={int(observation_timeout)}")
                   # Keep the C measurements readable beside the raw PTY bytes.
@@ -2185,8 +2185,8 @@ jobs:
                         flush=True)
                   if f"readline_release={expected}\r\n".encode() not in transcript:
                       raise SystemExit(f"{disposition}: expected pinned release {expected}")
-                  if not partial_echo_seen or not line_observed_marker_seen or not signal_sent:
-                      raise SystemExit(f"{disposition}: probe did not deliver SIGQUIT after PTY line readiness")
+                  if not hook_ready_seen or not signal_sent:
+                      raise SystemExit(f"{disposition}: probe did not deliver SIGQUIT after hook readiness")
                   # No outcome, callback-count, wrapper, line, or restoration assertions.
               finally:
                   try:

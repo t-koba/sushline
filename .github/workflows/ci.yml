@@ -1152,10 +1152,10 @@ jobs:
           # The probe prints the 8.3 library's answer per fixture as a stable
           # label, the `history_expand` return status and the output bytes in
           # hex, so quoting and errors stay unambiguous. The artifact retains
-          # the measurement; exact checks below cover the direct-library cases
-          # paired with Rust regressions. Other lexical cases remain
-          # measurement-only. These are GNU History library fixtures, not Bash
-          # builtin or public C ABI claims.
+          # the measurement; exact checks below cover the direct expansion and
+          # bounded lexical cases paired with Rust regressions. The lexical
+          # cases test History word handling, not shell parsing or glob
+          # expansion; these are not Bash builtin or public C ABI claims.
           cat > /tmp/history_expand_probe.c <<'PROBE'
           #include <stdio.h>
           #include <stdlib.h>
@@ -1350,6 +1350,39 @@ jobs:
           literal_caret_prefix: status=0 output_hex=6563686f205e615e62
           unknown_modifier: status=-1 output_hex=753a20756e7265636f676e697a656420686973746f7279206d6f646966696572
           missing_event: status=-1 output_hex=216e6f6e6578697374656e743a206576656e74206e6f7420666f756e64
+          lex_at_tokenize: count=3 [0]=6563686f [1]=402861206229 [2]=7a
+          lex_at_arg11_hex=402861206229
+          lex_at_expand11: status=1 output_hex=402861206229
+          lex_bang_tokenize: count=3 [0]=6563686f [1]=212861206229 [2]=7a
+          lex_bang_arg11_hex=212861206229
+          lex_bang_expand11: status=1 output_hex=212861206229
+          lex_ques_tokenize: count=3 [0]=6563686f [1]=3f2861206229 [2]=7a
+          lex_ques_arg11_hex=3f2861206229
+          lex_ques_expand11: status=1 output_hex=3f2861206229
+          lex_plus_tokenize: count=3 [0]=6563686f [1]=2b2861206229 [2]=7a
+          lex_plus_arg11_hex=2b2861206229
+          lex_plus_expand11: status=1 output_hex=2b2861206229
+          lex_star_tokenize: count=3 [0]=6563686f [1]=2a2861206229 [2]=7a
+          lex_star_arg11_hex=2a2861206229
+          lex_star_expand11: status=1 output_hex=2a2861206229
+          lex_nested_tokenize: count=3 [0]=6563686f [1]=40282861206229206329 [2]=7a
+          lex_nested_arg11_hex=40282861206229206329
+          lex_nested_expand11: status=1 output_hex=40282861206229206329
+          lex_quoted_tokenize: count=3 [0]=6563686f [1]=2740286120622927 [2]=7a
+          lex_quoted_arg11_hex=2740286120622927
+          lex_quoted_expand11: status=1 output_hex=2740286120622927
+          lex_escaped_tokenize: count=7 [0]=6563686f [1]=5c40 [2]=28 [3]=61 [4]=62 [5]=29 [6]=7a
+          lex_escaped_arg11_hex=5c40
+          lex_escaped_expand11: status=1 output_hex=5c40
+          lex_dollar_paren_tokenize: count=3 [0]=6563686f [1]=242861206229 [2]=7a
+          lex_dollar_paren_arg11_hex=242861206229
+          lex_dollar_paren_expand11: status=1 output_hex=242861206229
+          lex_process_subst_tokenize: count=3 [0]=6563686f [1]=3c2861206229 [2]=7a
+          lex_process_subst_arg11_hex=3c2861206229
+          lex_process_subst_expand11: status=1 output_hex=3c2861206229
+          lex_arith_tokenize: count=3 [0]=6563686f [1]=24282831202b20322929 [2]=7a
+          lex_arith_arg11_hex=24282831202b20322929
+          lex_arith_expand11: status=1 output_hex=24282831202b20322929
           EXPECTED
       - name: Measure direct-library SIGINT handling against the pinned release
         run: |

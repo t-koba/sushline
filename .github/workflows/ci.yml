@@ -1996,8 +1996,8 @@ jobs:
           # text; caller-handler/ignored cases then type a line after the
           # signal so they can return, while the default case receives no
           # completion input. Every read and wait is bounded and timed-out
-          # children are reaped. The default-disposition outcome is
-          # recorded, not asserted.
+          # children are reaped. Pinned 8.3 outcome assertions below are
+          # limited to this direct-library measurement.
           python3 - <<'PYPROBE' | tee /tmp/readline_sigquit.out
           import os
           import pty
@@ -2164,7 +2164,50 @@ jobs:
                       raise SystemExit(f"{disposition}: expected pinned release {expected}")
                   if not hook_ready_seen or not signal_sent:
                       raise SystemExit(f"{disposition}: probe did not deliver SIGQUIT after hook readiness")
-                  # No outcome, callback-count, wrapper, line, or restoration assertions.
+                  # Two independent pinned 8.3 reports agree on these direct-library
+                  # outcomes. Keep every outcome assertion scoped to that release.
+                  if expected == "8.3":
+                      if cleanup_kill_sent or observation_timeout:
+                          raise SystemExit(f"{disposition}: observation timed out or needed cleanup kill")
+                      child_fields = {
+                          f"child_{line.split('=', 1)[0]}": line.split("=", 1)[1]
+                          for line in transcript.decode("ascii", errors="replace").splitlines()
+                          if "=" in line
+                      }
+                      if disposition == "caller-handler":
+                          checks = {
+                              "returncode": (returncode, 0),
+                              "followup_input_sent": (input_sent, True),
+                              "child_result": (child_fields.get("child_result", "missing"), "abc"),
+                              "child_result_len": (child_fields.get("child_result_len", "missing"), "3"),
+                              "child_result_hex": (child_fields.get("child_result_hex", "missing"), "616263"),
+                              "child_signal_count": (child_fields.get("child_signal_count", "missing"), "1"),
+                              "child_active_quit_wrapper": (child_fields.get("child_active_quit_wrapper", "missing"), "1"),
+                              "child_post_quit_application_handler": (child_fields.get("child_post_quit_application_handler", "missing"), "1"),
+                          }
+                      elif disposition == "default":
+                          checks = {
+                              "returncode": (returncode, -signal.SIGQUIT),
+                              "followup_input_sent": (input_sent, False),
+                              "child_active_quit_wrapper": (child_fields.get("child_active_quit_wrapper", "missing"), "1"),
+                          }
+                      else:
+                          checks = {
+                              "returncode": (returncode, 0),
+                              "followup_input_sent": (input_sent, True),
+                              "child_result": (child_fields.get("child_result", "missing"), "abc"),
+                              "child_result_len": (child_fields.get("child_result_len", "missing"), "3"),
+                              "child_result_hex": (child_fields.get("child_result_hex", "missing"), "616263"),
+                              "child_signal_count": (child_fields.get("child_signal_count", "missing"), "0"),
+                              "child_active_quit_wrapper": (child_fields.get("child_active_quit_wrapper", "missing"), "0"),
+                              "child_active_quit_ignored": (child_fields.get("child_active_quit_ignored", "missing"), "1"),
+                              "child_post_sigquit_ignored": (child_fields.get("child_post_sigquit_ignored", "missing"), "1"),
+                          }
+                      for name, (actual, wanted) in checks.items():
+                          if actual != wanted:
+                              raise SystemExit(
+                                  f"{disposition}: {name}={actual!r}, expected {wanted!r}"
+                              )
               finally:
                   try:
                       if poll_child() is None:
@@ -2175,8 +2218,8 @@ jobs:
           for disposition in ("caller-handler", "default", "ignored"):
               measure(disposition)
           PYPROBE
-          # Measurement-only: assert the pinned release identity carried in the
-          # report, not any measured SIGQUIT outcome, restoration, or count.
+          # The report records the release identity and the Python probe above
+          # checks only the independently measured pinned-8.3 outcomes.
           grep -Fqx "child_readline_release=$READLINE_ORACLE_VERSION" /tmp/readline_sigquit.out
       - name: Run the oracle suite
         run: |

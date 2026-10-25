@@ -654,6 +654,18 @@ jobs:
           grep -qx 'multiline=0 from=0 to=3: {A0} {A1}' /tmp/history_range_plain_blank_lines.out
           /tmp/history_range_probe /tmp/history_range_plain_blank_lines 0 3 1 | tee /tmp/history_range_plain_blank_lines_joined.out
           grep -qx 'multiline=1 from=0 to=3: {A0\\n\\nA1}' /tmp/history_range_plain_blank_lines_joined.out
+          # The installed GNU 8.2 measurements differ from the product's
+          # equal and reversed-bound rules; retain the pinned 8.3 answers.
+          {
+            /tmp/history_range_probe /tmp/history_range_fixture 0 0 0
+            /tmp/history_range_probe /tmp/history_range_fixture 2 2 0
+            /tmp/history_range_probe /tmp/history_range_fixture 2 1 0
+          } | tee /tmp/history_range_edge_timestamped.out
+          {
+            /tmp/history_range_probe /tmp/history_range_plain 0 0 0
+            /tmp/history_range_probe /tmp/history_range_plain 2 2 0
+            /tmp/history_range_probe /tmp/history_range_plain 2 1 0
+          } | tee /tmp/history_range_edge_plain.out
       - name: Measure the pinned release's full-file late timestamp rule
         run: |
           set -euo pipefail
@@ -1412,6 +1424,8 @@ jobs:
             /tmp/history_range_blank_lines_joined.out \
             /tmp/history_range_plain_blank_lines.out \
             /tmp/history_range_plain_blank_lines_joined.out \
+            /tmp/history_range_edge_timestamped.out \
+            /tmp/history_range_edge_plain.out \
             /tmp/history_full_late_record.out \
             /tmp/history_full_nul_plain.out \
             /tmp/history_full_nul_leading.out \

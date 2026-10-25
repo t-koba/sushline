@@ -1489,6 +1489,39 @@ fn timestamped_range_bounds_count_blank_lines() {
 }
 
 #[test]
+fn range_edges_at_blank_physical_lines_keep_the_current_rule() {
+    let dir = tempfile::tempdir().unwrap();
+    let fixtures = [
+        (
+            "timestamped",
+            "#1700000000\nA0\n\nA1\n#1700000001\nB0\nB1\n",
+            "A1",
+            vec!["A1", "B0", "B1"],
+        ),
+        ("plain", "C0\n\nC1\nC2\n", "C1", vec!["C1", "C2"]),
+    ];
+
+    for (name, contents, after_blank, from_blank_to_eof) in fixtures {
+        let path = dir.path().join(name);
+        fs::write(&path, contents).unwrap();
+        let lines = |from, to| {
+            History::read_file_range(&path, from, Some(to))
+                .unwrap()
+                .entries()
+                .iter()
+                .map(|entry| entry.line().into_owned())
+                .collect::<Vec<_>>()
+        };
+
+        assert!(lines(1, 1).is_empty(), "{name}: equal blank-line bound");
+        assert_eq!(lines(1, 3), vec![after_blank], "{name}: forward from blank");
+        assert_eq!(lines(1, 0), from_blank_to_eof, "{name}: reversed bounds from blank");
+        assert_eq!(lines(2, 1), from_blank_to_eof, "{name}: reversed bounds ending at blank");
+        assert_eq!(lines(2, 2), vec![after_blank], "{name}: equal nonblank bound");
+    }
+}
+
+#[test]
 fn plain_range_bounds_count_blank_lines_in_both_modes() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");

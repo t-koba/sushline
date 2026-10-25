@@ -790,6 +790,14 @@ jobs:
           /tmp/history_full_probe /tmp/history_timestamp_nul --timestamp | tee /tmp/history_timestamp_nul.out
           grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/history_timestamp_nul.out
           grep -qx 'read_history_status=ok' /tmp/history_timestamp_nul.out
+          grep -qx 'entry_count=2' /tmp/history_timestamp_nul.out
+          grep -qx 'history_comment_char=0' /tmp/history_timestamp_nul.out
+          grep -qx 'timestamp_0_hex=2331373030303030303030' /tmp/history_timestamp_nul.out
+          grep -qx 'parsed_time_0=0' /tmp/history_timestamp_nul.out
+          grep -Eq '^timestamp_1_hex=23(3[0-9])+$' /tmp/history_timestamp_nul.out
+          grep -qx 'parsed_time_1=0' /tmp/history_timestamp_nul.out
+          grep -qx 'entry_0=alpha' /tmp/history_timestamp_nul.out
+          grep -qx 'entry_1=beta' /tmp/history_timestamp_nul.out
           # Run the Rust fixture verbatim so the measured GNU result is
           # compared with the current library baseline, not a second copy of
           # expected Rust behavior embedded in this workflow.

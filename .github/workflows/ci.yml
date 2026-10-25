@@ -2242,8 +2242,8 @@ jobs:
           set -euo pipefail
           ulimit -c 0
           readline="$HOME/.cache/sushline/readline-oracle"
-          # Measurement only: no Bash or public-C-ABI claim and no outcome
-          # assertions until two independent pinned 8.3 reports agree.
+          # Assert only direct-library results measured in two independent
+          # pinned Readline 8.3 reports; this makes no Bash or public-C-ABI claim.
           cat > /tmp/readline_paste_probe.c <<'PROBE'
           #include <stdio.h>
           #include <stdlib.h>
@@ -2305,6 +2305,12 @@ jobs:
 
           probe = "/tmp/readline_paste_probe"
           expected = os.environ["READLINE_ORACLE_VERSION"]
+          expected_results = {
+              "payload_cr_trial_1": (3, "410a42"),
+              "split_terminator_trial_1": (5, "73706c6974"),
+              "payload_cr_trial_2": (3, "410a42"),
+              "split_terminator_trial_2": (5, "73706c6974"),
+          }
 
           def measure(name, chunks):
               print(f"measurement_case={name}", flush=True)
@@ -2422,7 +2428,8 @@ jobs:
                       print(f"child_{field}={value}")
                   print(f"readline_expected={expected} returncode={returncode} "
                         f"transcript_len={len(transcript)} transcript_hex={transcript.hex()}")
-                  # Assert only probe identity/completeness, never paste outcomes.
+                  # Assert probe identity, completion, and the repeated pinned
+                  # outcomes established by two independent Readline 8.3 reports.
                   if fields["readline_release"] != expected:
                       raise SystemExit(f"{name}: unexpected Readline release")
                   if fields["bracketed_paste_requested"] != "on":
@@ -2435,12 +2442,13 @@ jobs:
                       raise SystemExit(f"{name}: observation timed out or required cleanup kill")
                   if any(count != len(data) for _, data, count in writes):
                       raise SystemExit(f"{name}: PTY input write was incomplete")
-                  if fields["result_is_null"] not in ("0", "1"):
-                      raise SystemExit(f"{name}: returned-line status was not recorded")
-                  if fields["result_is_null"] == "0" and (
-                      fields["result_len"] == "missing" or fields["result_hex"] == "missing"
-                  ):
-                      raise SystemExit(f"{name}: returned-line bytes were not recorded")
+                  if fields["result_is_null"] != "0":
+                      raise SystemExit(f"{name}: Readline returned no line")
+                  expected_len, expected_hex = expected_results[name]
+                  if fields["result_len"] != str(expected_len):
+                      raise SystemExit(f"{name}: unexpected returned-line length")
+                  if fields["result_hex"] != expected_hex:
+                      raise SystemExit(f"{name}: unexpected returned-line bytes")
                   print("fixture_completed=1", flush=True)
               finally:
                   try:

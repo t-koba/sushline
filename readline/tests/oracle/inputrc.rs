@@ -222,11 +222,12 @@ fn bash_dies_with_a_segmentation_fault_on_a_cyclic_inputrc_include() {
 
     // The shell reports the signal death of its child as 128 + SIGSEGV, so
     // the trailing exit keeps the shell from replacing itself with the child.
+    // Disable core dumps before launching the intentionally crashing child.
     let mut bash = CommandBuilder::new("bash");
     bash.args([
         "-c",
         &format!(
-            "bash --noprofile --norc -i -c {}; exit $?",
+            "ulimit -c 0 || exit; bash --noprofile --norc -i -c {}; exit $?",
             // The prompt is split so that the shell's report of the command
             // line does not contain the marker the case looks for.
             shell_single_quote("IFS= read -r -e -p \"SUSHLINE\"\"_READY>\" line")

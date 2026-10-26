@@ -2653,6 +2653,146 @@ jobs:
               if first[key] != second[key]:
                   raise SystemExit("direct-library named-user trials disagree")
           PYPROBE
+      - name: Measure recursive inputrc include against the pinned release
+        run: |
+          set -euo pipefail
+          ulimit -c 0
+          readline="$HOME/.cache/sushline/readline-oracle"
+          # Measurement only: two fresh direct-library processes read an
+          # absolute-path A -> B -> A fixture. No outcome is presumed, and
+          # only allowlisted fields reach the report or job log.
+          cat > /tmp/readline_include_cycle_probe.c <<'PROBE'
+          #include <stdio.h>
+          #include <sys/resource.h>
+          #include <readline/readline.h>
+
+          extern int rl_readline_version;
+
+          int main(int argc, char **argv) {
+              const struct rlimit no_core = {0, 0};
+              if (argc != 2 || setrlimit(RLIMIT_CORE, &no_core) != 0) {
+                  return 2;
+              }
+              printf("readline_release=%d.%d\n", rl_readline_version >> 8,
+                     rl_readline_version & 0xff);
+              fflush(stdout);
+              if (rl_initialize() != 0) {
+                  return 1;
+              }
+              puts("pre_read=1");
+              fflush(stdout);
+              int status = rl_read_init_file(argv[1]);
+              printf("read_status=%d\n", status);
+              fflush(stdout);
+              return 0;
+          }
+          PROBE
+          if ! cc -Wall -Wextra -Werror -o /tmp/readline_include_cycle_probe \
+            /tmp/readline_include_cycle_probe.c \
+            -I"$readline/include" -L"$readline/lib" \
+            -Wl,-rpath,"$readline/lib" -lreadline 2>/dev/null; then
+            echo "cycle probe compilation failed" >&2
+            exit 1
+          fi
+          loader_report=$(env -u SHELLOPTS ldd /tmp/readline_include_cycle_probe 2>/dev/null)
+          readline_libraries=$(printf '%s\n' "$loader_report" | grep 'libreadline' || true)
+          if [ -z "$readline_libraries" ] || \
+            printf '%s\n' "$readline_libraries" | grep -v -F "=> $readline/lib/" > /dev/null; then
+            echo "cycle probe did not load the pinned Readline library" >&2
+            exit 1
+          fi
+          python3 - <<'PYPROBE' | tee /tmp/readline_include_cycle.out
+          import os
+          import re
+          import resource
+          import shutil
+          import subprocess
+          import sys
+          import tempfile
+
+          def run_trial(label):
+              tempdir = tempfile.mkdtemp(prefix="sushline-include-cycle-", dir="/tmp")
+              child = None
+              cleanup = False
+              try:
+                  a = os.path.join(tempdir, "a.inputrc")
+                  b = os.path.join(tempdir, "b.inputrc")
+                  with open(a, "w", encoding="utf-8") as handle:
+                      handle.write(f"$include {b}\n")
+                  with open(b, "w", encoding="utf-8") as handle:
+                      handle.write(f"$include {a}\n")
+                  env = os.environ.copy()
+                  env.update(INPUTRC="/dev/null", LC_ALL="C", TERM="dumb")
+                  child = subprocess.Popen(
+                      ["/tmp/readline_include_cycle_probe", a],
+                      stdin=subprocess.DEVNULL,
+                      stdout=subprocess.PIPE,
+                      stderr=subprocess.DEVNULL,
+                      env=env,
+                  )
+                  timed_out = False
+                  try:
+                      output, _ = child.communicate(timeout=5)
+                  except subprocess.TimeoutExpired:
+                      timed_out = True
+                      child.kill()
+                      output, _ = child.communicate()
+                  fields = dict(line.partition("=")[::2]
+                                for line in output.decode("ascii").splitlines())
+                  # Validate before printing: never echo arbitrary child output.
+                  valid = (fields.get("readline_release") == os.environ["READLINE_ORACLE_VERSION"]
+                           and fields.get("pre_read") == "1")
+                  if valid:
+                      print(f"{label}_readline_release={fields['readline_release']}")
+                      print(f"{label}_pre_read=1")
+                  outcome = "timeout" if timed_out else ("signal" if child.returncode < 0 else "returned")
+                  print(f"{label}_outcome={outcome}")
+                  print(f"{label}_returncode={child.returncode}")
+                  print(f"{label}_signal={-child.returncode if child.returncode < 0 else 0}")
+                  if "read_status" in fields:
+                      if re.fullmatch(r"-?[0-9]+", fields["read_status"]):
+                          print(f"{label}_read_status={fields['read_status']}")
+                      else:
+                          valid = False
+                  elif not timed_out and child.returncode >= 0:
+                      valid = False
+              finally:
+                  # Reap even on a parsing/error path, before removing files
+                  # that a still-running recursive reader could be using.
+                  reaped = child is None
+                  if child is not None:
+                      try:
+                          if child.poll() is None:
+                              try:
+                                  child.kill()
+                              except ProcessLookupError:
+                                  pass
+                          child.wait()
+                          reaped = child.returncode is not None
+                      except Exception:
+                          reaped = False
+                      finally:
+                          if child.stdout is not None:
+                              child.stdout.close()
+                  if reaped:
+                      try:
+                          shutil.rmtree(tempdir)
+                          cleanup = not os.path.exists(tempdir)
+                      except OSError:
+                          pass
+                  print(f"{label}_cleanup={int(cleanup and reaped)}", flush=True)
+              return valid and cleanup
+
+          try:
+              resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+              first = run_trial("trial1")
+              second = run_trial("trial2")
+              if not (first and second):
+                  raise ValueError()
+          except Exception:
+              # No raw exception, stderr, arguments, or fixture paths escape.
+              sys.exit("cycle probe measurement failed")
+          PYPROBE
       - name: Run the oracle suite
         run: |
           set -euo pipefail
@@ -2683,6 +2823,7 @@ jobs:
             /tmp/readline_sigquit.out \
             /tmp/readline_paste.out \
             /tmp/readline_named_include.out \
+            /tmp/readline_include_cycle.out \
             /tmp/history_range_per_line.out \
             /tmp/history_range_joined.out \
             /tmp/history_range_plain_joined.out \

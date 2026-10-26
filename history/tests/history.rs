@@ -434,6 +434,29 @@ fn reads_writes_appends_and_truncates_history_files() {
 }
 
 #[test]
+fn truncate_file_preserves_noop_bytes_and_truncates_when_needed() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    let cases: [(&[u8], usize, &[u8]); 4] = [
+        (b"A\n\nB\n", 10, b"A\n\nB\n"),
+        (b"A\n\nB\n", 1, b"B\n"),
+        (b"A\nB", 10, b"A\nB"),
+        (b"A\nB", 1, b"A\nB"),
+    ];
+
+    for (input, max_len, expected) in cases {
+        fs::write(&path, input).unwrap();
+        History::truncate_file(&path, max_len).unwrap();
+        let output = fs::read(&path).unwrap();
+        assert_eq!(
+            output.as_slice(),
+            expected,
+            "fixture {input:?}, max_len {max_len}"
+        );
+    }
+}
+
+#[test]
 fn failed_full_write_cleans_up_sibling_tmp() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");

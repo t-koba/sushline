@@ -282,13 +282,14 @@ impl History {
 
     /// Truncate file.
     ///
-    /// The file is read with the default per-physical-line grouping, so the
-    /// entries that are kept are the file's command lines. The truncate is a
-    /// rewrite of the file from those entries, not an edit of its bytes: the
-    /// rewritten file has no blank lines, an unterminated trailing line is
-    /// dropped, and when the kept window starts inside a timestamp block the
-    /// block's timestamp record is dropped and the kept lines are written
-    /// without a timestamp.
+    /// The file is read with the default per-physical-line grouping. If the
+    /// parsed entry count is at most `max_len`, the file is not rewritten, so
+    /// its bytes (including blank lines and an unterminated tail) are
+    /// preserved. On Unix, the mode is still set to owner-only `0600`. When
+    /// entries are removed, the file is rewritten from the
+    /// kept entries: blank lines are removed, an unterminated trailing line is
+    /// dropped, and a kept window that starts inside a timestamp block loses
+    /// that block's timestamp record.
     pub fn truncate_file(path: impl AsRef<Path>, max_len: usize) -> io::Result<()> {
         let path = path.as_ref();
         let dest = effective_write_path(path)?;
@@ -299,6 +300,14 @@ impl History {
             ));
         }
         let history = Self::read_file(path)?;
+        if history.entries.len() <= max_len {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&dest, fs::Permissions::from_mode(0o600))?;
+            }
+            return Ok(());
+        }
         let keep_from = history.entries.len().saturating_sub(max_len);
         write_atomic(path, |file| {
             for entry in &history.entries[keep_from..] {

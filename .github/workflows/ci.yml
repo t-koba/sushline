@@ -2799,9 +2799,9 @@ jobs:
           ulimit -c 0
           readline="$HOME/.cache/sushline/readline-oracle"
           # Measurement only: two fresh direct-library processes read a
-          # test-owned acyclic chain one level beyond Sushline's accepted
-          # depth 17 (main -> 18 included files, leaf sets
-          # `completion-ignore-case on`). No outcome is presumed, and only
+          # test-owned acyclic chain with 18 nested includes (main -> 18
+          # included files; the leaf sets `completion-ignore-case on`).
+          # No outcome is presumed, and only
           # allowlisted fields reach the report or job log.
           cat > /tmp/readline_include_depth_probe.c <<'PROBE'
           #include <stdio.h>

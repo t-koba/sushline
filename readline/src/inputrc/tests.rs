@@ -664,13 +664,10 @@ fn mutually_recursive_includes_hit_depth_protection() {
     );
 }
 
-#[test]
-fn acyclic_include_chain_beyond_accepted_depth_hits_depth_protection() {
-    let dir = tempfile::tempdir().unwrap();
-    // Main plus 18 included files: the leaf sets a variable, so a reader
-    // that accepted depth 18 would apply it. Depth 17 stays accepted.
-    let chain: Vec<PathBuf> = (0..18)
-        .map(|depth| dir.path().join(format!("chain-{depth}.inputrc")))
+fn write_acyclic_include_chain(dir: &std::path::Path, included_files: usize) -> PathBuf {
+    assert!(included_files > 0);
+    let chain: Vec<PathBuf> = (0..included_files)
+        .map(|depth| dir.join(format!("chain-{depth}.inputrc")))
         .collect();
     for depth in (0..chain.len()).rev() {
         let contents = if let Some(child) = chain.get(depth + 1) {
@@ -680,13 +677,32 @@ fn acyclic_include_chain_beyond_accepted_depth_hits_depth_protection() {
         };
         fs::write(&chain[depth], contents).unwrap();
     }
-    let main = dir.path().join("main.inputrc");
+    let main = dir.join("main.inputrc");
     fs::write(&main, format!("$include {}\n", chain[0].display())).unwrap();
+    main
+}
+
+#[test]
+fn acyclic_include_chain_at_depth_18_applies_leaf_setting() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = write_acyclic_include_chain(dir.path(), 18);
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    InputrcParser::new()
+        .parse_file(&main, &Config::default(), &mut keymap, &mut variables)
+        .expect("measured 18-deep acyclic $include chain is accepted");
+    assert!(variables.is_on("completion-ignore-case"));
+}
+
+#[test]
+fn acyclic_include_chain_beyond_accepted_depth_hits_depth_protection() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = write_acyclic_include_chain(dir.path(), 19);
     let mut keymap = KeyMap::emacs_default();
     let mut variables = Variables::new();
     let err = InputrcParser::new()
         .parse_file(&main, &Config::default(), &mut keymap, &mut variables)
-        .expect_err("18-deep acyclic $include chain must hit depth protection");
+        .expect_err("19-deep acyclic $include chain must hit depth protection");
     assert!(
         err.message.contains("include depth exceeded"),
         "unexpected error: {err:?}"

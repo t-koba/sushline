@@ -65,7 +65,7 @@ impl InputrcParser {
     /// New.
     pub fn new() -> Self {
         Self {
-            max_include_depth: 17,
+            max_include_depth: 18,
             readline_version: "8.3".to_string(),
         }
     }

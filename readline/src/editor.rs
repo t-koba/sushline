@@ -27,8 +27,11 @@ pub enum ReadlineResult {
     ///
     /// Selected by [`SigintPolicy::Interrupted`]; the built-in terminal instead
     /// continues the read by default. The built-in terminal restores terminal
-    /// and signal state and re-delivers a caught SIGINT before this policy is
-    /// applied. The embedder decides whether to retry an interrupted result.
+    /// and signal state before applying this policy. If it caught SIGINT with a
+    /// saved non-default caller handler, it re-delivers the signal to that handler
+    /// after restoration; with `SIG_DFL`, the configured policy handles the read
+    /// without re-raising the signal. The embedder decides whether to retry an
+    /// interrupted result.
     Interrupted,
     /// End-of-file was reached before a line was accepted.
     Eof,

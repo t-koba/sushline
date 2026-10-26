@@ -127,7 +127,7 @@ def run_trial(fixture, trial):
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
         os.set_blocking(master, False)
         env = {"PATH": "/usr/bin:/bin", "HOME": directory, "INPUTRC": "/dev/null",
-               "LC_ALL": "C.UTF-8", "TERM": "xterm", "COLUMNS": "80", "LINES": "24"}
+               "LC_ALL": "C.UTF-8", "TERM": "xterm-256color", "COLUMNS": "80", "LINES": "24"}
 
         def setup():
             os.setsid()

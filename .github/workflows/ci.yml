@@ -2799,6 +2799,8 @@ jobs:
         run: bash .github/scripts/readline-include-depth.sh
       - name: Measure horizontal-scroll rendering against the pinned release
         run: bash .github/scripts/readline-horizontal-render.sh
+      - name: Measure Unicode cell widths against the pinned release
+        run: bash .github/scripts/readline-unicode-width.sh
       - name: Run the oracle suite
         run: |
           set -euo pipefail
@@ -2833,6 +2835,7 @@ jobs:
             /tmp/readline_include_depth.out \
             /tmp/readline_include_depth_32.out \
             /tmp/readline_horizontal_render.out \
+            /tmp/readline_unicode_width.out \
             /tmp/history_range_per_line.out \
             /tmp/history_range_joined.out \
             /tmp/history_range_plain_joined.out \
@@ -2901,6 +2904,8 @@ jobs:
         run: bash .github/scripts/readline-include-depth.sh
       - name: Measure horizontal-scroll rendering against the pinned release
         run: bash .github/scripts/readline-horizontal-render.sh
+      - name: Measure Unicode cell widths against the pinned release
+        run: bash .github/scripts/readline-unicode-width.sh
       - name: Upload independent pinned include-depth reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -2917,5 +2922,13 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-horizontal-render-replica
           path: /tmp/readline_horizontal_render.out
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload independent pinned Unicode-width report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-unicode-width-replica
+          path: /tmp/readline_unicode_width.out
           if-no-files-found: warn
           retention-days: 14

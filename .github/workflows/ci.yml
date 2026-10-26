@@ -2678,6 +2678,8 @@ jobs:
               if first[key] != second[key]:
                   raise SystemExit("direct-library named-user trials disagree")
           PYPROBE
+      - name: Measure inputrc include path rules against the pinned release
+        run: bash .github/scripts/readline-include-paths.sh
       - name: Measure recursive inputrc include against the pinned release
         run: |
           set -euo pipefail
@@ -2856,6 +2858,7 @@ jobs:
             /tmp/readline_sigquit.out \
             /tmp/readline_paste.out \
             /tmp/readline_named_include.out \
+            /tmp/readline_include_paths.out \
             /tmp/readline_include_cycle.out \
             /tmp/readline_include_depth.out \
             /tmp/readline_include_depth_32.out \

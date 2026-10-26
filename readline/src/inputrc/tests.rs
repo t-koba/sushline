@@ -571,8 +571,13 @@ fn unknown_tilde_user_include_is_silently_skipped() {
 #[test]
 fn known_tilde_user_include_loads_a_test_owned_file() {
     let current_uid = unsafe { libc::getuid() };
+    let require_fixture = std::env::var_os("SUSHLINE_REQUIRE_NAMED_USER_INCLUDE_TEST").is_some();
     let Ok(passwd) = fs::read_to_string("/etc/passwd") else {
-        eprintln!("skipping named-user inputrc include test: account data unavailable");
+        let message = "named-user inputrc include test requires readable /etc/passwd";
+        if require_fixture {
+            panic!("{message}");
+        }
+        eprintln!("skipping {message}");
         return;
     };
     let Some((username, home)) = passwd.lines().find_map(|line| {
@@ -580,7 +585,11 @@ fn known_tilde_user_include_loads_a_test_owned_file() {
         (fields.len() > 5 && fields[2].parse::<libc::uid_t>().ok() == Some(current_uid))
             .then(|| (fields[0].to_string(), PathBuf::from(fields[5])))
     }) else {
-        eprintln!("skipping named-user inputrc include test: current account is unavailable");
+        let message = "named-user inputrc include test requires a current UID entry in /etc/passwd";
+        if require_fixture {
+            panic!("{message}");
+        }
+        eprintln!("skipping {message}");
         return;
     };
     let temp_dir = match tempfile::Builder::new()
@@ -588,8 +597,14 @@ fn known_tilde_user_include_loads_a_test_owned_file() {
         .tempdir_in(&home)
     {
         Ok(temp_dir) => temp_dir,
-        Err(_) => {
-            eprintln!("skipping named-user inputrc include test: account home is unavailable");
+        Err(error) => {
+            let message = format!(
+                "named-user inputrc include test requires a writable account-home tempdir: {error}"
+            );
+            if require_fixture {
+                panic!("{message}");
+            }
+            eprintln!("skipping {message}");
             return;
         }
     };

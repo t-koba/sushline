@@ -53,6 +53,8 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked --no-default-features
+        env:
+          SUSHLINE_REQUIRE_NAMED_USER_INCLUDE_TEST: "1"
 
   oracle:
     runs-on: ubuntu-latest

@@ -228,6 +228,23 @@ def run_trial(fixture, trial):
         result = line()
         child.wait(timeout=max(0.01, deadline - time.monotonic()))
         tail = drain()
+        if fixture == "wide":
+            if len(frames) != 2 or not frames[1].startswith(b"\r<\xb8\xad"):
+                raise ValueError()
+            try:
+                frames[1].decode("utf-8")
+            except UnicodeDecodeError:
+                pass
+            else:
+                raise ValueError()
+            print(f"{label}_split_frame_utf8=0")
+        else:
+            expected_frames = [b"one\r\nP>"] + [b"a"] * 76
+            if frames != expected_frames:
+                raise ValueError()
+            final_row = b"P>" + b"a" * 76
+            print(f"{label}_screen_row_hex={final_row.hex()}")
+            print(f"{label}_cursor_column_zero_based={len(final_row)}")
         if result not in (b"R0\n", b"R1\n"):
             raise ValueError()
         valid = child.returncode == 0

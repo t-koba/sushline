@@ -717,3 +717,65 @@ fn bash_and_sushline_horizontal_scroll_starts_the_window_on_the_byte_edge_with_a
         }
     }
 }
+
+#[test]
+fn sushline_unicode_width_probe_baseline_fixtures() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+    // Sushline baseline for exactly these fixtures, pending direct pinned GNU reports.
+    let fixtures = ["e\u{301}", "·", "界", "✈\u{fe0f}"];
+    let size = PtySize {
+        rows: 24,
+        cols: 80,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let prompt = "P>";
+    for fixture in fixtures {
+        let bytes = fixture.as_bytes();
+        let scalar_count = fixture.chars().count();
+        // Match the probe's input, Ctrl-A, then one Ctrl-F per Unicode scalar.
+        let mut movement = vec![1]; // Ctrl-A
+        movement.extend(std::iter::repeat(6).take(scalar_count));
+        let steps = vec![bytes.to_vec(), movement];
+        let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+        command.env(
+            "SUSHLINE_INPUTRC",
+            "set horizontal-scroll-mode off\nset enable-bracketed-paste off\nset bell-style audible\n",
+        );
+        command.env("SUSHLINE_PROMPT", prompt);
+        command.env("SUSHLINE_HISTORY", "");
+        command.env("LC_ALL", "C.UTF-8");
+        let frames = run_pty_checkpoints_raw(command, prompt, &steps, size);
+        assert_eq!(frames.len(), steps.len(), "fixture={fixture:?}");
+        assert!(
+            frames.iter().all(|frame| !frame.is_empty()),
+            "fixture={fixture:?}"
+        );
+        assert!(
+            frames[0].windows(bytes.len()).any(|window| window == bytes),
+            "fixture={fixture:?}, frame={:?}",
+            frames[0]
+        );
+        let mut keys = bytes.to_vec();
+        keys.push(1); // Ctrl-A
+        keys.extend(std::iter::repeat(6).take(scalar_count)); // Ctrl-F once per scalar
+        keys.push(b'\r');
+        let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+        command.env(
+            "SUSHLINE_INPUTRC",
+            "set horizontal-scroll-mode off\nset enable-bracketed-paste off\nset bell-style audible\n",
+        );
+        command.env("SUSHLINE_PROMPT", prompt);
+        command.env("SUSHLINE_HISTORY", "");
+        command.env("LC_ALL", "C.UTF-8");
+        let output =
+            run_pty_steps_with_size_until(command, &[(prompt, &keys)], size, "SUSHLINE_ACCEPTED:");
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some(fixture),
+            "{output:?}"
+        );
+    }
+}

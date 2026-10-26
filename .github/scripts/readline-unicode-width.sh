@@ -6,7 +6,7 @@
 # character (U+754C), and airplane with emoji variation selector
 # (U+2708 U+FE0F). Two trials per fixture per report.
 # Cursor-position evidence is the in-process rl_point/rl_end recorded by a
-# custom Ctrl-X snapshot callback bound with rl_bind_key exactly when
+# custom Ctrl-] snapshot callback bound with rl_bind_key exactly when
 # invoked, identified as such below; the PTY transcript itself is raw
 # prompt/redisplay bytes only, because the harness provides no terminal
 # emulator and therefore measures no physical terminal column. No
@@ -63,6 +63,7 @@ static int check_library(struct dl_phdr_info *info, size_t size, void *data) {
     return 0;
 }
 
+/* Ctrl-] is a single-key binding, unlike Readline's Ctrl-X prefix. */
 static int snapshot(int count, int key) {
     (void)count;
     (void)key;
@@ -88,7 +89,7 @@ int main(int argc, char **argv) {
         rl_variable_bind("horizontal-scroll-mode", "off") != 0 ||
         rl_variable_bind("enable-bracketed-paste", "off") != 0 ||
         rl_variable_bind("bell-style", "audible") != 0 ||
-        rl_bind_key('\x18', snapshot) != 0) return 5;
+        rl_bind_key('\x1d', snapshot) != 0) return 5;
     char *line = readline("P>");
     int is_null = line == NULL;
     size_t count = 0;
@@ -180,6 +181,7 @@ def run_trial(fixture, trial):
     cleanup = False
     valid = False
     timed_out = False
+    failure_stage = "setup"
     frames = []
     metadata = b""
     accepted = b""
@@ -272,23 +274,27 @@ def run_trial(fixture, trial):
                 if len(data) > LIMIT:
                     raise ValueError()
 
+        failure_stage = "library_metadata"
         metadata = line()
         if not re.fullmatch(rb"V8\.3 L[1-9][0-9]{0,2}\n", metadata):
             raise ValueError()
         # Wait for the fixed prompt, not a quiet interval, before the first
         # checkpoint. readline has prepared the terminal before displaying it.
+        failure_stage = "prompt"
         prompt = b""
         while not prompt.endswith(b"P>"):
             prompt += terminal_byte()
             if len(prompt) > LIMIT:
                 raise ValueError()
         frames.append(checkpoint(prompt))
+        failure_stage = "typed_frame"
         payload = FIXTURES[fixture]
         if os.write(master, payload) != len(payload):
             raise ValueError()
         frames.append(checkpoint())
         if sum(map(len, frames)) > LIMIT:
             raise ValueError()
+        failure_stage = "cursor_motion"
         # Fixed cursor-movement probe: Ctrl-A then Ctrl-F once per Unicode
         # scalar in the fixture. Retain the raw cursor-motion bytes.
         if os.write(master, b"\x01") != 1:
@@ -300,13 +306,15 @@ def run_trial(fixture, trial):
         if sum(map(len, frames)) > LIMIT:
             raise ValueError()
         # Bound snapshot exactly when invoked, then capture its redisplay.
-        if os.write(master, b"\x18") != 1:
+        failure_stage = "snapshot"
+        if os.write(master, b"\x1d") != 1:
             raise ValueError()
         frames.append(checkpoint())
         if sum(map(len, frames)) > LIMIT:
             raise ValueError()
         # Accept only after the last captured frame. Accepted bytes and
         # bound-snapshot evidence travel over the notify pipe, not the PTY.
+        failure_stage = "accepted_report"
         if os.write(master, b"\n") != 1:
             raise ValueError()
         accepted = line()
@@ -328,10 +336,27 @@ def run_trial(fixture, trial):
             raise ValueError()
         if sum(map(len, frames)) + len(tail) > LIMIT:
             raise ValueError()
+        point_value = int(point[1:-1])
+        end_value = int(end[1:-1])
+        snapshot_value = int(hooks[1:-1])
+        # Only allowlisted, bounded fields are reported, even if a later
+        # integrity check fails. This makes failed trials diagnosable without
+        # exposing exceptions, paths, or environment data.
+        print(f"{label}_readline_release=8.3")
+        print(f"{label}_pinned_libraries={int(metadata[6:])}")
+        print(f"{label}_fixture_hex={FIXTURES[fixture].hex()}")
+        print(f"{label}_accepted_hex={accepted[1:-1].decode('ascii')}")
+        print(f"{label}_accepted_is_null={int(nullflag[1:2])}")
+        print(f"{label}_rl_point={point_value}")
+        print(f"{label}_rl_end={end_value}")
+        print(f"{label}_snapshot_calls={snapshot_value}")
+        print(f"{label}_cursor_evidence_source=rl_point-rl_end-bound-snapshot-ctrl-right-bracket")
+        print(f"{label}_cursor_column_limitation=pty-has-no-terminal-emulator-no-physical-columns")
         # Harness integrity only, not a GNU width outcome: the accepted
         # bytes must round-trip the fixed fixture, the bound snapshot must
         # have run with point/end at the fixture byte length, and the
         # expected prompt/typed/motion/snapshot frames must exist.
+        failure_stage = "accepted_integrity"
         expected_hex = FIXTURES[fixture].hex()
         if accepted != b"A" + expected_hex.encode("ascii") + b"\n":
             raise ValueError()
@@ -339,32 +364,28 @@ def run_trial(fixture, trial):
             raise ValueError()
         if len(frames) != 4:
             raise ValueError()
-        point_value = int(point[1:-1])
-        end_value = int(end[1:-1])
-        snapshot_value = int(hooks[1:-1])
+        failure_stage = "snapshot_integrity"
         if point_value != len(FIXTURES[fixture]):
             raise ValueError()
         if end_value != len(FIXTURES[fixture]):
             raise ValueError()
         if snapshot_value < 1:
             raise ValueError()
-        valid = child.returncode == 0
-        print(f"{label}_readline_release=8.3")
-        print(f"{label}_pinned_libraries={int(metadata[6:])}")
-        print(f"{label}_fixture_hex={FIXTURES[fixture].hex()}")
-        print(f"{label}_accepted_hex={accepted[1:-1].decode('ascii')}")
-        print(f"{label}_accepted_is_null={int(nullflag[1:2])}")
-        print(f"{label}_rl_point={point[1:-1].decode('ascii')}")
-        print(f"{label}_rl_end={end[1:-1].decode('ascii')}")
-        print(f"{label}_snapshot_calls={hooks[1:-1].decode('ascii')}")
-        print(f"{label}_cursor_evidence_source=rl_point-rl_end-bound-snapshot-ctrl-x")
-        print(f"{label}_cursor_column_limitation=pty-has-no-terminal-emulator-no-physical-columns")
+        if child.returncode != 0:
+            failure_stage = "child_exit"
+            raise ValueError()
+        failure_stage = "frame_output"
         for index, frame in enumerate(frames):
             print(f"{label}_frame{index:03d}_hex={frame.hex()}")
         print(f"{label}_return_frame_hex={tail.hex()}")
+        valid = True
+        failure_stage = "none"
     except subprocess.TimeoutExpired:
         timed_out = True
+        failure_stage = "timeout"
     except Exception:
+        if timed_out:
+            failure_stage = "timeout"
         pass  # Never expose exceptions, paths or environment.
     finally:
         # Reap the child before removing files it may still be using.
@@ -384,6 +405,7 @@ def run_trial(fixture, trial):
             shutil.rmtree(directory, ignore_errors=True)
             cleanup = not os.path.exists(directory)
         print(f"{label}_timeout={int(timed_out)}")
+        print(f"{label}_failure_stage={failure_stage}")
         print(f"{label}_completed={int(valid)}")
         print(f"{label}_cleanup={int(cleanup and reaped)}", flush=True)
     return valid and cleanup

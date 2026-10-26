@@ -2656,6 +2656,11 @@ jobs:
       - name: Run the oracle suite
         run: |
           set -euo pipefail
+          # Locale-dependent fixtures return early without C.UTF-8; fail here
+          # rather than silently dropping those assertions from pinned CI.
+          charmap=$(LC_ALL=C.UTF-8 locale charmap)
+          echo "oracle_locale_charmap=$charmap"
+          test "$charmap" = "UTF-8"
           export PATH="$HOME/.cache/sushline/bash-oracle/bin:$PATH"
           bash --version
           # The oracle output is not captured, so the notes a case prints

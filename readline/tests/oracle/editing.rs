@@ -847,19 +847,31 @@ fn bash_readline_and_sushline_accept_same_simple_undo_edit() {
 }
 
 #[test]
-fn bash_readline_and_sushline_accept_same_short_multibyte_undo_split() {
-    // GNU groups only single-byte inserts: `aé` plus undo leaves `a`.
+fn bash_readline_and_sushline_match_single_byte_undo_group_boundaries() {
+    // GNU groups at most 20 single-byte self-inserts: one undo removes all
+    // 20, but after 21 it removes only the final insert. Multibyte inserts
+    // split that group, so undoing `aé` removes only `é`.
+    for (count, expected) in [(20, ""), (21, "aaaaaaaaaaaaaaaaaaaa")] {
+        let mut keys = vec![b'a'; count];
+        keys.extend_from_slice(b"\x1f\r");
+        let bash = run_bash_readline(&keys);
+        let sushline = run_sushline_harness(&keys);
+
+        assert_eq!(accepted_line(&bash).as_deref(), Some(expected), "{bash}");
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "{sushline}"
+        );
+    }
+
     let mut keys = Vec::from("aé".as_bytes());
     keys.extend_from_slice(b"\x1f\r");
     let bash = run_bash_readline(&keys);
     let sushline = run_sushline_harness(&keys);
 
-    assert_eq!(accepted_line(&bash), Some("a".to_string()), "{bash}");
-    assert_eq!(
-        accepted_line(&sushline),
-        Some("a".to_string()),
-        "{sushline}"
-    );
+    assert_eq!(accepted_line(&bash).as_deref(), Some("a"), "{bash}");
+    assert_eq!(accepted_line(&sushline).as_deref(), Some("a"), "{sushline}");
 }
 
 #[test]

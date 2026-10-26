@@ -2797,6 +2797,8 @@ jobs:
           PYPROBE
       - name: Measure acyclic inputrc include depth against the pinned release
         run: bash .github/scripts/readline-include-depth.sh
+      - name: Measure horizontal-scroll rendering against the pinned release
+        run: bash .github/scripts/readline-horizontal-render.sh
       - name: Run the oracle suite
         run: |
           set -euo pipefail
@@ -2830,6 +2832,7 @@ jobs:
             /tmp/readline_include_cycle.out \
             /tmp/readline_include_depth.out \
             /tmp/readline_include_depth_32.out \
+            /tmp/readline_horizontal_render.out \
             /tmp/history_range_per_line.out \
             /tmp/history_range_joined.out \
             /tmp/history_range_plain_joined.out \
@@ -2896,6 +2899,8 @@ jobs:
         run: test "$CACHE_HIT" = true
       - name: Measure acyclic inputrc include depth against the pinned release
         run: bash .github/scripts/readline-include-depth.sh
+      - name: Measure horizontal-scroll rendering against the pinned release
+        run: bash .github/scripts/readline-horizontal-render.sh
       - name: Upload independent pinned include-depth reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -2904,5 +2909,13 @@ jobs:
           path: |
             /tmp/readline_include_depth.out
             /tmp/readline_include_depth_32.out
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload independent pinned horizontal-scroll report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-horizontal-render-replica
+          path: /tmp/readline_horizontal_render.out
           if-no-files-found: warn
           retention-days: 14

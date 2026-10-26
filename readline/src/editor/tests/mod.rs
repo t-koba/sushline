@@ -336,3 +336,21 @@ impl TerminalIo for MemoryTerminal {
         self.tty_special.clone()
     }
 }
+
+#[test]
+fn keyseq_timeout_uses_configuration_and_inputrc_values() {
+    let mut line = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
+    assert_eq!(
+        line.keyseq_timeout(),
+        Some(std::time::Duration::from_millis(500))
+    );
+
+    line.load_inputrc_str("set keyseq-timeout 125").unwrap();
+    assert_eq!(
+        line.keyseq_timeout(),
+        Some(std::time::Duration::from_millis(125))
+    );
+
+    line.load_inputrc_str("set keyseq-timeout 0").unwrap();
+    assert_eq!(line.keyseq_timeout(), None);
+}

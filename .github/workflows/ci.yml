@@ -2467,19 +2467,20 @@ jobs:
                   ("terminator_suffix", b"1~"),
               ])
           PYPROBE
-      - name: Measure named-user inputrc include against the pinned release
+      - name: Measure named and unknown-user inputrc includes against the pinned release
         run: |
           set -euo pipefail
           ulimit -c 0
           readline="$HOME/.cache/sushline/readline-oracle"
-          # Measurement-only direct-library probe for named-user `$include`
-          # path expansion. The C program initializes the pinned library
-          # with no user configuration, then reads one test-owned outer file
-          # that includes a second test-owned file through a `~user/`
-          # spelling. The report retains only the release identity, the read
-          # status, whether `completion-ignore-case` was on, and
-          # completion/clean-up fields. This is a direct-library measurement
-          # against the pinned release only; it makes no Bash-behavior or
+          # Measurement-only direct-library probe for named-user and
+          # nonexistent-user `$include` behavior. The C program initializes
+          # the pinned library with no user configuration, then reads one
+          # test-owned outer file that includes a test-owned file through a
+          # `~user/` spelling, includes a controlled missing-user path, and
+          # sets a mode after that include to expose whether parsing continued.
+          # The report retains only release, status and state booleans,
+          # diagnostic presence, and cleanup fields. This is a direct-library
+          # measurement against the pinned release only; it makes no Bash-behavior or
           # public-C-ABI claim and leaves recursive-include cycle handling
           # out of scope.
           cat > /tmp/readline_named_include_probe.c <<'PROBE'
@@ -2503,7 +2504,10 @@ jobs:
               printf("read_status=%d\n", status);
               const char *value = rl_variable_value("completion-ignore-case");
               int is_on = value != NULL && strcmp(value, "on") == 0;
+              const char *mode = rl_variable_value("editing-mode");
+              int is_vi = mode != NULL && strncmp(mode, "vi", 2) == 0;
               printf("completion_ignore_case_on=%d\n", is_on);
+              printf("editing_mode_vi=%d\n", is_vi);
               fflush(stdout);
               return 0;
           }
@@ -2526,13 +2530,13 @@ jobs:
             exit 1
           fi
           # The fixture owns every input file it reads: for each of two
-          # independent trials, one included file under a fresh uniquely
-          # named directory in the current account's passwd home, and one
-          # outer file in temporary storage that names the included file
-          # through a `~user/` spelling. Each trial runs the probe in a
-          # separate subprocess with a 5-second timeout, its temporary
-          # directory is removed in `finally`, and the report carries no
-          # usernames or paths.
+          # trials, one included file under a fresh uniquely named directory
+          # in the current account's passwd home, and one outer file in
+          # temporary storage that includes it through `~user/`, then attempts
+          # a controlled nonexistent-user include before a later mode setting.
+          # Reports omit both account names and paths. Each trial runs the
+          # probe in a separate subprocess with a 5-second timeout; temporary
+          # files are removed in `finally`.
           python3 - <<'PYPROBE' | tee /tmp/readline_named_include.out
           import os
           import pwd
@@ -2541,20 +2545,23 @@ jobs:
           import subprocess
           import tempfile
 
-          # Each trial emits trial1_readline_release=<release>,
-          # trial1_read_status=<status>, trial1_completion_ignore_case_on=<0/1>,
-          # trial1_probe_returncode=<code>, trial1_fixture_completed=<0/1>,
-          # trial1_tempdir_cleanup=<0/1>, trial1_outer_cleanup=<0/1>, and the
-          # matching trial2_readline_release=<release>,
-          # trial2_read_status=<status>, trial2_completion_ignore_case_on=<0/1>,
-          # trial2_probe_returncode=<code>, trial2_fixture_completed=<0/1>,
-          # trial2_tempdir_cleanup=<0/1>, trial2_outer_cleanup=<0/1>.
+          # Each trial emits release/status fields, the known-user include
+          # result, the post-missing-include mode result, a sanitized stderr
+          # presence bit, and probe/cleanup status. Only these bounded fields
+          # are reported; raw diagnostics, account names, and paths are not.
           probe = "/tmp/readline_named_include_probe"
           expected = os.environ["READLINE_ORACLE_VERSION"]
           resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
           account = pwd.getpwuid(os.getuid())
           username = account.pw_name
           home = account.pw_dir
+          unknown_user = "sushline-no-such-inputrc-user-20261026"
+          try:
+              pwd.getpwnam(unknown_user)
+          except KeyError:
+              pass
+          else:
+              raise SystemExit("the controlled nonexistent-account fixture is unavailable")
 
           def run_trial(label):
               tempdir = tempfile.mkdtemp(prefix="sushline-named-include-", dir=home)
@@ -2571,6 +2578,9 @@ jobs:
                   )
                   with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
                       handle.write(f'$include ~{username}/{relative}/included.inputrc\n')
+                      handle.write("set editing-mode emacs\n")
+                      handle.write(f'$include ~{unknown_user}/missing.inputrc\n')
+                      handle.write("set editing-mode vi\n")
                   env = os.environ.copy()
                   env["INPUTRC"] = "/dev/null"
                   env["LC_ALL"] = "C"
@@ -2599,12 +2609,14 @@ jobs:
                               "readline_release",
                               "read_status",
                               "completion_ignore_case_on",
+                              "editing_mode_vi",
                           }:
                               fields[key] = value
                       required = {
                           "readline_release",
                           "read_status",
                           "completion_ignore_case_on",
+                          "editing_mode_vi",
                       }
                       if fields.keys() != required:
                           raise SystemExit(f"direct-library measurement {label} omitted a result field")
@@ -2613,11 +2625,15 @@ jobs:
                       print(f"{label}_readline_release={fields['readline_release']}")
                       print(f"{label}_read_status={fields['read_status']}")
                       print(f"{label}_completion_ignore_case_on={fields['completion_ignore_case_on']}")
+                      print(f"{label}_editing_mode_vi={fields['editing_mode_vi']}")
+                      stderr_nonempty = bool(completed.stderr)
+                      print(f"{label}_probe_stderr_nonempty={int(stderr_nonempty)}")
                       print(f"{label}_probe_timeout=0")
                       print(f"{label}_probe_returncode={completed.returncode}")
                       print(f"{label}_fixture_completed={int(completed.returncode == 0)}")
                       record.update(fields)
                       record["returncode"] = completed.returncode
+                      record["stderr_nonempty"] = stderr_nonempty
                       record["timeout"] = False
                       record["completed"] = completed.returncode == 0
                       if completed.returncode != 0:
@@ -2651,7 +2667,14 @@ jobs:
 
           first = run_trial("trial1")
           second = run_trial("trial2")
-          for key in ("readline_release", "read_status", "completion_ignore_case_on", "returncode"):
+          for key in (
+              "readline_release",
+              "read_status",
+              "completion_ignore_case_on",
+              "editing_mode_vi",
+              "stderr_nonempty",
+              "returncode",
+          ):
               if first[key] != second[key]:
                   raise SystemExit("direct-library named-user trials disagree")
           PYPROBE

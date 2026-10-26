@@ -647,6 +647,24 @@ fn cyclic_include_hits_depth_protection() {
 }
 
 #[test]
+fn mutually_recursive_includes_hit_depth_protection() {
+    let dir = tempfile::tempdir().unwrap();
+    let first = dir.path().join("first.inputrc");
+    let second = dir.path().join("second.inputrc");
+    fs::write(&first, format!("$include {}\n", second.display())).unwrap();
+    fs::write(&second, format!("$include {}\n", first.display())).unwrap();
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    let err = InputrcParser::new()
+        .parse_file(&first, &Config::default(), &mut keymap, &mut variables)
+        .expect_err("two-file $include cycle must hit depth protection");
+    assert!(
+        err.message.contains("include depth exceeded"),
+        "unexpected error: {err:?}"
+    );
+}
+
+#[test]
 fn parses_valid_binding_before_non_utf8_trailing_comment() {
     let mut bytes = br##""\C-o": beginning-of-line # comment "##.to_vec();
     bytes.push(0xff);

@@ -665,6 +665,35 @@ fn mutually_recursive_includes_hit_depth_protection() {
 }
 
 #[test]
+fn acyclic_include_chain_beyond_accepted_depth_hits_depth_protection() {
+    let dir = tempfile::tempdir().unwrap();
+    // Main plus 18 included files: the leaf sets a variable, so a reader
+    // that accepted depth 18 would apply it. Depth 17 stays accepted.
+    let chain: Vec<PathBuf> = (0..18)
+        .map(|depth| dir.path().join(format!("chain-{depth}.inputrc")))
+        .collect();
+    for depth in (0..chain.len()).rev() {
+        let contents = if let Some(child) = chain.get(depth + 1) {
+            format!("$include {}\n", child.display())
+        } else {
+            "set completion-ignore-case on\n".to_string()
+        };
+        fs::write(&chain[depth], contents).unwrap();
+    }
+    let main = dir.path().join("main.inputrc");
+    fs::write(&main, format!("$include {}\n", chain[0].display())).unwrap();
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    let err = InputrcParser::new()
+        .parse_file(&main, &Config::default(), &mut keymap, &mut variables)
+        .expect_err("18-deep acyclic $include chain must hit depth protection");
+    assert!(
+        err.message.contains("include depth exceeded"),
+        "unexpected error: {err:?}"
+    );
+}
+
+#[test]
 fn finite_recursive_include_observes_variable_changes() {
     let dir = tempfile::tempdir().unwrap();
     let recursive = dir.path().join("recursive.inputrc");

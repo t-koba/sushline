@@ -737,7 +737,7 @@ fn sushline_unicode_width_probe_baseline_fixtures() {
         let scalar_count = fixture.chars().count();
         // Match the probe's input, Ctrl-A, then one Ctrl-F per Unicode scalar.
         let mut movement = vec![1]; // Ctrl-A
-        movement.extend(std::iter::repeat(6).take(scalar_count));
+        movement.extend(std::iter::repeat_n(6, scalar_count));
         let steps = vec![bytes.to_vec(), movement];
         let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
         command.env(
@@ -760,7 +760,7 @@ fn sushline_unicode_width_probe_baseline_fixtures() {
         );
         let mut keys = bytes.to_vec();
         keys.push(1); // Ctrl-A
-        keys.extend(std::iter::repeat(6).take(scalar_count)); // Ctrl-F once per scalar
+        keys.extend(std::iter::repeat_n(6, scalar_count)); // Ctrl-F once per scalar
         keys.push(b'\r');
         let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
         command.env(

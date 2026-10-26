@@ -308,4 +308,40 @@ fn the_prompt_is_drawn_as_given_and_the_shell_spelling_is_opt_in() {
     assert!(bash_literal.contains(r"A\qB> "), "{bash_literal:?}");
     let sushline_literal = run_sushline(r"A\qB> ", true);
     assert!(sushline_literal.contains(r"A\qB> "), "{sushline_literal:?}");
+
+    // Controlled Bash 5.3 PTY comparisons for the second-pass quoting
+    // spellings and backslash runs before `e`. These prompts contain no
+    // active parameter/command expansion: escaped `$` and backtick stay
+    // literal in Bash as well as in Sushline's opt-in spelling mode.
+    for (raw, expected) in [
+        (r"A\\B> ", r"A\B> "),
+        (r#"A\"B> "#, "A\"B> "),
+        (r"A\$B> ", "A$B> "),
+        (r"A\`B> ", "A`B> "),
+        (r"A\\eB> ", r"A\eB> "),
+        (r"A\\\eB> ", "A\\\x1bB> "),
+        (r"A\\\\eB> ", r"A\eB> "),
+    ] {
+        let bash = run_bash(raw);
+        assert!(
+            bash.contains(expected),
+            "raw={raw:?}, expected={expected:?}: {bash:?}"
+        );
+        assert!(bash.contains("\u{1f}PROMPTDONE"), "raw={raw:?}: {bash:?}");
+
+        let sushline = run_sushline(raw, true);
+        assert!(
+            sushline.contains(expected),
+            "raw={raw:?}, expected={expected:?}: {sushline:?}"
+        );
+        assert!(
+            sushline.contains("SUSHLINE_ACCEPTED:"),
+            "raw={raw:?}: {sushline:?}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            Some("printf '\\x1fPROMPTDONE\\n'".to_string()),
+            "raw={raw:?}: {sushline:?}"
+        );
+    }
 }

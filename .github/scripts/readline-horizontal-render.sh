@@ -84,7 +84,7 @@ int main(int argc, char **argv) {
 PROBE
 if ! cc -Wall -Wextra -Werror -o "$work/probe" "$work/probe.c" \
   -I"$readline/include" -L"$readline/lib" \
-  -Wl,-rpath,"$readline/lib" -lreadline -ldl 2>/dev/null; then
+  -Wl,-rpath,"$readline/lib" -lreadline -ldl; then
   echo "horizontal render probe compilation failed" >&2
   exit 1
 fi

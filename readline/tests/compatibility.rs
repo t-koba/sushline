@@ -149,7 +149,7 @@ fn compatibility_document_classifies_editor_bind_and_history_coverage() {
         .collect::<Vec<_>>();
     for deviation in [
         "| Signal install/catch/reraise |",
-        "| `~user` and recursive `$include` |",
+        "| Recursive `$include` cycles |",
         "| `horizontal-scroll-mode` |",
     ] {
         assert!(
@@ -159,6 +159,11 @@ fn compatibility_document_classifies_editor_bind_and_history_coverage() {
             "COMPATIBILITY.md must retain the {deviation} deviation"
         );
     }
+    assert!(documented_rows.lines().any(|line| {
+        line.starts_with("| `$include ~user/<relative path>` for a known account |")
+            && line.contains("| Compatible |")
+            && line.contains("pinned-readline-8.3-measurements/readline_named_include.out")
+    }));
     assert!(documented_rows.lines().any(|line| {
         line.starts_with("| Cell width and locale |")
             && line.contains("| Compatible |")

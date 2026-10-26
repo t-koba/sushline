@@ -665,6 +665,30 @@ fn mutually_recursive_includes_hit_depth_protection() {
 }
 
 #[test]
+fn finite_recursive_include_observes_variable_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let recursive = dir.path().join("recursive.inputrc");
+    fs::write(
+        &recursive,
+        format!(
+            "$if completion-ignore-case = on\nset completion-ignore-case off\n$include {}\n$endif\n",
+            recursive.display()
+        ),
+    )
+    .unwrap();
+    let source = format!(
+        "set completion-ignore-case on\n$include {}\n",
+        recursive.display()
+    );
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    InputrcParser::new()
+        .parse_str(&source, &Config::default(), &mut keymap, &mut variables)
+        .expect("state-dependent recursive include terminates");
+    assert!(!variables.is_on("completion-ignore-case"));
+}
+
+#[test]
 fn parses_valid_binding_before_non_utf8_trailing_comment() {
     let mut bytes = br##""\C-o": beginning-of-line # comment "##.to_vec();
     bytes.push(0xff);

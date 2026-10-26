@@ -567,6 +567,45 @@ fn unknown_tilde_user_include_is_silently_skipped() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn known_tilde_user_include_loads_a_test_owned_file() {
+    let current_uid = unsafe { libc::getuid() };
+    let passwd = fs::read_to_string("/etc/passwd").expect("read passwd entries");
+    let (username, home) = passwd
+        .lines()
+        .find_map(|line| {
+            let fields = line.split(':').collect::<Vec<_>>();
+            (fields.len() > 5 && fields[2].parse::<libc::uid_t>().ok() == Some(current_uid))
+                .then(|| (fields[0].to_string(), PathBuf::from(fields[5])))
+        })
+        .expect("current uid has a passwd entry");
+    let temp_dir = tempfile::Builder::new()
+        .prefix("sushline-inputrc-")
+        .tempdir_in(&home)
+        .expect("create a test-owned directory under the account home");
+    let relative_dir = temp_dir
+        .path()
+        .strip_prefix(&home)
+        .expect("temporary directory is inside the account home")
+        .to_str()
+        .expect("test-owned path is UTF-8");
+    fs::write(
+        temp_dir.path().join("included.inputrc"),
+        "set completion-ignore-case on\n",
+    )
+    .expect("write test-owned include file");
+
+    let source = format!("$include ~{username}/{relative_dir}/included.inputrc\n");
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    InputrcParser::new()
+        .parse_str(&source, &Config::default(), &mut keymap, &mut variables)
+        .expect("parse named-user include");
+
+    assert!(variables.is_on("completion-ignore-case"));
+}
+
 #[test]
 fn cyclic_include_hits_depth_protection() {
     let dir = tempfile::tempdir().unwrap();

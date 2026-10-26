@@ -463,7 +463,7 @@ pub(super) fn run_bash_programmable_completion_in_dir(
 stty status undef dsusp undef lnext undef 2>/dev/null || true
 _none() {{ BASH_COMPLETION_INVOKED=1; COMPREPLY=(); if [[ -n $BASH_COMPLETION_REPLY ]]; then IFS=$'\x1f' read -r -a COMPREPLY <<< "$BASH_COMPLETION_REPLY"; fi; }}
 complete -F _none {options} echo
-bind -x '"\C-g": printf "BASH_COMPLETION_INVOKED:%s\n" "$BASH_COMPLETION_INVOKED"; printf "BASH_READLINE_HEX:"; printf "%s" "$READLINE_LINE" | od -An -tx1 | tr -d " \n"; printf "\n"'"#
+bind -x '"\C-g": printf "BASH_COMPLETION_INVOKED:%s\n" "${{BASH_COMPLETION_INVOKED-}}"; printf "BASH_READLINE_HEX:"; printf "%s" "$READLINE_LINE" | od -An -tx1 | tr -d " \n"; printf "\n"'"#
     );
     fs::write(&rcfile_path, rcfile).expect("write Bash rcfile");
     let inputrc_path = inputrc_path.to_string_lossy().into_owned();

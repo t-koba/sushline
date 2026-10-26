@@ -2523,12 +2523,14 @@ jobs:
             echo "the named-include probe loaded Readline outside the pinned prefix" >&2
             exit 1
           fi
-          # The fixture owns every input file it reads: one included file
-          # under a unique directory in the current account's passwd home,
-          # and one outer file in temporary storage that names the included
-          # file through a `~user/` spelling. The run is bounded, the
-          # temporary directory is removed in `finally`, and the report
-          # carries no usernames or paths.
+          # The fixture owns every input file it reads: for each of two
+          # independent trials, one included file under a fresh uniquely
+          # named directory in the current account's passwd home, and one
+          # outer file in temporary storage that names the included file
+          # through a `~user/` spelling. Each trial runs the probe in a
+          # separate subprocess with a 5-second timeout, its temporary
+          # directory is removed in `finally`, and the report carries no
+          # usernames or paths.
           python3 - <<'PYPROBE' | tee /tmp/readline_named_include.out
           import os
           import pwd
@@ -2537,91 +2539,119 @@ jobs:
           import subprocess
           import tempfile
 
+          # Each trial emits trial1_readline_release=<release>,
+          # trial1_read_status=<status>, trial1_completion_ignore_case_on=<0/1>,
+          # trial1_probe_returncode=<code>, trial1_fixture_completed=<0/1>,
+          # trial1_tempdir_cleanup=<0/1>, trial1_outer_cleanup=<0/1>, and the
+          # matching trial2_readline_release=<release>,
+          # trial2_read_status=<status>, trial2_completion_ignore_case_on=<0/1>,
+          # trial2_probe_returncode=<code>, trial2_fixture_completed=<0/1>,
+          # trial2_tempdir_cleanup=<0/1>, trial2_outer_cleanup=<0/1>.
           probe = "/tmp/readline_named_include_probe"
           expected = os.environ["READLINE_ORACLE_VERSION"]
           resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
           account = pwd.getpwuid(os.getuid())
           username = account.pw_name
           home = account.pw_dir
-          tempdir = tempfile.mkdtemp(prefix="sushline-named-include-", dir=home)
-          outer_path = None
-          timed_out = False
-          try:
-              relative = os.path.relpath(tempdir, home)
-              included_path = os.path.join(tempdir, "included.inputrc")
-              with open(included_path, "w", encoding="utf-8") as handle:
-                  handle.write("set completion-ignore-case on\n")
-              descriptor, outer_path = tempfile.mkstemp(
-                  prefix="sushline-named-include-outer-", suffix=".inputrc"
-              )
-              with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-                  handle.write(f'$include ~{username}/{relative}/included.inputrc\n')
-              env = os.environ.copy()
-              env["INPUTRC"] = "/dev/null"
-              env["LC_ALL"] = "C"
-              env["TERM"] = "dumb"
+
+          def run_trial(label):
+              tempdir = tempfile.mkdtemp(prefix="sushline-named-include-", dir=home)
+              outer_path = None
+              timed_out = False
+              record = {}
               try:
-                  completed = subprocess.run(
-                      [probe, outer_path],
-                      input=b"",
-                      stdout=subprocess.PIPE,
-                      stderr=subprocess.PIPE,
-                      env=env,
-                      timeout=5,
+                  relative = os.path.relpath(tempdir, home)
+                  included_path = os.path.join(tempdir, "included.inputrc")
+                  with open(included_path, "w", encoding="utf-8") as handle:
+                      handle.write("set completion-ignore-case on\n")
+                  descriptor, outer_path = tempfile.mkstemp(
+                      prefix="sushline-named-include-outer-", suffix=".inputrc"
                   )
-              except subprocess.TimeoutExpired:
-                  timed_out = True
-                  print("probe_timeout=1")
-                  print("fixture_completed=0")
-              else:
-                  text = completed.stdout.decode("utf-8", "replace")
-                  fields = {}
-                  for line in text.splitlines():
-                      key, separator, value = line.partition("=")
-                      if separator and key in {
+                  with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                      handle.write(f'$include ~{username}/{relative}/included.inputrc\n')
+                  env = os.environ.copy()
+                  env["INPUTRC"] = "/dev/null"
+                  env["LC_ALL"] = "C"
+                  env["TERM"] = "dumb"
+                  try:
+                      completed = subprocess.run(
+                          [probe, outer_path],
+                          input=b"",
+                          stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE,
+                          env=env,
+                          timeout=5,
+                      )
+                  except subprocess.TimeoutExpired:
+                      timed_out = True
+                      print(f"{label}_probe_timeout=1")
+                      print(f"{label}_fixture_completed=0")
+                      record["timeout"] = True
+                      record["completed"] = False
+                  else:
+                      text = completed.stdout.decode("utf-8", "replace")
+                      fields = {}
+                      for line in text.splitlines():
+                          key, separator, value = line.partition("=")
+                          if separator and key in {
+                              "readline_release",
+                              "read_status",
+                              "completion_ignore_case_on",
+                          }:
+                              fields[key] = value
+                      required = {
                           "readline_release",
                           "read_status",
                           "completion_ignore_case_on",
-                      }:
-                          fields[key] = value
-                          print(line)
-                  required = {
-                      "readline_release",
-                      "read_status",
-                      "completion_ignore_case_on",
-                  }
-                  if fields.keys() != required:
-                      raise SystemExit("direct-library measurement omitted a result field")
-                  if fields["readline_release"] != expected:
-                      raise SystemExit("direct-library measurement used an unexpected release")
-                  print("probe_timeout=0")
-                  print(f"probe_returncode={completed.returncode}")
-                  print(f"fixture_completed={int(completed.returncode == 0)}")
-                  if completed.returncode != 0:
-                      raise SystemExit("direct-library probe exited unsuccessfully")
-          finally:
-              tempdir_removed = False
-              try:
-                  shutil.rmtree(tempdir, ignore_errors=True)
-                  tempdir_removed = not os.path.exists(tempdir)
-              except Exception:
+                      }
+                      if fields.keys() != required:
+                          raise SystemExit(f"direct-library measurement {label} omitted a result field")
+                      if fields["readline_release"] != expected:
+                          raise SystemExit(f"direct-library measurement {label} used an unexpected release")
+                      print(f"{label}_readline_release={fields['readline_release']}")
+                      print(f"{label}_read_status={fields['read_status']}")
+                      print(f"{label}_completion_ignore_case_on={fields['completion_ignore_case_on']}")
+                      print(f"{label}_probe_timeout=0")
+                      print(f"{label}_probe_returncode={completed.returncode}")
+                      print(f"{label}_fixture_completed={int(completed.returncode == 0)}")
+                      record.update(fields)
+                      record["returncode"] = completed.returncode
+                      record["timeout"] = False
+                      record["completed"] = completed.returncode == 0
+                      if completed.returncode != 0:
+                          raise SystemExit(f"direct-library probe {label} exited unsuccessfully")
+              finally:
                   tempdir_removed = False
-              outer_removed = True
-              if outer_path is not None:
                   try:
-                      os.unlink(outer_path)
-                  except FileNotFoundError:
-                      pass
-                  except OSError:
-                      outer_removed = False
-                  else:
-                      outer_removed = True
-              print(f"tempdir_cleanup={int(tempdir_removed)}")
-              print(f"outer_cleanup={int(outer_removed)}")
-          if timed_out:
-              raise SystemExit("direct-library measurement timed out")
-          if not tempdir_removed or not outer_removed:
-              raise SystemExit("direct-library measurement cleanup failed")
+                      shutil.rmtree(tempdir, ignore_errors=True)
+                      tempdir_removed = not os.path.exists(tempdir)
+                  except Exception:
+                      tempdir_removed = False
+                  outer_removed = True
+                  if outer_path is not None:
+                      try:
+                          os.unlink(outer_path)
+                      except FileNotFoundError:
+                          pass
+                      except OSError:
+                          outer_removed = False
+                      else:
+                          outer_removed = True
+                  print(f"{label}_tempdir_cleanup={int(tempdir_removed)}")
+                  print(f"{label}_outer_cleanup={int(outer_removed)}")
+                  record["tempdir_cleanup"] = tempdir_removed
+                  record["outer_cleanup"] = outer_removed
+              if timed_out:
+                  raise SystemExit(f"direct-library measurement {label} timed out")
+              if not tempdir_removed or not outer_removed:
+                  raise SystemExit(f"direct-library measurement {label} cleanup failed")
+              return record
+
+          first = run_trial("trial1")
+          second = run_trial("trial2")
+          for key in ("readline_release", "read_status", "completion_ignore_case_on", "returncode"):
+              if first[key] != second[key]:
+                  raise SystemExit("direct-library named-user trials disagree")
           PYPROBE
       - name: Run the oracle suite
         run: |

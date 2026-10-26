@@ -696,4 +696,137 @@ mod builtin_sigint_policy {
             String::from_utf8_lossy(&output.stderr)
         );
     }
+
+    const DFL_PROBE_ENV: &str = "SUSHLINE_SIGINT_DFL_PROBE";
+    const DFL_MARKER: &str = "SUSHLINE_SIGINT_DFL_INTERRUPTED";
+
+    fn assert_sigint_dfl_and_canonical(context: &str) {
+        let mut mode: libc::termios = unsafe { std::mem::zeroed() };
+        assert_eq!(
+            unsafe { libc::tcgetattr(libc::STDIN_FILENO, &mut mode) },
+            0,
+            "{context}: canonical termios query"
+        );
+        assert!(
+            mode.c_lflag & libc::ICANON != 0,
+            "{context}: termios must be canonical after SIGINT"
+        );
+        let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+        assert_eq!(
+            unsafe { libc::sigaction(libc::SIGINT, std::ptr::null(), &mut action) },
+            0,
+            "{context}: disposition query"
+        );
+        assert_eq!(
+            action.sa_sigaction,
+            libc::SIG_DFL,
+            "{context}: SIGINT must be restored to SIG_DFL"
+        );
+    }
+
+    #[test]
+    fn sigint_dfl_child_probe() {
+        if std::env::var(DFL_PROBE_ENV).as_deref() != Ok("1") {
+            return;
+        }
+        // Bound the isolated probe even if a regression leaves read_line waiting.
+        unsafe { libc::alarm(10) };
+        let mut master = -1;
+        let mut slave = -1;
+        unsafe {
+            assert_eq!(
+                libc::openpty(
+                    &mut master,
+                    &mut slave,
+                    std::ptr::null_mut(),
+                    std::ptr::null(),
+                    std::ptr::null()
+                ),
+                0
+            );
+        }
+        let master = unsafe { std::fs::File::from_raw_fd(master) };
+        let _slave = unsafe { OwnedFd::from_raw_fd(slave) };
+        unsafe {
+            assert!(libc::setsid() >= 0);
+            // Closing the controlling PTY at child exit must not kill the test.
+            libc::signal(libc::SIGHUP, libc::SIG_IGN);
+            assert_eq!(libc::ioctl(slave, libc::TIOCSCTTY, 0), 0);
+            assert_eq!(libc::dup2(slave, libc::STDIN_FILENO), libc::STDIN_FILENO);
+            let mut dfl: libc::sigaction = std::mem::zeroed();
+            dfl.sa_sigaction = libc::SIG_DFL;
+            libc::sigemptyset(&mut dfl.sa_mask);
+            dfl.sa_flags = 0;
+            assert_eq!(
+                libc::sigaction(libc::SIGINT, &dfl, std::ptr::null_mut()),
+                0,
+                "install SIG_DFL"
+            );
+        }
+        // The built-in terminal catches the real SIGINT while it is raw; the
+        // explicit Interrupted policy then ends the read without terminating.
+        let mut terminal = Terminal::new();
+        terminal.set_catch_signals(true);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        assert_eq!(line.sigint_policy(), SigintPolicy::Continue);
+        line.set_sigint_policy(SigintPolicy::Interrupted);
+        let mut hook = InputHook {
+            master: master.try_clone().unwrap(),
+            checks: 0,
+            report_signal: false,
+            deliver_signal: true,
+        };
+        let first = line.read_line(Prompt::new("> "), &mut hook).unwrap();
+        assert_eq!(first, ReadlineResult::Interrupted);
+        assert_sigint_dfl_and_canonical("interrupted read");
+        assert_eq!(
+            line.read_line(Prompt::new("> "), &mut ()).unwrap(),
+            ReadlineResult::Line(b"X".to_vec())
+        );
+        assert_sigint_dfl_and_canonical("suffix read");
+        println!("{DFL_MARKER}");
+        std::io::stdout().flush().unwrap();
+        unsafe {
+            libc::alarm(0);
+        }
+        // The embedding application decides what happens next; re-raising with
+        // the restored SIG_DFL disposition must terminate the process.
+        unsafe {
+            libc::raise(libc::SIGINT);
+        }
+        panic!("SIGINT with SIG_DFL must terminate the child");
+    }
+
+    #[test]
+    fn interrupted_with_sig_dfl_restores_and_embedder_reraise_terminates() {
+        use std::os::unix::process::ExitStatusExt;
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "builtin_sigint_policy::sigint_dfl_child_probe",
+                "--exact",
+                "--nocapture",
+            ])
+            .env(DFL_PROBE_ENV, "1")
+            .env("INPUTRC", "/dev/null")
+            .stdin(std::process::Stdio::null())
+            .output()
+            .expect("spawn SIG_DFL probe");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stdout.contains(DFL_MARKER),
+            "child must report marker before embedder reraise: status {:?}\n{}\n{}",
+            output.status,
+            stdout,
+            stderr
+        );
+        assert_eq!(
+            output.status.signal(),
+            Some(libc::SIGINT),
+            "child must terminate by SIGINT after embedder reraise: status {:?}\n{}\n{}",
+            output.status,
+            stdout,
+            stderr
+        );
+    }
 }

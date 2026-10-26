@@ -54,25 +54,47 @@ fn accepts_the_set_values_gnu_readline_accepts() {
 
 #[test]
 fn numeric_set_values_store_canonical_strings() {
-    // Twenty measured Bash-hosted Readline cases: four spellings per setting.
-    for (name, negative) in [
-        ("completion-display-width", "-1"),
-        ("completion-prefix-display-length", "0"),
-        ("completion-query-items", "0"),
-        ("history-size", "-1"),
-        ("keyseq-timeout", "0"),
-    ] {
-        for (value, expected) in [
-            ("100", "100"),
-            ("0100", "100"),
-            ("+100", "100"),
-            ("-1", negative),
-        ] {
+    // Eighteen spellings per setting: the earlier four controls plus the
+    // finite Bash-hosted Readline bind -v matrix. Expected columns are display
+    // width, history size, and the three nonnegative settings, respectively.
+    const CASES: [(&str, [&str; 3]); 18] = [
+        ("100", ["100", "100", "100"]),
+        ("0100", ["100", "100", "100"]),
+        ("+100", ["100", "100", "100"]),
+        ("-1", ["-1", "-1", "0"]),
+        ("many", ["0", "0", "0"]),
+        ("100junk", ["100", "100", "100"]),
+        ("+100junk", ["100", "100", "100"]),
+        ("-100junk", ["-100", "-1", "0"]),
+        ("-2", ["-2", "-1", "0"]),
+        ("2147483647", ["2147483647", "2147483647", "2147483647"]),
+        ("2147483648", ["-2147483648", "-1", "0"]),
+        ("4294967295", ["-1", "-1", "0"]),
+        ("4294967296", ["0", "0", "0"]),
+        ("-2147483648", ["-2147483648", "-1", "0"]),
+        ("-2147483649", ["2147483647", "2147483647", "2147483647"]),
+        ("-4294967296", ["0", "0", "0"]),
+        (
+            "9999999999999999999999999999999999999999",
+            ["-1", "-1", "0"],
+        ),
+        ("-9999999999999999999999999999999999999999", ["0", "0", "0"]),
+    ];
+    const SETTINGS: [(&str, usize); 5] = [
+        ("completion-display-width", 0),
+        ("completion-prefix-display-length", 2),
+        ("completion-query-items", 2),
+        ("history-size", 1),
+        ("keyseq-timeout", 2),
+    ];
+    for (name, column) in SETTINGS {
+        for (value, stored) in CASES {
+            let expected = stored[column];
             let mut keymap = KeyMap::emacs_default();
             let mut variables = Variables::new();
             let diagnostics = InputrcParser::new()
                 .parse_str(
-                    &format!("set {name} {value}\n"),
+                    &format!("set {name} 100\nset {name} {value}\n"),
                     &Config::default(),
                     &mut keymap,
                     &mut variables,
@@ -89,19 +111,7 @@ fn numeric_set_values_store_canonical_strings() {
 }
 
 #[test]
-fn numeric_set_normalization_preserves_parse_failures_and_nonnumeric_values() {
-    for name in [
-        "completion-display-width",
-        "completion-prefix-display-length",
-        "completion-query-items",
-        "history-size",
-        "keyseq-timeout",
-    ] {
-        // Preserve the existing isize parse grammar and invalid/overflow fallback.
-        for value in ["many", "9999999999999999999999999999999999999999"] {
-            assert_eq!(normalize_variable_value(name, value).as_deref(), Some("0"));
-        }
-    }
+fn numeric_set_normalization_preserves_nonnumeric_values() {
     for value in ["0100", "+100", "-1", "a b"] {
         assert_eq!(
             normalize_variable_value("comment-begin", value).as_deref(),

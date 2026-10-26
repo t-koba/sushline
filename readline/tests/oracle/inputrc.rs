@@ -1640,3 +1640,108 @@ fn bash_readline_and_sushline_meta_alias_conditions_observe_the_last_write() {
         "{sushline}"
     );
 }
+
+#[test]
+fn bash_bind_v_and_sushline_store_measured_numeric_matrix() {
+    use readline::{BindQuery, Config, Editor, History, Terminal};
+
+    // Eighteen measured spellings for each of five settings. Expected columns
+    // are display width, history size, and the three nonnegative settings.
+    // Each inputrc file seeds 100 then applies the value before Bash's first
+    // prompt. Only bind -v observes the result; no bind command sets values.
+    // This finite matrix makes no general parsing/range claim.
+    const CASES: [(&str, [&str; 3]); 18] = [
+        ("100", ["100", "100", "100"]),
+        ("0100", ["100", "100", "100"]),
+        ("+100", ["100", "100", "100"]),
+        ("-1", ["-1", "-1", "0"]),
+        ("many", ["0", "0", "0"]),
+        ("100junk", ["100", "100", "100"]),
+        ("+100junk", ["100", "100", "100"]),
+        ("-100junk", ["-100", "-1", "0"]),
+        ("-2", ["-2", "-1", "0"]),
+        ("2147483647", ["2147483647", "2147483647", "2147483647"]),
+        ("2147483648", ["-2147483648", "-1", "0"]),
+        ("4294967295", ["-1", "-1", "0"]),
+        ("4294967296", ["0", "0", "0"]),
+        ("-2147483648", ["-2147483648", "-1", "0"]),
+        ("-2147483649", ["2147483647", "2147483647", "2147483647"]),
+        ("-4294967296", ["0", "0", "0"]),
+        (
+            "9999999999999999999999999999999999999999",
+            ["-1", "-1", "0"],
+        ),
+        ("-9999999999999999999999999999999999999999", ["0", "0", "0"]),
+    ];
+    const SETTINGS: [(&str, usize); 5] = [
+        ("completion-display-width", 0),
+        ("completion-prefix-display-length", 2),
+        ("completion-query-items", 2),
+        ("history-size", 1),
+        ("keyseq-timeout", 2),
+    ];
+
+    for (applied, stored) in CASES {
+        // One bounded fresh-HOME PTY per applied spelling covers all five
+        // settings; each setting is seeded with 100 before the tested write.
+        let root = tempfile::tempdir().expect("numeric matrix root");
+        let home = root.path().join("home");
+        fs::create_dir(&home).expect("create fixture HOME");
+        let inputrc = root.path().join("inputrc");
+        let mut inputrc_contents = String::from("set comment-begin numeric-matrix-loaded\n");
+        for (name, _) in SETTINGS {
+            inputrc_contents.push_str(&format!("set {name} 100\nset {name} {applied}\n"));
+        }
+        fs::write(&inputrc, inputrc_contents).expect("write numeric matrix inputrc");
+        let histfile = root.path().join("history").to_string_lossy().into_owned();
+        let mut command = CommandBuilder::new("bash");
+        command.args(["--noprofile", "--norc", "-i"]);
+        command.env("PS1", "READY>");
+        command.env("PROMPT_COMMAND", "");
+        command.env("HOME", home.to_string_lossy().as_ref());
+        command.env("HISTFILE", histfile.as_str());
+        command.env("INPUTRC", inputrc.to_string_lossy().as_ref());
+        command.env("LC_ALL", "C.UTF-8");
+        let script = "bind -v; printf 'NUMERIC_MATRIX_DONE:%s\\n' ok\r";
+        let output = run_pty_steps_with_size_until(
+            command,
+            &[("READY>", script.as_bytes())],
+            PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+            "NUMERIC_MATRIX_DONE:ok",
+        );
+        // The sentinel is set only in the startup inputrc file, so default
+        // numeric values cannot let a fixture pass when the file was not read.
+        assert!(
+            output
+                .lines()
+                .any(|line| line == "set comment-begin numeric-matrix-loaded"),
+            "startup inputrc was not loaded: {output:?}"
+        );
+        assert!(output.contains("NUMERIC_MATRIX_DONE:ok"), "{output:?}");
+        for (name, column) in SETTINGS {
+            let record = format!("set {name} {}", stored[column]);
+            assert!(
+                output.lines().any(|line| line == record),
+                "applied {applied}: missing `{record}` in {output:?}"
+            );
+        }
+
+        // Paired Sushline writes: seed 100, then apply the tested value.
+        for (name, column) in SETTINGS {
+            let mut line = Editor::new(Config::default(), Terminal::default(), History::new());
+            line.load_inputrc_str(&format!("set {name} 100\nset {name} {applied}\n"))
+                .expect("sushline inputrc applies");
+            let printed = line.bind_api().print(BindQuery::PrintVariablesReusable);
+            let record = format!("set {name} {}", stored[column]);
+            assert!(
+                printed.lines().any(|line| line == record),
+                "sushline applied {applied}: missing `{record}` in {printed:?}"
+            );
+        }
+    }
+}

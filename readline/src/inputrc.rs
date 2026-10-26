@@ -781,7 +781,27 @@ fn normalize_variable_value(name: &str, value: &str) -> Option<String> {
             | "history-size"
             | "keyseq-timeout"
     ) {
-        let mut number = value.parse::<isize>().unwrap_or(0);
+        // The finite Bash 5.3/Readline 8.3 matrix in inputrc/tests.rs matches
+        // a signed decimal prefix, saturation to i64, then conversion to i32.
+        // In particular, +/-40-digit overflow becomes -1/0 before the
+        // setting-specific clamps. This is not a general C numeric grammar
+        // or cross-architecture compatibility claim.
+        let unsigned = value.strip_prefix(['+', '-']).unwrap_or(value);
+        let digits = unsigned.bytes().take_while(u8::is_ascii_digit).count();
+        if digits == 0 {
+            return Some("0".to_string());
+        }
+        let sign = value.len() - unsigned.len();
+        let mut number = value[..sign + digits].parse::<i64>().unwrap_or_else(|_| {
+            if value.starts_with('-') {
+                i64::MIN
+            } else {
+                i64::MAX
+            }
+        }) as i32;
+        if name == "history-size" {
+            number = number.max(-1);
+        }
         if matches!(
             name,
             "completion-prefix-display-length" | "completion-query-items" | "keyseq-timeout"

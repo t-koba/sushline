@@ -409,19 +409,50 @@ editing-mode mutations instead of configuration defaults. Tests:
 [`inputrc/tests.rs`](readline/src/inputrc/tests.rs). General variable and
 version comparisons keep their separate syntax and semantics described above.
 
-Numeric inputrc storage is covered by twenty finite Bash 5.3-hosted Readline
-fixtures (five settings, four spellings each), not a standalone pinned 8.3
-library comparison. For `completion-display-width`,
+Numeric inputrc storage is covered by finite Bash 5.3-hosted Readline 8.3
+fixtures, not a standalone pinned 8.3 library comparison. The earlier
+four-spelling fixtures for `completion-display-width`,
 `completion-prefix-display-length`, `completion-query-items`, `history-size`,
-and `keyseq-timeout`, setting `100`, `0100`, or `+100` stores the canonical
-string `100`. Setting `-1` stores `-1` for display width and history size,
-and `0` for prefix display length, query items, and key-sequence timeout.
-The paired [`oracle/inputrc.rs`](readline/tests/oracle/inputrc.rs) fixtures
-observe these stored strings through equality conditions, including that
-RHS `0100` and `+100` do not match after setting `0100`: storage is normalized,
-not the comparison operands. Local [`inputrc/tests.rs`](readline/src/inputrc/tests.rs)
-also retain the existing invalid/overflow-to-zero parsing behavior and
-nonnumeric string values; these are not broader GNU parsing/range claims.
+and `keyseq-timeout` observe canonical stored strings through equality
+conditions. In particular, RHS `0100` and `+100` do not match after setting
+`0100`: storage is normalized, not the comparison operands.
+
+The paired [`oracle/inputrc.rs`](readline/tests/oracle/inputrc.rs)
+`bash_bind_v_and_sushline_store_measured_numeric_matrix` fixture covers the
+following eighteen spellings for all five settings. Each spelling runs in a
+bounded fresh-HOME Bash PTY; a startup inputrc file seeds each setting with
+`100` and then applies the tested value. The test asserts a file-only
+`comment-begin` sentinel to check startup loading and inspects exact `bind -v`
+`set <name> <stored>` records, without setting values through `bind`.
+Sushline's inputrc loader and local
+[`inputrc/tests.rs`](readline/src/inputrc/tests.rs) parser tests assert the
+same stored strings. The final column applies separately to
+`completion-prefix-display-length`, `completion-query-items`, and
+`keyseq-timeout`.
+
+| Input spelling | `completion-display-width` | `history-size` | Each of the other three settings |
+| --- | --- | --- | --- |
+| `100`, `0100`, `+100` | `100` | `100` | `100` |
+| `-1` | `-1` | `-1` | `0` |
+| `many` | `0` | `0` | `0` |
+| `100junk`, `+100junk` | `100` | `100` | `100` |
+| `-100junk` | `-100` | `-1` | `0` |
+| `-2` | `-2` | `-1` | `0` |
+| `2147483647` | `2147483647` | `2147483647` | `2147483647` |
+| `2147483648` | `-2147483648` | `-1` | `0` |
+| `4294967295` | `-1` | `-1` | `0` |
+| `4294967296` | `0` | `0` | `0` |
+| `-2147483648` | `-2147483648` | `-1` | `0` |
+| `-2147483649` | `2147483647` | `2147483647` | `2147483647` |
+| `-4294967296` | `0` | `0` | `0` |
+| `9999999999999999999999999999999999999999` (40 digits) | `-1` | `-1` | `0` |
+| `-9999999999999999999999999999999999999999` (minus and 40 digits) | `0` | `0` | `0` |
+
+The implementation's signed decimal prefix, saturating 64-bit parse, 32-bit
+conversion, and setting-specific negative clamps match these fixtures only.
+They do not establish a general C/`atoi` grammar, unmeasured range behavior,
+or cross-architecture compatibility. Nonnumeric string settings remain
+unchanged.
 
 ## History Expansion API
 

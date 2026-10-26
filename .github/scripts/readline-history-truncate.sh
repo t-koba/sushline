@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Shared measurement only: the oracle and its fresh-runner replica retain
 # independent reports. No GNU History truncate byte outcome is presumed or
-# asserted. Two fixtures (`A\n\nB\n` with a blank line and `A\nB` with an
-# unterminated tail) use limits 10 (no-cut) and 1 (positive control for the
-# blank fixture), with two fresh files and child processes per case/report.
+# asserted. The plain fixtures (`A\n\nB\n` with a blank line and `A\nB`
+# with an unterminated tail) use limits 10 (no-cut) and 1 (positive control
+# for the blank fixture). A timestamped two-block fixture uses limits 10, 2,
+# and 3. Every case has two fresh files and child processes per report.
 # Report contents omit runner identity so independent outputs compare byte-for-byte.
 set -euo pipefail
 ulimit -c 0
@@ -54,10 +55,12 @@ int main(int argc, char **argv) {
     if (end == argv[2] || *end != '\0' || limit < 0 || limit > 1000000) {
         return 2;
     }
+    int multiline_entries = history_multiline_entries;
     int status = history_truncate_file(argv[1], (int)limit);
     printf("truncate_status=%d\n", status);
     printf("readline_release=%d.%d\n", rl_readline_version >> 8,
            rl_readline_version & 0xff);
+    printf("history_multiline_entries=%d\n", multiline_entries);
     fflush(stdout);
     return 0;
 }
@@ -90,8 +93,8 @@ import subprocess
 import sys
 import tempfile
 
-# All history bytes originate in the two fixed plain fixtures below. Reports
-# contain only fixed labels, bounded integers and bounded result hex. No GNU
+# All history bytes originate in the fixed fixtures below. Reports contain
+# only fixed labels, bounded integers and bounded result hex. No GNU
 # truncate byte outcome is asserted: a trial is valid when its
 # harness-integrity checks hold, the child finished without a signal or
 # timeout, and cleanup completed.
@@ -99,8 +102,13 @@ LIMIT = 16384
 FIXTURES = {
     "blank": b"A\n\nB\n",
     "unterminated": b"A\nB",
+    "timestamped": b"#1700000000\nA0\nA1\n#1700000001\nB0\nB1\n",
 }
-LIMITS = (10, 1)
+LIMITS = {
+    "blank": (10, 1),
+    "unterminated": (10, 1),
+    "timestamped": (10, 2, 3),
+}
 resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
 
@@ -135,6 +143,13 @@ def run_trial(fixture, limit, trial):
         valid = (fields.get("readline_release") == os.environ["READLINE_ORACLE_VERSION"])
         if valid:
             print(f"{label}_readline_release={fields['readline_release']}")
+        multiline = fields.get("history_multiline_entries", "")
+        if not re.fullmatch(r"[0-9]+", multiline):
+            valid = False
+        else:
+            print(f"{label}_history_multiline_entries={multiline}")
+            if multiline != "0":
+                valid = False
         outcome = "timeout" if timed_out else ("signal" if child.returncode < 0 else "returned")
         print(f"{label}_outcome={outcome}")
         print(f"{label}_returncode={child.returncode}")
@@ -189,8 +204,8 @@ def run_trial(fixture, limit, trial):
 
 try:
     results = [run_trial(fixture, limit, trial)
-               for fixture in ("blank", "unterminated")
-               for limit in LIMITS
+               for fixture in ("blank", "unterminated", "timestamped")
+               for limit in LIMITS[fixture]
                for trial in (1, 2)]
     if not all(results):
         raise ValueError()

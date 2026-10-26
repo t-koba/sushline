@@ -2826,7 +2826,7 @@ jobs:
         run: bash .github/scripts/readline-horizontal-render.sh
       - name: Measure Unicode cell widths against the pinned release
         run: bash .github/scripts/readline-unicode-width.sh
-      - name: Measure History truncation at the no-op boundary against the pinned release
+      - name: Measure plain and timestamped History truncation against the pinned release
         run: bash .github/scripts/readline-history-truncate.sh primary
       - name: Run the oracle suite
         run: |
@@ -2935,7 +2935,7 @@ jobs:
         run: bash .github/scripts/readline-horizontal-render.sh
       - name: Measure Unicode cell widths against the pinned release
         run: bash .github/scripts/readline-unicode-width.sh
-      - name: Measure History truncation at the no-op boundary against the pinned release
+      - name: Measure plain and timestamped History truncation against the pinned release
         run: bash .github/scripts/readline-history-truncate.sh replica
       - name: Upload independent pinned include-depth reports
         if: always()

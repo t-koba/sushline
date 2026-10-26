@@ -1911,6 +1911,44 @@ fn possible_completions_after_point_moves_to_previous_visual_row_redraws_from_or
 }
 
 #[test]
+fn export_completions_reports_utf8_byte_range_without_changing_accepted_line() {
+    struct Hook;
+    impl Hooks for Hook {
+        fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
+            assert_eq!(request.context.word.as_slice(), b"al");
+            Some(CompletionResponse {
+                candidates: [b"alpha".as_slice(), b"alpine".as_slice()]
+                    .into_iter()
+                    .map(|replacement| CompletionCandidate {
+                        replacement: replacement.to_vec(),
+                        display: None,
+                    })
+                    .collect(),
+                ..Default::default()
+            })
+        }
+    }
+
+    let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(
+        ["probe é al".as_bytes(), b"\x0f\r"].concat(),
+    )]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": export-completions")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut Hook).unwrap();
+
+    assert_eq!(
+        result,
+        ReadlineResult::Line("probe é al".as_bytes().to_vec())
+    );
+    assert!(
+        line.terminal()
+            .out
+            .contains("\r\n3\nal\n9:11\nalp\nalpha\nalpine\n")
+    );
+}
+
+#[test]
 fn export_completions_writes_machine_readable_records() {
     struct Hook;
     impl Hooks for Hook {

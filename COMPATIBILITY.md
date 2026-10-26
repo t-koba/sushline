@@ -262,7 +262,7 @@ Sushline-only extensions use the `Sushline extension` status.
 | `glob-complete-word`, `glob-expand-word`, `glob-list-expansions` | Hook-backed | Glob behavior; `Hooks::glob_expand` supplies application globbing with locale-aware matching and byte fallback. Tests: [`oracle/completion.rs`](readline/tests/oracle/completion.rs). |
 | `vi-complete` | Compatible | Default vi `*`, `=`, and backslash bindings, including command-mode bounds. Tests: [`oracle/completion.rs`](readline/tests/oracle/completion.rs). |
 | `bash-vi-complete` | Hook-backed | Command completion; application names use `Hooks::command_names`. Tests: [`oracle/completion.rs`](readline/tests/oracle/completion.rs). |
-| `export-completions` | Compatible | Export-completions protocol. Tests: [`completion.rs`](readline/tests/completion.rs). |
+| `export-completions` | Compatible | In the `export_completions_bash_fixture_reports_utf8_byte_range_and_accepts_line` PTY fixture, Bash and Sushline report count `3`, prefix `al`, byte range `9:11`, and candidates `alp`, `alpha`, `alpine`; Bash accepts callback args `é al` and Sushline leaves `probe é al` unchanged. Tests: [`oracle/completion.rs`](readline/tests/oracle/completion.rs), [`completion.rs`](readline/tests/completion.rs). |
 
 ### Miscellaneous Commands
 

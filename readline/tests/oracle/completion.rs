@@ -12,8 +12,66 @@
 //! `bash_readline_and_sushline_accept_same_shell_transpose_words`); their
 //! overlap/uniqueness against other oracle cases has not yet been assessed.
 
+use super::host::require_oracle_host;
 use super::pty::*;
 use std::fs;
+
+#[cfg(unix)]
+#[test]
+fn export_completions_bash_fixture_reports_utf8_byte_range_and_accepts_line() {
+    use portable_pty::{CommandBuilder, PtySize};
+
+    require_oracle_host();
+    let root = tempfile::tempdir().expect("completion oracle root");
+    let home = root.path().join("home");
+    fs::create_dir(&home).expect("create fixture HOME");
+    let rc = root.path().join("bashrc");
+    fs::write(
+        &rc,
+        concat!(
+            "bind -m emacs-standard '\"\\C-o\": export-completions'\n",
+            "_fixture_complete() { COMPREPLY=(alpha alpine); }\n",
+            "complete -F _fixture_complete probe\n",
+            "probe() { printf '\\037ACCEPTED:%s\\n' \"$*\"; }\n",
+            "PS1='READY>'\n",
+            "PROMPT_COMMAND=''\n",
+        ),
+    )
+    .expect("write Bash fixture rc");
+    let inputrc = root.path().join("inputrc");
+    fs::write(&inputrc, b"").expect("write empty inputrc");
+    let home = home.to_string_lossy().into_owned();
+    let histfile = root.path().join("history").to_string_lossy().into_owned();
+    let inputrc = inputrc.to_string_lossy().into_owned();
+    let rc = rc.to_string_lossy().into_owned();
+    let mut command = CommandBuilder::new("bash");
+    command.args(["--noprofile", "--norc", "--rcfile", &rc, "-i"]);
+    command.env("PS1", "READY>");
+    command.env("HOME", &home);
+    command.env("HISTFILE", &histfile);
+    command.env("INPUTRC", &inputrc);
+    command.env("LC_ALL", "C.UTF-8");
+    let output = run_pty_steps_with_size_until(
+        command,
+        &[
+            ("READY>", format!(". {rc}\r").as_bytes()),
+            ("READY>", "probe é al\x0f\r".as_bytes()),
+        ],
+        PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        },
+        "ACCEPTED:é al",
+    );
+
+    assert!(
+        output.contains("\r\n3\r\nal\r\n9:11\r\nalp\r\nalpha\r\nalpine\r\n"),
+        "Bash export-completions records were not contiguous: {output:?}"
+    );
+    assert!(output.contains("\u{1f}ACCEPTED:é al"), "{output:?}");
+}
 
 #[cfg(unix)]
 #[test]

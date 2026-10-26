@@ -772,10 +772,14 @@ fn sushline_unicode_width_probe_baseline_fixtures() {
         command.env("LC_ALL", "C.UTF-8");
         let output =
             run_pty_steps_with_size_until(command, &[(prompt, &keys)], size, "SUSHLINE_ACCEPTED:");
+        let accepted = accepted_line(&output);
+        let tail_start = output.len().saturating_sub(1024);
         assert_eq!(
-            accepted_line(&output).as_deref(),
+            accepted.as_deref(),
             Some(fixture),
-            "{output:?}"
+            "fixture={fixture:?}, PTY output tail (last {} bytes): {:?}",
+            output.len() - tail_start,
+            &output.as_bytes()[tail_start..]
         );
     }
 }

@@ -847,6 +847,26 @@ fn bash_readline_and_sushline_accept_same_simple_undo_edit() {
 }
 
 #[test]
+fn bash_and_sushline_numeric_argument_insert_opens_own_undo_entry() {
+    // A numeric-argument insert opens its own entry: one undo leaves `ab`,
+    // and a second undo removes the earlier grouped insert.
+    for (keys, expected) in [
+        (b"ab\x1b5a\x1f\r".as_slice(), "ab"),
+        (b"ab\x1b5a\x1f\x1f\r".as_slice(), ""),
+    ] {
+        let bash = run_bash_readline(keys);
+        let sushline = run_sushline_harness(keys);
+
+        assert_eq!(accepted_line(&bash).as_deref(), Some(expected), "{bash}");
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "{sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_match_single_byte_undo_group_boundaries() {
     // GNU groups at most 20 single-byte self-inserts: one undo removes all
     // 20, but after 21 it removes only the final insert. Multibyte inserts

@@ -32,6 +32,20 @@ fn navigates_history_and_restores_current_edit() {
 }
 
 #[test]
+fn fresh_appends_leave_navigation_at_the_unpositioned_end() {
+    let mut history = History::new();
+    for (index, line) in ["alpha", "beta", "alpha gamma", "delta"].iter().enumerate() {
+        history.push(*line);
+        assert_eq!(history.len(), index + 1);
+        assert_eq!(history.where_history(), index + 1);
+        assert!(history.current_history().is_none());
+    }
+    let previous = history.previous_history().expect("newest history entry");
+    assert_eq!(previous.line_bytes.as_slice(), b"delta");
+    assert_eq!(history.where_history(), 3);
+}
+
+#[test]
 fn adding_history_resets_navigation_to_the_new_end() {
     for position in [1, 3] {
         let mut history = History::new();

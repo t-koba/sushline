@@ -1134,7 +1134,30 @@ jobs:
               return 0;
           }
 
+          static int measure_fresh_appends(void) {
+              static const char *lines[] = {"alpha", "beta", "alpha gamma", "delta"};
+              static const char *labels[] = {"alpha", "beta", "gamma", "delta"};
+              using_history();
+              printf("initial_length: %d\n", history_length);
+              printf("initial_position: %d\n", where_history());
+              HIST_ENTRY *initial = current_history();
+              printf("initial_current: %s\n", initial ? initial->line : "(null)");
+              for (size_t index = 0; index < sizeof(lines) / sizeof(lines[0]); ++index) {
+                  add_history(lines[index]);
+                  HIST_ENTRY *current = current_history();
+                  printf("after_%s_length: %d\n", labels[index], history_length);
+                  printf("after_%s_position: %d\n", labels[index], where_history());
+                  printf("after_%s_current: %s\n", labels[index], current ? current->line : "(null)");
+              }
+              HIST_ENTRY *previous = previous_history();
+              printf("previous_entry: %s\n", previous ? previous->line : "(null)");
+              printf("after_previous_position: %d\n", where_history());
+              return 0;
+          }
+
           int main(int argc, char **argv) {
+              if (argc == 2 && strcmp(argv[1], "init") == 0)
+                  return measure_fresh_appends();
               if (argc == 2)
                   return measure_append_position(argv[1]);
               if (argc != 1)
@@ -1206,6 +1229,7 @@ jobs:
           # History unit test and are not used to assert GNU's result here.
           /tmp/history_position_probe middle | tee /tmp/history_position_append.out
           /tmp/history_position_probe end | tee -a /tmp/history_position_append.out
+          /tmp/history_position_probe init | tee -a /tmp/history_position_append.out
       - name: Measure and assert pinned History expansion fixtures
         run: |
           set -euo pipefail

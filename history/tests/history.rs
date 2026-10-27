@@ -1053,6 +1053,24 @@ fn full_write_resets_wider_existing_file_mode_to_owner_only() {
 }
 
 #[test]
+#[cfg(unix)]
+fn truncate_file_sets_owner_only_mode_for_measured_noop_and_rewrite() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    for (limit, expected) in [(2, &b"A\nB\n"[..]), (1, &b"B\n"[..])] {
+        fs::write(&path, b"A\nB\n").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        History::truncate_file(&path, limit).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), expected);
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+}
+
+#[test]
 fn load_file_limits_entries_and_append_new_tracks_loaded_boundary() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");

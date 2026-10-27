@@ -287,11 +287,12 @@ impl History {
     /// Truncate a file to a suffix selected by its physical LF bytes.
     ///
     /// If the number of LF bytes is at most `max_len`, the exact bytes are
-    /// preserved; on Unix, the mode is still set to owner-only `0600`.
+    /// preserved; on Unix, the mode is still set to owner-only `0600` for
+    /// history privacy, unlike the tested GNU History 8.3 no-op mode fixture.
     /// Otherwise, a zero limit empties the file, and a nonzero limit keeps
     /// the bytes after the first (LF count - `max_len`) LF bytes, including
     /// any unterminated tail. Timestamp records and blank lines count as
-    /// physical lines. This matches the tested GNU History 8.3 fixtures.
+    /// physical lines. The byte results match the tested GNU History 8.3 fixtures.
     pub fn truncate_file(path: impl AsRef<Path>, max_len: usize) -> io::Result<()> {
         let path = path.as_ref();
         let dest = effective_write_path(path)?;

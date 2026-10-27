@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fixture-scoped GNU History 8.3 byte assertions for the measured plain and
+# Fixture-scoped GNU History 8.3 byte and mode assertions for the measured plain and
 # timestamped inputs and limits below, with history_multiline_entries=0.
 # Each case uses two fresh files and child processes per report; primary and
 # replica retain independent, byte-comparable reports without runner identity.
@@ -86,6 +86,7 @@ import os
 import re
 import resource
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -94,6 +95,7 @@ import tempfile
 # Every fixture/limit pair asserts the measured status and exact bytes.
 LIMIT = 16384
 FIXTURES = {
+    "mode": b"A\nB\n",
     "crlf_plain": b"A0\r\nA1\r\nB0\r\n",
     "crlf_timestamped": b"#1700000000\r\nA0\r\nA1\r\n#1700000001\r\nB0\r\nB1\r\n",
     "blank": b"A\n\nB\n",
@@ -113,6 +115,7 @@ FIXTURES = {
     ),
 }
 LIMITS = {
+    "mode": (2, 1),
     "crlf_plain": (0, 1, 2, 3),
     "crlf_timestamped": (0, 1, 2, 3, 4, 5, 6),
     "blank": (10, 1),
@@ -129,6 +132,7 @@ LIMITS = {
     "timestamped_post_append": (2,),
 }
 EXPECTED = {
+    "mode": {2: b"A\nB\n", 1: b"B\n"},
     "crlf_plain": {0: b"", 1: b"B0\r\n", 2: b"A1\r\nB0\r\n", 3: b"A0\r\nA1\r\nB0\r\n"},
     "crlf_timestamped": {
         0: b"", 1: b"B1\r\n", 2: b"B0\r\nB1\r\n",
@@ -166,6 +170,8 @@ def run_trial(fixture, limit, trial):
         path = os.path.join(tempdir, "history")
         with open(path, "wb") as handle:
             handle.write(FIXTURES[fixture])
+        if fixture == "mode":
+            os.chmod(path, 0o644)
         env = os.environ.copy()
         env.update(INPUTRC="/dev/null", LC_ALL="C", TERM="dumb")
         child = subprocess.Popen(
@@ -221,6 +227,11 @@ def run_trial(fixture, limit, trial):
             print(f"{label}_result_hex={result.hex()}")
             if result != EXPECTED[fixture][limit]:
                 valid = False
+        if fixture == "mode":
+            mode = stat.S_IMODE(os.stat(path).st_mode)
+            print(f"{label}_result_mode={mode:04o}")
+            if mode != {2: 0o644, 1: 0o600}[limit]:
+                valid = False
         if timed_out or child.returncode != 0:
             valid = False
     finally:
@@ -253,7 +264,7 @@ def run_trial(fixture, limit, trial):
 
 try:
     results = [run_trial(fixture, limit, trial)
-               for fixture in ("crlf_plain", "crlf_timestamped", "blank", "unterminated", "unterminated_forced", "timestamped", "timestamped_single", "timestamped_blank", "timestamped_dangling", "timestamped_consecutive", "timestamped_unterminated_command", "timestamped_unterminated_marker", "timestamped_range_bounds", "timestamped_post_append")
+               for fixture in ("mode", "crlf_plain", "crlf_timestamped", "blank", "unterminated", "unterminated_forced", "timestamped", "timestamped_single", "timestamped_blank", "timestamped_dangling", "timestamped_consecutive", "timestamped_unterminated_command", "timestamped_unterminated_marker", "timestamped_range_bounds", "timestamped_post_append")
                for limit in LIMITS[fixture]
                for trial in (1, 2)]
     if not all(results):

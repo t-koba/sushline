@@ -3,9 +3,10 @@
 # independent reports. GNU byte assertions are limited to the exact two-block
 # timestamped fixture at its three previously measured limits. The plain
 # fixtures (`A\n\nB\n` with a blank line and `A\nB` with an unterminated
-# tail) retain their measured limits. The forced unterminated plain fixture,
-# additional timestamped limits and shapes are exploratory reports only; their
-# bytes are not asserted before measurement.
+# tail) retain their measured limits. The unterminated plain fixture at limit 0,
+# forced unterminated plain fixture, and additional timestamped limits and
+# shapes are exploratory reports only; their bytes are not asserted before
+# measurement.
 # Every case has two fresh files and child processes per report.
 # Report contents omit runner identity so independent outputs compare byte-for-byte.
 set -euo pipefail
@@ -117,7 +118,7 @@ FIXTURES = {
 }
 LIMITS = {
     "blank": (10, 1),
-    "unterminated": (10, 1),
+    "unterminated": (10, 1, 0),
     "unterminated_forced": (1, 2),
     "timestamped": (10, 1, 2, 3, 4),
     "timestamped_single": (1, 2),

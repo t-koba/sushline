@@ -43,28 +43,32 @@ int main(void) {
         return 2;
     using_history();
     const char *seed = "echo alpha-first alpha-last";
-    const char *needle = "alpha";
     add_history(seed);
     printf("seed[0]_bytes=%zu seed[0]_hex=", strlen(seed));
     print_hex(seed);
     putchar('\n');
-    /* Seed once, but reset the cursor explicitly before each direction. */
-    for (int direction = -1; direction <= 1; direction += 2) {
-        int positioned = history_set_pos(0);
-        int position = where_history();
-        printf("operation=history_set_pos direction=%+d requested_position=0 return=%d final_position=%d\n",
-               direction, positioned, position);
-        fflush(stdout);
-        if (!positioned || position != 0) return 3;
-        int offset = history_search(needle, direction);
-        HIST_ENTRY *entry = current_history();
-        printf("operation=history_search direction=%+d needle_hex=", direction);
-        print_hex(needle);
-        printf(" return_offset=%d final_position=%d current_entry_bytes=%zu current_entry_hex=",
-               offset, where_history(), entry ? strlen(entry->line) : 0);
-        print_hex(entry ? entry->line : NULL);
-        putchar('\n');
-        fflush(stdout);
+    const char *needles[] = {"alpha", ""};
+    for (size_t query = 0; query < sizeof(needles) / sizeof(needles[0]); query++) {
+        const char *needle = needles[query];
+        const char *suffix = query == 0 ? "" : "_empty";
+        /* Seed once, but reset the cursor explicitly before each direction. */
+        for (int direction = -1; direction <= 1; direction += 2) {
+            int positioned = history_set_pos(0);
+            int position = where_history();
+            printf("operation=history_set_pos%s direction=%+d requested_position=0 return=%d final_position=%d\n",
+                   suffix, direction, positioned, position);
+            fflush(stdout);
+            if (!positioned || position != 0) return 3;
+            int offset = history_search(needle, direction);
+            HIST_ENTRY *entry = current_history();
+            printf("operation=history_search%s direction=%+d needle_hex=", suffix, direction);
+            print_hex(needle);
+            printf(" return_offset=%d final_position=%d current_entry_bytes=%zu current_entry_hex=",
+                   offset, where_history(), entry ? strlen(entry->line) : 0);
+            print_hex(entry ? entry->line : NULL);
+            putchar('\n');
+            fflush(stdout);
+        }
     }
     clear_history();
     return 0;
@@ -85,5 +89,6 @@ PROBE
   sha256sum "$readline/lib/libhistory.so" "$readline/lib/libreadline.so"
   LC_ALL=C timeout 5 "$work/probe"
 } 2>&1 | tee "$out"
-grep -E '^(header_version=|seed\[|operation=)' "$out" > "$out.semantic"
+# Compare only the known control; empty-query observations stay in the raw report.
+grep -E '^(header_version=|seed\[|operation=(history_set_pos|history_search) )' "$out" > "$out.semantic"
 diff -u .github/scripts/history-search-offset.expected "$out.semantic"

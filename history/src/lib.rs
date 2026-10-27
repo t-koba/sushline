@@ -15,7 +15,8 @@ const TIMESTAMP_MARKER: u8 = b'#';
 pub struct HistoryEntry {
     /// Line bytes.
     pub line_bytes: Vec<u8>,
-    /// Timestamp metadata; invalid UTF-8 read from a file is replaced with U+FFFD.
+    /// Timestamp metadata; file input discards bytes after the first NUL, and
+    /// invalid UTF-8 is replaced with U+FFFD.
     pub timestamp: Option<String>,
     /// Modified.
     pub modified: bool,

@@ -579,9 +579,10 @@ fn read_history_blocks(file: fs::File) -> io::Result<Vec<HistoryBlock>> {
         }
         if timestamped_file && timestamp_record {
             // A timestamp record opens the block of the physical lines that
-            // follow it.
+            // follow it. GNU's C string handling stops timestamp metadata at NUL.
+            let timestamp_bytes = line.split(|byte| *byte == 0).next().unwrap_or_default();
             blocks.push(HistoryBlock {
-                timestamp: Some(String::from_utf8_lossy(&line).into_owned()),
+                timestamp: Some(String::from_utf8_lossy(timestamp_bytes).into_owned()),
                 lines: Vec::new(),
             });
             line.clear();

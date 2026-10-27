@@ -893,14 +893,14 @@ fn history_files_preserve_embedded_nul_bytes() {
     assert_eq!(joined.entries()[1].timestamp.as_deref(), Some("#456"));
     assert_eq!(joined.entries()[1].line_bytes, b"last");
 
-    // A NUL suffix in timestamp metadata is retained as Rust string data,
-    // while the leading `#digit` bytes still associate it with the first line.
+    // Timestamp metadata ends at NUL as in the pinned GNU History 8.3
+    // fixture; command-line NUL bytes remain covered separately above.
     std::fs::write(&path, b"#1700000000\0suffix\nalpha\nbeta\n").unwrap();
     let loaded = History::read_file(&path).unwrap();
     assert_eq!(loaded.entries().len(), 2);
     assert_eq!(
         loaded.entries()[0].timestamp.as_deref(),
-        Some("#1700000000\0suffix")
+        Some("#1700000000")
     );
     assert_eq!(loaded.entries()[0].timestamp_seconds(), Some(1_700_000_000));
     assert_eq!(loaded.entries()[0].line_bytes, b"alpha");
@@ -908,15 +908,12 @@ fn history_files_preserve_embedded_nul_bytes() {
     assert_eq!(loaded.entries()[1].line_bytes, b"beta");
 
     loaded.write_file_with_timestamps(&path, true).unwrap();
-    assert_eq!(
-        std::fs::read(&path).unwrap(),
-        b"#1700000000\0suffix\nalpha\nbeta\n"
-    );
+    assert_eq!(std::fs::read(&path).unwrap(), b"#1700000000\nalpha\nbeta\n");
     let roundtrip = History::read_file(&path).unwrap();
     assert_eq!(roundtrip.entries().len(), 2);
     assert_eq!(
         roundtrip.entries()[0].timestamp.as_deref(),
-        Some("#1700000000\0suffix")
+        Some("#1700000000")
     );
     assert_eq!(roundtrip.entries()[0].line_bytes, b"alpha");
     assert_eq!(roundtrip.entries()[1].timestamp.as_deref(), None);

@@ -4892,6 +4892,36 @@ fn unstifle_preserves_measured_offsets_and_entries() {
 }
 
 #[test]
+fn clear_resets_measured_offsets_and_preserves_stifling() {
+    for (limit, positions) in [
+        (None, &[0, 1, 2, 3, 4][..]),
+        (Some(2), &[1, 4][..]),
+        (Some(0), &[4][..]),
+    ] {
+        for &position in positions {
+            let mut history = History::new();
+            for line in ["A", "B", "C", "D"] {
+                history.push(line);
+            }
+            assert!(history.set_pos(position));
+            if let Some(limit) = limit {
+                history.stifle(limit);
+            }
+            assert_eq!(history.where_history(), position);
+            history.clear();
+            assert_eq!(
+                history.where_history(),
+                0,
+                "limit={limit:?} position={position}"
+            );
+            assert!(history.entries().is_empty());
+            assert_eq!(history.is_stifled(), limit.is_some());
+            assert_eq!(history.max_entries(), limit);
+        }
+    }
+}
+
+#[test]
 fn post_stifle_append_preserves_even_beyond_end_offsets() {
     for bytes in [false, true] {
         for limit in 0..=2 {

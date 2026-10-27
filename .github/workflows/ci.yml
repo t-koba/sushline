@@ -1270,7 +1270,21 @@ jobs:
               return 0;
           }
 
+          static int measure_clear(int limit, int pos) {
+              using_history();
+              add_history("A"); add_history("B"); add_history("C"); add_history("D");
+              if (!history_set_pos(pos)) return 3;
+              if (limit >= 0) stifle_history(limit);
+              if (where_history() != pos) return 4;
+              clear_history();
+              printf("limit=%d start=%d position=%d length=%d stifled=%d\n",
+                     limit, pos, where_history(), history_length, !!history_is_stifled());
+              return 0;
+          }
+
           int main(int argc, char **argv) {
+              if (argc == 4 && strcmp(argv[1], "clear") == 0)
+                  return measure_clear(atoi(argv[2]), atoi(argv[3]));
               if (argc == 4 && strcmp(argv[1], "unstifle") == 0)
                   return measure_unstifle(atoi(argv[2]), atoi(argv[3]));
               if (argc == 5 && strcmp(argv[1], "remove") == 0)
@@ -1431,6 +1445,17 @@ jobs:
             done
           } | tee /tmp/history_position_unstifle.out
           diff -u .github/scripts/history-position-unstifle.expected /tmp/history_position_unstifle.out
+          # Fresh processes; do not navigate or query current_history after clear.
+          {
+            for pos in 0 1 2 3 4; do
+              /tmp/history_position_probe clear -1 "$pos"
+            done
+            for pos in 1 4; do
+              /tmp/history_position_probe clear 2 "$pos"
+            done
+            /tmp/history_position_probe clear 0 4
+          } | tee /tmp/history_position_clear.out
+          diff -u .github/scripts/history-position-clear.expected /tmp/history_position_clear.out
       - name: Measure and assert pinned History expansion fixtures
         run: |
           set -euo pipefail
@@ -3171,6 +3196,7 @@ jobs:
             /tmp/history_position_append.out \
             /tmp/history_position_remove.out \
             /tmp/history_position_unstifle.out \
+            /tmp/history_position_clear.out \
             /tmp/history_import_cursor.out \
             /tmp/history_expand.out; do
             if [ -f "$report" ]; then

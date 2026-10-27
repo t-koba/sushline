@@ -1,0 +1,8 @@
+fixture=no-final-lf input_bytes=16 input_hex=410a420a756e7465726d696e61746564
+header_version=0x0803 runtime_version=0x0803
+operation=read_history multiline=1 status=0 entries=1
+entry[0] bytes=3 hex=410a42
+fixture=final-lf input_bytes=17 input_hex=410a420a756e7465726d696e617465640a
+header_version=0x0803 runtime_version=0x0803
+operation=read_history multiline=1 status=0 entries=1
+entry[0] bytes=16 hex=410a420a756e7465726d696e61746564

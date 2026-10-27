@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Measure only: collect both EOF variants before choosing any expected result.
+# Pin stable joined-EOF semantics while retaining the full provenance report.
 set -euo pipefail
 if [ $# -ne 1 ] || { [ "$1" != primary ] && [ "$1" != replica ]; }; then
   echo 'usage: history-joined-eof.sh <primary|replica>' >&2; exit 2
@@ -76,3 +76,5 @@ PROBE
   done
   exit "$probe_status"
 } 2>&1 | tee "$out"
+grep -E '^(fixture=|header_version=|operation=|entry\[)' "$out" > "$out.semantic"
+diff -u .github/scripts/history-joined-eof.expected "$out.semantic"

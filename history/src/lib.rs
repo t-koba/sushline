@@ -15,8 +15,8 @@ const TIMESTAMP_MARKER: u8 = b'#';
 pub struct HistoryEntry {
     /// Line bytes.
     pub line_bytes: Vec<u8>,
-    /// Timestamp metadata; file input discards bytes after the first NUL, and
-    /// invalid UTF-8 is replaced with U+FFFD.
+    /// Retained decoded timestamp metadata, including any NUL suffix. File
+    /// input replaces invalid UTF-8 with U+FFFD.
     pub timestamp: Option<String>,
     /// Modified.
     pub modified: bool,
@@ -28,6 +28,14 @@ impl HistoryEntry {
     /// Line.
     pub fn line(&self) -> Cow<'_, str> {
         String::from_utf8_lossy(&self.line_bytes)
+    }
+
+    /// A GNU-compatible timestamp-text view: the stored text before its first
+    /// NUL, or `None` if the entry has no timestamp. This does not control writes.
+    pub fn gnu_timestamp_text(&self) -> Option<&str> {
+        self.timestamp
+            .as_deref()
+            .map(|text| text.split('\0').next().unwrap_or(text))
     }
 
     /// The seconds the entry's timestamp record carries.

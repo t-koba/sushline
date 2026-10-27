@@ -281,8 +281,10 @@ quoting helpers stay in their own sibling modules.
 
 The `history` crate stores entries, timestamps, undo metadata, cursor state,
 stifling state, and the loaded-file boundary used by append-new writes. Search,
-navigation, expansion helpers, and byte-preserving file reads operate on that
-state.
+navigation, expansion helpers, and file reads that preserve command-line bytes
+operate on that state. Timestamp metadata is decoded with invalid UTF-8
+replaced; the stored text retains NUL suffixes, while `gnu_timestamp_text()`
+exposes the prefix before the first NUL.
 
 History file writes use last-writer-wins with no locking. For regular
 destinations, full writes and truncation write through a unique sibling
@@ -312,13 +314,12 @@ line an entry of its own, which is GNU's default `history_multiline_entries`
 mode: the first line after a timestamp record carries that timestamp, the lines
 after it carry none, and blank lines carry no entry. `HistoryMultiline::Joined`
 makes the lines that follow a timestamp record one entry, which is GNU's mode 1
-for a file in GNU's timestamp format. A `#`-plus-digits line is a timestamp
-record wherever it stands, while GNU decides a file's format from its first
-line and treats every line of a file that does not begin with a timestamp
-record as a command, so the two read such a file differently. The writer emits a
-record before an entry that carries one, so a file it writes can begin with a
-command line and hold a record later, which GNU reads as a file that carries no
-timestamp record at all.
+for a file in GNU's timestamp format. Both Sushline and GNU select the format
+from the first physical line: if it is not a timestamp record, later
+`#`-plus-digits lines are command text. The writer emits a record before an
+entry that carries one, so a timestamp-enabled write can begin with a command
+line and hold a record later; on reread that later record is command text, not
+metadata.
 `read_file`/`load_file` and their range variants take the default; the
 `read_file_with_multiline`, `load_file_with_multiline`,
 `read_file_range_with_multiline` and `load_file_range_with_multiline` entry

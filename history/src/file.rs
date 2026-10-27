@@ -195,6 +195,8 @@ impl History {
     }
 
     /// Write file with timestamps.
+    ///
+    /// When enabled, writes stored timestamp text including any NUL suffix.
     pub fn write_file_with_timestamps(
         &self,
         path: impl AsRef<Path>,
@@ -221,6 +223,8 @@ impl History {
     }
 
     /// Append file with timestamps.
+    ///
+    /// When enabled, writes stored timestamp text including any NUL suffix.
     pub fn append_file_with_timestamps(
         &self,
         path: impl AsRef<Path>,
@@ -579,10 +583,9 @@ fn read_history_blocks(file: fs::File) -> io::Result<Vec<HistoryBlock>> {
         }
         if timestamped_file && timestamp_record {
             // A timestamp record opens the block of the physical lines that
-            // follow it. GNU's C string handling stops timestamp metadata at NUL.
-            let timestamp_bytes = line.split(|byte| *byte == 0).next().unwrap_or_default();
+            // follow it. Retain the decoded metadata, including NUL suffixes.
             blocks.push(HistoryBlock {
-                timestamp: Some(String::from_utf8_lossy(timestamp_bytes).into_owned()),
+                timestamp: Some(String::from_utf8_lossy(&line).into_owned()),
                 lines: Vec::new(),
             });
             line.clear();

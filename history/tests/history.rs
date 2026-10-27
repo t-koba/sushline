@@ -880,6 +880,53 @@ fn truncate_crlf_history_preserves_measured_gnu_bytes() {
 }
 
 #[test]
+fn appends_to_unterminated_history_file_tails() {
+    // GNU History 8.3 append_history counts the last N entries; these APIs
+    // select the same suffix by its starting index.
+    type Fixture = (&'static [u8], bool, [&'static [u8]; 3]);
+    let fixtures: &[Fixture] = &[
+        (
+            b"old-tail",
+            false,
+            [b"old-tail", b"old-tailnew2\n", b"old-tailnew1\nnew2\n"],
+        ),
+        (
+            b"#1700000000\nold-tail",
+            true,
+            [
+                b"#1700000000\nold-tail",
+                b"#1700000000\nold-tail#1700000002\nnew2\n",
+                b"#1700000000\nold-tail#1700000001\nnew1\n#1700000002\nnew2\n",
+            ],
+        ),
+    ];
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    let mut history = History::new();
+    history.push("new1");
+    history.add_time("#1700000001");
+    history.push("new2");
+    history.add_time("#1700000002");
+    for &(source, timestamps, expected) in fixtures {
+        for (count, bytes) in expected.iter().enumerate() {
+            fs::write(&path, source).unwrap();
+            if timestamps {
+                history
+                    .append_file_with_timestamps(&path, 2 - count, true)
+                    .unwrap();
+            } else {
+                history.append_file(&path, 2 - count).unwrap();
+            }
+            assert_eq!(
+                fs::read(&path).unwrap(),
+                *bytes,
+                "timestamps={timestamps} count={count}"
+            );
+        }
+    }
+}
+
+#[test]
 fn failed_full_write_cleans_up_sibling_tmp() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");

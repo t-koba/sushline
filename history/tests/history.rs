@@ -3547,6 +3547,59 @@ fn replace_preserves_timestamps_undo_history_and_timestamped_serialization() {
     );
 }
 
+// The pinned GNU 8.3 position fixture covers selected cases in this matrix.
+#[test]
+fn replacement_preserves_numeric_position_for_valid_and_invalid_indexes() {
+    for (stifled, positions, indexes) in [
+        (false, &[0, 1, 2, 3, 4][..], &[0, 1, 2, 3, 4][..]),
+        (true, &[1, 2, 4][..], &[0, 1, 2][..]),
+    ] {
+        for &pos in positions {
+            for &index in indexes {
+                let mut history = History::new();
+                for line in ["A", "B", "C", "D"] {
+                    history.push(line);
+                }
+                assert!(history.set_pos(pos));
+                if stifled {
+                    history.stifle(2);
+                }
+                let mut expected = if stifled {
+                    vec!["C", "D"]
+                } else {
+                    vec!["A", "B", "C", "D"]
+                };
+                let old = expected.get(index).copied();
+                let previous = history.replace(index, "R");
+                assert_eq!(previous.as_ref().map(|entry| entry.line()).as_deref(), old);
+                if index < expected.len() {
+                    expected[index] = "R";
+                }
+                assert_eq!(
+                    history.where_history(),
+                    pos,
+                    "stifled={stifled} pos={pos} index={index}"
+                );
+                assert_eq!(
+                    history
+                        .current_history()
+                        .map(|entry| entry.line())
+                        .as_deref(),
+                    expected.get(pos).copied()
+                );
+                assert_eq!(
+                    history
+                        .entries()
+                        .iter()
+                        .map(|entry| entry.line())
+                        .collect::<Vec<_>>(),
+                    expected
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn replace_preserves_cursor_and_invalid_remove_is_noop() {
     let mut history = History::new();

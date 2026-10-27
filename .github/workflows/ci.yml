@@ -1252,6 +1252,26 @@ jobs:
               return 0;
           }
 
+          static int measure_replacement(int pos, int index, int stifled) {
+              using_history();
+              add_history("A"); add_history("B"); add_history("C"); add_history("D");
+              if (!history_set_pos(pos)) return 3;
+              if (stifled) stifle_history(2);
+              if (where_history() != pos) return 4;
+              HIST_ENTRY *old = replace_history_entry(index, "R", NULL);
+              int after = where_history();
+              HIST_ENTRY *current = after >= 0 && after < history_length ? current_history() : NULL;
+              HIST_ENTRY **list = history_list();
+              printf("stifled=%d start=%d replace=%d old=%s position=%d length=%d current=%s list=",
+                     stifled, pos, index, old ? old->line : "(null)", after, history_length,
+                     current ? current->line : "(null)");
+              for (int i = 0; i < history_length; ++i)
+                  printf("%s%s", i ? "," : "", list[i]->line);
+              putchar('\n');
+              if (old) free_history_entry(old);
+              return 0;
+          }
+
           static int measure_unstifle(int limit, int pos) {
               using_history();
               add_history("A"); add_history("B"); add_history("C"); add_history("D");
@@ -1287,6 +1307,8 @@ jobs:
                   return measure_clear(atoi(argv[2]), atoi(argv[3]));
               if (argc == 4 && strcmp(argv[1], "unstifle") == 0)
                   return measure_unstifle(atoi(argv[2]), atoi(argv[3]));
+              if (argc == 5 && strcmp(argv[1], "replace") == 0)
+                  return measure_replacement(atoi(argv[2]), atoi(argv[3]), atoi(argv[4]));
               if (argc == 5 && strcmp(argv[1], "remove") == 0)
                   return measure_removal(atoi(argv[2]), atoi(argv[3]), atoi(argv[4]));
               if (argc == 4 && strcmp(argv[1], "preserve") == 0)
@@ -1435,6 +1457,21 @@ jobs:
             done
           } | tee /tmp/history_position_remove.out
           diff -u .github/scripts/history-position-remove.expected /tmp/history_position_remove.out
+          # Fresh processes for selected replacements, including invalid indexes and
+          # stifled beyond-end offsets; current_history is guarded by length.
+          {
+            for pos in 0 1 2 4; do
+              for index in 0 1 3 4; do
+                /tmp/history_position_probe replace "$pos" "$index" 0
+              done
+            done
+            for pos in 1 2 4; do
+              for index in 0 1 2; do
+                /tmp/history_position_probe replace "$pos" "$index" 1
+              done
+            done
+          } | tee /tmp/history_position_replace.out
+          diff -u .github/scripts/history-position-replace.expected /tmp/history_position_replace.out
           # Each unstifle case starts fresh; current_history is guarded by length.
           {
             for pos in 0 2 4; do
@@ -3195,6 +3232,7 @@ jobs:
             /tmp/history_position.out \
             /tmp/history_position_append.out \
             /tmp/history_position_remove.out \
+            /tmp/history_position_replace.out \
             /tmp/history_position_unstifle.out \
             /tmp/history_position_clear.out \
             /tmp/history_import_cursor.out \

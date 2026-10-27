@@ -1,0 +1,12 @@
+empty total=0 entries=0
+ascii total=3 entries=1 e0=one ts=
+empty_timestamp total=3 entries=1 e0=one ts=
+timestamp total=7 entries=1 e0=one ts=#123
+multibyte total=9 entries=2 e0=one ts=#123 e1=é ts=
+multibyte_timestamp total=13 entries=2 e0=one ts=#123 e1=é ts=#-45
+replace_old=one
+replaced total=17 entries=2 e0=changed ts=#123 e1=é ts=#-45
+remove_old=é
+removed total=11 entries=1 e0=changed ts=#123
+before_stifle total=9 entries=3 e0=aaa ts= e1=bbbb ts= e2=cc ts=
+stifled_one total=2 entries=1 e0=cc ts=

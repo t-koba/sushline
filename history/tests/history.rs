@@ -3464,9 +3464,12 @@ fn total_bytes_counts_resident_timestamps() {
     assert!(history.add_time(""));
     assert_eq!(history.total_bytes(), 3 + 4 + 2);
 
+    assert!(history.add_time("#-45"));
+    assert_eq!(history.total_bytes(), 3 + 4 + 2 + 4);
+
     // Replacement keeps the timestamp and recounts the new line.
     history.replace(0, "changed").unwrap();
-    assert_eq!(history.total_bytes(), 7 + 4 + 2);
+    assert_eq!(history.total_bytes(), 7 + 4 + 2 + 4);
 
     // Removal subtracts the entry, clear returns to zero.
     history.remove(1).unwrap();
@@ -3476,6 +3479,14 @@ fn total_bytes_counts_resident_timestamps() {
     history.push("last");
     history.clear();
     assert_eq!(history.total_bytes(), 0);
+
+    history.push("aaa");
+    history.push("bbbb");
+    history.push("cc");
+    assert_eq!(history.total_bytes(), 9);
+    history.stifle(1);
+    assert_eq!(history.entries()[0].line(), "cc");
+    assert_eq!(history.total_bytes(), 2);
 }
 #[test]
 fn set_line_bytes_preserves_metadata_and_marks_only_changed_content() {

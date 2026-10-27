@@ -1076,6 +1076,8 @@ jobs:
           grep -qx 'marker_differs: 0' /tmp/history_time.out
           grep -qx 'vertical_tab: 1700000000' /tmp/history_time.out
           grep -qx 'does_not_fit: 0' /tmp/history_time.out
+      - name: Measure pinned history total bytes
+        run: bash .github/scripts/history-total-bytes.sh
       - name: Measure pinned history file-import cursors
         run: bash .github/scripts/history-import-cursor.sh
       - name: Measure the pinned release's history positions and search arguments

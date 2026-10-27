@@ -91,7 +91,115 @@ fn adding_history_preserves_explicit_middle_and_old_end_positions() {
 }
 
 #[test]
-fn append_clears_current_edit_and_preserves_stifled_and_import_cursors() {
+fn stifled_raw_appends_preserve_numeric_positions() {
+    for bytes in [false, true] {
+        let append = |history: &mut History, line: &str| {
+            if bytes {
+                history.push_bytes(line.as_bytes().to_vec());
+            } else {
+                history.push(line);
+            }
+        };
+        for limit in [0, 1, 2] {
+            let mut history = History::new();
+            history.stifle(limit);
+            for (index, line) in ["alpha", "beta", "gamma"].iter().enumerate() {
+                append(&mut history, line);
+                assert_eq!(history.where_history(), 0);
+                assert_eq!(history.len(), (index + 1).min(limit));
+                let expected_current = match limit {
+                    0 => None,
+                    1 => Some(line.as_bytes()),
+                    2 => Some(["alpha", "beta", "gamma"][index.saturating_sub(1)].as_bytes()),
+                    _ => unreachable!(),
+                };
+                assert_eq!(
+                    history
+                        .current_history()
+                        .map(|entry| entry.line_bytes.as_slice()),
+                    expected_current
+                );
+                assert!(history.previous_history().is_none());
+            }
+        }
+
+        let mut history = History::new();
+        for line in ["alpha", "beta", "gamma"] {
+            history.push(line);
+        }
+        history.stifle(1);
+        assert_eq!(history.entries()[0].line_bytes, b"gamma");
+        assert!(history.set_pos(1));
+        append(&mut history, "delta");
+        assert_eq!(history.where_history(), 1);
+        assert_eq!(history.entries()[0].line_bytes, b"delta");
+        assert!(history.current_history().is_none());
+        assert_eq!(history.previous_history().unwrap().line_bytes, b"delta");
+        assert_eq!(history.where_history(), 0);
+
+        for position in 0..=2 {
+            let mut history = History::new();
+            for line in ["alpha", "beta", "gamma"] {
+                history.push(line);
+            }
+            history.stifle(2);
+            assert_eq!(
+                history
+                    .entries()
+                    .iter()
+                    .map(|entry| entry.line_bytes.as_slice())
+                    .collect::<Vec<_>>(),
+                vec![&b"beta"[..], &b"gamma"[..]]
+            );
+            assert!(history.set_pos(position));
+            append(&mut history, "delta");
+            assert_eq!(
+                history
+                    .entries()
+                    .iter()
+                    .map(|entry| entry.line_bytes.as_slice())
+                    .collect::<Vec<_>>(),
+                vec![&b"gamma"[..], &b"delta"[..]]
+            );
+            assert_eq!(history.where_history(), position);
+            assert_eq!(
+                history
+                    .current_history()
+                    .map(|entry| entry.line_bytes.as_slice()),
+                [Some(&b"gamma"[..]), Some(&b"delta"[..]), None][position]
+            );
+            assert_eq!(
+                history
+                    .previous_history()
+                    .map(|entry| entry.line_bytes.as_slice()),
+                [None, Some(&b"gamma"[..]), Some(&b"delta"[..])][position]
+            );
+            assert_eq!(history.where_history(), position.saturating_sub(1));
+        }
+
+        // Stifled pushes also discard the saved edit, not just the cursor.
+        let mut history = History::new();
+        history.stifle(2);
+        append(&mut history, "old");
+        history.reset_cursor();
+        assert_eq!(
+            history.navigate_bytes(HistoryDirection::Previous, b"draft".to_vec()),
+            Some(b"old".to_vec())
+        );
+        append(&mut history, "new");
+        assert_eq!(
+            history.navigate_bytes(HistoryDirection::Next, b"old".to_vec()),
+            Some(b"new".to_vec())
+        );
+        assert_eq!(
+            history.navigate_bytes(HistoryDirection::Next, b"new".to_vec()),
+            Some(Vec::new())
+        );
+    }
+}
+
+#[test]
+fn append_clears_current_edit_and_preserves_import_cursor() {
     let mut history = History::new();
     history.push("old");
     history.reset_cursor();
@@ -109,15 +217,6 @@ fn append_clears_current_edit_and_preserves_stifled_and_import_cursors() {
         history.navigate_bytes(HistoryDirection::Next, b"new".to_vec()),
         Some(Vec::new())
     );
-
-    for limit in [0, 1, 2] {
-        let mut history = History::new();
-        history.push("old");
-        history.stifle(limit);
-        history.push("new");
-        assert_eq!(history.where_history(), history.len());
-        assert!(history.current_history().is_none());
-    }
 
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");

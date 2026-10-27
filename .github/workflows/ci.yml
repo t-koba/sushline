@@ -1155,7 +1155,66 @@ jobs:
               return 0;
           }
 
+          static void print_stifled_snapshot(const char *fixture, const char *stage) {
+              HIST_ENTRY **list = history_list();
+              HIST_ENTRY *current = current_history();
+              printf("%s %s: length=%d position=%d first=%s second=%s current=%s\n",
+                     fixture, stage, history_length, where_history(),
+                     history_length > 0 ? list[0]->line : "(null)",
+                     history_length > 1 ? list[1]->line : "(null)",
+                     current ? current->line : "(null)");
+          }
+
+          static int measure_stifled(const char *fixture) {
+              using_history();
+              if (strcmp(fixture, "stifle0") == 0 || strcmp(fixture, "stifle1") == 0) {
+                  stifle_history(fixture[6] - '0');
+                  add_history("alpha");
+                  print_stifled_snapshot(fixture, "alpha");
+                  add_history("beta");
+                  print_stifled_snapshot(fixture, "beta");
+              } else if (strcmp(fixture, "stifle1-end") == 0) {
+                  add_history("alpha");
+                  add_history("beta");
+                  add_history("gamma");
+                  stifle_history(1);
+                  if (!history_set_pos(1))
+                      return 3;
+                  print_stifled_snapshot(fixture, "before");
+                  add_history("delta");
+                  print_stifled_snapshot(fixture, "after");
+              } else if (strcmp(fixture, "stifle2-seq") == 0) {
+                  stifle_history(2);
+                  add_history("alpha");
+                  print_stifled_snapshot(fixture, "alpha");
+                  add_history("beta");
+                  print_stifled_snapshot(fixture, "beta");
+                  add_history("gamma");
+                  print_stifled_snapshot(fixture, "gamma");
+              } else if (strncmp(fixture, "stifle2-", 8) == 0 &&
+                         strlen(fixture) == 9 && fixture[8] >= '0' && fixture[8] <= '2') {
+                  int position = fixture[8] - '0';
+                  add_history("alpha");
+                  add_history("beta");
+                  add_history("gamma");
+                  stifle_history(2);
+                  if (!history_set_pos(position))
+                      return 3;
+                  print_stifled_snapshot(fixture, "before");
+                  add_history("delta");
+                  print_stifled_snapshot(fixture, "after");
+              } else {
+                  return 2;
+              }
+              HIST_ENTRY *previous = previous_history();
+              printf("%s previous: position=%d entry=%s\n", fixture, where_history(),
+                     previous ? previous->line : "(null)");
+              return 0;
+          }
+
           int main(int argc, char **argv) {
+              if (argc == 2 && strncmp(argv[1], "stifle", 6) == 0)
+                  return measure_stifled(argv[1]);
               if (argc == 2 && strcmp(argv[1], "init") == 0)
                   return measure_fresh_appends();
               if (argc == 2)
@@ -1230,6 +1289,38 @@ jobs:
           /tmp/history_position_probe middle | tee /tmp/history_position_append.out
           /tmp/history_position_probe end | tee -a /tmp/history_position_append.out
           /tmp/history_position_probe init | tee -a /tmp/history_position_append.out
+          # The stifled fixtures are asserted independently of the Rust tests.
+          # Each process starts fresh; the retained artifact includes both
+          # the pre-eviction list and the resulting numeric position.
+          for fixture in stifle0 stifle1 stifle1-end stifle2-seq stifle2-0 stifle2-1 stifle2-2; do
+            /tmp/history_position_probe "$fixture" | tee -a /tmp/history_position_append.out
+          done
+          grep '^stifle' /tmp/history_position_append.out > /tmp/history_position_stifled.out
+          cat > /tmp/history_position_stifled.expected <<'EXPECTED'
+          stifle0 alpha: length=0 position=0 first=(null) second=(null) current=(null)
+          stifle0 beta: length=0 position=0 first=(null) second=(null) current=(null)
+          stifle0 previous: position=0 entry=(null)
+          stifle1 alpha: length=1 position=0 first=alpha second=(null) current=alpha
+          stifle1 beta: length=1 position=0 first=beta second=(null) current=beta
+          stifle1 previous: position=0 entry=(null)
+          stifle1-end before: length=1 position=1 first=gamma second=(null) current=(null)
+          stifle1-end after: length=1 position=1 first=delta second=(null) current=(null)
+          stifle1-end previous: position=0 entry=delta
+          stifle2-seq alpha: length=1 position=0 first=alpha second=(null) current=alpha
+          stifle2-seq beta: length=2 position=0 first=alpha second=beta current=alpha
+          stifle2-seq gamma: length=2 position=0 first=beta second=gamma current=beta
+          stifle2-seq previous: position=0 entry=(null)
+          stifle2-0 before: length=2 position=0 first=beta second=gamma current=beta
+          stifle2-0 after: length=2 position=0 first=gamma second=delta current=gamma
+          stifle2-0 previous: position=0 entry=(null)
+          stifle2-1 before: length=2 position=1 first=beta second=gamma current=gamma
+          stifle2-1 after: length=2 position=1 first=gamma second=delta current=delta
+          stifle2-1 previous: position=0 entry=gamma
+          stifle2-2 before: length=2 position=2 first=beta second=gamma current=(null)
+          stifle2-2 after: length=2 position=2 first=gamma second=delta current=(null)
+          stifle2-2 previous: position=1 entry=delta
+          EXPECTED
+          diff -u /tmp/history_position_stifled.expected /tmp/history_position_stifled.out
       - name: Measure and assert pinned History expansion fixtures
         run: |
           set -euo pipefail

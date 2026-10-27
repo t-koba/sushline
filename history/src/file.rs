@@ -639,9 +639,8 @@ fn group_history_blocks(
             }
             continue;
         }
-        // The command lines of the block: physical lines that carry an
-        // entry. A blank line carries no entry but still advances a range
-        // bound.
+        // Nonblank command lines normally carry entries; blanks still
+        // advance range bounds and may form a blank-only joined range.
         let command_lines: Vec<usize> = block
             .lines
             .iter()
@@ -666,6 +665,15 @@ fn group_history_blocks(
             }
         };
         if selected.is_empty() {
+            if multiline == HistoryMultiline::Joined
+                && block.timestamp.is_some()
+                && let Some((from, 1)) = selection
+                && from >= block_start
+                && from < range_index
+                && block.lines[from - block_start].is_empty()
+            {
+                records.push((Vec::new(), None));
+            }
             continue;
         }
         // The timestamp record applies to the first command line of its

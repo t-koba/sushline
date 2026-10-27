@@ -1562,6 +1562,66 @@ fn timestamped_range_bounds_count_blank_lines() {
 }
 
 #[test]
+fn joined_blank_only_ranges_preserve_one_untimestamped_entry() {
+    let dir = tempfile::tempdir().unwrap();
+    for (name, contents) in [
+        (
+            "timestamped",
+            "#1700000000\nA0\n\nA1\n#1700000001\nB0\nB1\n",
+        ),
+        ("plain", "A0\n\nA1\nB0\nB1\n"),
+    ] {
+        let path = dir.path().join(name);
+        fs::write(&path, contents).unwrap();
+        for to in [1, 2] {
+            let per_line = History::read_file_range_with_multiline(
+                &path,
+                1,
+                Some(to),
+                HistoryMultiline::PerLine,
+            )
+            .unwrap();
+            assert!(per_line.entries().is_empty(), "{name}: to={to}");
+            let joined = History::read_file_range_with_multiline(
+                &path,
+                1,
+                Some(to),
+                HistoryMultiline::Joined,
+            )
+            .unwrap();
+            assert_eq!(joined.entries().len(), 1, "{name}: to={to}");
+            assert!(joined.entries()[0].line_bytes.is_empty(), "{name}: to={to}");
+            assert_eq!(joined.entries()[0].timestamp, None, "{name}: to={to}");
+        }
+    }
+
+    let mut loaded = History::new();
+    loaded
+        .load_file_range_with_multiline(
+            dir.path().join("timestamped"),
+            1,
+            Some(2),
+            None,
+            HistoryMultiline::Joined,
+        )
+        .unwrap();
+    assert_eq!(loaded.entries().len(), 1);
+    assert!(loaded.entries()[0].line_bytes.is_empty());
+    assert_eq!(loaded.entries()[0].timestamp, None);
+}
+
+#[test]
+fn timestamped_joined_ranges_do_not_create_entries_for_multiple_blanks() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(&path, "#1700000000\nA0\n\n\nA1\n").unwrap();
+    let joined =
+        History::read_file_range_with_multiline(&path, 1, Some(3), HistoryMultiline::Joined)
+            .unwrap();
+    assert!(joined.entries().is_empty());
+}
+
+#[test]
 fn range_edges_at_blank_physical_lines_keep_the_current_rule() {
     let dir = tempfile::tempdir().unwrap();
     let fixtures = [
@@ -4457,7 +4517,7 @@ fn joined_range_edges_at_blank_physical_lines_keep_current_rule() {
                 .collect::<Vec<_>>()
         };
 
-        let blank = if name == "plain" { vec![""] } else { vec![] };
+        let blank = vec![""];
         assert_eq!(lines(1, 1), blank, "{name}: equal blank-line bound");
         assert_eq!(lines(1, 2), blank, "{name}: exclusive TO leaves blank only");
         assert_eq!(lines(2, 1), reversed_to_eof, "{name}: TO blank");

@@ -314,9 +314,11 @@ line an entry of its own, which is GNU's default `history_multiline_entries`
 mode: the first line after a timestamp record carries that timestamp, the lines
 after it carry none, and blank lines carry no entry. `HistoryMultiline::Joined`
 makes the lines that follow a timestamp record one entry, which is GNU's mode 1
-for a file in GNU's timestamp format. Both Sushline and GNU select the format
-from the first physical line: if it is not a timestamp record, later
-`#`-plus-digits lines are command text. The writer emits a record before an
+for a file in GNU's timestamp format. In the pinned GNU 8.3 timestamped
+joined-range fixture, selecting only the blank physical command line returns an
+untimestamped empty entry in both Sushline and GNU for `(1,1)` and `(1,2)`. Both
+Sushline and GNU select the format from the first physical line: if it is not a
+timestamp record, later `#`-plus-digits lines are command text. The writer emits a record before an
 entry that carries one, so a timestamp-enabled write can begin with a command
 line and hold a record later; on reread that later record is command text, not
 metadata.

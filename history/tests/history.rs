@@ -682,7 +682,7 @@ fn history_files_join_timestamp_delimited_multiline_and_preserve_blanks() {
     assert_eq!(reread.entries().len(), 2);
     assert_eq!(reread.entries()[0].line_bytes, b"line one\n\nline two");
 
-    // Without timestamps there is no delimiter: blank is dropped and lines split.
+    // Default per-line grouping drops blanks in plain files.
     fs::write(&path, "line one\n\nline two\nnext\n").unwrap();
     let plain = History::read_file(&path).unwrap();
     assert_eq!(
@@ -697,7 +697,7 @@ fn history_files_join_timestamp_delimited_multiline_and_preserve_blanks() {
             "next".to_string()
         ]
     );
-    // A file without timestamps groups the same way in both modes.
+    // Joined grouping preserves the selected plain physical lines.
     let plain_joined = History::read_file_with_multiline(&path, HistoryMultiline::Joined).unwrap();
     assert_eq!(
         plain_joined
@@ -705,11 +705,7 @@ fn history_files_join_timestamp_delimited_multiline_and_preserve_blanks() {
             .iter()
             .map(|entry| entry.line().into_owned())
             .collect::<Vec<_>>(),
-        vec![
-            "line one".to_string(),
-            "line two".to_string(),
-            "next".to_string()
-        ]
+        vec!["line one\n\nline two\nnext".to_string()]
     );
 }
 
@@ -754,7 +750,7 @@ fn history_files_group_physical_lines_by_multiline_policy() {
 }
 
 #[test]
-fn history_multiline_joined_keeps_plain_range_file_per_line() {
+fn history_multiline_joined_joins_plain_range_file() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");
     fs::write(&path, "C0\nC1\nC2\nC3\n").unwrap();
@@ -768,7 +764,7 @@ fn history_multiline_joined_keeps_plain_range_file_per_line() {
             .iter()
             .map(|entry| entry.line().into_owned())
             .collect::<Vec<_>>(),
-        vec!["C0".to_string(), "C1".to_string(), "C2".to_string()]
+        vec!["C0\nC1\nC2".to_string()]
     );
 }
 
@@ -796,6 +792,41 @@ fn load_file_variants_take_the_multiline_policy() {
         .unwrap();
     assert_eq!(ranged.entries().len(), 1);
     assert_eq!(ranged.entries()[0].line_bytes, b"two");
+}
+
+#[test]
+fn plain_joined_loads_selected_physical_lines_and_handles_empty_ranges() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(&path, b"\nA\n\nB\n\nunterminated").unwrap();
+
+    let mut loaded = History::new();
+    loaded
+        .load_file_with_multiline(&path, None, HistoryMultiline::Joined)
+        .unwrap();
+    assert_eq!(loaded.entries().len(), 1);
+    assert_eq!(loaded.entries()[0].line_bytes, b"\nA\n\nB\n");
+    assert_eq!(loaded.entries()[0].timestamp, None);
+
+    let mut ranged = History::new();
+    ranged
+        .load_file_range_with_multiline(&path, 2, Some(5), None, HistoryMultiline::Joined)
+        .unwrap();
+    assert_eq!(ranged.entries().len(), 1);
+    assert_eq!(ranged.entries()[0].line_bytes, b"\nB\n");
+    assert!(
+        History::read_file_range_with_multiline(&path, 5, None, HistoryMultiline::Joined)
+            .unwrap()
+            .entries()
+            .is_empty()
+    );
+    fs::write(&path, b"").unwrap();
+    assert!(
+        History::read_file_with_multiline(&path, HistoryMultiline::Joined)
+            .unwrap()
+            .entries()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -1581,7 +1612,7 @@ fn plain_range_bounds_count_blank_lines_in_both_modes() {
             .iter()
             .map(|entry| entry.line().into_owned())
             .collect::<Vec<_>>(),
-        vec!["A0".to_string(), "A1".to_string()]
+        vec!["A0\n\nA1".to_string()]
     );
 }
 
@@ -4228,10 +4259,8 @@ fn history_expansion_preserves_backslashes_before_ordinary_bytes() {
 }
 
 #[test]
-fn joined_grouping_keeps_plain_command_lines_separate() {
-    // The pinned GNU 8.3 range probe joins selected plain command lines in
-    // mode 1. This library's Joined policy only joins blocks opened by
-    // timestamp records, so an ordinary command file remains per-line.
+fn joined_grouping_joins_plain_command_lines() {
+    // Plain command lines form one entry in joined mode.
     let dir = tempfile::tempdir().unwrap();
     let plain = dir.path().join("plain");
     fs::write(&plain, "C0\nC1\nC2\nC3\n").unwrap();
@@ -4242,12 +4271,7 @@ fn joined_grouping_keeps_plain_command_lines_separate() {
             .iter()
             .map(|entry| entry.line().into_owned())
             .collect::<Vec<_>>(),
-        vec![
-            "C0".to_string(),
-            "C1".to_string(),
-            "C2".to_string(),
-            "C3".to_string(),
-        ]
+        vec!["C0\nC1\nC2\nC3".to_string()]
     );
 }
 
@@ -4399,7 +4423,7 @@ fn joined_range_edges_at_blank_physical_lines_keep_current_rule() {
             "#1700000000\nA0\n\nA1\n#1700000001\nB0\nB1\n",
             vec!["A1", "B0\nB1"],
         ),
-        ("plain", "A0\n\nA1\nB0\nB1\n", vec!["A1", "B0", "B1"]),
+        ("plain", "A0\n\nA1\nB0\nB1\n", vec!["A1\nB0\nB1"]),
     ];
 
     for (name, contents, reversed_to_eof) in fixtures {
@@ -4414,13 +4438,16 @@ fn joined_range_edges_at_blank_physical_lines_keep_current_rule() {
                 .collect::<Vec<_>>()
         };
 
-        assert!(lines(1, 1).is_empty(), "{name}: equal blank-line bound");
-        assert!(
-            lines(1, 2).is_empty(),
-            "{name}: exclusive TO leaves blank only"
-        );
+        let blank = if name == "plain" { vec![""] } else { vec![] };
+        assert_eq!(lines(1, 1), blank, "{name}: equal blank-line bound");
+        assert_eq!(lines(1, 2), blank, "{name}: exclusive TO leaves blank only");
         assert_eq!(lines(2, 1), reversed_to_eof, "{name}: TO blank");
-        assert_eq!(lines(1, 0), reversed_to_eof, "{name}: FROM blank");
+        let from_blank = if name == "plain" {
+            vec!["\nA1\nB0\nB1"]
+        } else {
+            reversed_to_eof
+        };
+        assert_eq!(lines(1, 0), from_blank, "{name}: FROM blank");
     }
 }
 
@@ -4438,7 +4465,7 @@ fn full_file_blank_line_modes_preserve_current_grouping_policy() {
             "plain",
             "\nA\n\n\nB\n\n\nC\n\n",
             vec!["A", "B", "C"],
-            vec!["A", "B", "C"],
+            vec!["\nA\n\n\nB\n\n\nC\n"],
         ),
     ];
 

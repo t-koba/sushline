@@ -136,13 +136,13 @@ pub enum HistoryMultiline {
     /// matching the pinned GNU 8.3 full-file fixture.
     #[default]
     PerLine,
-    /// The physical lines that follow a timestamp record make one entry.
-    /// This is GNU's `history_multiline_entries` mode 1 for a file in GNU's
-    /// timestamp format. In the installed GNU 8.2 full-file comparison, mode 1
-    /// drops a blank line inside a block; pinned GNU 8.3 range fixtures retain
-    /// an interior blank in the selected joined entry. GNU mode 1 also joins
-    /// the lines of a file that does not begin with a timestamp record into one
-    /// entry, which this grouping does not.
+    /// The physical lines that follow a timestamp record make one entry,
+    /// dropping leading blanks and retaining interior blanks. Installed GNU 8.2
+    /// dropped an interior blank in a full-file comparison; pinned GNU 8.3
+    /// retained one in a range fixture. For a plain file,
+    /// selected physical lines form one entry, including blank lines. Pinned
+    /// GNU History 8.3 range and full-file plain fixtures show the same joined
+    /// bytes; see `COMPATIBILITY.md` for the fixture-scoped observations.
     Joined,
 }
 

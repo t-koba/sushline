@@ -69,17 +69,16 @@ impl History {
     /// Read file range with a multiline policy.
     ///
     /// FROM/TO bounds count physical command lines, including blank lines
-    /// that carry no entry; timestamp records are metadata and do not count.
-    /// This counting is pinned against GNU History 8.3 for the tested FROM<TO
-    /// cases (see the fixture-scoped results in `COMPATIBILITY.md`). The
+    /// that may contribute to joined entries; timestamp records are metadata
+    /// and do not count. This counting is pinned against GNU History 8.3 for
+    /// the tested FROM<TO cases (see `COMPATIBILITY.md`). The
     /// selected lines are then grouped by the policy, so a range can end with
     /// a partial block.
     ///
     /// FROM below TO makes TO exclusive. Equal and reversed-bound results are
     /// Sushline product rules. Equal bounds select the physical position at
-    /// FROM, which may be blank and produce no entry; TO below FROM retains
-    /// remaining entries through EOF. The latter is retained because adopting
-    /// GNU's tested results would discard entries.
+    /// FROM; TO below FROM retains remaining entries through EOF. The latter
+    /// is retained because adopting GNU's tested results would discard entries.
     pub fn read_file_range_with_multiline(
         path: impl AsRef<Path>,
         from: usize,
@@ -160,17 +159,16 @@ impl History {
     /// Load file range with a multiline policy.
     ///
     /// FROM/TO bounds count physical command lines, including blank lines
-    /// that carry no entry; timestamp records are metadata and do not count.
-    /// This counting is pinned against GNU History 8.3 for the tested FROM<TO
-    /// cases (see the fixture-scoped results in `COMPATIBILITY.md`). The
+    /// that may contribute to joined entries; timestamp records are metadata
+    /// and do not count. This counting is pinned against GNU History 8.3 for
+    /// the tested FROM<TO cases (see `COMPATIBILITY.md`). The
     /// selected lines are then grouped by the policy, so a range can end with
     /// a partial block.
     ///
     /// FROM below TO makes TO exclusive. Equal and reversed-bound results are
     /// Sushline product rules. Equal bounds select the physical position at
-    /// FROM, which may be blank and produce no entry; TO below FROM retains
-    /// remaining entries through EOF. The latter is retained because adopting
-    /// GNU's tested results would discard entries.
+    /// FROM; TO below FROM retains remaining entries through EOF. The latter
+    /// is retained because adopting GNU's tested results would discard entries.
     pub fn load_file_range_with_multiline(
         &mut self,
         path: impl AsRef<Path>,
@@ -610,9 +608,8 @@ fn read_history_blocks(file: fs::File) -> io::Result<Vec<HistoryBlock>> {
 /// Group the blocks' physical lines into entries.
 ///
 /// The selection bounds the grouping to a run of physical command lines,
-/// including blank lines that yield no entries; timestamp records are not
-/// part of the indexed command lines. Without selection, every block is
-/// grouped.
+/// including blank lines; timestamp records are not part of the indexed
+/// command lines. Without selection, every block is grouped.
 fn group_history_blocks(
     blocks: &[HistoryBlock],
     multiline: HistoryMultiline,
@@ -621,6 +618,23 @@ fn group_history_blocks(
     let mut records = Vec::new();
     let mut range_index = 0usize;
     for block in blocks {
+        // A plain file has one undelimited block; retain every selected line.
+        if multiline == HistoryMultiline::Joined && block.timestamp.is_none() {
+            let (start, end) = match selection {
+                None => (0, block.lines.len()),
+                Some((from, count)) => (
+                    from.saturating_sub(range_index).min(block.lines.len()),
+                    from.saturating_add(count)
+                        .saturating_sub(range_index)
+                        .min(block.lines.len()),
+                ),
+            };
+            range_index += block.lines.len();
+            if start < end {
+                records.push((block.lines[start..end].join(&b'\n'), None));
+            }
+            continue;
+        }
         // The command lines of the block: physical lines that carry an
         // entry. A blank line carries no entry but still advances a range
         // bound.

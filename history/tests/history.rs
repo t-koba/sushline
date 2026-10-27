@@ -437,11 +437,14 @@ fn reads_writes_appends_and_truncates_history_files() {
 fn truncate_file_preserves_noop_bytes_and_truncates_when_needed() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");
-    let cases: [(&[u8], usize, &[u8]); 4] = [
+    let cases: [(&[u8], usize, &[u8]); 7] = [
         (b"A\n\nB\n", 10, b"A\n\nB\n"),
         (b"A\n\nB\n", 1, b"B\n"),
         (b"A\nB", 10, b"A\nB"),
         (b"A\nB", 1, b"A\nB"),
+        (b"A\nB", 0, b""),
+        (b"A\nB\nC", 1, b"B\nC"),
+        (b"A\nB\nC", 2, b"A\nB\nC"),
     ];
 
     for (input, max_len, expected) in cases {
@@ -1066,14 +1069,11 @@ fn preserves_timestamped_history_file_records() {
             .iter()
             .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
             .collect::<Vec<_>>(),
-        vec![
-            (Some("#1700000001"), "printf two".to_string()),
-            (Some("#1700000002"), "printf three".to_string())
-        ]
+        vec![(Some("#1700000002"), "printf three".to_string())]
     );
     assert_eq!(
         fs::read_to_string(&path).unwrap(),
-        "#1700000001\nprintf two\n#1700000002\nprintf three\n"
+        "#1700000002\nprintf three\n"
     );
 
     let timestamped = dir.path().join("timestamped");
@@ -1750,26 +1750,72 @@ fn range_bounds_count_physical_command_lines() {
         ]
     );
 
-    // The truncate keeps the last command lines of the file.
+    // Truncation counts all physical LF-delimited lines, including timestamps.
     History::truncate_file(&path, 1).unwrap();
-    assert_eq!(fs::read_to_string(&path).unwrap(), "#1700000001\nnext\n");
+    assert_eq!(fs::read_to_string(&path).unwrap(), "next\n");
 }
 
 #[test]
-fn truncates_timestamped_history_with_sushline_bytes() {
-    let fixture = b"#1700000000\nA0\nA1\n#1700000001\nB0\nB1\n";
-    let cases: [(usize, &[u8]); 3] = [
-        (10, b"#1700000000\nA0\nA1\n#1700000001\nB0\nB1\n"),
-        (2, b"#1700000001\nB0\nB1\n"),
-        (3, b"A1\n#1700000001\nB0\nB1\n"),
+fn truncates_timestamped_history_with_measured_gnu_bytes() {
+    // Exact GNU History 8.3 fixtures with history_multiline_entries=0.
+    let cases: &[(&[u8], usize, &[u8])] = &[
+        (
+            b"#1700000000\nA0\nA1\n#1700000001\nB0\nB1\n",
+            10,
+            b"#1700000000\nA0\nA1\n#1700000001\nB0\nB1\n",
+        ),
+        (b"#1700000000\nA0\nA1\n#1700000001\nB0\nB1\n", 1, b"B1\n"),
+        (
+            b"#1700000000\nA0\nA1\n#1700000001\nB0\nB1\n",
+            2,
+            b"B0\nB1\n",
+        ),
+        (
+            b"#1700000000\nA0\nA1\n#1700000001\nB0\nB1\n",
+            3,
+            b"#1700000001\nB0\nB1\n",
+        ),
+        (
+            b"#1700000000\nA0\nA1\n#1700000001\nB0\nB1\n",
+            4,
+            b"A1\n#1700000001\nB0\nB1\n",
+        ),
+        (b"#1700000000\nA0\nA1\n", 1, b"A1\n"),
+        (b"#1700000000\nA0\nA1\n", 2, b"A0\nA1\n"),
+        (b"#1700000000\nA0\n\nB0\n", 1, b"B0\n"),
+        (b"#1700000000\nA0\n\nB0\n", 2, b"\nB0\n"),
+        (b"#1700000000\nA0\n#1700000001\n", 0, b""),
+        (b"#1700000000\nA0\n#1700000001\n", 1, b"#1700000001\n"),
+        (b"#1700000000\nA0\n#1700000001\n", 2, b"A0\n#1700000001\n"),
+        (
+            b"#1700000000\n#1700000001\nA0\n#1700000002\nA1\n",
+            1,
+            b"A1\n",
+        ),
+        (
+            b"#1700000000\n#1700000001\nA0\n#1700000002\nA1\n",
+            2,
+            b"#1700000002\nA1\n",
+        ),
+        (b"#1700000000\nA\n#1700000001\nB", 1, b"#1700000001\nB"),
+        (b"#1700000000\nA\n#1700000001\nB", 2, b"A\n#1700000001\nB"),
+        (b"#1700000000\nA\n#1700000001", 1, b"A\n#1700000001"),
+        (
+            b"#1700000000\nA\n#1700000001",
+            2,
+            b"#1700000000\nA\n#1700000001",
+        ),
     ];
-
-    for (limit, expected) in cases {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("history");
-        fs::write(&path, fixture).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    for &(input, limit, expected) in cases {
+        fs::write(&path, input).unwrap();
         History::truncate_file(&path, limit).unwrap();
-        assert_eq!(fs::read(&path).unwrap(), expected, "limit {limit}");
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            expected,
+            "fixture {input:?}, limit {limit}"
+        );
     }
 }
 

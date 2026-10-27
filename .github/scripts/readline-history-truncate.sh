@@ -1,14 +1,8 @@
 #!/usr/bin/env bash
-# Shared measurement only: the oracle and its fresh-runner replica retain
-# independent reports. GNU byte assertions are limited to the exact two-block
-# timestamped fixture at its three previously measured limits. The plain
-# fixtures (`A\n\nB\n` with a blank line and `A\nB` with an unterminated
-# tail) retain their measured limits. The unterminated plain fixture at limit 0,
-# forced unterminated plain fixture, and additional timestamped limits and
-# shapes, including timestamped EOF-tail fixtures, are exploratory reports
-# only; their bytes are not asserted before measurement.
-# Every case has two fresh files and child processes per report.
-# Report contents omit runner identity so independent outputs compare byte-for-byte.
+# Fixture-scoped GNU History 8.3 byte assertions for the measured plain and
+# timestamped inputs and limits below, with history_multiline_entries=0.
+# Each case uses two fresh files and child processes per report; primary and
+# replica retain independent, byte-comparable reports without runner identity.
 set -euo pipefail
 ulimit -c 0
 if [ $# -ne 1 ]; then
@@ -96,10 +90,8 @@ import subprocess
 import sys
 import tempfile
 
-# All history bytes originate in the fixed fixtures below. Reports contain
-# only fixed labels, bounded integers and bounded result hex. The two-block
-# fixture asserts successful status and bytes at its previously measured
-# limits; other byte outcomes remain recorded, not asserted.
+# Reports contain only fixed labels, bounded integers and bounded result hex.
+# Every fixture/limit pair asserts the measured status and exact bytes.
 LIMIT = 16384
 FIXTURES = {
     "blank": b"A\n\nB\n",
@@ -132,10 +124,23 @@ LIMITS = {
     "timestamped_range_bounds": (1,),
     "timestamped_post_append": (2,),
 }
-EXPECTED_TIMESTAMPED = {
-    10: b"#1700000000\nA0\nA1\n#1700000001\nB0\nB1\n",
-    2: b"B0\nB1\n",
-    3: b"#1700000001\nB0\nB1\n",
+EXPECTED = {
+    "blank": {10: b"A\n\nB\n", 1: b"B\n"},
+    "unterminated": {10: b"A\nB", 1: b"A\nB", 0: b""},
+    "unterminated_forced": {1: b"B\nC", 2: b"A\nB\nC"},
+    "timestamped": {
+        10: b"#1700000000\nA0\nA1\n#1700000001\nB0\nB1\n",
+        1: b"B1\n", 2: b"B0\nB1\n",
+        3: b"#1700000001\nB0\nB1\n", 4: b"A1\n#1700000001\nB0\nB1\n",
+    },
+    "timestamped_single": {1: b"A1\n", 2: b"A0\nA1\n"},
+    "timestamped_blank": {1: b"B0\n", 2: b"\nB0\n"},
+    "timestamped_dangling": {0: b"", 1: b"#1700000001\n", 2: b"A0\n#1700000001\n"},
+    "timestamped_consecutive": {1: b"A1\n", 2: b"#1700000002\nA1\n"},
+    "timestamped_unterminated_command": {1: b"#1700000001\nB", 2: b"A\n#1700000001\nB"},
+    "timestamped_unterminated_marker": {1: b"A\n#1700000001", 2: b"#1700000000\nA\n#1700000001"},
+    "timestamped_range_bounds": {1: b"next\n"},
+    "timestamped_post_append": {2: b"#1700000002\nprintf three\n"},
 }
 resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
@@ -185,7 +190,7 @@ def run_trial(fixture, limit, trial):
         if "truncate_status" in fields:
             if re.fullmatch(r"-?[0-9]+", fields["truncate_status"]):
                 print(f"{label}_truncate_status={fields['truncate_status']}")
-                if fixture == "timestamped" and fields["truncate_status"] != "0":
+                if fields["truncate_status"] != "0":
                     valid = False
             else:
                 valid = False
@@ -202,10 +207,9 @@ def run_trial(fixture, limit, trial):
         else:
             print(f"{label}_result_bytes={len(result)}")
             print(f"{label}_result_hex={result.hex()}")
-            if (fixture == "timestamped" and limit in EXPECTED_TIMESTAMPED
-                    and result != EXPECTED_TIMESTAMPED[limit]):
+            if result != EXPECTED[fixture][limit]:
                 valid = False
-        if timed_out or child.returncode < 0:
+        if timed_out or child.returncode != 0:
             valid = False
     finally:
         # Reap even on a parsing/error path, before removing files

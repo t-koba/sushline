@@ -280,16 +280,14 @@ impl History {
         Ok(())
     }
 
-    /// Truncate file.
+    /// Truncate a file to a suffix selected by its physical LF bytes.
     ///
-    /// The file is read with the default per-physical-line grouping. If the
-    /// parsed entry count is at most `max_len`, the file is not rewritten, so
-    /// its bytes (including blank lines and an unterminated tail) are
-    /// preserved. On Unix, the mode is still set to owner-only `0600`. When
-    /// entries are removed, the file is rewritten from the
-    /// kept entries: blank lines are removed, an unterminated trailing line is
-    /// dropped, and a kept window that starts inside a timestamp block loses
-    /// that block's timestamp record.
+    /// If the number of LF bytes is at most `max_len`, the exact bytes are
+    /// preserved; on Unix, the mode is still set to owner-only `0600`.
+    /// Otherwise, a zero limit empties the file, and a nonzero limit keeps
+    /// the bytes after the first (LF count - `max_len`) LF bytes, including
+    /// any unterminated tail. Timestamp records and blank lines count as
+    /// physical lines. This matches the tested GNU History 8.3 fixtures.
     pub fn truncate_file(path: impl AsRef<Path>, max_len: usize) -> io::Result<()> {
         let path = path.as_ref();
         let dest = effective_write_path(path)?;
@@ -299,8 +297,9 @@ impl History {
                 "history truncate requires a regular file",
             ));
         }
-        let history = Self::read_file(path)?;
-        if history.entries.len() <= max_len {
+        let bytes = fs::read(path)?;
+        let lf_count = bytes.iter().filter(|&&byte| byte == b'\n').count();
+        if lf_count <= max_len {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
@@ -308,13 +307,19 @@ impl History {
             }
             return Ok(());
         }
-        let keep_from = history.entries.len().saturating_sub(max_len);
-        write_atomic(path, |file| {
-            for entry in &history.entries[keep_from..] {
-                write_entry(file, entry, true)?;
-            }
-            Ok(())
-        })
+        let keep_from = if max_len == 0 {
+            bytes.len()
+        } else {
+            bytes
+                .iter()
+                .enumerate()
+                .filter(|&(_, byte)| *byte == b'\n')
+                .nth(lf_count - max_len - 1)
+                .unwrap()
+                .0
+                + 1
+        };
+        write_atomic(path, |file| file.write_all(&bytes[keep_from..]))
     }
 
     fn write_entries(&self, file: &mut fs::File, write_timestamps: bool) -> io::Result<()> {

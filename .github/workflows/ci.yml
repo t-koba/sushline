@@ -768,12 +768,14 @@ jobs:
           int main(int argc, char **argv) {
               int show_timestamps = 0;
               int multiline_mode = 0;
-              if (argc < 2 || argc > 4) {
+              if (argc < 2 || argc > 6) {
                   return 2;
               }
               for (int i = 2; i < argc; i++) {
                   if (strcmp(argv[i], "--timestamp") == 0) {
                       show_timestamps = 1;
+                  } else if (strcmp(argv[i], "--comment") == 0) {
+                      history_comment_char = '#';
                   } else if (strcmp(argv[i], "--mode") == 0 && i + 1 < argc &&
                              (strcmp(argv[i + 1], "0") == 0 || strcmp(argv[i + 1], "1") == 0)) {
                       multiline_mode = argv[++i][0] - '0';
@@ -924,6 +926,28 @@ jobs:
           grep -qx 'history_multiline_entries=1' /tmp/history_full_blank_plain_mode1.out
           grep -qx 'entry_count=1' /tmp/history_full_blank_plain_mode1.out
           grep -Fqx 'entry_0=\nA\n\n\nB\n\n\nC\n' /tmp/history_full_blank_plain_mode1.out
+          # CRLF bytes: compare every deterministic entry line, while leaving
+          # GNU's generated timestamps unpinned. Explicit timestamps are hex.
+          printf 'A0\r\nA1\r\nB0\r\n' > /tmp/history_full_crlf_plain
+          printf '#1700000000\r\nA0\r\nA1\r\n#1700000001\r\nB0\r\nB1\r\n' > /tmp/history_full_crlf_timestamped
+          : > /tmp/history_full_crlf_entries.out
+          for kind in plain timestamped; do
+            for mode in 0 1; do
+              report="/tmp/history_full_crlf_${kind}_mode${mode}.out"
+              /tmp/history_full_probe "/tmp/history_full_crlf_${kind}" --mode "$mode" --timestamp --comment | tee "$report"
+              grep -qx "readline_release=$READLINE_ORACLE_VERSION" "$report"
+              grep -qx "history_multiline_entries=$mode" "$report"
+              grep -qx 'read_history_status=ok' "$report"
+              grep -qx 'history_comment_char=35' "$report"
+              printf '[%s mode%s]\n' "$kind" "$mode" >> /tmp/history_full_crlf_entries.out
+              grep '^entry_' "$report" >> /tmp/history_full_crlf_entries.out
+            done
+          done
+          diff -u .github/scripts/history-full-crlf.expected /tmp/history_full_crlf_entries.out
+          grep -qx 'timestamp_0_hex=2331373030303030303030' /tmp/history_full_crlf_timestamped_mode0.out
+          grep -qx 'timestamp_2_hex=2331373030303030303031' /tmp/history_full_crlf_timestamped_mode0.out
+          grep -qx 'timestamp_0_hex=2331373030303030303030' /tmp/history_full_crlf_timestamped_mode1.out
+          grep -qx 'timestamp_1_hex=2331373030303030303031' /tmp/history_full_crlf_timestamped_mode1.out
           printf '#1700000000\none\000hidden\n#1700000001\nnext\000tail\nfinal\n' > /tmp/history_full_nul_timestamped
           /tmp/history_full_probe /tmp/history_full_nul_timestamped | tee /tmp/history_full_nul_timestamped.out
           grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/history_full_nul_timestamped.out
@@ -3306,6 +3330,11 @@ jobs:
             /tmp/history_full_blank_timestamped_mode1.out \
             /tmp/history_full_blank_plain_mode0.out \
             /tmp/history_full_blank_plain_mode1.out \
+            /tmp/history_full_crlf_plain_mode0.out \
+            /tmp/history_full_crlf_plain_mode1.out \
+            /tmp/history_full_crlf_timestamped_mode0.out \
+            /tmp/history_full_crlf_timestamped_mode1.out \
+            /tmp/history_full_crlf_entries.out \
             /tmp/history_full_nul_plain.out \
             /tmp/history_full_nul_leading.out \
             /tmp/history_full_nul_timestamped.out \

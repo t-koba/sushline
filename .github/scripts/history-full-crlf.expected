@@ -1,0 +1,18 @@
+[plain mode0]
+entry_count=3
+entry_0=A0
+entry_1=A1
+entry_2=B0
+[plain mode1]
+entry_count=1
+entry_0=A0\nA1\nB0
+[timestamped mode0]
+entry_count=4
+entry_0=A0
+entry_1=A1
+entry_2=B0
+entry_3=B1
+[timestamped mode1]
+entry_count=2
+entry_0=A0\nA1
+entry_1=B0\nB1

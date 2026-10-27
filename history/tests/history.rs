@@ -5317,3 +5317,51 @@ fn file_import_preserves_numeric_cursor() {
         }
     }
 }
+
+#[test]
+fn full_file_crlf_import_matches_measured_grouping_and_timestamps() {
+    let dir = tempfile::tempdir().unwrap();
+    type Fixture<'a> = (&'a str, &'a [u8], &'a [&'a [u8]], &'a [&'a [u8]]);
+    let fixtures: &[Fixture<'_>] = &[
+        (
+            "plain",
+            b"A0\r\nA1\r\nB0\r\n",
+            &[b"A0", b"A1", b"B0"],
+            &[b"A0\nA1\nB0"],
+        ),
+        (
+            "timestamped",
+            b"#1700000000\r\nA0\r\nA1\r\n#1700000001\r\nB0\r\nB1\r\n",
+            &[b"A0", b"A1", b"B0", b"B1"],
+            &[b"A0\nA1", b"B0\nB1"],
+        ),
+    ];
+    for &(name, contents, per_line, joined) in fixtures {
+        let path = dir.path().join(name);
+        fs::write(&path, contents).unwrap();
+        for (mode, expected) in [
+            (HistoryMultiline::PerLine, per_line),
+            (HistoryMultiline::Joined, joined),
+        ] {
+            let history = History::read_file_with_multiline(&path, mode).unwrap();
+            let entries = history.entries();
+            assert_eq!(
+                entries
+                    .iter()
+                    .map(|e| e.line_bytes.as_slice())
+                    .collect::<Vec<_>>(),
+                expected,
+                "{name} {mode:?}"
+            );
+            if name == "timestamped" {
+                let second = if mode == HistoryMultiline::PerLine {
+                    2
+                } else {
+                    1
+                };
+                assert_eq!(entries[0].timestamp.as_deref(), Some("#1700000000"));
+                assert_eq!(entries[second].timestamp.as_deref(), Some("#1700000001"));
+            }
+        }
+    }
+}

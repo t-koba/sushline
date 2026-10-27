@@ -24,6 +24,36 @@ fn auto_add_history_skips_empty_accepted_lines() {
 }
 
 #[test]
+fn auto_add_history_resets_cursor_after_nonempty_accepted_line() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"new\r".to_vec()),
+        TerminalEvent::Bytes(b"\x1b[A\r".to_vec()),
+    ]);
+    let config = Config {
+        auto_add_history: true,
+        ..Config::default()
+    };
+    let mut history = History::new();
+    history.push("old");
+    let mut editor = Editor::new(config, terminal, history);
+
+    assert_eq!(
+        editor
+            .read_line(Prompt::new("> "), &mut TestHistoryHook)
+            .unwrap(),
+        ReadlineResult::Line(b"new".to_vec())
+    );
+    assert_eq!(editor.history.where_history(), 2);
+    assert!(editor.history.current_history().is_none());
+    assert_eq!(
+        editor
+            .read_line(Prompt::new("> "), &mut TestHistoryHook)
+            .unwrap(),
+        ReadlineResult::Line(b"new".to_vec())
+    );
+}
+
+#[test]
 fn history_beginning_loads_entry_for_fresh_state_at_current_cursor() {
     use crate::prompt::Prompt;
     use crate::state::EditorState;
@@ -53,6 +83,7 @@ fn history_navigation_does_not_replace_an_entry_from_a_fresh_read() {
     let mut history = History::new();
     history.push("alpha old");
     history.push("alpha new");
+    history.reset_cursor();
     let mut editor = Editor::new(Config::default(), terminal, history);
     editor
         .load_inputrc_str("set revert-all-at-newline off")

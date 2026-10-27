@@ -1145,6 +1145,7 @@ fn operate_and_get_next_prefills_next_readline() {
     let mut history = History::new();
     history.push("one");
     history.push("two");
+    history.reset_cursor();
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"\x10".to_vec()),
         TerminalEvent::Bytes(vec![0x0f]),
@@ -1966,6 +1967,7 @@ fn isearch_terminators_terminate_without_execute_and_cr_accepts() {
         let mut history = History::new();
         history.push("alpha one");
         history.push("alpha two");
+        history.reset_cursor();
         let terminal = MemoryTerminal::with_events(events);
         let mut line = Editor::new(Config::default(), terminal, history);
         let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
@@ -1991,6 +1993,7 @@ fn isearch_terminators_terminate_without_execute_and_cr_accepts() {
         let mut history = History::new();
         history.push("alpha one");
         history.push("alpha two");
+        history.reset_cursor();
         let terminal = MemoryTerminal::with_events(events);
         let mut line = Editor::new(Config::default(), terminal, history);
         line.load_inputrc_str("set isearch-terminators z").unwrap();
@@ -2002,6 +2005,7 @@ fn isearch_terminators_terminate_without_execute_and_cr_accepts() {
     let mut history = History::new();
     history.push("alpha one");
     history.push("alpha two");
+    history.reset_cursor();
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"\x12".to_vec()),
         TerminalEvent::Bytes(b"two".to_vec()),
@@ -2017,6 +2021,7 @@ fn isearch_terminators_terminate_without_execute_and_cr_accepts() {
     let mut history = History::new();
     history.push("alpha one");
     history.push("alpha two");
+    history.reset_cursor();
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"\x12".to_vec()),
         TerminalEvent::Bytes(b"two".to_vec()),
@@ -2031,6 +2036,7 @@ fn isearch_terminators_terminate_without_execute_and_cr_accepts() {
     let mut history = History::new();
     history.push("alpha one");
     history.push("alpha two");
+    history.reset_cursor();
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"draft".to_vec()),
         TerminalEvent::Bytes(b"\x12".to_vec()),
@@ -2046,6 +2052,7 @@ fn isearch_terminators_terminate_without_execute_and_cr_accepts() {
     let mut history = History::new();
     history.push("alpha one");
     history.push("alpha two");
+    history.reset_cursor();
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"draft".to_vec()),
         TerminalEvent::Bytes(b"\x12".to_vec()),
@@ -2066,6 +2073,7 @@ fn isearch_terminator_point_respects_search_ignore_case() {
     let mut history = History::new();
     history.push("alpha one");
     history.push("alpha two");
+    history.reset_cursor();
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"\x12".to_vec()),
         TerminalEvent::Bytes(b"TWO".to_vec()),
@@ -2088,6 +2096,7 @@ fn incremental_search_starts_from_history_cursor() {
     history.push("alpha one");
     history.push("beta");
     history.push("alpha two");
+    history.reset_cursor();
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"\x10\x10".to_vec()),
         TerminalEvent::Bytes(b"\x12".to_vec()),
@@ -2104,6 +2113,7 @@ fn incremental_search_starts_from_history_cursor() {
     history.push("alpha one");
     history.push("beta");
     history.push("alpha two");
+    history.reset_cursor();
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"\x0f".to_vec()),
         TerminalEvent::Bytes(b"alpha".to_vec()),
@@ -2121,6 +2131,7 @@ fn incremental_search_starts_from_history_cursor() {
     history.push("alpha one");
     history.push("beta");
     history.push("alpha two");
+    history.reset_cursor();
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"\x10\x10".to_vec()),
         TerminalEvent::Bytes(b"\x0f".to_vec()),
@@ -2143,6 +2154,7 @@ fn forward_isearch_terminator_point_matches_oracle() {
     history.push("alpha one");
     history.push("beta");
     history.push("alpha two");
+    history.reset_cursor();
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"\x10\x10".to_vec()),
         TerminalEvent::Bytes(b"\x0f".to_vec()),
@@ -2164,6 +2176,7 @@ fn forward_isearch_terminator_point_matches_oracle() {
     history.push("alpha one");
     history.push("beta");
     history.push("alpha two");
+    history.reset_cursor();
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"draft".to_vec()),
         TerminalEvent::Bytes(b"\x0f".to_vec()),
@@ -2198,6 +2211,7 @@ fn vi_search_starts_from_history_cursor_with_literal_query() {
         history.push("alpha one");
         history.push("beta");
         history.push("alpha two");
+        history.reset_cursor();
         let mut events = vec![TerminalEvent::Bytes(b"\x1b".to_vec())];
         if from_mid {
             events.push(TerminalEvent::Bytes(b"kk".to_vec()));
@@ -2226,6 +2240,7 @@ fn non_incremental_search_again_uses_completed_search_across_reads() {
     let mut history = History::new();
     history.push("foo old");
     history.push("foo new");
+    history.reset_cursor();
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(vec![0x0f]),
         TerminalEvent::Bytes(b"foo".to_vec()),

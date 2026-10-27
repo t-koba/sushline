@@ -198,14 +198,23 @@ impl History {
     }
 
     /// Add a history entry, including an empty line.
+    ///
+    /// When unstifled, preserve the numeric position; an unpositioned end
+    /// becomes the newly appended entry. This matches the measured GNU 8.3
+    /// fresh, middle, and end-position append fixtures.
     pub fn push(&mut self, line: impl Into<String>) {
-        let line = line.into();
-        self.push_entry(line.into_bytes(), None, false);
+        self.push_bytes(line.into().into_bytes());
     }
 
     /// Add a byte-oriented history entry, including an empty line.
+    ///
+    /// When unstifled, preserve the numeric position as in [`Self::push`].
     pub fn push_bytes(&mut self, line: Vec<u8>) {
+        let position = self.max_entries.is_none().then(|| self.where_history());
         self.push_entry(line, None, false);
+        if let Some(position) = position {
+            self.cursor = Some(position);
+        }
     }
 
     /// Enforce max len.

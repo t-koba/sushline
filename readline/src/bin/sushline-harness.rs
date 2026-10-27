@@ -66,6 +66,9 @@ fn main() -> ExitCode {
             history.push(entry);
         }
     }
+    // The harness models a shell prompt after history initialization; raw
+    // pushes preserve their measured cursor, so position this fixture at end.
+    history.reset_cursor();
 
     let mut hooks = HarnessApplication;
     let mut line = Editor::new(Config::default(), Terminal::new(), history);

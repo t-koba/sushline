@@ -610,6 +610,7 @@ mod tests {
         let mut history = History::new();
         history.push("x I older");
         history.push("x I newer");
+        history.reset_cursor();
         assert_eq!(
             history_substring_forward_matching(
                 &mut history,
@@ -640,6 +641,7 @@ mod tests {
         history.push("i older");
         history.push("I center");
         history.push("i newer");
+        history.reset_cursor();
         assert_eq!(
             history_prefix_backward_matching(&mut history, b"i", Vec::new(), identity_prefix),
             Some(b"i newer".to_vec())
@@ -676,6 +678,7 @@ mod tests {
                 history.push_bytes(line.to_vec());
                 history.push("unrelated");
                 history.push_bytes(line.to_vec());
+                history.reset_cursor();
                 assert_eq!(
                     history_prefix_backward_with_locale(
                         &mut history,
@@ -785,6 +788,7 @@ mod tests {
 
         let mut prefix = History::new();
         prefix.push("ÄLPHA");
+        prefix.reset_cursor();
         assert_eq!(
             history_prefix_backward_with_locale(
                 &mut prefix,

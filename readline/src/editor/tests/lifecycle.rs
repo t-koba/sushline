@@ -349,6 +349,7 @@ fn batched_non_incremental_query_plus_enter_matches_fragmented_reads() {
         let mut history = History::new();
         history.push("A_first");
         history.push("A_second");
+        history.reset_cursor();
         history
     }
     for terminal in [
@@ -909,6 +910,7 @@ fn vi_search_again_steps_exclusively_past_matches_with_bell() {
         history.push("alpha one");
         history.push("alpha two");
         history.push("gamma");
+        history.reset_cursor();
         let mut line = Editor::new(Config::default(), terminal, history);
         line.load_inputrc_str("set editing-mode vi").unwrap();
         let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
@@ -974,6 +976,7 @@ fn incremental_no_match_bells_per_keystroke_without_extra_at_terminate() {
         let mut history = History::new();
         history.push("alpha one");
         history.push("alpha two");
+        history.reset_cursor();
         let mut line = Editor::new(Config::default(), terminal, history);
         let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
         (result, line.terminal.out.clone())
@@ -1027,6 +1030,7 @@ fn vi_no_match_execute_bells_once_and_keeps_original() {
         let mut history = History::new();
         history.push("alpha one");
         history.push("alpha two");
+        history.reset_cursor();
         let mut line = Editor::new(Config::default(), terminal, history);
         line.load_inputrc_str("set editing-mode vi").unwrap();
         let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
@@ -1076,6 +1080,7 @@ fn vi_no_match_execute_bells_once_and_keeps_original() {
     let mut history = History::new();
     history.push("alpha one");
     history.push("alpha two");
+    history.reset_cursor();
     let mut line = Editor::new(Config::default(), terminal, history);
     line.load_inputrc_str("\"\\ep\": non-incremental-reverse-search-history")
         .unwrap();

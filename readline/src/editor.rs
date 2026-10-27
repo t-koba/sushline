@@ -536,6 +536,7 @@ where
                         self.history.reset_cursor();
                     } else {
                         self.history.push_bytes(bytes.clone());
+                        self.history.reset_cursor();
                     }
                     self.history.enforce_max_len(self.history_size_limit());
                 }

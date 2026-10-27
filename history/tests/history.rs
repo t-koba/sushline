@@ -13,6 +13,7 @@ fn navigates_history_and_restores_current_edit() {
     let mut h = History::new();
     h.push("one");
     h.push("two");
+    h.reset_cursor();
     assert_eq!(
         h.navigate_bytes(HistoryDirection::Previous, b"draft".to_vec()),
         Some(b"two".to_vec())
@@ -32,46 +33,100 @@ fn navigates_history_and_restores_current_edit() {
 }
 
 #[test]
-fn fresh_appends_leave_navigation_at_the_unpositioned_end() {
-    let mut history = History::new();
-    for (index, line) in ["alpha", "beta", "alpha gamma", "delta"].iter().enumerate() {
-        history.push(*line);
-        assert_eq!(history.len(), index + 1);
-        assert_eq!(history.where_history(), index + 1);
-        assert!(history.current_history().is_none());
+fn fresh_appends_preserve_position_zero() {
+    for bytes in [false, true] {
+        let mut history = History::new();
+        for (index, line) in ["alpha", "beta", "alpha gamma", "delta"].iter().enumerate() {
+            if bytes {
+                history.push_bytes(line.as_bytes().to_vec());
+            } else {
+                history.push(*line);
+            }
+            assert_eq!(history.len(), index + 1);
+            assert_eq!(history.where_history(), 0);
+            assert_eq!(history.current_history().unwrap().line_bytes, b"alpha");
+        }
+        assert!(history.previous_history().is_none());
+        assert_eq!(history.where_history(), 0);
     }
-    let previous = history.previous_history().expect("newest history entry");
-    assert_eq!(previous.line_bytes.as_slice(), b"delta");
-    assert_eq!(history.where_history(), 3);
 }
 
 #[test]
-fn adding_history_resets_navigation_to_the_new_end() {
-    for position in [1, 3] {
-        let mut history = History::new();
-        history.push("alpha");
-        history.push("beta");
-        history.push("alpha gamma");
-        assert!(history.set_pos(position));
-        if position == 1 {
+fn adding_history_preserves_explicit_middle_and_old_end_positions() {
+    for bytes in [false, true] {
+        for position in [1, 3] {
+            let mut history = History::new();
+            for line in ["alpha", "beta", "alpha gamma"] {
+                history.push(line);
+            }
+            assert!(history.set_pos(position));
+            if bytes {
+                history.push_bytes(b"delta".to_vec());
+            } else {
+                history.push("delta");
+            }
+            assert_eq!(history.len(), 4);
+            assert_eq!(history.where_history(), position);
+            let current = history.current_history().unwrap();
             assert_eq!(
-                history
-                    .current_history()
-                    .map(|entry| entry.line_bytes.as_slice()),
-                Some(&b"beta"[..])
+                current.line_bytes,
+                if position == 1 {
+                    &b"beta"[..]
+                } else {
+                    &b"delta"[..]
+                }
             );
-        } else {
-            assert!(history.current_history().is_none());
+            let previous = history.previous_history().unwrap();
+            assert_eq!(
+                previous.line_bytes,
+                if position == 1 {
+                    &b"alpha"[..]
+                } else {
+                    &b"alpha gamma"[..]
+                }
+            );
+            assert_eq!(history.where_history(), position - 1);
         }
-
-        history.push("delta");
-        assert_eq!(history.len(), 4);
-        assert_eq!(history.where_history(), 4);
-        assert!(history.current_history().is_none());
-        let previous = history.previous_history().expect("newest history entry");
-        assert_eq!(previous.line_bytes.as_slice(), b"delta");
-        assert_eq!(history.where_history(), 3);
     }
+}
+
+#[test]
+fn append_clears_current_edit_and_preserves_stifled_and_import_cursors() {
+    let mut history = History::new();
+    history.push("old");
+    history.reset_cursor();
+    assert_eq!(
+        history.navigate_bytes(HistoryDirection::Previous, b"draft".to_vec()),
+        Some(b"old".to_vec())
+    );
+    history.push_bytes(b"new".to_vec());
+    assert_eq!(history.where_history(), 0);
+    assert_eq!(
+        history.navigate_bytes(HistoryDirection::Next, b"old".to_vec()),
+        Some(b"new".to_vec())
+    );
+    assert_eq!(
+        history.navigate_bytes(HistoryDirection::Next, b"new".to_vec()),
+        Some(Vec::new())
+    );
+
+    for limit in [0, 1, 2] {
+        let mut history = History::new();
+        history.push("old");
+        history.stifle(limit);
+        history.push("new");
+        assert_eq!(history.where_history(), history.len());
+        assert!(history.current_history().is_none());
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(&path, "imported\n").unwrap();
+    let mut history = History::new();
+    history.push("old");
+    history.load_file(&path, None).unwrap();
+    assert_eq!(history.where_history(), 2);
+    assert!(history.current_history().is_none());
 }
 
 #[test]
@@ -143,6 +198,7 @@ fn history_search_ignore_case_folds_ascii_bytes_only() {
     );
 
     h.push("ALPHA");
+    h.reset_cursor();
     let found = h
         .history_search_bytes_with_case(b"alpha", HistoryDirection::Previous, true)
         .expect("ASCII case-insensitive search");
@@ -283,6 +339,7 @@ fn searches_history_by_prefix() {
     h.push("alpha one");
     h.push("beta");
     h.push("alpha two");
+    h.reset_cursor();
     assert_eq!(
         h.search_prefix_backward_bytes(b"alp", b"alp".to_vec()),
         Some(b"alpha two".to_vec())
@@ -304,6 +361,7 @@ fn case_insensitive_byte_search_variants_fold_ascii_only() {
     h.push("ALPHA old");
     h.push("beta");
     h.push("ALPHA new");
+    h.reset_cursor();
 
     assert_eq!(
         h.search_prefix_backward_bytes_with_case(b"alpha", b"alpha".to_vec(), true),
@@ -322,6 +380,7 @@ fn case_insensitive_byte_search_variants_fold_ascii_only() {
     substring.push("ALPHA old");
     substring.push("beta");
     substring.push("ALPHA new");
+    substring.reset_cursor();
     assert_eq!(
         substring.search_containing_backward_from_cursor_bytes_with_case(
             b"alpha",
@@ -367,6 +426,7 @@ fn forward_substring_search_at_end_preserves_current_edit_and_cursor() {
     h.push("needle old");
     h.push("other");
     h.push("needle new");
+    h.reset_cursor();
 
     assert!(
         h.search_containing_forward_from_cursor_bytes(b"needle", b"needle".to_vec())
@@ -3371,6 +3431,7 @@ fn supports_history_library_position_and_search_operations() {
     h.push("alpha one");
     h.push("beta two");
     h.push("alpha three");
+    h.reset_cursor();
 
     assert_eq!(h.where_history(), 3);
     assert!(h.set_pos(2));

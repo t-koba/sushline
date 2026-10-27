@@ -1087,6 +1087,7 @@ jobs:
           cat > /tmp/history_position_probe.c <<'PROBE'
           #include <stdio.h>
           #include <stdlib.h>
+          #include <string.h>
           #include <readline/history.h>
 
           static const char *entry_at(int position) {
@@ -1094,11 +1095,53 @@ jobs:
               return entry ? entry->line : "(null)";
           }
 
-          int main(void) {
-              using_history();
+          static void seed_history(void) {
               add_history("alpha");
               add_history("beta");
               add_history("alpha gamma");
+          }
+
+          static int measure_append_position(const char *name) {
+              int position;
+              if (strcmp(name, "middle") == 0)
+                  position = 1;
+              else if (strcmp(name, "end") == 0)
+                  position = 3;
+              else
+                  return 2;
+
+              using_history();
+              seed_history();
+              int positioned = history_set_pos(position);
+              HIST_ENTRY *before = current_history();
+              if (positioned != 1 || where_history() != position)
+                  return 3;
+              if ((position == 1 && (!before || strcmp(before->line, "beta") != 0)) ||
+                  (position == 3 && before != NULL))
+                  return 4;
+
+              printf("fixture: %s\n", name);
+              printf("before_position: %d\n", where_history());
+              printf("before_current: %s\n", before ? before->line : "(null)");
+              add_history("delta");
+              printf("after_length: %d\n", history_length);
+              printf("after_position: %d\n", where_history());
+              HIST_ENTRY *after = current_history();
+              printf("after_current: %s\n", after ? after->line : "(null)");
+              HIST_ENTRY *previous = previous_history();
+              printf("previous_entry: %s\n", previous ? previous->line : "(null)");
+              printf("after_previous_position: %d\n", where_history());
+              return 0;
+          }
+
+          int main(int argc, char **argv) {
+              if (argc == 2)
+                  return measure_append_position(argv[1]);
+              if (argc != 1)
+                  return 2;
+
+              using_history();
+              seed_history();
               printf("get_zero: %s\n", entry_at(0));
               printf("get_one: %s\n", entry_at(1));
               printf("get_two: %s\n", entry_at(2));
@@ -1157,6 +1200,12 @@ jobs:
           grep -qx 'forwards_from_first: 2' /tmp/history_position.out
           grep -qx 'from_first: 0' /tmp/history_position.out
           grep -qx 'from_second: 2' /tmp/history_position.out
+          # Run each append fixture in its own process so prior navigation
+          # cannot affect the position being measured. These outputs are
+          # retained for exact GNU 8.3 review; Rust expectations live in the
+          # History unit test and are not used to assert GNU's result here.
+          /tmp/history_position_probe middle | tee /tmp/history_position_append.out
+          /tmp/history_position_probe end | tee -a /tmp/history_position_append.out
       - name: Measure and assert pinned History expansion fixtures
         run: |
           set -euo pipefail
@@ -2894,6 +2943,7 @@ jobs:
             /tmp/history_full_file_comparison.out \
             /tmp/history_time.out \
             /tmp/history_position.out \
+            /tmp/history_position_append.out \
             /tmp/history_expand.out; do
             if [ -f "$report" ]; then
               cp -- "$report" "$report_dir/"

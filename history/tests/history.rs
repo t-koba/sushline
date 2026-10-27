@@ -32,6 +32,35 @@ fn navigates_history_and_restores_current_edit() {
 }
 
 #[test]
+fn adding_history_resets_navigation_to_the_new_end() {
+    for position in [1, 3] {
+        let mut history = History::new();
+        history.push("alpha");
+        history.push("beta");
+        history.push("alpha gamma");
+        assert!(history.set_pos(position));
+        if position == 1 {
+            assert_eq!(
+                history
+                    .current_history()
+                    .map(|entry| entry.line_bytes.as_slice()),
+                Some(&b"beta"[..])
+            );
+        } else {
+            assert!(history.current_history().is_none());
+        }
+
+        history.push("delta");
+        assert_eq!(history.len(), 4);
+        assert_eq!(history.where_history(), 4);
+        assert!(history.current_history().is_none());
+        let previous = history.previous_history().expect("newest history entry");
+        assert_eq!(previous.line_bytes.as_slice(), b"delta");
+        assert_eq!(history.where_history(), 3);
+    }
+}
+
+#[test]
 fn forward_history_search_includes_current_position() {
     // Like GNU `history_search`, the positioned entry is included in both
     // directions; repeat commands step past it at their own call sites.

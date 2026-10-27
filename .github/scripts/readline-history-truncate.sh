@@ -3,8 +3,9 @@
 # independent reports. GNU byte assertions are limited to the exact two-block
 # timestamped fixture at its three previously measured limits. The plain
 # fixtures (`A\n\nB\n` with a blank line and `A\nB` with an unterminated
-# tail) retain their measured limits. Additional timestamped limits and shapes
-# are exploratory reports only; their bytes are not asserted before measurement.
+# tail) retain their measured limits. The forced unterminated plain fixture,
+# additional timestamped limits and shapes are exploratory reports only; their
+# bytes are not asserted before measurement.
 # Every case has two fresh files and child processes per report.
 # Report contents omit runner identity so independent outputs compare byte-for-byte.
 set -euo pipefail
@@ -95,27 +96,36 @@ import sys
 import tempfile
 
 # All history bytes originate in the fixed fixtures below. Reports contain
-# only fixed labels, bounded integers and bounded result hex. Timestamped
-# fixture bytes and successful status are asserted against the pinned GNU 8.3
-# measurements; plain-fixture byte outcomes remain recorded, not asserted.
+# only fixed labels, bounded integers and bounded result hex. The two-block
+# fixture asserts successful status and bytes at its previously measured
+# limits; other byte outcomes remain recorded, not asserted.
 LIMIT = 16384
 FIXTURES = {
     "blank": b"A\n\nB\n",
     "unterminated": b"A\nB",
+    "unterminated_forced": b"A\nB\nC",
     "timestamped": b"#1700000000\nA0\nA1\n#1700000001\nB0\nB1\n",
     "timestamped_single": b"#1700000000\nA0\nA1\n",
     "timestamped_blank": b"#1700000000\nA0\n\nB0\n",
     "timestamped_dangling": b"#1700000000\nA0\n#1700000001\n",
     "timestamped_consecutive": b"#1700000000\n#1700000001\nA0\n#1700000002\nA1\n",
+    "timestamped_range_bounds": b"#1700000000\nline one\n\nline two\n#1700000001\nnext\n",
+    "timestamped_post_append": (
+        b"#1700000000\necho one\n# not timestamp\n#1700000001\nprintf two\n"
+        b"#1700000001\nprintf two\n#1700000002\nprintf three\n"
+    ),
 }
 LIMITS = {
     "blank": (10, 1),
     "unterminated": (10, 1),
+    "unterminated_forced": (1, 2),
     "timestamped": (10, 1, 2, 3, 4),
     "timestamped_single": (1, 2),
     "timestamped_blank": (1, 2),
     "timestamped_dangling": (0, 1, 2),
     "timestamped_consecutive": (1, 2),
+    "timestamped_range_bounds": (1,),
+    "timestamped_post_append": (2,),
 }
 EXPECTED_TIMESTAMPED = {
     10: b"#1700000000\nA0\nA1\n#1700000001\nB0\nB1\n",
@@ -222,7 +232,7 @@ def run_trial(fixture, limit, trial):
 
 try:
     results = [run_trial(fixture, limit, trial)
-               for fixture in ("blank", "unterminated", "timestamped", "timestamped_single", "timestamped_blank", "timestamped_dangling", "timestamped_consecutive")
+               for fixture in ("blank", "unterminated", "unterminated_forced", "timestamped", "timestamped_single", "timestamped_blank", "timestamped_dangling", "timestamped_consecutive", "timestamped_range_bounds", "timestamped_post_append")
                for limit in LIMITS[fixture]
                for trial in (1, 2)]
     if not all(results):

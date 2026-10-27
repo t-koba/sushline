@@ -1076,6 +1076,8 @@ jobs:
           grep -qx 'marker_differs: 0' /tmp/history_time.out
           grep -qx 'vertical_tab: 1700000000' /tmp/history_time.out
           grep -qx 'does_not_fit: 0' /tmp/history_time.out
+      - name: Measure pinned history file-import cursors
+        run: bash .github/scripts/history-import-cursor.sh
       - name: Measure the pinned release's history positions and search arguments
         run: |
           set -euo pipefail
@@ -3103,6 +3105,7 @@ jobs:
             /tmp/history_time.out \
             /tmp/history_position.out \
             /tmp/history_position_append.out \
+            /tmp/history_import_cursor.out \
             /tmp/history_expand.out; do
             if [ -f "$report" ]; then
               cp -- "$report" "$report_dir/"

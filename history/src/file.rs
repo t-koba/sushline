@@ -40,7 +40,7 @@ impl History {
     ) -> io::Result<Self> {
         let file = fs::File::open(path)?;
         let mut history = Self::new();
-        history.import_records(read_history_records(file, multiline)?);
+        history.import_records(read_history_records(file, multiline)?, None);
         history.file_loaded_len = history.entries.len();
         Ok(history)
     }
@@ -87,7 +87,7 @@ impl History {
     ) -> io::Result<Self> {
         let file = fs::File::open(path)?;
         let mut history = Self::new();
-        history.import_records(read_history_range_records(file, from, to, multiline)?);
+        history.import_records(read_history_range_records(file, from, to, multiline)?, None);
         history.file_loaded_len = history.entries.len();
         Ok(history)
     }
@@ -121,8 +121,7 @@ impl History {
         multiline: HistoryMultiline,
     ) -> io::Result<()> {
         let file = fs::File::open(path)?;
-        self.import_records(read_history_records(file, multiline)?);
-        self.enforce_max_len(max_entries);
+        self.import_records(read_history_records(file, multiline)?, max_entries);
         self.file_loaded_len = self.entries.len();
         Ok(())
     }
@@ -178,8 +177,10 @@ impl History {
         multiline: HistoryMultiline,
     ) -> io::Result<()> {
         let file = fs::File::open(path)?;
-        self.import_records(read_history_range_records(file, from, to, multiline)?);
-        self.enforce_max_len(max_entries);
+        self.import_records(
+            read_history_range_records(file, from, to, multiline)?,
+            max_entries,
+        );
         self.file_loaded_len = self.entries.len();
         Ok(())
     }
@@ -331,10 +332,17 @@ impl History {
         Ok(())
     }
 
-    fn import_records(&mut self, records: Vec<(Vec<u8>, Option<String>)>) {
+    fn import_records(
+        &mut self,
+        records: Vec<(Vec<u8>, Option<String>)>,
+        max_entries: Option<usize>,
+    ) {
+        let position = self.where_history();
         for (line, timestamp) in records {
             self.push_entry(line, timestamp, false);
         }
+        self.enforce_max_len(max_entries);
+        self.restore_offset(position);
     }
 }
 

@@ -1,0 +1,8 @@
+full empty pos0 cap0: status=0 pos=0 len=3 current=file-alpha list=file-alpha,file-beta,file-gamma
+full old pos0 cap0: status=0 pos=0 len=6 current=old-a list=old-a,old-b,old-c,file-alpha,file-beta,file-gamma
+full old pos2 cap0: status=0 pos=2 len=6 current=old-c list=old-a,old-b,old-c,file-alpha,file-beta,file-gamma
+full old pos3 cap0: status=0 pos=3 len=6 current=file-alpha list=old-a,old-b,old-c,file-alpha,file-beta,file-gamma
+range old pos1 cap0: status=0 pos=1 len=6 current=old-b list=old-a,old-b,old-c,file-alpha,file-beta,file-gamma
+full old pos1 cap1: status=0 pos=1 len=2 current=file-gamma list=file-beta,file-gamma
+full old pos3 cap1: status=0 pos=3 len=2 current=(null) list=file-beta,file-gamma
+range old pos3 cap1: status=0 pos=3 len=2 current=(null) list=file-beta,file-gamma

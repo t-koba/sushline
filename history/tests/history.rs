@@ -224,8 +224,8 @@ fn append_clears_current_edit_and_preserves_import_cursor() {
     let mut history = History::new();
     history.push("old");
     history.load_file(&path, None).unwrap();
-    assert_eq!(history.where_history(), 2);
-    assert!(history.current_history().is_none());
+    assert_eq!(history.where_history(), 0);
+    assert_eq!(history.current_history().unwrap().line(), "old");
 }
 
 #[test]
@@ -4917,4 +4917,92 @@ fn beyond_end_of_empty_stifled_history_is_safe() {
     assert_eq!(h.where_history(), 0);
     assert!(h.set_pos(0));
     assert_eq!(h.where_history(), 0);
+}
+
+#[test]
+fn file_import_preserves_numeric_cursor() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(&path, "file-alpha\nfile-beta\nfile-gamma\n").unwrap();
+
+    for ranged in [false, true] {
+        let fresh = if ranged {
+            History::read_file_range(&path, 0, Some(3)).unwrap()
+        } else {
+            History::read_file(&path).unwrap()
+        };
+        assert_eq!(fresh.where_history(), 0);
+        assert_eq!(fresh.current_history().unwrap().line(), "file-alpha");
+        assert_eq!(fresh.len(), 3);
+
+        for position in [0, 1, 2, 3] {
+            let mut history = History::new();
+            for line in ["old-a", "old-b", "old-c"] {
+                history.push(line);
+            }
+            assert!(history.set_pos(position));
+            if ranged {
+                history.load_file_range(&path, 0, Some(3), None).unwrap();
+            } else {
+                history.load_file(&path, None).unwrap();
+            }
+            assert_eq!(history.where_history(), position);
+            assert_eq!(
+                history.current_history().unwrap().line(),
+                ["old-a", "old-b", "old-c", "file-alpha"][position]
+            );
+            assert_eq!(
+                history
+                    .entries()
+                    .iter()
+                    .map(|e| e.line())
+                    .collect::<Vec<_>>(),
+                [
+                    "old-a",
+                    "old-b",
+                    "old-c",
+                    "file-alpha",
+                    "file-beta",
+                    "file-gamma"
+                ]
+            );
+        }
+
+        for position in [1, 3] {
+            for explicit_cap in [false, true] {
+                let mut history = History::new();
+                for line in ["old-a", "old-b", "old-c"] {
+                    history.push(line);
+                }
+                assert!(history.set_pos(position));
+                if !explicit_cap {
+                    history.stifle(2);
+                }
+                let cap = explicit_cap.then_some(2);
+                if ranged {
+                    history.load_file_range(&path, 0, Some(3), cap).unwrap();
+                } else {
+                    history.load_file(&path, cap).unwrap();
+                }
+                assert_eq!(history.where_history(), position);
+                assert_eq!(
+                    history
+                        .entries()
+                        .iter()
+                        .map(|e| e.line())
+                        .collect::<Vec<_>>(),
+                    ["file-beta", "file-gamma"]
+                );
+                assert_eq!(
+                    history.current_history().map(|e| e.line_bytes.as_slice()),
+                    (position == 1).then_some(b"file-gamma".as_slice())
+                );
+                // Imported entries are part of the loaded watermark, even after trimming.
+                let output = dir.path().join("appended");
+                fs::write(&output, "").unwrap();
+                history.append_new_to_file(&output).unwrap();
+                assert_eq!(fs::read(&output).unwrap(), b"");
+            }
+        }
+    }
 }

@@ -1855,6 +1855,8 @@ jobs:
           lex_arith_arg11_hex=24282831202b20322929
           lex_arith_expand11: status=1 output_hex=24282831202b20322929
           EXPECTED
+      - name: Measure History expansion search reuse against the pinned release
+        run: bash .github/scripts/history-expand-reuse.sh primary
       - name: Measure direct-library SIGINT handling against the pinned release
         run: |
           set -euo pipefail
@@ -3321,6 +3323,7 @@ jobs:
             /tmp/history_write_mode_primary.out \
             /tmp/history_multiline_limit_primary.out \
             /tmp/history_joined_eof_primary.out \
+            /tmp/history_expand_reuse_primary.out \
             /tmp/history_range_per_line.out \
             /tmp/history_range_joined.out \
             /tmp/history_range_plain_joined.out \
@@ -3415,6 +3418,8 @@ jobs:
         run: bash .github/scripts/history-multiline-limit.sh replica
       - name: Measure History joined imports at EOF against the pinned release
         run: bash .github/scripts/history-joined-eof.sh replica
+      - name: Measure History expansion search reuse against the pinned release
+        run: bash .github/scripts/history-expand-reuse.sh replica
       - name: Upload independent pinned include-depth reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -3479,5 +3484,13 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-history-joined-eof-replica
           path: /tmp/history_joined_eof_replica.out
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload independent pinned history-expand-reuse report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-history-expand-reuse-replica
+          path: /tmp/history_expand_reuse_replica.out
           if-no-files-found: warn
           retention-days: 14

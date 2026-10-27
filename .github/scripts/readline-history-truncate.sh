@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Shared measurement only: the oracle and its fresh-runner replica retain
-# independent reports. GNU byte assertions are limited to the exact timestamped
-# fixture and its three tested limits. The plain fixtures (`A\n\nB\n` with a
-# blank line and `A\nB` with an unterminated tail) use limits 10 (no-cut) and 1
-# (positive control for the blank fixture). A timestamped two-block fixture
-# uses limits 10, 2, and 3. Every case has two fresh files and child processes
-# per report.
+# independent reports. GNU byte assertions are limited to the exact two-block
+# timestamped fixture at its three previously measured limits. The plain
+# fixtures (`A\n\nB\n` with a blank line and `A\nB` with an unterminated
+# tail) retain their measured limits. Additional timestamped limits and shapes
+# are exploratory reports only; their bytes are not asserted before measurement.
+# Every case has two fresh files and child processes per report.
 # Report contents omit runner identity so independent outputs compare byte-for-byte.
 set -euo pipefail
 ulimit -c 0
@@ -103,11 +103,19 @@ FIXTURES = {
     "blank": b"A\n\nB\n",
     "unterminated": b"A\nB",
     "timestamped": b"#1700000000\nA0\nA1\n#1700000001\nB0\nB1\n",
+    "timestamped_single": b"#1700000000\nA0\nA1\n",
+    "timestamped_blank": b"#1700000000\nA0\n\nB0\n",
+    "timestamped_dangling": b"#1700000000\nA0\n#1700000001\n",
+    "timestamped_consecutive": b"#1700000000\n#1700000001\nA0\n#1700000002\nA1\n",
 }
 LIMITS = {
     "blank": (10, 1),
     "unterminated": (10, 1),
-    "timestamped": (10, 2, 3),
+    "timestamped": (10, 1, 2, 3, 4),
+    "timestamped_single": (1, 2),
+    "timestamped_blank": (1, 2),
+    "timestamped_dangling": (0, 1, 2),
+    "timestamped_consecutive": (1, 2),
 }
 EXPECTED_TIMESTAMPED = {
     10: b"#1700000000\nA0\nA1\n#1700000001\nB0\nB1\n",
@@ -179,7 +187,8 @@ def run_trial(fixture, limit, trial):
         else:
             print(f"{label}_result_bytes={len(result)}")
             print(f"{label}_result_hex={result.hex()}")
-            if fixture == "timestamped" and result != EXPECTED_TIMESTAMPED[limit]:
+            if (fixture == "timestamped" and limit in EXPECTED_TIMESTAMPED
+                    and result != EXPECTED_TIMESTAMPED[limit]):
                 valid = False
         if timed_out or child.returncode < 0:
             valid = False
@@ -213,7 +222,7 @@ def run_trial(fixture, limit, trial):
 
 try:
     results = [run_trial(fixture, limit, trial)
-               for fixture in ("blank", "unterminated", "timestamped")
+               for fixture in ("blank", "unterminated", "timestamped", "timestamped_single", "timestamped_blank", "timestamped_dangling", "timestamped_consecutive")
                for limit in LIMITS[fixture]
                for trial in (1, 2)]
     if not all(results):

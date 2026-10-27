@@ -1305,6 +1305,20 @@ jobs:
               return 0;
           }
 
+          static int measure_navigation(const char *direction, int start) {
+              using_history();
+              add_history("A"); add_history("B"); add_history("C");
+              if (start < 0 || start > history_length ||
+                  !history_set_pos(start) || where_history() != start) return 3;
+              HIST_ENTRY *entry;
+              if (strcmp(direction, "previous") == 0) entry = previous_history();
+              else if (strcmp(direction, "next") == 0) entry = next_history();
+              else return 2;
+              printf("direction=%s start=%d entry=%s position=%d\n",
+                     direction, start, entry ? entry->line : "(null)", where_history());
+              return 0;
+          }
+
           static int measure_clear(int limit, int pos) {
               using_history();
               add_history("A"); add_history("B"); add_history("C"); add_history("D");
@@ -1318,6 +1332,8 @@ jobs:
           }
 
           int main(int argc, char **argv) {
+              if (argc == 4 && strcmp(argv[1], "navigate") == 0)
+                  return measure_navigation(argv[2], atoi(argv[3]));
               if (argc == 5 && strcmp(argv[1], "set-pos") == 0)
                   return measure_set_pos(atoi(argv[2]), atoi(argv[3]), atoi(argv[4]));
               if (argc == 4 && strcmp(argv[1], "clear") == 0)
@@ -1521,6 +1537,16 @@ jobs:
             /tmp/history_position_probe set-pos 0 0 1
           } | tee /tmp/history_position_set_pos.out
           diff -u .github/scripts/history-position-set-pos.expected /tmp/history_position_set_pos.out
+          # Each call starts in a fresh A/B/C history at or before the end.
+          # Do not query current_history or navigate from beyond-end offsets.
+          {
+            for direction in previous next; do
+              for pos in 0 1 2 3; do
+                /tmp/history_position_probe navigate "$direction" "$pos"
+              done
+            done
+          } | tee /tmp/history_position_navigation.out
+          diff -u .github/scripts/history-position-navigation.expected /tmp/history_position_navigation.out
       - name: Measure and assert pinned History expansion fixtures
         run: |
           set -euo pipefail
@@ -3264,6 +3290,7 @@ jobs:
             /tmp/history_position_unstifle.out \
             /tmp/history_position_clear.out \
             /tmp/history_position_set_pos.out \
+            /tmp/history_position_navigation.out \
             /tmp/history_import_cursor.out \
             /tmp/history_expand.out; do
             if [ -f "$report" ]; then

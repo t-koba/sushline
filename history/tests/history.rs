@@ -83,6 +83,44 @@ fn set_pos_accepts_end_and_preserves_position_on_invalid_target() {
 }
 
 #[test]
+fn previous_and_next_match_gnu_boundary_positions() {
+    // Each call starts in a fresh A/B/C history, as in the pinned GNU 8.3 fixture.
+    for (previous, expected) in [
+        (
+            true,
+            [(None, 0), (Some("A"), 0), (Some("B"), 1), (Some("C"), 2)],
+        ),
+        (
+            false,
+            [(Some("B"), 1), (Some("C"), 2), (None, 3), (None, 3)],
+        ),
+    ] {
+        for (start, (entry, position)) in expected.into_iter().enumerate() {
+            let mut history = History::new();
+            for line in ["A", "B", "C"] {
+                history.push(line);
+            }
+            assert!(history.set_pos(start));
+            let actual = if previous {
+                history.previous_history()
+            } else {
+                history.next_history()
+            };
+            assert_eq!(
+                actual.map(|entry| entry.line_bytes.as_slice()),
+                entry.map(str::as_bytes),
+                "previous={previous} start={start}"
+            );
+            assert_eq!(
+                history.where_history(),
+                position,
+                "previous={previous} start={start}"
+            );
+        }
+    }
+}
+
+#[test]
 fn removal_preserves_numeric_position() {
     for position in 0..=4 {
         for index in 0..4 {

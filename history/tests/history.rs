@@ -967,6 +967,24 @@ fn append_file_creates_missing_path_with_or_without_entries() {
 }
 
 #[test]
+#[cfg(unix)]
+fn append_file_preserves_existing_wider_file_mode() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(&path, b"old\n").unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+    let mut history = History::new();
+    history.push("new");
+    history.append_file(&path, 0).unwrap();
+    assert_eq!(fs::read(&path).unwrap(), b"old\nnew\n");
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o644
+    );
+}
+
+#[test]
 #[cfg_attr(not(unix), ignore = "requires Unix file modes")]
 fn full_write_creates_restrictive_file_mode_for_missing_path() {
     use std::os::unix::fs::PermissionsExt;

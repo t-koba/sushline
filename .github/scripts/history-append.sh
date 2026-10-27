@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Direct GNU History 8.3 append_history fixtures; primary and replica reports
-# contain identical fixed labels, statuses and file bytes.
+# contain identical fixed labels, statuses, file bytes and measured modes.
 set -euo pipefail
 if [ $# -ne 1 ] || { [ "$1" != primary ] && [ "$1" != replica ]; }; then
   echo 'usage: history-append.sh <primary|replica>' >&2; exit 2
@@ -29,6 +29,7 @@ extern int rl_readline_version;
 int main(int argc, char **argv) {
     if (argc != 4 || rl_readline_version != 0x0803) return 2;
     int missing = strcmp(argv[2], "missing") == 0;
+    int mode = strcmp(argv[2], "mode") == 0;
     int timestamped = atoi(argv[2]), count = atoi(argv[3]);
     using_history();
     if (missing) {
@@ -43,14 +44,25 @@ int main(int argc, char **argv) {
         return 0;
     }
     history_write_timestamps = timestamped;
-    add_history("new1");
-    if (timestamped) add_history_time("#1700000001");
-    add_history("new2");
-    if (timestamped) add_history_time("#1700000002");
+    if (mode) {
+        add_history("new");
+    } else {
+        add_history("new1");
+        if (timestamped) add_history_time("#1700000001");
+        add_history("new2");
+        if (timestamped) add_history_time("#1700000002");
+    }
     int status = append_history(count, argv[1]);
     FILE *file = fopen(argv[1], "rb");
     if (!file) return 3;
-    printf("%s count=%d status=%d hex=", timestamped ? "timestamped" : "plain", count, status);
+    if (mode) {
+        struct stat info;
+        if (stat(argv[1], &info) != 0) return 3;
+        printf("mode count=%d status=%d mode=%04o hex=", count, status,
+               (unsigned int)(info.st_mode & 0777));
+    } else {
+        printf("%s count=%d status=%d hex=", timestamped ? "timestamped" : "plain", count, status);
+    }
     int byte;
     while ((byte = fgetc(file)) != EOF) printf("%02x", (unsigned int)byte);
     if (ferror(file) || fclose(file) != 0) return 3;
@@ -83,5 +95,8 @@ for count in 0 1; do
   rm -f -- "$work/missing"
   LC_ALL=C timeout 5 "$work/probe" "$work/missing" missing "$count"
 done
+printf 'old\n' > "$work/history"
+chmod 0644 "$work/history"
+LC_ALL=C timeout 5 "$work/probe" "$work/history" mode 1
 } | tee "$out"
 diff -u .github/scripts/history-append.expected "$out"

@@ -1,0 +1,6 @@
+header_version=0x0803 runtime_version=0x0803
+seed[0]_bytes=27 seed[0]_hex=6563686f20616c7068612d666972737420616c7068612d6c617374
+operation=history_set_pos direction=-1 requested_position=0 return=1 final_position=0
+operation=history_search direction=-1 needle_hex=616c706861 return_offset=17 final_position=0 current_entry_bytes=27 current_entry_hex=6563686f20616c7068612d666972737420616c7068612d6c617374
+operation=history_set_pos direction=+1 requested_position=0 return=1 final_position=0
+operation=history_search direction=+1 needle_hex=616c706861 return_offset=5 final_position=0 current_entry_bytes=27 current_entry_hex=6563686f20616c7068612d666972737420616c7068612d6c617374

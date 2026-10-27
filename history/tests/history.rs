@@ -367,6 +367,30 @@ fn forward_history_search_includes_current_position() {
 }
 
 #[test]
+fn history_search_offsets_match_pinned_single_entry_fixture() {
+    // Mirrors history-search-offset.sh's primary/fresh-replica GNU 8.3 fixture.
+    let mut h = History::new();
+    let line = b"echo alpha-first alpha-last";
+    h.push_bytes(line.to_vec());
+    assert_eq!(h.len(), 1);
+    assert_eq!(line.len(), 27);
+
+    for (direction, offset) in [
+        (HistoryDirection::Previous, 17),
+        (HistoryDirection::Next, 5),
+    ] {
+        assert!(h.set_pos(0));
+        assert_eq!(h.where_history(), 0);
+        let found = h.history_search_bytes(b"alpha", direction).expect("match");
+        assert_eq!(found.byte_offset, offset);
+        assert_eq!(found.entry_index, 0);
+        assert_eq!(found.line_bytes, line);
+        assert_eq!(h.where_history(), 0);
+        assert_eq!(h.current_history().unwrap().line_bytes, line);
+    }
+}
+
+#[test]
 fn history_search_includes_positioned_entry_with_directional_offsets() {
     // GNU `history_search` fixtures: the positioned entry is included in
     // both directions, forward offsets are the first occurrence, and

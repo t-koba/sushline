@@ -1,0 +1,8 @@
+limit=0 start=0 result=0 stifled=0 position=0 length=0 current=(null) list=
+limit=0 start=2 result=0 stifled=0 position=2 length=0 current=(null) list=
+limit=0 start=4 result=0 stifled=0 position=4 length=0 current=(null) list=
+limit=2 start=0 result=2 stifled=0 position=0 length=2 current=C list=C,D
+limit=2 start=1 result=2 stifled=0 position=1 length=2 current=D list=C,D
+limit=2 start=2 result=2 stifled=0 position=2 length=2 current=(null) list=C,D
+limit=2 start=3 result=2 stifled=0 position=3 length=2 current=(null) list=C,D
+limit=2 start=4 result=2 stifled=0 position=4 length=2 current=(null) list=C,D

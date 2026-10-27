@@ -1252,7 +1252,27 @@ jobs:
               return 0;
           }
 
+          static int measure_unstifle(int limit, int pos) {
+              using_history();
+              add_history("A"); add_history("B"); add_history("C"); add_history("D");
+              if (!history_set_pos(pos)) return 3;
+              stifle_history(limit);
+              int result = unstifle_history();
+              int after = where_history();
+              HIST_ENTRY *current = after >= 0 && after < history_length ? current_history() : NULL;
+              HIST_ENTRY **list = history_list();
+              printf("limit=%d start=%d result=%d stifled=%d position=%d length=%d current=%s list=",
+                     limit, pos, result, history_is_stifled(), after, history_length,
+                     current ? current->line : "(null)");
+              for (int i = 0; i < history_length; ++i)
+                  printf("%s%s", i ? "," : "", list[i]->line);
+              putchar('\n');
+              return 0;
+          }
+
           int main(int argc, char **argv) {
+              if (argc == 4 && strcmp(argv[1], "unstifle") == 0)
+                  return measure_unstifle(atoi(argv[2]), atoi(argv[3]));
               if (argc == 5 && strcmp(argv[1], "remove") == 0)
                   return measure_removal(atoi(argv[2]), atoi(argv[3]), atoi(argv[4]));
               if (argc == 4 && strcmp(argv[1], "preserve") == 0)
@@ -1401,6 +1421,16 @@ jobs:
             done
           } | tee /tmp/history_position_remove.out
           diff -u .github/scripts/history-position-remove.expected /tmp/history_position_remove.out
+          # Each unstifle case starts fresh; current_history is guarded by length.
+          {
+            for pos in 0 2 4; do
+              /tmp/history_position_probe unstifle 0 "$pos"
+            done
+            for pos in 0 1 2 3 4; do
+              /tmp/history_position_probe unstifle 2 "$pos"
+            done
+          } | tee /tmp/history_position_unstifle.out
+          diff -u .github/scripts/history-position-unstifle.expected /tmp/history_position_unstifle.out
       - name: Measure and assert pinned History expansion fixtures
         run: |
           set -euo pipefail
@@ -3140,6 +3170,7 @@ jobs:
             /tmp/history_position.out \
             /tmp/history_position_append.out \
             /tmp/history_position_remove.out \
+            /tmp/history_position_unstifle.out \
             /tmp/history_import_cursor.out \
             /tmp/history_expand.out; do
             if [ -f "$report" ]; then

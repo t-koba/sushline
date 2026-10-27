@@ -4857,6 +4857,41 @@ fn stifle_preserves_offsets_and_state_across_trimming_and_noop_caps() {
 }
 
 #[test]
+fn unstifle_preserves_measured_offsets_and_entries() {
+    for (limit, positions, expected) in [
+        (0, &[0, 2, 4][..], &[][..]),
+        (2, &[0, 1, 2, 3, 4][..], &["C", "D"][..]),
+    ] {
+        for &position in positions {
+            let mut history = History::new();
+            for line in ["A", "B", "C", "D"] {
+                history.push(line);
+            }
+            assert!(history.set_pos(position));
+            history.stifle(limit);
+            assert!(history.is_stifled());
+            assert_eq!(history.unstifle(), Some(limit));
+            assert!(!history.is_stifled());
+            assert_eq!(history.max_entries(), None);
+            assert_eq!(history.where_history(), position);
+            assert_eq!(
+                history
+                    .entries()
+                    .iter()
+                    .map(|e| e.line())
+                    .collect::<Vec<_>>(),
+                expected,
+                "limit={limit} position={position}"
+            );
+            assert_eq!(
+                history.current_history().map(|e| e.line().into_owned()),
+                expected.get(position).map(|s| s.to_string())
+            );
+        }
+    }
+}
+
+#[test]
 fn post_stifle_append_preserves_even_beyond_end_offsets() {
     for bytes in [false, true] {
         for limit in 0..=2 {

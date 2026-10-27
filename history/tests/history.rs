@@ -844,6 +844,42 @@ fn truncate_file_preserves_noop_bytes_and_truncates_when_needed() {
 }
 
 #[test]
+fn truncate_crlf_history_preserves_measured_gnu_bytes() {
+    // Truncation is raw-byte based, unlike CRLF-normalizing history imports.
+    let cases: &[(&[u8], &[&[u8]])] = &[
+        (
+            b"A0\r\nA1\r\nB0\r\n",
+            &[b"", b"B0\r\n", b"A1\r\nB0\r\n", b"A0\r\nA1\r\nB0\r\n"],
+        ),
+        (
+            b"#1700000000\r\nA0\r\nA1\r\n#1700000001\r\nB0\r\nB1\r\n",
+            &[
+                b"",
+                b"B1\r\n",
+                b"B0\r\nB1\r\n",
+                b"#1700000001\r\nB0\r\nB1\r\n",
+                b"A1\r\n#1700000001\r\nB0\r\nB1\r\n",
+                b"A0\r\nA1\r\n#1700000001\r\nB0\r\nB1\r\n",
+                b"#1700000000\r\nA0\r\nA1\r\n#1700000001\r\nB0\r\nB1\r\n",
+            ],
+        ),
+    ];
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    for &(input, expected_by_limit) in cases {
+        for (limit, &expected) in expected_by_limit.iter().enumerate() {
+            fs::write(&path, input).unwrap();
+            History::truncate_file(&path, limit).unwrap();
+            assert_eq!(
+                fs::read(&path).unwrap(),
+                expected,
+                "fixture {input:?}, limit {limit}"
+            );
+        }
+    }
+}
+
+#[test]
 fn failed_full_write_cleans_up_sibling_tmp() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");

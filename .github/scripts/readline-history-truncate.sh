@@ -94,6 +94,8 @@ import tempfile
 # Every fixture/limit pair asserts the measured status and exact bytes.
 LIMIT = 16384
 FIXTURES = {
+    "crlf_plain": b"A0\r\nA1\r\nB0\r\n",
+    "crlf_timestamped": b"#1700000000\r\nA0\r\nA1\r\n#1700000001\r\nB0\r\nB1\r\n",
     "blank": b"A\n\nB\n",
     "unterminated": b"A\nB",
     "unterminated_forced": b"A\nB\nC",
@@ -111,6 +113,8 @@ FIXTURES = {
     ),
 }
 LIMITS = {
+    "crlf_plain": (0, 1, 2, 3),
+    "crlf_timestamped": (0, 1, 2, 3, 4, 5, 6),
     "blank": (10, 1),
     "unterminated": (10, 1, 0),
     "unterminated_forced": (1, 2),
@@ -125,6 +129,14 @@ LIMITS = {
     "timestamped_post_append": (2,),
 }
 EXPECTED = {
+    "crlf_plain": {0: b"", 1: b"B0\r\n", 2: b"A1\r\nB0\r\n", 3: b"A0\r\nA1\r\nB0\r\n"},
+    "crlf_timestamped": {
+        0: b"", 1: b"B1\r\n", 2: b"B0\r\nB1\r\n",
+        3: b"#1700000001\r\nB0\r\nB1\r\n",
+        4: b"A1\r\n#1700000001\r\nB0\r\nB1\r\n",
+        5: b"A0\r\nA1\r\n#1700000001\r\nB0\r\nB1\r\n",
+        6: b"#1700000000\r\nA0\r\nA1\r\n#1700000001\r\nB0\r\nB1\r\n",
+    },
     "blank": {10: b"A\n\nB\n", 1: b"B\n"},
     "unterminated": {10: b"A\nB", 1: b"A\nB", 0: b""},
     "unterminated_forced": {1: b"B\nC", 2: b"A\nB\nC"},
@@ -241,7 +253,7 @@ def run_trial(fixture, limit, trial):
 
 try:
     results = [run_trial(fixture, limit, trial)
-               for fixture in ("blank", "unterminated", "unterminated_forced", "timestamped", "timestamped_single", "timestamped_blank", "timestamped_dangling", "timestamped_consecutive", "timestamped_unterminated_command", "timestamped_unterminated_marker", "timestamped_range_bounds", "timestamped_post_append")
+               for fixture in ("crlf_plain", "crlf_timestamped", "blank", "unterminated", "unterminated_forced", "timestamped", "timestamped_single", "timestamped_blank", "timestamped_dangling", "timestamped_consecutive", "timestamped_unterminated_command", "timestamped_unterminated_marker", "timestamped_range_bounds", "timestamped_post_append")
                for limit in LIMITS[fixture]
                for trial in (1, 2)]
     if not all(results):

@@ -1232,7 +1232,29 @@ jobs:
               return 0;
           }
 
+          static int measure_removal(int pos, int index, int stifled) {
+              using_history();
+              add_history("A"); add_history("B"); add_history("C"); add_history("D");
+              if (!history_set_pos(pos)) return 3;
+              if (stifled) stifle_history(2);
+              HIST_ENTRY *removed = remove_history(index);
+              if (!removed) return 4;
+              int after = where_history();
+              HIST_ENTRY *current = after >= 0 && after < history_length ? current_history() : NULL;
+              HIST_ENTRY **list = history_list();
+              printf("stifled=%d start=%d remove=%d removed=%s position=%d length=%d current=%s list=",
+                     stifled, pos, index, removed->line, after, history_length,
+                     current ? current->line : "(null)");
+              for (int i = 0; i < history_length; ++i)
+                  printf("%s%s", i ? "," : "", list[i]->line);
+              putchar('\n');
+              free_history_entry(removed);
+              return 0;
+          }
+
           int main(int argc, char **argv) {
+              if (argc == 5 && strcmp(argv[1], "remove") == 0)
+                  return measure_removal(atoi(argv[2]), atoi(argv[3]), atoi(argv[4]));
               if (argc == 4 && strcmp(argv[1], "preserve") == 0)
                   return measure_preserved(atoi(argv[2]), atoi(argv[3]));
               if (argc == 2 && strncmp(argv[1], "stifle", 6) == 0)
@@ -1367,6 +1389,18 @@ jobs:
           preserve append: length=4 position=1 first=alpha second=beta current=beta
           EXPECTED
           diff -u /tmp/history_position_preserved.expected /tmp/history_position_preserved.out
+          # A fresh process for each removal; never call current_history beyond the end.
+          {
+            for pos in 0 1 2 3 4; do
+              for index in 0 1 2 3; do
+                /tmp/history_position_probe remove "$pos" "$index" 0
+              done
+            done
+            for args in '1 0' '2 0' '4 0' '2 1'; do
+              /tmp/history_position_probe remove $args 1
+            done
+          } | tee /tmp/history_position_remove.out
+          diff -u .github/scripts/history-position-remove.expected /tmp/history_position_remove.out
       - name: Measure and assert pinned History expansion fixtures
         run: |
           set -euo pipefail
@@ -3105,6 +3139,7 @@ jobs:
             /tmp/history_time.out \
             /tmp/history_position.out \
             /tmp/history_position_append.out \
+            /tmp/history_position_remove.out \
             /tmp/history_import_cursor.out \
             /tmp/history_expand.out; do
             if [ -f "$report" ]; then

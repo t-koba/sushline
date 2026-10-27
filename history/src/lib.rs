@@ -184,7 +184,7 @@ pub struct HistorySearchMatch {
 #[derive(Debug, Clone, Default)]
 /// History.
 ///
-/// Stifling and state restoration can retain an offset beyond the list. In
+/// Stifling, removal and state restoration can retain an offset beyond the list. In
 /// that state cursor-relative navigation and searches return `None` without
 /// moving it. Use `set_pos`, `reset_cursor`, `beginning_bytes`, or `end_bytes`
 /// to recover a valid position.
@@ -291,17 +291,19 @@ impl History {
         true
     }
 
-    /// Remove.
+    /// Remove an entry while preserving the numeric position.
     pub fn remove(&mut self, index: usize) -> Option<HistoryEntry> {
         if index >= self.entries.len() {
             // An invalid removal is a no-op: the positioned cursor is kept.
             return None;
         }
+        let position = self.where_history();
         let removed = self.entries.remove(index);
         if index < self.file_loaded_len {
             self.file_loaded_len = self.file_loaded_len.saturating_sub(1);
         }
         self.reset_cursor();
+        self.restore_offset(position);
         Some(removed)
     }
 

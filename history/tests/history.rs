@@ -52,6 +52,59 @@ fn fresh_appends_preserve_position_zero() {
 }
 
 #[test]
+fn removal_preserves_numeric_position() {
+    for position in 0..=4 {
+        for index in 0..4 {
+            let mut history = History::new();
+            for line in ["A", "B", "C", "D"] {
+                history.push(line);
+            }
+            assert!(history.set_pos(position));
+            let mut expected = vec!["A", "B", "C", "D"];
+            let removed = expected.remove(index);
+            assert_eq!(
+                history.remove(index).unwrap().line_bytes,
+                removed.as_bytes()
+            );
+            assert_eq!(history.where_history(), position);
+            assert_eq!(
+                history
+                    .entries()
+                    .iter()
+                    .map(|entry| entry.line_bytes.as_slice())
+                    .collect::<Vec<_>>(),
+                expected
+                    .iter()
+                    .map(|line| line.as_bytes())
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(
+                history
+                    .current_history()
+                    .map(|entry| entry.line_bytes.as_slice()),
+                expected.get(position).map(|line| line.as_bytes())
+            );
+            assert!(history.remove(3).is_none());
+            assert_eq!(history.where_history(), position);
+        }
+    }
+
+    for (position, index, remaining) in [(1, 0, "D"), (2, 0, "D"), (4, 0, "D"), (2, 1, "C")] {
+        let mut history = History::new();
+        for line in ["A", "B", "C", "D"] {
+            history.push(line);
+        }
+        assert!(history.set_pos(position));
+        history.stifle(2);
+        assert!(history.remove(index).is_some());
+        assert_eq!(history.where_history(), position);
+        assert_eq!(history.len(), 1);
+        assert_eq!(history.entries()[0].line_bytes, remaining.as_bytes());
+        assert!(history.current_history().is_none());
+    }
+}
+
+#[test]
 fn adding_history_preserves_explicit_middle_and_old_end_positions() {
     for bytes in [false, true] {
         for position in [1, 3] {

@@ -1102,6 +1102,8 @@ jobs:
           grep -qx 'does_not_fit: 0' /tmp/history_time.out
       - name: Measure pinned history total bytes
         run: bash .github/scripts/history-total-bytes.sh
+      - name: Measure pinned History multiline imports under a limit
+        run: bash .github/scripts/history-multiline-limit.sh primary
       - name: Measure pinned history file-import cursors
         run: bash .github/scripts/history-import-cursor.sh
       - name: Measure the pinned release's history positions and search arguments
@@ -3315,6 +3317,7 @@ jobs:
             /tmp/history_truncate_primary.out \
             /tmp/history_append_primary.out \
             /tmp/history_write_mode_primary.out \
+            /tmp/history_multiline_limit_primary.out \
             /tmp/history_range_per_line.out \
             /tmp/history_range_joined.out \
             /tmp/history_range_plain_joined.out \
@@ -3405,6 +3408,8 @@ jobs:
         run: bash .github/scripts/history-append.sh replica
       - name: Measure History write modes against the pinned release
         run: bash .github/scripts/history-write-mode.sh replica
+      - name: Measure History multiline imports under a limit against the pinned release
+        run: bash .github/scripts/history-multiline-limit.sh replica
       - name: Upload independent pinned include-depth reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -3453,5 +3458,13 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-history-write-mode-replica
           path: /tmp/history_write_mode_replica.out
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload independent pinned history-multiline-limit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-history-multiline-limit-replica
+          path: /tmp/history_multiline_limit_replica.out
           if-no-files-found: warn
           retention-days: 14

@@ -1319,6 +1319,31 @@ jobs:
               return 0;
           }
 
+          static int measure_search_pos(void) {
+              static const struct {
+                  const char *name, *needle;
+                  int direction, pos;
+              } cases[] = {
+                  {"pos0_previous", "needle", -1, 0},
+                  {"pos0_next", "needle", 1, 0},
+                  {"pos3_previous", "needle", -1, 3},
+                  {"pos3_next_miss", "needle", 1, 3},
+                  {"pos99_previous_fallback", "needle", -1, 99},
+                  {"pos99_next_fallback", "needle", 1, 99},
+                  {"pos99_previous_miss", "missing", -1, 99},
+              };
+              using_history();
+              add_history("needle first"); add_history("middle"); add_history("needle last");
+              if (!history_set_pos(1) || where_history() != 1) return 3;
+              for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
+                  int before = where_history();
+                  int result = history_search_pos(cases[i].needle, cases[i].direction, cases[i].pos);
+                  int after = where_history();
+                  printf("case=%s before=%d result=%d after=%d\n", cases[i].name, before, result, after);
+              }
+              return 0;
+          }
+
           static int measure_clear(int limit, int pos) {
               using_history();
               add_history("A"); add_history("B"); add_history("C"); add_history("D");
@@ -1332,6 +1357,8 @@ jobs:
           }
 
           int main(int argc, char **argv) {
+              if (argc == 2 && strcmp(argv[1], "search-pos") == 0)
+                  return measure_search_pos();
               if (argc == 4 && strcmp(argv[1], "navigate") == 0)
                   return measure_navigation(argv[2], atoi(argv[3]));
               if (argc == 5 && strcmp(argv[1], "set-pos") == 0)
@@ -1547,6 +1574,9 @@ jobs:
             done
           } | tee /tmp/history_position_navigation.out
           diff -u .github/scripts/history-position-navigation.expected /tmp/history_position_navigation.out
+          # Search from explicit and invalid positions while the cursor is in range.
+          /tmp/history_position_probe search-pos | tee /tmp/history_position_search_pos.out
+          diff -u .github/scripts/history-position-search-pos.expected /tmp/history_position_search_pos.out
       - name: Measure and assert pinned History expansion fixtures
         run: |
           set -euo pipefail
@@ -3291,6 +3321,7 @@ jobs:
             /tmp/history_position_clear.out \
             /tmp/history_position_set_pos.out \
             /tmp/history_position_navigation.out \
+            /tmp/history_position_search_pos.out \
             /tmp/history_import_cursor.out \
             /tmp/history_expand.out; do
             if [ -f "$report" ]; then

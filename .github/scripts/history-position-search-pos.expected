@@ -1,0 +1,7 @@
+case=pos0_previous before=1 result=0 after=1
+case=pos0_next before=1 result=0 after=1
+case=pos3_previous before=1 result=2 after=1
+case=pos3_next_miss before=1 result=-1 after=1
+case=pos99_previous_fallback before=1 result=0 after=1
+case=pos99_next_fallback before=1 result=2 after=1
+case=pos99_previous_miss before=1 result=-1 after=1

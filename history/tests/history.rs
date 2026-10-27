@@ -428,6 +428,66 @@ fn history_search_ignore_case_folds_ascii_bytes_only() {
 }
 
 #[test]
+fn history_search_pos_preserves_in_range_cursor_for_pinned_cases() {
+    // Mirrors the pinned GNU 8.3 history-position-search-pos fixture.
+    let mut h = History::new();
+    h.push("needle first");
+    h.push("middle");
+    h.push("needle last");
+    h.set_pos(1);
+
+    let cases = [
+        (
+            "pos0_previous",
+            "needle",
+            HistoryDirection::Previous,
+            0,
+            Some(0),
+        ),
+        ("pos0_next", "needle", HistoryDirection::Next, 0, Some(0)),
+        (
+            "pos3_previous",
+            "needle",
+            HistoryDirection::Previous,
+            3,
+            Some(2),
+        ),
+        ("pos3_next_miss", "needle", HistoryDirection::Next, 3, None),
+        (
+            "pos99_previous_fallback",
+            "needle",
+            HistoryDirection::Previous,
+            99,
+            Some(0),
+        ),
+        (
+            "pos99_next_fallback",
+            "needle",
+            HistoryDirection::Next,
+            99,
+            Some(2),
+        ),
+        (
+            "pos99_previous_miss",
+            "missing",
+            HistoryDirection::Previous,
+            99,
+            None,
+        ),
+    ];
+    for (name, needle, direction, pos, expected) in cases {
+        assert_eq!(h.where_history(), 1, "{name}: before");
+        assert_eq!(
+            h.history_search_pos(needle, direction, pos)
+                .map(|found| found.entry_index),
+            expected,
+            "{name}: result"
+        );
+        assert_eq!(h.where_history(), 1, "{name}: after");
+    }
+}
+
+#[test]
 fn history_search_pos_matches_beginning_and_end_boundaries() {
     // GNU Readline 8.3 histsearch.c starts at the requested position: position
     // zero is searchable in both directions; one-past-end searches the newest

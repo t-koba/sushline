@@ -954,6 +954,19 @@ fn failed_full_write_cleans_up_sibling_tmp() {
 }
 
 #[test]
+fn append_file_creates_missing_path_with_or_without_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut history = History::new();
+    history.push("alpha");
+    for (from, expected) in [(0, &b"alpha\n"[..]), (1, &b""[..])] {
+        let path = dir.path().join(format!("history-{from}"));
+        assert!(!path.exists());
+        history.append_file(&path, from).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), expected);
+    }
+}
+
+#[test]
 #[cfg_attr(not(unix), ignore = "requires Unix file modes")]
 fn full_write_creates_restrictive_file_mode_for_missing_path() {
     use std::os::unix::fs::PermissionsExt;

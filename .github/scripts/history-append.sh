@@ -3,9 +3,9 @@
 # contain identical fixed labels, statuses and file bytes.
 set -euo pipefail
 if [ $# -ne 1 ] || { [ "$1" != primary ] && [ "$1" != replica ]; }; then
-  echo 'usage: history-append-unterminated.sh <primary|replica>' >&2; exit 2
+  echo 'usage: history-append.sh <primary|replica>' >&2; exit 2
 fi
-out="/tmp/history_append_unterminated_$1.out"
+out="/tmp/history_append_$1.out"
 rm -f -- "$out"
 readline="$HOME/.cache/sushline/readline-oracle"
 configure_flags=(--prefix="$readline" "$READLINE_ORACLE_CONFIGURE_FLAGS")
@@ -18,15 +18,30 @@ fi
 work=$(mktemp -d /tmp/sushline-history-append-XXXXXXXX)
 trap 'rm -rf -- "$work"' EXIT
 cat > "$work/probe.c" <<'PROBE'
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
 #include <readline/history.h>
 extern int rl_readline_version;
 
 int main(int argc, char **argv) {
     if (argc != 4 || rl_readline_version != 0x0803) return 2;
+    int missing = strcmp(argv[2], "missing") == 0;
     int timestamped = atoi(argv[2]), count = atoi(argv[3]);
     using_history();
+    if (missing) {
+        add_history("alpha");
+        errno = 0;
+        int status = append_history(count, argv[1]);
+        int saved_errno = errno;
+        struct stat info;
+        int exists = stat(argv[1], &info) == 0;
+        if (!exists && errno != ENOENT) return 3;
+        printf("missing count=%d status=%d errno=%d exists=%d\n", count, status, saved_errno, exists);
+        return 0;
+    }
     history_write_timestamps = timestamped;
     add_history("new1");
     if (timestamped) add_history_time("#1700000001");
@@ -53,6 +68,7 @@ if [ -z "$loaded" ] || printf '%s\n' "$loaded" | grep -v -F "=> $readline/lib/" 
   ! printf '%s\n' "$loaded" | grep -q libhistory; then
   echo 'history append probe did not load both pinned libraries' >&2; exit 1
 fi
+{
 for timestamped in 0 1; do
   for count in 0 1 2; do
     if [ "$timestamped" = 0 ]; then
@@ -62,5 +78,10 @@ for timestamped in 0 1; do
     fi
     LC_ALL=C timeout 5 "$work/probe" "$work/history" "$timestamped" "$count"
   done
-done | tee "$out"
-diff -u .github/scripts/history-append-unterminated.expected "$out"
+done
+for count in 0 1; do
+  rm -f -- "$work/missing"
+  LC_ALL=C timeout 5 "$work/probe" "$work/missing" missing "$count"
+done
+} | tee "$out"
+diff -u .github/scripts/history-append.expected "$out"

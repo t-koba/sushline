@@ -212,7 +212,7 @@ impl History {
         self.append_file(Self::default_file_path(), from)
     }
 
-    /// Append file.
+    /// Append file, creating a missing destination even if no entries are selected.
     pub fn append_file(&self, path: impl AsRef<Path>, from: usize) -> io::Result<()> {
         self.append_file_with_timestamps(path, from, false)
     }
@@ -223,7 +223,8 @@ impl History {
         self.append_file(path, from)
     }
 
-    /// Append file with timestamps.
+    /// Append file with timestamps, creating a missing destination even if no
+    /// entries are selected.
     ///
     /// When enabled, writes stored timestamp text including any NUL suffix.
     pub fn append_file_with_timestamps(

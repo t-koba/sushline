@@ -290,6 +290,11 @@ History file writes use last-writer-wins with no locking. For regular
 destinations, full writes and truncation write through a unique sibling
 temporary file created with exclusive creation, set owner-only (`0600`) on
 Unix, and renamed into place; append writes only the selected entry range.
+Sushline creates a missing append destination, even when no entries are selected
+(owner-only on Unix). In the pinned GNU History 8.3 missing-target fixtures,
+`append_history` instead returns status 2 (`ENOENT`) without creating a file
+for both zero and one requested entry. This is a Sushline convenience, not GNU
+compatibility.
 For non-regular destinations (resolved through symlinks, for example
 `history -> /dev/null`), full writes truncate and write in place with the link
 preserved, and `truncate_file` rejects non-regular destinations with an error

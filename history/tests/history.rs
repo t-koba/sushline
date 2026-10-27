@@ -3371,7 +3371,7 @@ fn supports_history_library_state_and_stifle_operations() {
     assert_eq!(h.len(), 2);
     assert_eq!(h.get(0).map(|entry| entry.line()), Some("two".into()));
     let state = h.state();
-    assert_eq!(state.offset, 2);
+    assert_eq!(state.offset, 0);
     assert_eq!(state.length, 2);
     assert!(state.size >= state.length);
     assert!(state.stifled);
@@ -4767,4 +4767,154 @@ fn full_file_blank_line_modes_preserve_current_grouping_policy() {
             assert_eq!(lines, expected, "{name} {mode:?}");
         }
     }
+}
+
+#[test]
+fn stifle_preserves_offsets_and_state_across_trimming_and_noop_caps() {
+    for limit in 0..=4 {
+        for position in 0..=3 {
+            let mut h = History::new();
+            for line in ["alpha", "beta", "gamma"] {
+                h.push(line);
+            }
+            assert!(h.set_pos(position));
+            h.stifle(limit);
+            let expected = &["alpha", "beta", "gamma"][3 - limit.min(3)..];
+            let lines: Vec<_> = h.entries().iter().map(|e| e.line()).collect();
+            assert_eq!(lines, expected, "limit={limit} position={position}");
+            assert_eq!(h.where_history(), position);
+            assert_eq!(
+                h.current_index(),
+                (position < expected.len()).then_some(position)
+            );
+            assert_eq!(
+                h.current_history().map(|e| e.line().into_owned()),
+                expected.get(position).map(|s| s.to_string())
+            );
+            let state = h.state();
+            assert_eq!(state.offset, position);
+            assert_eq!(state.length, expected.len());
+            assert_eq!(state.max_entries, Some(limit));
+            assert!(state.stifled);
+            assert!(h.set_pos(0));
+            assert!(h.set_state(state.clone()));
+            assert_eq!(h.state(), state);
+        }
+    }
+}
+
+#[test]
+fn post_stifle_append_preserves_even_beyond_end_offsets() {
+    for bytes in [false, true] {
+        for limit in 0..=2 {
+            for position in [1, 3] {
+                let mut h = History::new();
+                for line in ["alpha", "beta", "gamma"] {
+                    h.push(line);
+                }
+                assert!(h.set_pos(position));
+                h.stifle(limit);
+                if bytes {
+                    h.push_bytes(b"delta".to_vec());
+                } else {
+                    h.push("delta");
+                }
+                let expected: &[&str] = match limit {
+                    0 => &[],
+                    1 => &["delta"],
+                    _ => &["gamma", "delta"],
+                };
+                assert_eq!(
+                    h.entries().iter().map(|e| e.line()).collect::<Vec<_>>(),
+                    expected
+                );
+                assert_eq!(h.where_history(), position);
+                assert_eq!(
+                    h.current_history().map(|e| e.line().into_owned()),
+                    expected.get(position).map(|s| s.to_string())
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn beyond_end_cursor_operations_are_safe_and_recoverable() {
+    for offset in [3, usize::MAX] {
+        let mut h = History::new();
+        for line in ["alpha", "beta", "gamma"] {
+            h.push(line);
+        }
+        assert!(h.set_pos(3));
+        h.stifle(2);
+        let mut state = h.state();
+        state.offset = offset;
+        assert!(h.set_state(state.clone()));
+        assert_eq!(h.current_index(), None);
+        assert!(h.current_history().is_none());
+        assert!(h.previous_history().is_none());
+        assert!(h.next_history().is_none());
+        for direction in [HistoryDirection::Previous, HistoryDirection::Next] {
+            assert!(h.navigate_bytes(direction, b"edit".to_vec()).is_none());
+            assert!(h.history_search_bytes(b"a", direction).is_none());
+            assert!(h.history_search_prefix("a", direction).is_none());
+            assert!(h.history_search_pos("a", direction, usize::MAX).is_none());
+        }
+        assert!(h.next_after_current_cursor_bytes().is_none());
+        assert!(h.search_prefix_backward_bytes(b"a", vec![]).is_none());
+        assert!(h.search_prefix_forward_bytes(b"a").is_none());
+        assert!(
+            h.search_containing_backward_from_cursor_bytes(b"a", vec![])
+                .is_none()
+        );
+        assert!(
+            h.search_containing_forward_from_cursor_bytes(b"a", vec![])
+                .is_none()
+        );
+        assert_eq!(h.where_history(), offset);
+        // An explicit valid search position is independent of the invalid cursor.
+        assert!(
+            h.history_search_pos("beta", HistoryDirection::Next, 0)
+                .is_some()
+        );
+        assert_eq!(h.where_history(), offset);
+        assert!(!h.set_pos(3));
+        assert_eq!(h.where_history(), offset);
+        assert_eq!(
+            h.beginning_bytes(b"edit".to_vec())
+                .map(|line| String::from_utf8(line).unwrap()),
+            Some("beta".to_string())
+        );
+        assert_eq!(h.where_history(), 0);
+        assert_eq!(h.end_bytes(), Some(Vec::new()));
+        assert_eq!(h.where_history(), h.len());
+        assert!(h.set_state(state));
+        assert_eq!(h.where_history(), offset);
+        h.push("delta");
+        assert_eq!(h.where_history(), offset);
+        assert!(h.set_pos(2));
+        assert_eq!(
+            h.previous_history().map(|e| e.line().into_owned()),
+            Some("delta".to_string())
+        );
+    }
+}
+
+#[test]
+fn beyond_end_of_empty_stifled_history_is_safe() {
+    let mut h = History::new();
+    h.push("alpha");
+    assert!(h.set_pos(1));
+    h.stifle(0);
+    assert!(h.previous_history().is_none());
+    assert!(h.next_history().is_none());
+    assert!(
+        h.history_search_bytes(b"a", HistoryDirection::Previous)
+            .is_none()
+    );
+    assert_eq!(h.where_history(), 1);
+    assert_eq!(h.end_bytes(), Some(Vec::new()));
+    assert_eq!(h.where_history(), 0);
+    assert!(h.set_pos(0));
+    assert_eq!(h.where_history(), 0);
 }

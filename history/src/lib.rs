@@ -183,6 +183,11 @@ pub struct HistorySearchMatch {
 
 #[derive(Debug, Clone, Default)]
 /// History.
+///
+/// Stifling and state restoration can retain an offset beyond the list. In
+/// that state cursor-relative navigation and searches return `None` without
+/// moving it. Use `set_pos`, `reset_cursor`, `beginning_bytes`, or `end_bytes`
+/// to recover a valid position.
 pub struct History {
     entries: Vec<HistoryEntry>,
     cursor: Option<usize>,
@@ -212,7 +217,7 @@ impl History {
     pub fn push_bytes(&mut self, line: Vec<u8>) {
         let position = self.where_history();
         self.push_entry(line, None, false);
-        self.set_pos(position);
+        self.restore_offset(position);
     }
 
     /// Enforce max len.
@@ -230,8 +235,10 @@ impl History {
 
     /// Stifle.
     pub fn stifle(&mut self, max_entries: usize) {
+        let position = self.where_history();
         self.max_entries = Some(max_entries);
         self.enforce_max_len(Some(max_entries));
+        self.restore_offset(position);
     }
 
     /// Unstifle.
@@ -277,13 +284,11 @@ impl History {
         }
     }
 
-    /// Set state.
+    /// Restore state, including an offset beyond the end produced by stifling.
     pub fn set_state(&mut self, state: HistoryState) -> bool {
-        if state.offset > self.entries.len() {
-            return false;
-        }
         self.max_entries = state.max_entries.filter(|_| state.stifled);
-        self.set_pos(state.offset)
+        self.restore_offset(state.offset);
+        true
     }
 
     /// Remove.
@@ -371,7 +376,7 @@ impl History {
 
     /// Current index.
     pub fn current_index(&self) -> Option<usize> {
-        self.cursor
+        self.cursor.filter(|&pos| pos < self.entries.len())
     }
 
     /// Entries.
@@ -394,14 +399,22 @@ impl History {
         if pos > self.entries.len() {
             return false;
         }
-        self.cursor = (pos < self.entries.len()).then_some(pos);
+        self.restore_offset(pos);
         true
+    }
+
+    fn restore_offset(&mut self, pos: usize) {
+        self.cursor = (pos != self.entries.len()).then_some(pos);
+    }
+
+    fn offset_beyond_end(&self) -> bool {
+        self.where_history() > self.entries.len()
     }
 
     /// Previous history.
     pub fn previous_history(&mut self) -> Option<&HistoryEntry> {
         let pos = self.where_history();
-        if pos == 0 {
+        if pos == 0 || pos > self.entries.len() {
             return None;
         }
         self.cursor = Some(pos - 1);
@@ -411,6 +424,9 @@ impl History {
     /// Next history.
     pub fn next_history(&mut self) -> Option<&HistoryEntry> {
         let pos = self.cursor?;
+        if pos > self.entries.len() {
+            return None;
+        }
         let next = pos + 1;
         if next >= self.entries.len() {
             self.cursor = None;
@@ -469,7 +485,7 @@ impl History {
         direction: HistoryDirection,
         current: Vec<u8>,
     ) -> Option<Vec<u8>> {
-        if self.entries.is_empty() {
+        if self.entries.is_empty() || self.offset_beyond_end() {
             return None;
         }
 
@@ -494,6 +510,7 @@ impl History {
     /// Beginning bytes.
     pub fn beginning_bytes(&mut self, current: Vec<u8>) -> Option<Vec<u8>> {
         if self.entries.is_empty() {
+            self.cursor = None;
             return None;
         }
         if self.cursor.is_none() {
@@ -514,7 +531,7 @@ impl History {
     pub fn next_after_current_cursor_bytes(&self) -> Option<Vec<u8>> {
         let cursor = self.cursor?;
         self.entries
-            .get(cursor + 1)
+            .get(cursor.checked_add(1)?)
             .map(|entry| entry.line_bytes.clone())
     }
 
@@ -534,6 +551,9 @@ impl History {
         current: Vec<u8>,
         ignore_case: bool,
     ) -> Option<Vec<u8>> {
+        if self.offset_beyond_end() {
+            return None;
+        }
         if self.entries.is_empty() {
             return None;
         }
@@ -560,6 +580,9 @@ impl History {
         prefix: &[u8],
         ignore_case: bool,
     ) -> Option<Vec<u8>> {
+        if self.offset_beyond_end() {
+            return None;
+        }
         let cursor = self.cursor?;
 
         if let Some(offset) = self.entries[cursor + 1..]
@@ -643,7 +666,10 @@ impl History {
         direction: HistoryDirection,
         ignore_case: bool,
     ) -> Option<HistorySearchMatch> {
-        let start = self.where_history().min(self.entries.len());
+        if self.offset_beyond_end() {
+            return None;
+        }
+        let start = self.where_history();
         let found =
             self.search_from_pos_bytes_with_case(needle, direction, start, false, ignore_case)?;
         self.cursor = Some(found.entry_index);
@@ -656,7 +682,10 @@ impl History {
         prefix: &str,
         direction: HistoryDirection,
     ) -> Option<HistorySearchMatch> {
-        let start = self.where_history().min(self.entries.len());
+        if self.offset_beyond_end() {
+            return None;
+        }
+        let start = self.where_history();
         let found = self.search_from_pos(prefix, direction, start, true)?;
         self.cursor = Some(found.entry_index);
         Some(found)
@@ -665,7 +694,8 @@ impl History {
     /// Search from a zero-based history position, including that entry, without
     /// moving the current cursor. A one-past-end position searches backward
     /// from the newest entry and has no forward entries. Positions beyond the
-    /// history end fall back to the current cursor, matching GNU History.
+    /// history end fall back to the current cursor, matching GNU History. If
+    /// that cursor is beyond the end, the fallback returns `None`.
     pub fn history_search_pos(
         &self,
         needle: &str,
@@ -673,7 +703,10 @@ impl History {
         pos: usize,
     ) -> Option<HistorySearchMatch> {
         let start = if pos > self.entries.len() {
-            self.where_history().min(self.entries.len())
+            if self.offset_beyond_end() {
+                return None;
+            }
+            self.where_history()
         } else {
             pos
         };
@@ -770,6 +803,9 @@ impl History {
         current: Vec<u8>,
         ignore_case: bool,
     ) -> Option<Vec<u8>> {
+        if self.offset_beyond_end() {
+            return None;
+        }
         if self.entries.is_empty() {
             return None;
         }
@@ -806,6 +842,9 @@ impl History {
         current: Vec<u8>,
         ignore_case: bool,
     ) -> Option<Vec<u8>> {
+        if self.offset_beyond_end() {
+            return None;
+        }
         if self.entries.is_empty() {
             return None;
         }

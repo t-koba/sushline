@@ -1157,7 +1157,8 @@ jobs:
 
           static void print_stifled_snapshot(const char *fixture, const char *stage) {
               HIST_ENTRY **list = history_list();
-              HIST_ENTRY *current = current_history();
+              int pos = where_history();
+              HIST_ENTRY *current = pos >= 0 && pos < history_length ? list[pos] : NULL;
               printf("%s %s: length=%d position=%d first=%s second=%s current=%s\n",
                      fixture, stage, history_length, where_history(),
                      history_length > 0 ? list[0]->line : "(null)",
@@ -1212,7 +1213,26 @@ jobs:
               return 0;
           }
 
+          static int measure_preserved(int limit, int pos) {
+              using_history();
+              add_history("alpha"); add_history("beta"); add_history("gamma");
+              if (!history_set_pos(pos)) return 3;
+              stifle_history(limit);
+              print_stifled_snapshot("preserve", "stifle");
+              HISTORY_STATE *state = history_get_history_state();
+              printf("preserve state: offset=%d length=%d\n", state->offset, state->length);
+              history_set_pos(0);
+              history_set_history_state(state);
+              printf("preserve restored: offset=%d length=%d\n", where_history(), history_length);
+              free(state);
+              add_history("delta");
+              print_stifled_snapshot("preserve", "append");
+              return 0;
+          }
+
           int main(int argc, char **argv) {
+              if (argc == 4 && strcmp(argv[1], "preserve") == 0)
+                  return measure_preserved(atoi(argv[2]), atoi(argv[3]));
               if (argc == 2 && strncmp(argv[1], "stifle", 6) == 0)
                   return measure_stifled(argv[1]);
               if (argc == 2 && strcmp(argv[1], "init") == 0)
@@ -1321,6 +1341,30 @@ jobs:
           stifle2-2 previous: position=1 entry=delta
           EXPECTED
           diff -u /tmp/history_position_stifled.expected /tmp/history_position_stifled.out
+          # Never navigate GNU history with an offset beyond its length.
+          for args in '0 1' '1 3' '2 3' '4 1'; do
+            /tmp/history_position_probe preserve $args | tee -a /tmp/history_position_append.out
+          done
+          grep '^preserve' /tmp/history_position_append.out > /tmp/history_position_preserved.out
+          cat > /tmp/history_position_preserved.expected <<'EXPECTED'
+          preserve stifle: length=0 position=1 first=(null) second=(null) current=(null)
+          preserve state: offset=1 length=0
+          preserve restored: offset=1 length=0
+          preserve append: length=0 position=1 first=(null) second=(null) current=(null)
+          preserve stifle: length=1 position=3 first=gamma second=(null) current=(null)
+          preserve state: offset=3 length=1
+          preserve restored: offset=3 length=1
+          preserve append: length=1 position=3 first=delta second=(null) current=(null)
+          preserve stifle: length=2 position=3 first=beta second=gamma current=(null)
+          preserve state: offset=3 length=2
+          preserve restored: offset=3 length=2
+          preserve append: length=2 position=3 first=gamma second=delta current=(null)
+          preserve stifle: length=3 position=1 first=alpha second=beta current=beta
+          preserve state: offset=1 length=3
+          preserve restored: offset=1 length=3
+          preserve append: length=4 position=1 first=alpha second=beta current=beta
+          EXPECTED
+          diff -u /tmp/history_position_preserved.expected /tmp/history_position_preserved.out
       - name: Measure and assert pinned History expansion fixtures
         run: |
           set -euo pipefail

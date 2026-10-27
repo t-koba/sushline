@@ -1756,6 +1756,24 @@ fn range_bounds_count_physical_command_lines() {
 }
 
 #[test]
+fn truncates_timestamped_history_with_sushline_bytes() {
+    let fixture = b"#1700000000\nA0\nA1\n#1700000001\nB0\nB1\n";
+    let cases: [(usize, &[u8]); 3] = [
+        (10, b"#1700000000\nA0\nA1\n#1700000001\nB0\nB1\n"),
+        (2, b"#1700000001\nB0\nB1\n"),
+        (3, b"A1\n#1700000001\nB0\nB1\n"),
+    ];
+
+    for (limit, expected) in cases {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history");
+        fs::write(&path, fixture).unwrap();
+        History::truncate_file(&path, limit).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), expected, "limit {limit}");
+    }
+}
+
+#[test]
 fn late_timestamp_line_is_command_text_in_an_untimestamped_file() {
     // The pinned GNU History 8.3 full-file and range probes both read this
     // input's late timestamp-looking line as command text: the first physical

@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Shared measurement only: the oracle and its fresh-runner replica retain
-# independent reports. No GNU History truncate byte outcome is presumed or
-# asserted. The plain fixtures (`A\n\nB\n` with a blank line and `A\nB`
-# with an unterminated tail) use limits 10 (no-cut) and 1 (positive control
-# for the blank fixture). A timestamped two-block fixture uses limits 10, 2,
-# and 3. Every case has two fresh files and child processes per report.
+# independent reports. GNU byte assertions are limited to the exact timestamped
+# fixture and its three tested limits. The plain fixtures (`A\n\nB\n` with a
+# blank line and `A\nB` with an unterminated tail) use limits 10 (no-cut) and 1
+# (positive control for the blank fixture). A timestamped two-block fixture
+# uses limits 10, 2, and 3. Every case has two fresh files and child processes
+# per report.
 # Report contents omit runner identity so independent outputs compare byte-for-byte.
 set -euo pipefail
 ulimit -c 0
@@ -94,10 +95,9 @@ import sys
 import tempfile
 
 # All history bytes originate in the fixed fixtures below. Reports contain
-# only fixed labels, bounded integers and bounded result hex. No GNU
-# truncate byte outcome is asserted: a trial is valid when its
-# harness-integrity checks hold, the child finished without a signal or
-# timeout, and cleanup completed.
+# only fixed labels, bounded integers and bounded result hex. Timestamped
+# fixture bytes and successful status are asserted against the pinned GNU 8.3
+# measurements; plain-fixture byte outcomes remain recorded, not asserted.
 LIMIT = 16384
 FIXTURES = {
     "blank": b"A\n\nB\n",
@@ -108,6 +108,11 @@ LIMITS = {
     "blank": (10, 1),
     "unterminated": (10, 1),
     "timestamped": (10, 2, 3),
+}
+EXPECTED_TIMESTAMPED = {
+    10: b"#1700000000\nA0\nA1\n#1700000001\nB0\nB1\n",
+    2: b"B0\nB1\n",
+    3: b"#1700000001\nB0\nB1\n",
 }
 resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
@@ -157,6 +162,8 @@ def run_trial(fixture, limit, trial):
         if "truncate_status" in fields:
             if re.fullmatch(r"-?[0-9]+", fields["truncate_status"]):
                 print(f"{label}_truncate_status={fields['truncate_status']}")
+                if fixture == "timestamped" and fields["truncate_status"] != "0":
+                    valid = False
             else:
                 valid = False
         elif not timed_out and child.returncode >= 0:
@@ -172,6 +179,8 @@ def run_trial(fixture, limit, trial):
         else:
             print(f"{label}_result_bytes={len(result)}")
             print(f"{label}_result_hex={result.hex()}")
+            if fixture == "timestamped" and result != EXPECTED_TIMESTAMPED[limit]:
+                valid = False
         if timed_out or child.returncode < 0:
             valid = False
     finally:

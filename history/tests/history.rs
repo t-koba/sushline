@@ -985,6 +985,39 @@ fn append_file_preserves_existing_wider_file_mode() {
 }
 
 #[test]
+#[cfg(unix)]
+fn append_file_follows_relative_symlink_to_existing_target() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("history-target");
+    let link = dir.path().join("history-link");
+    fs::write(&target, b"old\n").unwrap();
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o644)).unwrap();
+    symlink("history-target", &link).unwrap();
+
+    let mut history = History::new();
+    history.push("new");
+    history.append_file(&link, 0).unwrap();
+
+    assert!(
+        fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(
+        fs::read_link(&link).unwrap(),
+        std::path::Path::new("history-target")
+    );
+    assert_eq!(fs::read(&target).unwrap(), b"old\nnew\n");
+    assert_eq!(fs::read(&link).unwrap(), b"old\nnew\n");
+    assert_eq!(
+        fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+        0o644
+    );
+}
+
+#[test]
 #[cfg_attr(not(unix), ignore = "requires Unix file modes")]
 fn full_write_creates_restrictive_file_mode_for_missing_path() {
     use std::os::unix::fs::PermissionsExt;

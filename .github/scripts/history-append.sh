@@ -23,6 +23,7 @@ cat > "$work/probe.c" <<'PROBE'
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <readline/history.h>
 extern int rl_readline_version;
 
@@ -30,6 +31,7 @@ int main(int argc, char **argv) {
     if (argc != 4 || rl_readline_version != 0x0803) return 2;
     int missing = strcmp(argv[2], "missing") == 0;
     int mode = strcmp(argv[2], "mode") == 0;
+    int symlink = strcmp(argv[2], "symlink") == 0;
     int timestamped = atoi(argv[2]), count = atoi(argv[3]);
     using_history();
     if (missing) {
@@ -44,7 +46,7 @@ int main(int argc, char **argv) {
         return 0;
     }
     history_write_timestamps = timestamped;
-    if (mode) {
+    if (mode || symlink) {
         add_history("new");
     } else {
         add_history("new1");
@@ -60,6 +62,17 @@ int main(int argc, char **argv) {
         if (stat(argv[1], &info) != 0) return 3;
         printf("mode count=%d status=%d mode=%04o hex=", count, status,
                (unsigned int)(info.st_mode & 0777));
+    } else if (symlink) {
+        struct stat link_info, target_info;
+        char link_target[256];
+        ssize_t link_len;
+        if (lstat(argv[1], &link_info) != 0 || stat(argv[1], &target_info) != 0) return 3;
+        link_len = readlink(argv[1], link_target, sizeof(link_target) - 1);
+        if (link_len < 0) return 3;
+        link_target[link_len] = '\0';
+        printf("symlink count=%d status=%d target_mode=%04o link_is_symlink=%d target=%s hex=",
+               count, status, (unsigned int)(target_info.st_mode & 0777),
+               S_ISLNK(link_info.st_mode), link_target);
     } else {
         printf("%s count=%d status=%d hex=", timestamped ? "timestamped" : "plain", count, status);
     }
@@ -98,5 +111,9 @@ done
 printf 'old\n' > "$work/history"
 chmod 0644 "$work/history"
 LC_ALL=C timeout 5 "$work/probe" "$work/history" mode 1
+printf 'old\n' > "$work/history-target"
+chmod 0644 "$work/history-target"
+ln -s history-target "$work/history-link"
+LC_ALL=C timeout 5 "$work/probe" "$work/history-link" symlink 1
 } | tee "$out"
 diff -u .github/scripts/history-append.expected "$out"

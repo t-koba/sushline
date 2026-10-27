@@ -973,13 +973,13 @@ fn full_write_creates_restrictive_file_mode_for_missing_path() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");
     let mut h = History::new();
-    h.push("secret one");
+    h.push("two");
     h.write_file(&path).unwrap();
     assert_eq!(
         fs::metadata(&path).unwrap().permissions().mode() & 0o777,
         0o600
     );
-    assert_eq!(fs::read_to_string(&path).unwrap(), "secret one\n");
+    assert_eq!(fs::read_to_string(&path).unwrap(), "two\n");
     let append_only = dir.path().join("append-only");
     let mut a = History::new();
     a.push("appended secret");
@@ -1041,7 +1041,7 @@ fn full_write_resets_wider_existing_file_mode_to_owner_only() {
     assert_eq!(
         fs::metadata(&path).unwrap().permissions().mode() & 0o777,
         0o600,
-        "full write resets wider pre-existing mode to GNU owner-only 0600"
+        "full write resets wider pre-existing mode to owner-only 0600 (pinned GNU 8.3 fixture)"
     );
     assert_eq!(fs::read_to_string(&path).unwrap(), "two\n");
     fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();

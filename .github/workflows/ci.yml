@@ -3274,6 +3274,8 @@ jobs:
         run: bash .github/scripts/readline-history-truncate.sh primary
       - name: Measure History append fixtures against the pinned release
         run: bash .github/scripts/history-append.sh primary
+      - name: Measure History write modes against the pinned release
+        run: bash .github/scripts/history-write-mode.sh primary
       - name: Run the oracle suite
         run: |
           set -euo pipefail
@@ -3312,6 +3314,7 @@ jobs:
             /tmp/readline_unicode_width.out \
             /tmp/history_truncate_primary.out \
             /tmp/history_append_primary.out \
+            /tmp/history_write_mode_primary.out \
             /tmp/history_range_per_line.out \
             /tmp/history_range_joined.out \
             /tmp/history_range_plain_joined.out \
@@ -3400,6 +3403,8 @@ jobs:
         run: bash .github/scripts/readline-history-truncate.sh replica
       - name: Measure History append fixtures against the pinned release
         run: bash .github/scripts/history-append.sh replica
+      - name: Measure History write modes against the pinned release
+        run: bash .github/scripts/history-write-mode.sh replica
       - name: Upload independent pinned include-depth reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -3440,5 +3445,13 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-history-append-replica
           path: /tmp/history_append_replica.out
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload independent pinned history-write-mode report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-history-write-mode-replica
+          path: /tmp/history_write_mode_replica.out
           if-no-files-found: warn
           retention-days: 14

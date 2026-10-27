@@ -1359,6 +1359,26 @@ fn joined_timestamped_import_with_one_entry_cap_keeps_last_group() {
 }
 
 #[test]
+fn plain_joined_full_file_import_matches_pinned_eof_fixtures() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+
+    // Pinned GNU History 8.3 primary/replica agree on both exact EOF fixtures.
+    for (input, expected) in [
+        (b"A\nB\nunterminated".as_slice(), b"A\nB".as_slice()),
+        (
+            b"A\nB\nunterminated\n".as_slice(),
+            b"A\nB\nunterminated".as_slice(),
+        ),
+    ] {
+        fs::write(&path, input).unwrap();
+        let loaded = History::read_file_with_multiline(&path, HistoryMultiline::Joined).unwrap();
+        assert_eq!(loaded.entries().len(), 1);
+        assert_eq!(loaded.entries()[0].line_bytes, expected);
+    }
+}
+
+#[test]
 fn plain_joined_loads_selected_physical_lines_and_handles_empty_ranges() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");

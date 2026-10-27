@@ -1344,6 +1344,21 @@ fn load_file_variants_take_the_multiline_policy() {
 }
 
 #[test]
+fn joined_timestamped_import_with_one_entry_cap_keeps_last_group() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(&path, b"#1700000000\nA0\nA1\n#1700000001\nB0\nB1\n").unwrap();
+
+    // Pinned GNU History 8.3 primary/replica retain this exact second group.
+    let mut loaded = History::new();
+    loaded
+        .load_file_with_multiline(&path, Some(1), HistoryMultiline::Joined)
+        .unwrap();
+    assert_eq!(loaded.entries().len(), 1);
+    assert_eq!(loaded.entries()[0].line_bytes, b"B0\nB1");
+}
+
+#[test]
 fn plain_joined_loads_selected_physical_lines_and_handles_empty_ranges() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");

@@ -52,6 +52,37 @@ fn fresh_appends_preserve_position_zero() {
 }
 
 #[test]
+fn set_pos_accepts_end_and_preserves_position_on_invalid_target() {
+    // The pinned GNU 8.3 fixture tests each target from a fresh history.
+    for start in 0..=3 {
+        for target in [3, 4] {
+            let mut history = History::new();
+            for line in ["A", "B", "C"] {
+                history.push(line);
+            }
+            assert!(history.set_pos(start));
+            assert_eq!(history.set_pos(target), target == 3);
+            let expected = if target == 3 { 3 } else { start };
+            assert_eq!(history.where_history(), expected);
+            assert_eq!(
+                history
+                    .current_history()
+                    .map(|entry| entry.line_bytes.as_slice()),
+                [Some(&b"A"[..]), Some(&b"B"[..]), Some(&b"C"[..]), None][expected]
+            );
+        }
+    }
+
+    let mut empty = History::new();
+    empty.push("A");
+    empty.clear();
+    assert!(empty.set_pos(0));
+    assert!(!empty.set_pos(1));
+    assert_eq!(empty.where_history(), 0);
+    assert!(empty.current_history().is_none());
+}
+
+#[test]
 fn removal_preserves_numeric_position() {
     for position in 0..=4 {
         for index in 0..4 {

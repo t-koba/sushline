@@ -1292,6 +1292,19 @@ jobs:
               return 0;
           }
 
+          static int measure_set_pos(int count, int start, int target) {
+              using_history();
+              if (count) { add_history("A"); add_history("B"); add_history("C"); }
+              else { add_history("A"); clear_history(); } /* Initialized empty history. */
+              if (!history_set_pos(start) || where_history() != start) return 3;
+              int result = history_set_pos(target);
+              int after = where_history();
+              HIST_ENTRY *current = after >= 0 && after < history_length ? current_history() : NULL;
+              printf("count=%d start=%d target=%d result=%d position=%d current=%s\n",
+                     count, start, target, result, after, current ? current->line : "(null)");
+              return 0;
+          }
+
           static int measure_clear(int limit, int pos) {
               using_history();
               add_history("A"); add_history("B"); add_history("C"); add_history("D");
@@ -1305,6 +1318,8 @@ jobs:
           }
 
           int main(int argc, char **argv) {
+              if (argc == 5 && strcmp(argv[1], "set-pos") == 0)
+                  return measure_set_pos(atoi(argv[2]), atoi(argv[3]), atoi(argv[4]));
               if (argc == 4 && strcmp(argv[1], "clear") == 0)
                   return measure_clear(atoi(argv[2]), atoi(argv[3]));
               if (argc == 4 && strcmp(argv[1], "unstifle") == 0)
@@ -1495,6 +1510,17 @@ jobs:
             /tmp/history_position_probe clear 0 4
           } | tee /tmp/history_position_clear.out
           diff -u .github/scripts/history-position-clear.expected /tmp/history_position_clear.out
+          # Fresh processes for end and invalid targets; current_history is
+          # called only when the resulting position is below the length.
+          {
+            for pos in 0 1 2 3; do
+              /tmp/history_position_probe set-pos 3 "$pos" 3
+              /tmp/history_position_probe set-pos 3 "$pos" 4
+            done
+            /tmp/history_position_probe set-pos 0 0 0
+            /tmp/history_position_probe set-pos 0 0 1
+          } | tee /tmp/history_position_set_pos.out
+          diff -u .github/scripts/history-position-set-pos.expected /tmp/history_position_set_pos.out
       - name: Measure and assert pinned History expansion fixtures
         run: |
           set -euo pipefail
@@ -3237,6 +3263,7 @@ jobs:
             /tmp/history_position_replace.out \
             /tmp/history_position_unstifle.out \
             /tmp/history_position_clear.out \
+            /tmp/history_position_set_pos.out \
             /tmp/history_import_cursor.out \
             /tmp/history_expand.out; do
             if [ -f "$report" ]; then

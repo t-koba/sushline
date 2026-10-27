@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Measure only: observe search reuse across calls without asserting GNU outcomes.
+# Assert only the pinned GNU 8.3 search-reuse sequences; retain the raw report.
 set -euo pipefail
 if [ $# -ne 1 ] || { [ "$1" != primary ] && [ "$1" != replica ]; }; then
   echo 'usage: history-expand-reuse.sh <primary|replica>' >&2; exit 2
@@ -93,3 +93,5 @@ PROBE
   done
   exit "$probe_status"
 } 2>&1 | tee "$out"
+grep -E '^(sequence=|header_version=|seed\[|step=)' "$out" > "$out.semantic"
+diff -u .github/scripts/history-expand-reuse.expected "$out.semantic"

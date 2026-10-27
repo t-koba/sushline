@@ -4425,6 +4425,34 @@ fn history_expansion_retains_substring_search_and_matched_word_across_calls() {
 }
 
 #[test]
+fn history_expansion_reuses_search_after_failure_in_pinned_sequence() {
+    // Pinned GNU History 8.3 primary/replica: seed once per sequence, with
+    // no expansion outputs added. A fresh success→reuse session is the control.
+    for failed_search in [true, false] {
+        let mut history = History::new();
+        history.push("echo alpha");
+        history.push("echo beta");
+        let histchars = HistoryChars::parse("!^#");
+        let policy = HistoryExpansionPolicy::default();
+        let mut state = HistoryExpansionState::new();
+        let mut expand = |input: &[u8]| {
+            expand_history_with_state(input, &history, histchars, &policy, &mut state, |_| false)
+        };
+        assert_eq!(expand(b"!?alpha?").unwrap(), b"echo alpha");
+        if failed_search {
+            // Rust exposes a typed error, not GNU's status/error-output pair.
+            assert_eq!(
+                expand(b"!?missing?"),
+                Err(HistoryExpansionError::EventNotFound(
+                    "!?missing?".to_string()
+                )),
+            );
+        }
+        assert_eq!(expand(b"!??").unwrap(), b"echo alpha");
+    }
+}
+
+#[test]
 fn history_expansion_selects_percent_word_by_match_position() {
     // GNU selects `%` from the substring match offset, so a needle spanning
     // word boundaries still yields the word holding the match start. The

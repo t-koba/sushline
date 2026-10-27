@@ -1,0 +1,11 @@
+sequence=failed-search
+header_version=0x0803 runtime_version=0x0803
+seed[0]_hex=6563686f20616c706861 seed[1]_hex=6563686f2062657461
+step=success input_hex=213f616c7068613f status=1 output_hex=6563686f20616c706861
+step=failed-search input_hex=213f6d697373696e673f status=-1 output_hex=213f6d697373696e673f3a206576656e74206e6f7420666f756e64
+step=reuse input_hex=213f3f status=1 output_hex=6563686f20616c706861
+sequence=positive-control
+header_version=0x0803 runtime_version=0x0803
+seed[0]_hex=6563686f20616c706861 seed[1]_hex=6563686f2062657461
+step=success input_hex=213f616c7068613f status=1 output_hex=6563686f20616c706861
+step=reuse input_hex=213f3f status=1 output_hex=6563686f20616c706861

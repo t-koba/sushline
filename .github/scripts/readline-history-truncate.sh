@@ -5,8 +5,8 @@
 # fixtures (`A\n\nB\n` with a blank line and `A\nB` with an unterminated
 # tail) retain their measured limits. The unterminated plain fixture at limit 0,
 # forced unterminated plain fixture, and additional timestamped limits and
-# shapes are exploratory reports only; their bytes are not asserted before
-# measurement.
+# shapes, including timestamped EOF-tail fixtures, are exploratory reports
+# only; their bytes are not asserted before measurement.
 # Every case has two fresh files and child processes per report.
 # Report contents omit runner identity so independent outputs compare byte-for-byte.
 set -euo pipefail
@@ -110,6 +110,8 @@ FIXTURES = {
     "timestamped_blank": b"#1700000000\nA0\n\nB0\n",
     "timestamped_dangling": b"#1700000000\nA0\n#1700000001\n",
     "timestamped_consecutive": b"#1700000000\n#1700000001\nA0\n#1700000002\nA1\n",
+    "timestamped_unterminated_command": b"#1700000000\nA\n#1700000001\nB",
+    "timestamped_unterminated_marker": b"#1700000000\nA\n#1700000001",
     "timestamped_range_bounds": b"#1700000000\nline one\n\nline two\n#1700000001\nnext\n",
     "timestamped_post_append": (
         b"#1700000000\necho one\n# not timestamp\n#1700000001\nprintf two\n"
@@ -125,6 +127,8 @@ LIMITS = {
     "timestamped_blank": (1, 2),
     "timestamped_dangling": (0, 1, 2),
     "timestamped_consecutive": (1, 2),
+    "timestamped_unterminated_command": (1, 2),
+    "timestamped_unterminated_marker": (1, 2),
     "timestamped_range_bounds": (1,),
     "timestamped_post_append": (2,),
 }
@@ -233,7 +237,7 @@ def run_trial(fixture, limit, trial):
 
 try:
     results = [run_trial(fixture, limit, trial)
-               for fixture in ("blank", "unterminated", "unterminated_forced", "timestamped", "timestamped_single", "timestamped_blank", "timestamped_dangling", "timestamped_consecutive", "timestamped_range_bounds", "timestamped_post_append")
+               for fixture in ("blank", "unterminated", "unterminated_forced", "timestamped", "timestamped_single", "timestamped_blank", "timestamped_dangling", "timestamped_consecutive", "timestamped_unterminated_command", "timestamped_unterminated_marker", "timestamped_range_bounds", "timestamped_post_append")
                for limit in LIMITS[fixture]
                for trial in (1, 2)]
     if not all(results):

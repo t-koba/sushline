@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Direct GNU History 8.3 write_history mode and byte fixtures.
+# Direct GNU History 8.3 write_history mode, byte, and relative-symlink fixtures.
 set -euo pipefail
 if [ $# -ne 1 ] || { [ "$1" != primary ] && [ "$1" != replica ]; }; then
   echo 'usage: history-write-mode.sh <primary|replica>' >&2; exit 2
@@ -52,8 +52,22 @@ fi
 umask 022
 printf 'one\n' > "$work/existing"
 chmod 0644 "$work/existing"
+printf 'one\n' > "$work/sym-target"
+chmod 0644 "$work/sym-target"
+ln -s "sym-target" "$work/sym-link"
 {
   LC_ALL=C timeout 5 "$work/probe" "$work/existing" existing
   LC_ALL=C timeout 5 "$work/probe" "$work/missing" missing
+  LC_ALL=C timeout 5 "$work/probe" "$work/sym-link" symlink
+  if [ ! -L "$work/sym-link" ]; then
+    echo 'symlink write replaced the link' >&2; exit 1
+  fi
+  link_text=$(readlink "$work/sym-link")
+  if [ "$link_text" != "sym-target" ]; then
+    echo 'symlink text changed' >&2; exit 1
+  fi
+  printf 'symlink link=is_symlink target=%s\n' "$link_text"
+  printf 'symlink target_mode=%s\n' "$(stat -c %04a "$work/sym-target")"
+  printf 'symlink target_hex=%s\n' "$(od -An -tx1 "$work/sym-target" | tr -d ' \n')"
 } | tee "$out"
 diff -u .github/scripts/history-write-mode.expected "$out"

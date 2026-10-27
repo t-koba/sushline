@@ -1,2 +1,6 @@
 existing status=0 hex=74776f0a mode=0600
 missing status=0 hex=74776f0a mode=0600
+symlink status=0 hex=74776f0a mode=0600
+symlink link=is_symlink target=sym-target
+symlink target_mode=0600
+symlink target_hex=74776f0a

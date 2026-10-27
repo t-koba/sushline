@@ -1644,7 +1644,7 @@ fn full_write_preserves_symlinked_history_path() {
         let target = dir.path().join("target-history");
         fs::write(&target, "target-v1\n").unwrap();
         let link = dir.path().join("link-history");
-        symlink(&target, &link).unwrap();
+        symlink("target-history", &link).unwrap();
 
         let mut h = History::new();
         h.push("target-v2");
@@ -1656,6 +1656,10 @@ fn full_write_preserves_symlinked_history_path() {
                 .file_type()
                 .is_symlink(),
             "full write must preserve symlink instead of replacing it"
+        );
+        assert_eq!(
+            fs::read_link(&link).unwrap(),
+            std::path::Path::new("target-history")
         );
         assert_eq!(fs::read_to_string(&target).unwrap(), "target-v2\n");
         assert_eq!(fs::read_to_string(&link).unwrap(), "target-v2\n");

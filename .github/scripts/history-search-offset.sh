@@ -110,6 +110,6 @@ PROBE
   sha256sum "$readline/lib/libhistory.so" "$readline/lib/libreadline.so"
   LC_ALL=C timeout 5 "$work/probe"
 } 2>&1 | tee "$out"
-# Assert the alpha control and empty-query fixture; retain all other raw rows.
-grep -E '^(header_version=|seed\[|operation=(history_set_pos|history_search)(_empty)? )' "$out" > "$out.semantic"
+# Assert the alpha control, empty-query and UTF-8 fixtures; retain all other raw rows.
+grep -E '^(header_version=|seed\[|utf8_seed_bytes=|operation=(history_set_pos|history_search)(_(empty|utf8))? )' "$out" > "$out.semantic"
 diff -u .github/scripts/history-search-offset.expected "$out.semantic"

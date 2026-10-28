@@ -391,6 +391,30 @@ fn history_search_offsets_match_pinned_single_entry_fixture() {
 }
 
 #[test]
+fn history_search_offsets_match_pinned_utf8_single_entry_fixture() {
+    // Mirrors history-search-offset.sh's primary/fresh-replica GNU 8.3 fixture.
+    let mut h = History::new();
+    let line = b"\xce\xbb alpha \xce\xbb alpha";
+    h.push_bytes(line.to_vec());
+    assert_eq!(h.len(), 1);
+    assert_eq!(line.len(), 17);
+
+    for (direction, offset) in [
+        (HistoryDirection::Previous, 12),
+        (HistoryDirection::Next, 3),
+    ] {
+        assert!(h.set_pos(0));
+        assert_eq!(h.where_history(), 0);
+        let found = h.history_search_bytes(b"alpha", direction).expect("match");
+        assert_eq!(found.byte_offset, offset);
+        assert_eq!(found.entry_index, 0);
+        assert_eq!(found.line_bytes, line);
+        assert_eq!(h.where_history(), 0);
+        assert_eq!(h.current_history().unwrap().line_bytes, line);
+    }
+}
+
+#[test]
 fn empty_history_search_matches_pinned_single_entry_fixture() {
     // GNU 8.3 returns -1 in both directions for this positioned-entry fixture.
     let mut h = History::new();

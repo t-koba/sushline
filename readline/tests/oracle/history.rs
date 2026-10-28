@@ -656,6 +656,60 @@ fn history_reverse_incremental_search_matches_pinned_utf8_no_expansion_fixture()
 }
 
 #[test]
+fn history_reverse_incremental_search_matches_pinned_utf8_query_expansion_fixture() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    // Direct Readline 8.3 primary/fresh-replica fixture: query ß against SS
+    // fails, leaving a non-null empty line after two newlines.
+    let history = ["SS"];
+    let keys = b"\x12\xc3\x9f\n\n";
+    let inputrc = "set search-ignore-case on";
+    let locale_env = [("LC_ALL", "C.UTF-8")];
+    let bash = run_bash_readline_with_inputrc_file_and_history_and_env(
+        keys,
+        inputrc,
+        &history,
+        &locale_env,
+    );
+    let sushline =
+        run_sushline_harness_with_inputrc_and_history_and_env(keys, inputrc, &history, &locale_env);
+
+    assert_eq!(accepted_line(&bash), Some(String::new()), "{bash}");
+    assert_eq!(accepted_line(&sushline), Some(String::new()), "{sushline}");
+}
+
+#[test]
+fn history_forward_incremental_search_matches_pinned_utf8_query_expansion_fixture() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    // Direct Readline 8.3 primary/fresh-replica fixture: C-p twice selects
+    // prior; the failed query ß against SS leaves prior accepted.
+    let history = ["prior", "SS"];
+    let keys = b"\x10\x10\x0f\xc3\x9f\n\n";
+    let inputrc = "set search-ignore-case on\n\"\\C-o\": forward-search-history\n";
+    let locale_env = [("LC_ALL", "C.UTF-8")];
+    let bash = run_bash_readline_with_inputrc_file_and_history_and_env(
+        keys,
+        inputrc,
+        &history,
+        &locale_env,
+    );
+    let sushline =
+        run_sushline_harness_with_inputrc_and_history_and_env(keys, inputrc, &history, &locale_env);
+
+    assert_eq!(accepted_line(&bash), Some("prior".to_string()), "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        Some("prior".to_string()),
+        "{sushline}"
+    );
+}
+
+#[test]
 fn search_ignore_case_matches_measured_utf8_single_scalar_pairs() {
     if !c_utf8_locale_available() {
         return;

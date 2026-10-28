@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shared by the pinned primary and fresh-runner replica.
-# Assert agreed fixture-scoped observations; forward incremental search is measurement-only.
+# Assert agreed fixture-scoped observations.
 set -euo pipefail
 ulimit -c 0
 report_kind=${1:?report kind must be primary or replica}
@@ -21,6 +21,8 @@ elif [ "$mode" = unicode-prefix ]; then
   expected=.github/scripts/readline-unicode-history-prefix-search.expected
 elif [ "$mode" = unicode-incremental ]; then
   expected=.github/scripts/readline-unicode-history-incremental-search.expected
+elif [ "$mode" = unicode-forward-incremental ]; then
+  expected=.github/scripts/readline-unicode-history-forward-incremental-search.expected
 fi
 rm -f -- "$report"
 readline="$HOME/.cache/sushline/readline-oracle"
@@ -335,16 +337,12 @@ finally:
 sys.exit(0 if complete and reaped and cleaned and terminal_restored else 1)
 PYPROBE
 
-# Forward incremental search is measurement-only: never assert accepted bytes.
-if [ "$mode" = unicode-forward-incremental ]; then
-  exit 0
-fi
 # Prefix fixtures and Unicode incremental search may collect without a semantic baseline.
 # Transport/probe integrity and cleanup remain mandatory in every mode.
 if { [ "$mode" = prefix ] || [ "$mode" = unicode-prefix ] || [ "$mode" = unicode-incremental ]; } && [ ! -e "$expected" ]; then
   exit 0
 fi
 semantic="$report.semantic"
-grep -E '^(measurement=|locale_requested=|terminal=|inputrc=|entry_hex=|query_hex=|input_keys_hex=|input_sequence=|header_version=|runtime_version=|pinned_libraries=|loaded_library_path_check=|seed_integrity=|search_ignore_case=|runtime_version_text_hex=|locale_hex=|loaded_library_relative_path_hex=|seeded_entry_hex=|accepted_is_null=|accepted_hex=|child_returncode=|input_sent=|terminal_restored=|timeout=|failure_stage=|transport_integrity=|child_reaped=|file_descriptors_closed=|fixture_cleanup=)' "$report" > "$semantic"
+grep -E '^(measurement=|locale_requested=|terminal=|inputrc=|inputrc_contents_hex=|entry_hex=|query_hex=|input_keys_hex=|input_sequence=|header_version=|runtime_version=|pinned_libraries=|loaded_library_path_check=|seed_integrity=|search_ignore_case=|runtime_version_text_hex=|locale_hex=|loaded_library_relative_path_hex=|binding_integrity=|seeded_entry_count=|seeded_predecessor_hex=|seeded_entry_hex=|accepted_is_null=|accepted_hex=|child_returncode=|input_sent=|terminal_restored=|timeout=|failure_stage=|transport_integrity=|child_reaped=|file_descriptors_closed=|fixture_cleanup=)' "$report" > "$semantic"
 diff -u "$expected" "$semantic"
 rm -f -- "$semantic"

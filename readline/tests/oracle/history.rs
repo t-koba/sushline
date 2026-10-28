@@ -564,6 +564,44 @@ fn search_ignore_case_matches_non_ascii_in_utf8_locale() {
 }
 
 #[test]
+fn history_forward_incremental_search_ignore_case_matches_pinned_utf8_fixture() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    // Direct Readline 8.3 primary and fresh-replica reports agree for this
+    // exact fixture; this separately guards Bash/Sushline editor behavior.
+    let history = ["prior", "ÄLPHA old"];
+    let locale_env = [("LC_ALL", "C.UTF-8")];
+    let inputrc = "set search-ignore-case on\n\"\\C-o\": forward-search-history";
+    let mut keys = vec![0x10, 0x10, 0x0f];
+    keys.extend_from_slice("älpha".as_bytes());
+    keys.extend_from_slice(b"\r\r");
+    let bash = run_bash_readline_with_inputrc_file_and_history_and_env(
+        &keys,
+        inputrc,
+        &history,
+        &locale_env,
+    );
+    let sushline = run_sushline_harness_with_inputrc_and_history_and_env(
+        &keys,
+        inputrc,
+        &history,
+        &locale_env,
+    );
+    assert_eq!(
+        accepted_line(&bash),
+        Some("ÄLPHA old".to_string()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        Some("ÄLPHA old".to_string()),
+        "{sushline}"
+    );
+}
+
+#[test]
 fn search_ignore_case_matches_measured_utf8_single_scalar_pairs() {
     if !c_utf8_locale_available() {
         return;

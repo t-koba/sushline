@@ -14,7 +14,9 @@ case "$mode" in
   unicode-expansion-incremental) report=/tmp/readline_unicode_history_expansion_incremental_search.out ;;
   unicode-forward-incremental) report=/tmp/readline_unicode_history_forward_incremental_search.out ;;
   unicode-forward-expansion-incremental) report=/tmp/readline_unicode_history_forward_expansion_incremental_search.out ;;
-  *) echo "mode must be incremental, prefix, unicode-prefix, unicode-incremental, unicode-expansion-incremental, unicode-forward-incremental or unicode-forward-expansion-incremental" >&2; exit 2 ;;
+  unicode-query-expansion-incremental) report=/tmp/readline_unicode_history_query_expansion_incremental_search.out ;;
+  unicode-forward-query-expansion-incremental) report=/tmp/readline_unicode_history_forward_query_expansion_incremental_search.out ;;
+  *) echo "invalid history search mode" >&2; exit 2 ;;
 esac
 expected=.github/scripts/readline-invalid-history-search.expected
 if [ "$mode" = prefix ]; then
@@ -29,6 +31,10 @@ elif [ "$mode" = unicode-forward-incremental ]; then
   expected=.github/scripts/readline-unicode-history-forward-incremental-search.expected
 elif [ "$mode" = unicode-forward-expansion-incremental ]; then
   expected=.github/scripts/readline-unicode-history-forward-expansion-incremental-search.expected
+elif [ "$mode" = unicode-query-expansion-incremental ]; then
+  expected=.github/scripts/readline-unicode-history-query-expansion-incremental-search.expected
+elif [ "$mode" = unicode-forward-query-expansion-incremental ]; then
+  expected=.github/scripts/readline-unicode-history-forward-query-expansion-incremental-search.expected
 fi
 rm -f -- "$report"
 readline="$HOME/.cache/sushline/readline-oracle"
@@ -106,9 +112,11 @@ int main(int argc, char **argv) {
     int unicode_incremental = strcmp(argv[3], "unicode-incremental") == 0;
     int forward_expansion = strcmp(argv[3], "unicode-forward-expansion-incremental") == 0;
     int unicode_expansion = forward_expansion || strcmp(argv[3], "unicode-expansion-incremental") == 0;
-    int unicode_forward = forward_expansion || strcmp(argv[3], "unicode-forward-incremental") == 0;
+    int forward_query_expansion = strcmp(argv[3], "unicode-forward-query-expansion-incremental") == 0;
+    int query_expansion = forward_query_expansion || strcmp(argv[3], "unicode-query-expansion-incremental") == 0;
+    int unicode_forward = forward_query_expansion || forward_expansion || strcmp(argv[3], "unicode-forward-incremental") == 0;
     int prefix_search = unicode_prefix || strcmp(argv[3], "prefix") == 0;
-    if (!prefix_search && !unicode_incremental && !unicode_expansion && !unicode_forward && strcmp(argv[3], "incremental") != 0) return 2;
+    if (!prefix_search && !unicode_incremental && !unicode_expansion && !query_expansion && !unicode_forward && strcmp(argv[3], "incremental") != 0) return 2;
     prefix = argv[1];
     int fd = atoi(argv[2]);
     const char *locale = setlocale(LC_ALL, "C.UTF-8");
@@ -128,7 +136,7 @@ int main(int argc, char **argv) {
          rl_function_of_keyseq("\x10", rl_get_keymap(), NULL) != rl_get_previous_history)) return 5;
     const char *ignore_case = rl_variable_value("search-ignore-case");
     if (!ignore_case || strcmp(ignore_case, "on") != 0) return 5;
-    const char *entry = unicode_expansion ? "\xc3\x9f entry" : (unicode_prefix || unicode_incremental || unicode_forward) ? "\xc3\x84LPHA old" : prefix_search ? "ALPHA\xfftail" : "pre\xff" "ALPHA";
+    const char *entry = query_expansion ? "SS" : unicode_expansion ? "\xc3\x9f entry" : (unicode_prefix || unicode_incremental || unicode_forward) ? "\xc3\x84LPHA old" : prefix_search ? "ALPHA\xfftail" : "pre\xff" "ALPHA";
     using_history();
     clear_history();
     if (unicode_forward) add_history("prior");
@@ -197,11 +205,14 @@ LIMIT = 16384
 if (len(sys.argv) != 5 or sys.argv[3] not in ("primary", "replica") or
         sys.argv[4] not in ("incremental", "prefix", "unicode-prefix", "unicode-incremental",
                             "unicode-forward-incremental", "unicode-expansion-incremental",
-                            "unicode-forward-expansion-incremental")):
+                            "unicode-forward-expansion-incremental", "unicode-query-expansion-incremental",
+                            "unicode-forward-query-expansion-incremental")):
     raise SystemExit("invalid report kind or mode")
 FORWARD_EXPANSION = sys.argv[4] == "unicode-forward-expansion-incremental"
 UNICODE_EXPANSION = FORWARD_EXPANSION or sys.argv[4] == "unicode-expansion-incremental"
-UNICODE_FORWARD = FORWARD_EXPANSION or sys.argv[4] == "unicode-forward-incremental"
+FORWARD_QUERY_EXPANSION = sys.argv[4] == "unicode-forward-query-expansion-incremental"
+QUERY_EXPANSION = FORWARD_QUERY_EXPANSION or sys.argv[4] == "unicode-query-expansion-incremental"
+UNICODE_FORWARD = FORWARD_QUERY_EXPANSION or FORWARD_EXPANSION or sys.argv[4] == "unicode-forward-incremental"
 UNICODE_INCREMENTAL = sys.argv[4] == "unicode-incremental"
 UNICODE_PREFIX = sys.argv[4] == "unicode-prefix"
 PREFIX = UNICODE_PREFIX or sys.argv[4] == "prefix"
@@ -214,6 +225,9 @@ KEYS = QUERY + b"\x0f\n" if PREFIX else b"\x12" + QUERY + b"\n\n"
 if UNICODE_EXPANSION:
     ENTRY, QUERY = b"\xc3\x9f entry", b"ss"
     KEYS = b"\x12" + QUERY + b"\x12\n\n"
+if QUERY_EXPANSION:
+    ENTRY, QUERY = b"SS", b"\xc3\x9f"
+    KEYS = b"\x12" + QUERY + b"\n\n"
 if UNICODE_FORWARD:
     # readline starts after the newest entry: C-p twice selects the predecessor.
     KEYS = b"\x10\x10\x0f" + QUERY + b"\n\n"
@@ -230,7 +244,9 @@ timed_out = False
 terminal_restored = False
 stage = "setup"
 print(f"report={sys.argv[3]}")
-print("measurement=raw-direct-readline-unicode-history-forward-expansion-incremental-search" if FORWARD_EXPANSION else
+print("measurement=raw-direct-readline-unicode-history-forward-query-expansion-incremental-search" if FORWARD_QUERY_EXPANSION else
+      "measurement=raw-direct-readline-unicode-history-query-expansion-incremental-search" if QUERY_EXPANSION else
+      "measurement=raw-direct-readline-unicode-history-forward-expansion-incremental-search" if FORWARD_EXPANSION else
       "measurement=raw-direct-readline-unicode-history-expansion-incremental-search" if UNICODE_EXPANSION else
       "measurement=raw-direct-readline-unicode-history-forward-incremental-search" if UNICODE_FORWARD else
       "measurement=raw-direct-readline-unicode-history-incremental-search" if UNICODE_INCREMENTAL else
@@ -249,7 +265,7 @@ print(f"input_keys_hex={KEYS.hex()}")
 print("input_sequence=control-p-control-p-control-o-forward-incremental-search-ascii-query-then-search-and-accept-newlines" if FORWARD_EXPANSION else
       "input_sequence=reverse-incremental-search-ascii-query-control-r-repeat-then-search-and-accept-newlines" if UNICODE_EXPANSION else
       "input_sequence=control-p-control-p-control-o-forward-incremental-search-utf8-query-then-search-and-accept-newlines" if UNICODE_FORWARD else
-      "input_sequence=reverse-incremental-search-utf8-query-then-search-and-accept-newlines" if UNICODE_INCREMENTAL else
+      "input_sequence=reverse-incremental-search-utf8-query-then-search-and-accept-newlines" if UNICODE_INCREMENTAL or QUERY_EXPANSION else
       "input_sequence=utf8-query-history-search-backward-control-o-accept-newline" if UNICODE_PREFIX else
       "input_sequence=ascii-query-history-search-backward-control-o-accept-newline" if PREFIX else
       "input_sequence=reverse-incremental-search-ascii-query-then-search-and-accept-newlines")
@@ -355,9 +371,9 @@ finally:
 sys.exit(0 if complete and reaped and cleaned and terminal_restored else 1)
 PYPROBE
 
-# Prefix fixtures and Unicode incremental search may collect without a semantic baseline.
+# Prefix and selected Unicode fixtures may collect without a semantic baseline.
 # Transport/probe integrity and cleanup remain mandatory in every mode.
-if { [ "$mode" = prefix ] || [ "$mode" = unicode-prefix ] || [ "$mode" = unicode-incremental ]; } && [ ! -e "$expected" ]; then
+if { [ "$mode" = prefix ] || [ "$mode" = unicode-prefix ] || [ "$mode" = unicode-incremental ] || [ "$mode" = unicode-query-expansion-incremental ] || [ "$mode" = unicode-forward-query-expansion-incremental ]; } && [ ! -e "$expected" ]; then
   exit 0
 fi
 semantic="$report.semantic"

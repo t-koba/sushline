@@ -464,3 +464,22 @@ fn reverse_incremental_search_matches_invalid_utf8_history_fixture() {
         ReadlineResult::Line(b"pre\xffALPHA".to_vec())
     );
 }
+
+#[test]
+fn prefix_search_matches_invalid_utf8_history_fixture() {
+    let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(b"alpha\x0f\r".to_vec())]);
+    let mut history = History::new();
+    history.push_bytes(b"ALPHA\xfftail".to_vec());
+    assert!(history.set_pos(history.len()));
+    let mut editor = Editor::new(Config::default(), terminal, history);
+    editor
+        .load_inputrc_str("set search-ignore-case on\n\"\\C-o\": history-search-backward")
+        .unwrap();
+
+    assert_eq!(
+        editor
+            .read_line(Prompt::new("> "), &mut TestHistoryHook)
+            .unwrap(),
+        ReadlineResult::Line(b"ALPHA\xfftail".to_vec())
+    );
+}

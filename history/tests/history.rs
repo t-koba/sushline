@@ -567,6 +567,29 @@ fn history_search_current_match_matches_pinned_multi_entry_fixture() {
 }
 
 #[test]
+fn history_search_matches_pinned_invalid_byte_needle_fixture() {
+    // Mirrors the primary and fresh-replica GNU 8.3 raw-byte fixture in
+    // history-search-offset.sh: offsets count bytes even for a non-UTF-8 needle.
+    let mut history = History::new();
+    let line: &[u8] = b"pre\xffx\xfftail";
+    history.push_bytes(line.to_vec());
+    assert_eq!(history.len(), 1);
+
+    for (direction, offset) in [(HistoryDirection::Previous, 5), (HistoryDirection::Next, 3)] {
+        assert!(history.set_pos(0));
+        assert_eq!(history.where_history(), 0);
+        let found = history
+            .history_search_bytes(&[0xff], direction)
+            .expect("raw-byte needle match");
+        assert_eq!(found.entry_index, 0);
+        assert_eq!(found.byte_offset, offset);
+        assert_eq!(found.line_bytes, line);
+        assert_eq!(history.where_history(), 0);
+        assert_eq!(history.current_history().unwrap().line_bytes, line);
+    }
+}
+
+#[test]
 fn history_search_ignore_case_folds_ascii_bytes_only() {
     let mut h = History::new();
     h.push("ÄLPHA");

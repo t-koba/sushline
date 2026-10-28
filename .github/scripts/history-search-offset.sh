@@ -186,6 +186,6 @@ PROBE
   sha256sum "$readline/lib/libhistory.so" "$readline/lib/libreadline.so"
   LC_ALL=C timeout 5 "$work/probe"
 } 2>&1 | tee "$out"
-# Assert the pinned single-entry, multi-entry, and current-match search rows.
-grep -E '^(header_version=|seed\[|utf8_seed_bytes=|multientry_seed\[|current_match_seed\[|operation=(history_set_pos|history_search)(_(empty|missing|uppercase|utf8|multientry|current_match))? )' "$out" > "$out.semantic"
+# Assert the pinned single-entry, multi-entry, current-match, and invalid-byte search rows.
+grep -E '^(header_version=|seed\[|utf8_seed_bytes=|multientry_seed\[|current_match_seed\[|invalidbyte_seed_bytes=|operation=(history_set_pos|history_search)(_(empty|missing|uppercase|utf8|multientry|current_match|invalidbyte_needle))? )' "$out" > "$out.semantic"
 diff -u .github/scripts/history-search-offset.expected "$out.semantic"

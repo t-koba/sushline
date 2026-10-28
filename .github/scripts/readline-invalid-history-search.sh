@@ -22,6 +22,8 @@ elif [ "$mode" = unicode-prefix ]; then
   expected=.github/scripts/readline-unicode-history-prefix-search.expected
 elif [ "$mode" = unicode-incremental ]; then
   expected=.github/scripts/readline-unicode-history-incremental-search.expected
+elif [ "$mode" = unicode-expansion-incremental ]; then
+  expected=.github/scripts/readline-unicode-history-expansion-incremental-search.expected
 elif [ "$mode" = unicode-forward-incremental ]; then
   expected=.github/scripts/readline-unicode-history-forward-incremental-search.expected
 fi
@@ -344,11 +346,6 @@ finally:
     print(f"fixture_cleanup={int(cleaned)}")
 sys.exit(0 if complete and reaped and cleaned and terminal_restored else 1)
 PYPROBE
-
-# Expansion search is measurement-only pending primary/replica review.
-if [ "$mode" = unicode-expansion-incremental ]; then
-  exit 0
-fi
 
 # Prefix fixtures and Unicode incremental search may collect without a semantic baseline.
 # Transport/probe integrity and cleanup remain mandatory in every mode.

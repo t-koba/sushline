@@ -602,6 +602,31 @@ fn history_forward_incremental_search_ignore_case_matches_pinned_utf8_fixture() 
 }
 
 #[test]
+fn history_reverse_incremental_search_matches_pinned_utf8_no_expansion_fixture() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    // Match the direct Readline 8.3 primary/fresh-replica fixture, including
+    // C-r to repeat the failed search and two newlines to exit and accept.
+    let history = ["ß entry"];
+    let keys = b"\x12ss\x12\n\n";
+    let inputrc = "set search-ignore-case on";
+    let locale_env = [("LC_ALL", "C.UTF-8")];
+    let bash = run_bash_readline_with_inputrc_file_and_history_and_env(
+        keys,
+        inputrc,
+        &history,
+        &locale_env,
+    );
+    let sushline =
+        run_sushline_harness_with_inputrc_and_history_and_env(keys, inputrc, &history, &locale_env);
+
+    assert_eq!(accepted_line(&bash), Some(String::new()), "{bash}");
+    assert_eq!(accepted_line(&sushline), Some(String::new()), "{sushline}");
+}
+
+#[test]
 fn search_ignore_case_matches_measured_utf8_single_scalar_pairs() {
     if !c_utf8_locale_available() {
         return;

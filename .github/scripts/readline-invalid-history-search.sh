@@ -11,6 +11,7 @@ case "$mode" in
   prefix) report=/tmp/readline_invalid_history_prefix_search.out ;;
   unicode-prefix) report=/tmp/readline_unicode_history_prefix_search.out ;;
   unicode-incremental) report=/tmp/readline_unicode_history_incremental_search.out ;;
+  c-locale-incremental) report=/tmp/readline_c_locale_history_incremental_search.out ;;
   unicode-expansion-incremental) report=/tmp/readline_unicode_history_expansion_incremental_search.out ;;
   unicode-forward-incremental) report=/tmp/readline_unicode_history_forward_incremental_search.out ;;
   unicode-forward-expansion-incremental) report=/tmp/readline_unicode_history_forward_expansion_incremental_search.out ;;
@@ -25,6 +26,8 @@ elif [ "$mode" = unicode-prefix ]; then
   expected=.github/scripts/readline-unicode-history-prefix-search.expected
 elif [ "$mode" = unicode-incremental ]; then
   expected=.github/scripts/readline-unicode-history-incremental-search.expected
+elif [ "$mode" = c-locale-incremental ]; then
+  expected=.github/scripts/readline-c-locale-history-incremental-search.expected
 elif [ "$mode" = unicode-expansion-incremental ]; then
   expected=.github/scripts/readline-unicode-history-expansion-incremental-search.expected
 elif [ "$mode" = unicode-forward-incremental ]; then
@@ -109,7 +112,8 @@ int main(int argc, char **argv) {
     const struct rlimit no_core = {0, 0};
     if (argc != 4 || setrlimit(RLIMIT_CORE, &no_core) != 0) return 2;
     int unicode_prefix = strcmp(argv[3], "unicode-prefix") == 0;
-    int unicode_incremental = strcmp(argv[3], "unicode-incremental") == 0;
+    int c_locale_incremental = strcmp(argv[3], "c-locale-incremental") == 0;
+    int unicode_incremental = c_locale_incremental || strcmp(argv[3], "unicode-incremental") == 0;
     int forward_expansion = strcmp(argv[3], "unicode-forward-expansion-incremental") == 0;
     int unicode_expansion = forward_expansion || strcmp(argv[3], "unicode-expansion-incremental") == 0;
     int forward_query_expansion = strcmp(argv[3], "unicode-forward-query-expansion-incremental") == 0;
@@ -119,7 +123,7 @@ int main(int argc, char **argv) {
     if (!prefix_search && !unicode_incremental && !unicode_expansion && !query_expansion && !unicode_forward && strcmp(argv[3], "incremental") != 0) return 2;
     prefix = argv[1];
     int fd = atoi(argv[2]);
-    const char *locale = setlocale(LC_ALL, "C.UTF-8");
+    const char *locale = setlocale(LC_ALL, c_locale_incremental ? "C" : "C.UTF-8");
     if (!locale || strlen(locale) > 64 || rl_readline_version != 0x0803 ||
         strnlen(rl_library_version, 65) > 64) return 2;
     dl_iterate_phdr(check_library, NULL);
@@ -203,7 +207,7 @@ import time
 # deadline covers prompt readiness, input delivery, collection and child exit.
 LIMIT = 16384
 if (len(sys.argv) != 5 or sys.argv[3] not in ("primary", "replica") or
-        sys.argv[4] not in ("incremental", "prefix", "unicode-prefix", "unicode-incremental",
+        sys.argv[4] not in ("incremental", "prefix", "unicode-prefix", "unicode-incremental", "c-locale-incremental",
                             "unicode-forward-incremental", "unicode-expansion-incremental",
                             "unicode-forward-expansion-incremental", "unicode-query-expansion-incremental",
                             "unicode-forward-query-expansion-incremental")):
@@ -213,7 +217,9 @@ UNICODE_EXPANSION = FORWARD_EXPANSION or sys.argv[4] == "unicode-expansion-incre
 FORWARD_QUERY_EXPANSION = sys.argv[4] == "unicode-forward-query-expansion-incremental"
 QUERY_EXPANSION = FORWARD_QUERY_EXPANSION or sys.argv[4] == "unicode-query-expansion-incremental"
 UNICODE_FORWARD = FORWARD_QUERY_EXPANSION or FORWARD_EXPANSION or sys.argv[4] == "unicode-forward-incremental"
-UNICODE_INCREMENTAL = sys.argv[4] == "unicode-incremental"
+C_LOCALE_INCREMENTAL = sys.argv[4] == "c-locale-incremental"
+LOCALE = "C" if C_LOCALE_INCREMENTAL else "C.UTF-8"
+UNICODE_INCREMENTAL = C_LOCALE_INCREMENTAL or sys.argv[4] == "unicode-incremental"
 UNICODE_PREFIX = sys.argv[4] == "unicode-prefix"
 PREFIX = UNICODE_PREFIX or sys.argv[4] == "prefix"
 ENTRY = b"ALPHA\xfftail" if PREFIX else b"pre\xffALPHA"
@@ -249,11 +255,12 @@ print("measurement=raw-direct-readline-unicode-history-forward-query-expansion-i
       "measurement=raw-direct-readline-unicode-history-forward-expansion-incremental-search" if FORWARD_EXPANSION else
       "measurement=raw-direct-readline-unicode-history-expansion-incremental-search" if UNICODE_EXPANSION else
       "measurement=raw-direct-readline-unicode-history-forward-incremental-search" if UNICODE_FORWARD else
+      "measurement=raw-direct-readline-c-locale-history-incremental-search" if C_LOCALE_INCREMENTAL else
       "measurement=raw-direct-readline-unicode-history-incremental-search" if UNICODE_INCREMENTAL else
       "measurement=raw-direct-readline-unicode-history-prefix-search" if UNICODE_PREFIX else
       "measurement=raw-direct-readline-invalid-history-prefix-search" if PREFIX else
       "measurement=raw-direct-readline-invalid-history-search")
-print("locale_requested=C.UTF-8")
+print(f"locale_requested={LOCALE}")
 print("terminal=xterm-256color rows=24 columns=80")
 print("inputrc=isolated-file isolated_home=1 core_disabled=1" if UNICODE_FORWARD else
       "inputrc=dev-null isolated_home=1 core_disabled=1")
@@ -283,7 +290,7 @@ try:
         with open(inputrc, "wb") as config:
             config.write(FORWARD_INPUTRC)
     env = {"PATH": "/usr/bin:/bin", "HOME": directory, "INPUTRC": inputrc,
-           "LC_ALL": "C.UTF-8", "TERM": "xterm-256color", "COLUMNS": "80", "LINES": "24"}
+           "LC_ALL": LOCALE, "TERM": "xterm-256color", "COLUMNS": "80", "LINES": "24"}
 
     def setup():
         os.setsid()
@@ -371,9 +378,9 @@ finally:
 sys.exit(0 if complete and reaped and cleaned and terminal_restored else 1)
 PYPROBE
 
-# Prefix and selected Unicode fixtures may collect without a semantic baseline.
+# Prefix, selected Unicode and C-locale fixtures may collect without a semantic baseline.
 # Transport/probe integrity and cleanup remain mandatory in every mode.
-if { [ "$mode" = prefix ] || [ "$mode" = unicode-prefix ] || [ "$mode" = unicode-incremental ] || [ "$mode" = unicode-query-expansion-incremental ] || [ "$mode" = unicode-forward-query-expansion-incremental ]; } && [ ! -e "$expected" ]; then
+if { [ "$mode" = c-locale-incremental ] || [ "$mode" = prefix ] || [ "$mode" = unicode-prefix ] || [ "$mode" = unicode-incremental ] || [ "$mode" = unicode-query-expansion-incremental ] || [ "$mode" = unicode-forward-query-expansion-incremental ]; } && [ ! -e "$expected" ]; then
   exit 0
 fi
 semantic="$report.semantic"

@@ -47,10 +47,11 @@ int main(void) {
     printf("seed[0]_bytes=%zu seed[0]_hex=", strlen(seed));
     print_hex(seed);
     putchar('\n');
-    const char *needles[] = {"alpha", "", "missing"};
+    const char *needles[] = {"alpha", "", "missing", "ALPHA"};
     for (size_t query = 0; query < sizeof(needles) / sizeof(needles[0]); query++) {
         const char *needle = needles[query];
-        const char *suffix = query == 0 ? "" : query == 1 ? "_empty" : "_missing";
+        const char *suffix = query == 0 ? "" : query == 1 ? "_empty" :
+                             query == 2 ? "_missing" : "_uppercase";
         /* Seed once, but reset the cursor explicitly before each direction. */
         for (int direction = -1; direction <= 1; direction += 2) {
             int positioned = history_set_pos(0);
@@ -110,6 +111,6 @@ PROBE
   sha256sum "$readline/lib/libhistory.so" "$readline/lib/libreadline.so"
   LC_ALL=C timeout 5 "$work/probe"
 } 2>&1 | tee "$out"
-# Assert the pinned alpha, empty-query, missing-query and UTF-8 rows.
+# Assert pinned alpha, empty-query, missing-query and UTF-8 rows; retain uppercase-query rows as raw-only output.
 grep -E '^(header_version=|seed\[|utf8_seed_bytes=|operation=(history_set_pos|history_search)(_(empty|missing|utf8))? )' "$out" > "$out.semantic"
 diff -u .github/scripts/history-search-offset.expected "$out.semantic"

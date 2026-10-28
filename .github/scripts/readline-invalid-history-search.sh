@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shared by the pinned primary and fresh-runner replica.
-# Assert agreed fixture-scoped observations; unicode-incremental is measurement-only until pinned.
+# Assert agreed fixture-scoped observations; forward incremental search is measurement-only.
 set -euo pipefail
 ulimit -c 0
 report_kind=${1:?report kind must be primary or replica}
@@ -11,7 +11,8 @@ case "$mode" in
   prefix) report=/tmp/readline_invalid_history_prefix_search.out ;;
   unicode-prefix) report=/tmp/readline_unicode_history_prefix_search.out ;;
   unicode-incremental) report=/tmp/readline_unicode_history_incremental_search.out ;;
-  *) echo "mode must be incremental, prefix, unicode-prefix or unicode-incremental" >&2; exit 2 ;;
+  unicode-forward-incremental) report=/tmp/readline_unicode_history_forward_incremental_search.out ;;
+  *) echo "mode must be incremental, prefix, unicode-prefix, unicode-incremental or unicode-forward-incremental" >&2; exit 2 ;;
 esac
 expected=.github/scripts/readline-invalid-history-search.expected
 if [ "$mode" = prefix ]; then
@@ -95,8 +96,9 @@ int main(int argc, char **argv) {
     if (argc != 4 || setrlimit(RLIMIT_CORE, &no_core) != 0) return 2;
     int unicode_prefix = strcmp(argv[3], "unicode-prefix") == 0;
     int unicode_incremental = strcmp(argv[3], "unicode-incremental") == 0;
+    int unicode_forward = strcmp(argv[3], "unicode-forward-incremental") == 0;
     int prefix_search = unicode_prefix || strcmp(argv[3], "prefix") == 0;
-    if (!prefix_search && !unicode_incremental && strcmp(argv[3], "incremental") != 0) return 2;
+    if (!prefix_search && !unicode_incremental && !unicode_forward && strcmp(argv[3], "incremental") != 0) return 2;
     prefix = argv[1];
     int fd = atoi(argv[2]);
     const char *locale = setlocale(LC_ALL, "C.UTF-8");
@@ -108,17 +110,23 @@ int main(int argc, char **argv) {
         rl_variable_bind("editing-mode", "emacs") != 0 ||
         rl_variable_bind("enable-bracketed-paste", "off") != 0 ||
         rl_variable_bind("search-ignore-case", "on") != 0 ||
-        rl_bind_key(prefix_search ? '\x0f' : '\x12',
-                    prefix_search ? rl_history_search_backward : rl_reverse_search_history) != 0 ||
+        (!unicode_forward && rl_bind_key(prefix_search ? '\x0f' : '\x12',
+                    prefix_search ? rl_history_search_backward : rl_reverse_search_history) != 0) ||
         rl_bind_key('\n', rl_newline) != 0) return 5;
+    if (unicode_forward &&
+        (rl_function_of_keyseq("\x0f", rl_get_keymap(), NULL) != rl_forward_search_history ||
+         rl_function_of_keyseq("\x10", rl_get_keymap(), NULL) != rl_get_previous_history)) return 5;
     const char *ignore_case = rl_variable_value("search-ignore-case");
     if (!ignore_case || strcmp(ignore_case, "on") != 0) return 5;
-    const char *entry = (unicode_prefix || unicode_incremental) ? "\xc3\x84LPHA old" : prefix_search ? "ALPHA\xfftail" : "pre\xff" "ALPHA";
+    const char *entry = (unicode_prefix || unicode_incremental || unicode_forward) ? "\xc3\x84LPHA old" : prefix_search ? "ALPHA\xfftail" : "pre\xff" "ALPHA";
     using_history();
     clear_history();
+    if (unicode_forward) add_history("prior");
     add_history(entry);
-    HIST_ENTRY *seed = history_get(history_base);
-    if (history_length != 1 || !seed || strcmp(seed->line, entry) != 0) return 5;
+    HIST_ENTRY *seed = history_get(history_base + unicode_forward);
+    HIST_ENTRY *predecessor = unicode_forward ? history_get(history_base) : NULL;
+    if (history_length != 1 + unicode_forward || !seed || strcmp(seed->line, entry) != 0 ||
+        (unicode_forward && (!predecessor || strcmp(predecessor->line, "prior") != 0))) return 5;
     if (dprintf(fd, "header_version=%04x\nruntime_version=%04x\n"
                 "pinned_libraries=%d\nloaded_library_path_check=exact-cache-realpath\n"
                 "seed_integrity=1\nsearch_ignore_case=on\n",
@@ -126,6 +134,10 @@ int main(int argc, char **argv) {
     hex(fd, "runtime_version_text_hex", rl_library_version, strlen(rl_library_version));
     hex(fd, "locale_hex", locale, strlen(locale));
     hex(fd, "loaded_library_relative_path_hex", loaded, strlen(loaded));
+    if (unicode_forward) {
+        if (dprintf(fd, "binding_integrity=1\nseeded_entry_count=2\n") < 0) return 4;
+        hex(fd, "seeded_predecessor_hex", predecessor->line, strlen(predecessor->line));
+    }
     hex(fd, "seeded_entry_hex", seed->line, strlen(seed->line));
     char *line = readline("P>");
     size_t n = line ? strnlen(line, 129) : 0;
@@ -173,17 +185,23 @@ import time
 # deadline covers prompt readiness, input delivery, collection and child exit.
 LIMIT = 16384
 if (len(sys.argv) != 5 or sys.argv[3] not in ("primary", "replica") or
-        sys.argv[4] not in ("incremental", "prefix", "unicode-prefix", "unicode-incremental")):
+        sys.argv[4] not in ("incremental", "prefix", "unicode-prefix", "unicode-incremental",
+                            "unicode-forward-incremental")):
     raise SystemExit("invalid report kind or mode")
+UNICODE_FORWARD = sys.argv[4] == "unicode-forward-incremental"
 UNICODE_INCREMENTAL = sys.argv[4] == "unicode-incremental"
 UNICODE_PREFIX = sys.argv[4] == "unicode-prefix"
 PREFIX = UNICODE_PREFIX or sys.argv[4] == "prefix"
 ENTRY = b"ALPHA\xfftail" if PREFIX else b"pre\xffALPHA"
 QUERY = b"alpha"
-if UNICODE_PREFIX or UNICODE_INCREMENTAL:
+if UNICODE_PREFIX or UNICODE_INCREMENTAL or UNICODE_FORWARD:
     ENTRY = b"\xc3\x84LPHA old"
     QUERY = b"\xc3\xa4lpha"
 KEYS = QUERY + b"\x0f\n" if PREFIX else b"\x12" + QUERY + b"\n\n"
+if UNICODE_FORWARD:
+    # readline starts after the newest entry: C-p twice selects the predecessor.
+    KEYS = b"\x10\x10\x0f" + QUERY + b"\n\n"
+FORWARD_INPUTRC = b'"\\C-o": forward-search-history\n'
 resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 directory = tempfile.mkdtemp(prefix="sushline-invalid-history-search-fixture-")
 child = None
@@ -196,17 +214,22 @@ timed_out = False
 terminal_restored = False
 stage = "setup"
 print(f"report={sys.argv[3]}")
-print("measurement=raw-direct-readline-unicode-history-incremental-search" if UNICODE_INCREMENTAL else
+print("measurement=raw-direct-readline-unicode-history-forward-incremental-search" if UNICODE_FORWARD else
+      "measurement=raw-direct-readline-unicode-history-incremental-search" if UNICODE_INCREMENTAL else
       "measurement=raw-direct-readline-unicode-history-prefix-search" if UNICODE_PREFIX else
       "measurement=raw-direct-readline-invalid-history-prefix-search" if PREFIX else
       "measurement=raw-direct-readline-invalid-history-search")
 print("locale_requested=C.UTF-8")
 print("terminal=xterm-256color rows=24 columns=80")
-print("inputrc=dev-null isolated_home=1 core_disabled=1")
+print("inputrc=isolated-file isolated_home=1 core_disabled=1" if UNICODE_FORWARD else
+      "inputrc=dev-null isolated_home=1 core_disabled=1")
+if UNICODE_FORWARD:
+    print(f"inputrc_contents_hex={FORWARD_INPUTRC.hex()}")
 print(f"entry_hex={ENTRY.hex()}")
 print(f"query_hex={QUERY.hex()}")
 print(f"input_keys_hex={KEYS.hex()}")
-print("input_sequence=reverse-incremental-search-utf8-query-then-search-and-accept-newlines" if UNICODE_INCREMENTAL else
+print("input_sequence=control-p-control-p-control-o-forward-incremental-search-utf8-query-then-search-and-accept-newlines" if UNICODE_FORWARD else
+      "input_sequence=reverse-incremental-search-utf8-query-then-search-and-accept-newlines" if UNICODE_INCREMENTAL else
       "input_sequence=utf8-query-history-search-backward-control-o-accept-newline" if UNICODE_PREFIX else
       "input_sequence=ascii-query-history-search-backward-control-o-accept-newline" if PREFIX else
       "input_sequence=reverse-incremental-search-ascii-query-then-search-and-accept-newlines")
@@ -218,7 +241,12 @@ try:
     before = termios.tcgetattr(slave)
     os.set_blocking(master, False)
     os.set_blocking(notify_r, False)
-    env = {"PATH": "/usr/bin:/bin", "HOME": directory, "INPUTRC": "/dev/null",
+    inputrc = "/dev/null"
+    if UNICODE_FORWARD:
+        inputrc = os.path.join(directory, "inputrc")
+        with open(inputrc, "wb") as config:
+            config.write(FORWARD_INPUTRC)
+    env = {"PATH": "/usr/bin:/bin", "HOME": directory, "INPUTRC": inputrc,
            "LC_ALL": "C.UTF-8", "TERM": "xterm-256color", "COLUMNS": "80", "LINES": "24"}
 
     def setup():
@@ -268,7 +296,9 @@ try:
         rb"loaded_library_path_check=exact-cache-realpath\nseed_integrity=1\n"
         rb"search_ignore_case=on\nruntime_version_text_hex=[0-9a-f]{2,128}\n"
         rb"locale_hex=[0-9a-f]{2,128}\nloaded_library_relative_path_hex=[0-9a-f]{2,256}\n"
-        rb"seeded_entry_hex=" + ENTRY.hex().encode("ascii") + rb"\n"
+        + (rb"binding_integrity=1\nseeded_entry_count=2\nseeded_predecessor_hex=7072696f72\n"
+           if UNICODE_FORWARD else b"")
+        + rb"seeded_entry_hex=" + ENTRY.hex().encode("ascii") + rb"\n"
         rb"accepted_is_null=[01]\naccepted_hex=(?:[0-9a-f]{2}){0,128}\n"
     )
     if not re.fullmatch(pattern, protocol) or not sent or child.returncode != 0:
@@ -305,6 +335,10 @@ finally:
 sys.exit(0 if complete and reaped and cleaned and terminal_restored else 1)
 PYPROBE
 
+# Forward incremental search is measurement-only: never assert accepted bytes.
+if [ "$mode" = unicode-forward-incremental ]; then
+  exit 0
+fi
 # Prefix fixtures and Unicode incremental search may collect without a semantic baseline.
 # Transport/probe integrity and cleanup remain mandatory in every mode.
 if { [ "$mode" = prefix ] || [ "$mode" = unicode-prefix ] || [ "$mode" = unicode-incremental ]; } && [ ! -e "$expected" ]; then

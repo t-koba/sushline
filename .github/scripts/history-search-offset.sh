@@ -111,6 +111,6 @@ PROBE
   sha256sum "$readline/lib/libhistory.so" "$readline/lib/libreadline.so"
   LC_ALL=C timeout 5 "$work/probe"
 } 2>&1 | tee "$out"
-# Assert pinned alpha, empty-query, missing-query and UTF-8 rows; retain uppercase-query rows as raw-only output.
-grep -E '^(header_version=|seed\[|utf8_seed_bytes=|operation=(history_set_pos|history_search)(_(empty|missing|utf8))? )' "$out" > "$out.semantic"
+# Assert the pinned alpha, empty-query, missing-query, uppercase-query and UTF-8 rows.
+grep -E '^(header_version=|seed\[|utf8_seed_bytes=|operation=(history_set_pos|history_search)(_(empty|missing|uppercase|utf8))? )' "$out" > "$out.semantic"
 diff -u .github/scripts/history-search-offset.expected "$out.semantic"

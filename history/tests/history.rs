@@ -409,6 +409,21 @@ fn failed_nonempty_history_search_matches_pinned_single_entry_fixture() {
 }
 
 #[test]
+fn history_search_is_case_sensitive_in_pinned_single_entry_fixture() {
+    // GNU 8.3 does not match uppercase ALPHA against lowercase history text.
+    let mut h = History::new();
+    let line = b"echo alpha-first alpha-last";
+    h.push_bytes(line.to_vec());
+
+    for direction in [HistoryDirection::Previous, HistoryDirection::Next] {
+        assert!(h.set_pos(0));
+        assert_eq!(h.history_search_bytes(b"ALPHA", direction), None);
+        assert_eq!(h.where_history(), 0);
+        assert_eq!(h.current_history().unwrap().line_bytes, line);
+    }
+}
+
+#[test]
 fn history_search_offsets_match_pinned_utf8_single_entry_fixture() {
     // Mirrors history-search-offset.sh's primary/fresh-replica GNU 8.3 fixture.
     let mut h = History::new();

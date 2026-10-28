@@ -1,0 +1,29 @@
+measurement=raw-direct-readline-unicode-history-incremental-search
+locale_requested=C.UTF-8
+terminal=xterm-256color rows=24 columns=80
+inputrc=dev-null isolated_home=1 core_disabled=1
+entry_hex=c3844c504841206f6c64
+query_hex=c3a46c706861
+input_keys_hex=12c3a46c7068610a0a
+input_sequence=reverse-incremental-search-utf8-query-then-search-and-accept-newlines
+header_version=0803
+runtime_version=0803
+pinned_libraries=1
+loaded_library_path_check=exact-cache-realpath
+seed_integrity=1
+search_ignore_case=on
+runtime_version_text_hex=382e33
+locale_hex=432e5554462d38
+loaded_library_relative_path_hex=6c69622f6c6962726561646c696e652e736f2e382e33
+seeded_entry_hex=c3844c504841206f6c64
+accepted_is_null=0
+accepted_hex=c3844c504841206f6c64
+child_returncode=0
+input_sent=1
+terminal_restored=1
+timeout=0
+failure_stage=none
+transport_integrity=1
+child_reaped=1
+file_descriptors_closed=1
+fixture_cleanup=1

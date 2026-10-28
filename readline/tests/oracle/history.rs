@@ -529,6 +529,8 @@ fn search_ignore_case_matches_non_ascii_in_utf8_locale() {
         return;
     }
 
+    // Direct Readline 8.3 primary and fresh-replica reports agree for this
+    // exact fixture; this Bash 5.3/Sushline PTY test guards editor behavior.
     // Readline 8.3 isearch.c uses _rl_mb_strcaseeqn when MB_CUR_MAX > 1.
     let inputrc = "set search-ignore-case on";
     let history = ["ÄLPHA old"];

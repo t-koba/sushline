@@ -118,6 +118,31 @@ int main(void) {
         fflush(stdout);
     }
     clear_history();
+    const char *current_match_entries[] = {
+        "a needle before", "echo needle current", "longer needle after"
+    };
+    for (size_t i = 0; i < sizeof(current_match_entries) / sizeof(current_match_entries[0]); i++) {
+        add_history(current_match_entries[i]);
+        printf("current_match_seed[%zu]_bytes=%zu hex=", i, strlen(current_match_entries[i]));
+        print_hex(current_match_entries[i]);
+        putchar('\n');
+    }
+    for (int direction = -1; direction <= 1; direction += 2) {
+        int positioned = history_set_pos(1);
+        int position = where_history();
+        printf("operation=history_set_pos_current_match direction=%+d requested_position=1 return=%d final_position=%d\n",
+               direction, positioned, position);
+        fflush(stdout);
+        if (!positioned || position != 1) return 3;
+        int offset = history_search("needle", direction);
+        HIST_ENTRY *entry = current_history();
+        printf("operation=history_search_current_match direction=%+d needle_hex=6e6565646c65 return_offset=%d final_position=%d current_entry_bytes=%zu current_entry_hex=",
+               direction, offset, where_history(), entry ? strlen(entry->line) : 0);
+        print_hex(entry ? entry->line : NULL);
+        putchar('\n');
+        fflush(stdout);
+    }
+    clear_history();
     return 0;
 }
 PROBE

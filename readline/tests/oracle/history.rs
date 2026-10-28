@@ -398,7 +398,44 @@ fn history_navigation_forward_search_is_case_sensitive_by_default() {
 }
 
 #[test]
-fn history_navigation_search_ignore_case_matches_locale_case_in_utf8_locale() {
+fn history_prefix_search_ignore_case_matches_pinned_utf8_fixture() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    // The pinned Readline 8.3 primary and fresh-replica reports agree for this
+    // exact fixture; this separately guards the Sushline editor behavior.
+    let history = ["ÄLPHA old"];
+    let locale_env = [("LC_ALL", "C.UTF-8")];
+    let inputrc = "set search-ignore-case on\n\"\\C-o\": history-search-backward";
+    let mut keys = "älpha".as_bytes().to_vec();
+    keys.extend_from_slice(b"\x0f\r");
+    let bash = run_bash_readline_with_inputrc_file_and_history_and_env(
+        &keys,
+        inputrc,
+        &history,
+        &locale_env,
+    );
+    let sushline = run_sushline_harness_with_inputrc_and_history_and_env(
+        &keys,
+        inputrc,
+        &history,
+        &locale_env,
+    );
+    assert_eq!(
+        accepted_line(&bash),
+        Some("ÄLPHA old".to_string()),
+        "{bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        Some("ÄLPHA old".to_string()),
+        "{sushline}"
+    );
+}
+
+#[test]
+fn history_substring_search_ignore_case_matches_locale_case_in_utf8_locale() {
     if !c_utf8_locale_available() {
         return;
     }
@@ -407,36 +444,32 @@ fn history_navigation_search_ignore_case_matches_locale_case_in_utf8_locale() {
     // host's linked Readline version.
     let history = ["ÄLPHA old"];
     let locale_env = [("LC_ALL", "C.UTF-8")];
-    for command in [
-        "history-search-backward",
-        "history-substring-search-backward",
-    ] {
-        let inputrc = format!("set search-ignore-case on\n\"\\C-o\": {command}");
-        let mut keys = "älpha".as_bytes().to_vec();
-        keys.extend_from_slice(b"\x0f\r");
-        let bash = run_bash_readline_with_inputrc_file_and_history_and_env(
-            &keys,
-            &inputrc,
-            &history,
-            &locale_env,
-        );
-        let sushline = run_sushline_harness_with_inputrc_and_history_and_env(
-            &keys,
-            &inputrc,
-            &history,
-            &locale_env,
-        );
-        assert_eq!(
-            accepted_line(&bash),
-            Some("ÄLPHA old".to_string()),
-            "{command}: {bash}"
-        );
-        assert_eq!(
-            accepted_line(&sushline),
-            Some("ÄLPHA old".to_string()),
-            "{command}: {sushline}"
-        );
-    }
+    let command = "history-substring-search-backward";
+    let inputrc = format!("set search-ignore-case on\n\"\\C-o\": {command}");
+    let mut keys = "älpha".as_bytes().to_vec();
+    keys.extend_from_slice(b"\x0f\r");
+    let bash = run_bash_readline_with_inputrc_file_and_history_and_env(
+        &keys,
+        &inputrc,
+        &history,
+        &locale_env,
+    );
+    let sushline = run_sushline_harness_with_inputrc_and_history_and_env(
+        &keys,
+        &inputrc,
+        &history,
+        &locale_env,
+    );
+    assert_eq!(
+        accepted_line(&bash),
+        Some("ÄLPHA old".to_string()),
+        "{command}: {bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        Some("ÄLPHA old".to_string()),
+        "{command}: {sushline}"
+    );
 }
 
 #[test]

@@ -391,6 +391,24 @@ fn history_search_offsets_match_pinned_single_entry_fixture() {
 }
 
 #[test]
+fn empty_history_search_matches_pinned_single_entry_fixture() {
+    // GNU 8.3 returns -1 in both directions for this positioned-entry fixture.
+    let mut h = History::new();
+    let line = b"echo alpha-first alpha-last";
+    h.push_bytes(line.to_vec());
+    assert_eq!(h.len(), 1);
+    assert_eq!(line.len(), 27);
+
+    for direction in [HistoryDirection::Previous, HistoryDirection::Next] {
+        assert!(h.set_pos(0));
+        assert_eq!(h.where_history(), 0);
+        assert_eq!(h.history_search_bytes(b"", direction), None);
+        assert_eq!(h.where_history(), 0);
+        assert_eq!(h.current_history().unwrap().line_bytes, line);
+    }
+}
+
+#[test]
 fn history_search_includes_positioned_entry_with_directional_offsets() {
     // GNU `history_search` fixtures: the positioned entry is included in
     // both directions, forward offsets are the first occurrence, and

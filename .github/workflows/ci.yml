@@ -3278,6 +3278,8 @@ jobs:
         run: bash .github/scripts/readline-horizontal-render.sh
       - name: Measure Unicode cell widths against the pinned release
         run: bash .github/scripts/readline-unicode-width.sh
+      - name: Measure raw invalid-UTF-8 history search against the pinned release
+        run: bash .github/scripts/readline-invalid-history-search.sh primary
       - name: Measure plain and timestamped History truncation against the pinned release
         run: bash .github/scripts/readline-history-truncate.sh primary
       - name: Measure History append fixtures against the pinned release
@@ -3320,6 +3322,7 @@ jobs:
             /tmp/readline_include_depth_32.out \
             /tmp/readline_horizontal_render.out \
             /tmp/readline_unicode_width.out \
+            /tmp/readline_invalid_history_search.out \
             /tmp/history_truncate_primary.out \
             /tmp/history_append_primary.out \
             /tmp/history_write_mode_primary.out \
@@ -3411,6 +3414,8 @@ jobs:
         run: bash .github/scripts/readline-horizontal-render.sh
       - name: Measure Unicode cell widths against the pinned release
         run: bash .github/scripts/readline-unicode-width.sh
+      - name: Measure raw invalid-UTF-8 history search against the pinned release
+        run: bash .github/scripts/readline-invalid-history-search.sh replica
       - name: Measure plain and timestamped History truncation against the pinned release
         run: bash .github/scripts/readline-history-truncate.sh replica
       - name: Measure History append fixtures against the pinned release
@@ -3441,6 +3446,14 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-horizontal-render-replica
           path: /tmp/readline_horizontal_render.out
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload independent pinned invalid-history-search report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-invalid-history-search-replica
+          path: /tmp/readline_invalid_history_search.out
           if-no-files-found: warn
           retention-days: 14
       - name: Upload independent pinned Unicode-width report

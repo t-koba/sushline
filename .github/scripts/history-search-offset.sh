@@ -143,6 +143,31 @@ int main(void) {
         fflush(stdout);
     }
     clear_history();
+    const char invalidbyte_seed[] = "pre\xffx\xfftail";
+    const char invalidbyte_needle[] = "\xff";
+    add_history(invalidbyte_seed);
+    printf("invalidbyte_seed_bytes=%zu hex=", strlen(invalidbyte_seed));
+    print_hex(invalidbyte_seed);
+    putchar('\n');
+    for (int direction = -1; direction <= 1; direction += 2) {
+        int positioned = history_set_pos(0);
+        int position = where_history();
+        printf("operation=history_set_pos_invalidbyte_needle direction=%+d requested_position=0 return=%d final_position=%d\n",
+               direction, positioned, position);
+        fflush(stdout);
+        if (!positioned || position != 0) return 3;
+        int offset = history_search(invalidbyte_needle, direction);
+        HIST_ENTRY *entry = current_history();
+        printf("operation=history_search_invalidbyte_needle direction=%+d needle_hex=",
+               direction);
+        print_hex(invalidbyte_needle);
+        printf(" return_offset=%d final_position=%d current_entry_bytes=%zu current_entry_hex=",
+               offset, where_history(), entry ? strlen(entry->line) : 0);
+        print_hex(entry ? entry->line : NULL);
+        putchar('\n');
+        fflush(stdout);
+    }
+    clear_history();
     return 0;
 }
 PROBE

@@ -8,6 +8,10 @@ operation=history_set_pos_empty direction=-1 requested_position=0 return=1 final
 operation=history_search_empty direction=-1 needle_hex= return_offset=-1 final_position=0 current_entry_bytes=27 current_entry_hex=6563686f20616c7068612d666972737420616c7068612d6c617374
 operation=history_set_pos_empty direction=+1 requested_position=0 return=1 final_position=0
 operation=history_search_empty direction=+1 needle_hex= return_offset=-1 final_position=0 current_entry_bytes=27 current_entry_hex=6563686f20616c7068612d666972737420616c7068612d6c617374
+operation=history_set_pos_missing direction=-1 requested_position=0 return=1 final_position=0
+operation=history_search_missing direction=-1 needle_hex=6d697373696e67 return_offset=-1 final_position=0 current_entry_bytes=27 current_entry_hex=6563686f20616c7068612d666972737420616c7068612d6c617374
+operation=history_set_pos_missing direction=+1 requested_position=0 return=1 final_position=0
+operation=history_search_missing direction=+1 needle_hex=6d697373696e67 return_offset=-1 final_position=0 current_entry_bytes=27 current_entry_hex=6563686f20616c7068612d666972737420616c7068612d6c617374
 utf8_seed_bytes=17 utf8_seed_hex=cebb20616c70686120cebb20616c706861
 operation=history_set_pos_utf8 direction=-1 requested_position=0 return=1 final_position=0
 operation=history_search_utf8 direction=-1 needle_hex=616c706861 return_offset=12 final_position=0 current_entry_bytes=17 current_entry_hex=cebb20616c70686120cebb20616c706861

@@ -2,7 +2,7 @@ measurement=raw-direct-readline-unicode-history-forward-query-expansion-incremen
 locale_requested=C.UTF-8
 terminal=xterm-256color rows=24 columns=80
 inputrc=isolated-file isolated_home=1 core_disabled=1
-inputrc_contents_hex=225c432d6f223a20666f72776172642d7365617263680a
+inputrc_contents_hex=225c432d6f223a20666f72776172642d7365617263682d686973746f72790a
 entry_hex=5353
 query_hex=c39f
 input_keys_hex=10100fc39f0a0a

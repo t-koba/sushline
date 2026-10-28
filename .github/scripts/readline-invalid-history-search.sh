@@ -32,9 +32,9 @@ cat > "$work/probe.c" <<'PROBE'
 #include <limits.h>
 #include <link.h>
 #include <locale.h>
+#include <stdio.h>
 #include <readline/history.h>
 #include <readline/readline.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/resource.h>

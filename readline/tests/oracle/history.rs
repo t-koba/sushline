@@ -602,6 +602,35 @@ fn history_forward_incremental_search_ignore_case_matches_pinned_utf8_fixture() 
 }
 
 #[test]
+fn history_forward_incremental_search_matches_pinned_utf8_no_expansion_fixture() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    // Match only the direct Readline 8.3 primary/fresh-replica fixture:
+    // C-p twice selects `prior`; the failed `ss` search leaves it accepted.
+    let history = ["prior", "ß entry"];
+    let keys = b"\x10\x10\x0fss\n\n";
+    let inputrc = "set search-ignore-case on\n\"\\C-o\": forward-search-history\n";
+    let locale_env = [("LC_ALL", "C.UTF-8")];
+    let bash = run_bash_readline_with_inputrc_file_and_history_and_env(
+        keys,
+        inputrc,
+        &history,
+        &locale_env,
+    );
+    let sushline =
+        run_sushline_harness_with_inputrc_and_history_and_env(keys, inputrc, &history, &locale_env);
+
+    assert_eq!(accepted_line(&bash), Some("prior".to_string()), "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        Some("prior".to_string()),
+        "{sushline}"
+    );
+}
+
+#[test]
 fn history_reverse_incremental_search_matches_pinned_utf8_no_expansion_fixture() {
     if !c_utf8_locale_available() {
         return;

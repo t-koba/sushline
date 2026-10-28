@@ -27,6 +27,8 @@ elif [ "$mode" = unicode-expansion-incremental ]; then
   expected=.github/scripts/readline-unicode-history-expansion-incremental-search.expected
 elif [ "$mode" = unicode-forward-incremental ]; then
   expected=.github/scripts/readline-unicode-history-forward-incremental-search.expected
+elif [ "$mode" = unicode-forward-expansion-incremental ]; then
+  expected=.github/scripts/readline-unicode-history-forward-expansion-incremental-search.expected
 fi
 rm -f -- "$report"
 readline="$HOME/.cache/sushline/readline-oracle"
@@ -352,11 +354,6 @@ finally:
     print(f"fixture_cleanup={int(cleaned)}")
 sys.exit(0 if complete and reaped and cleaned and terminal_restored else 1)
 PYPROBE
-
-# The forward expansion fixture collects observations only, without a semantic baseline.
-if [ "$mode" = unicode-forward-expansion-incremental ]; then
-  exit 0
-fi
 
 # Prefix fixtures and Unicode incremental search may collect without a semantic baseline.
 # Transport/probe integrity and cleanup remain mandatory in every mode.

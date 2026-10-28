@@ -3284,6 +3284,8 @@ jobs:
         run: bash .github/scripts/readline-invalid-history-search.sh primary prefix
       - name: Measure raw Unicode history prefix search against the pinned release
         run: bash .github/scripts/readline-invalid-history-search.sh primary unicode-prefix
+      - name: Measure raw Unicode history incremental search against the pinned release
+        run: bash .github/scripts/readline-invalid-history-search.sh primary unicode-incremental
       - name: Measure plain and timestamped History truncation against the pinned release
         run: bash .github/scripts/readline-history-truncate.sh primary
       - name: Measure History append fixtures against the pinned release
@@ -3329,6 +3331,7 @@ jobs:
             /tmp/readline_invalid_history_search.out \
             /tmp/readline_invalid_history_prefix_search.out \
             /tmp/readline_unicode_history_prefix_search.out \
+            /tmp/readline_unicode_history_incremental_search.out \
             /tmp/history_truncate_primary.out \
             /tmp/history_append_primary.out \
             /tmp/history_write_mode_primary.out \
@@ -3426,6 +3429,8 @@ jobs:
         run: bash .github/scripts/readline-invalid-history-search.sh replica prefix
       - name: Measure raw Unicode history prefix search against the pinned release
         run: bash .github/scripts/readline-invalid-history-search.sh replica unicode-prefix
+      - name: Measure raw Unicode history incremental search against the pinned release
+        run: bash .github/scripts/readline-invalid-history-search.sh replica unicode-incremental
       - name: Measure plain and timestamped History truncation against the pinned release
         run: bash .github/scripts/readline-history-truncate.sh replica
       - name: Measure History append fixtures against the pinned release
@@ -3480,6 +3485,14 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-unicode-history-prefix-search-replica
           path: /tmp/readline_unicode_history_prefix_search.out
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload independent pinned Unicode-history-incremental-search report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-unicode-history-incremental-search-replica
+          path: /tmp/readline_unicode_history_incremental_search.out
           if-no-files-found: warn
           retention-days: 14
       - name: Upload independent pinned Unicode-width report

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shared by the pinned primary and fresh-runner replica.
-# Assert agreed fixture-scoped observations; unicode-prefix is measurement-only until pinned.
+# Assert agreed fixture-scoped observations; unicode-incremental is measurement-only until pinned.
 set -euo pipefail
 ulimit -c 0
 report_kind=${1:?report kind must be primary or replica}
@@ -10,13 +10,16 @@ case "$mode" in
   incremental) report=/tmp/readline_invalid_history_search.out ;;
   prefix) report=/tmp/readline_invalid_history_prefix_search.out ;;
   unicode-prefix) report=/tmp/readline_unicode_history_prefix_search.out ;;
-  *) echo "mode must be incremental, prefix or unicode-prefix" >&2; exit 2 ;;
+  unicode-incremental) report=/tmp/readline_unicode_history_incremental_search.out ;;
+  *) echo "mode must be incremental, prefix, unicode-prefix or unicode-incremental" >&2; exit 2 ;;
 esac
 expected=.github/scripts/readline-invalid-history-search.expected
 if [ "$mode" = prefix ]; then
   expected=.github/scripts/readline-invalid-history-prefix-search.expected
 elif [ "$mode" = unicode-prefix ]; then
   expected=.github/scripts/readline-unicode-history-prefix-search.expected
+elif [ "$mode" = unicode-incremental ]; then
+  expected=.github/scripts/readline-unicode-history-incremental-search.expected
 fi
 rm -f -- "$report"
 readline="$HOME/.cache/sushline/readline-oracle"
@@ -91,8 +94,9 @@ int main(int argc, char **argv) {
     const struct rlimit no_core = {0, 0};
     if (argc != 4 || setrlimit(RLIMIT_CORE, &no_core) != 0) return 2;
     int unicode_prefix = strcmp(argv[3], "unicode-prefix") == 0;
+    int unicode_incremental = strcmp(argv[3], "unicode-incremental") == 0;
     int prefix_search = unicode_prefix || strcmp(argv[3], "prefix") == 0;
-    if (!prefix_search && strcmp(argv[3], "incremental") != 0) return 2;
+    if (!prefix_search && !unicode_incremental && strcmp(argv[3], "incremental") != 0) return 2;
     prefix = argv[1];
     int fd = atoi(argv[2]);
     const char *locale = setlocale(LC_ALL, "C.UTF-8");
@@ -109,7 +113,7 @@ int main(int argc, char **argv) {
         rl_bind_key('\n', rl_newline) != 0) return 5;
     const char *ignore_case = rl_variable_value("search-ignore-case");
     if (!ignore_case || strcmp(ignore_case, "on") != 0) return 5;
-    const char *entry = unicode_prefix ? "\xc3\x84LPHA old" : prefix_search ? "ALPHA\xfftail" : "pre\xff" "ALPHA";
+    const char *entry = (unicode_prefix || unicode_incremental) ? "\xc3\x84LPHA old" : prefix_search ? "ALPHA\xfftail" : "pre\xff" "ALPHA";
     using_history();
     clear_history();
     add_history(entry);
@@ -169,13 +173,14 @@ import time
 # deadline covers prompt readiness, input delivery, collection and child exit.
 LIMIT = 16384
 if (len(sys.argv) != 5 or sys.argv[3] not in ("primary", "replica") or
-        sys.argv[4] not in ("incremental", "prefix", "unicode-prefix")):
+        sys.argv[4] not in ("incremental", "prefix", "unicode-prefix", "unicode-incremental")):
     raise SystemExit("invalid report kind or mode")
+UNICODE_INCREMENTAL = sys.argv[4] == "unicode-incremental"
 UNICODE_PREFIX = sys.argv[4] == "unicode-prefix"
 PREFIX = UNICODE_PREFIX or sys.argv[4] == "prefix"
 ENTRY = b"ALPHA\xfftail" if PREFIX else b"pre\xffALPHA"
 QUERY = b"alpha"
-if UNICODE_PREFIX:
+if UNICODE_PREFIX or UNICODE_INCREMENTAL:
     ENTRY = b"\xc3\x84LPHA old"
     QUERY = b"\xc3\xa4lpha"
 KEYS = QUERY + b"\x0f\n" if PREFIX else b"\x12" + QUERY + b"\n\n"
@@ -191,7 +196,8 @@ timed_out = False
 terminal_restored = False
 stage = "setup"
 print(f"report={sys.argv[3]}")
-print("measurement=raw-direct-readline-unicode-history-prefix-search" if UNICODE_PREFIX else
+print("measurement=raw-direct-readline-unicode-history-incremental-search" if UNICODE_INCREMENTAL else
+      "measurement=raw-direct-readline-unicode-history-prefix-search" if UNICODE_PREFIX else
       "measurement=raw-direct-readline-invalid-history-prefix-search" if PREFIX else
       "measurement=raw-direct-readline-invalid-history-search")
 print("locale_requested=C.UTF-8")
@@ -200,7 +206,8 @@ print("inputrc=dev-null isolated_home=1 core_disabled=1")
 print(f"entry_hex={ENTRY.hex()}")
 print(f"query_hex={QUERY.hex()}")
 print(f"input_keys_hex={KEYS.hex()}")
-print("input_sequence=utf8-query-history-search-backward-control-o-accept-newline" if UNICODE_PREFIX else
+print("input_sequence=reverse-incremental-search-utf8-query-then-search-and-accept-newlines" if UNICODE_INCREMENTAL else
+      "input_sequence=utf8-query-history-search-backward-control-o-accept-newline" if UNICODE_PREFIX else
       "input_sequence=ascii-query-history-search-backward-control-o-accept-newline" if PREFIX else
       "input_sequence=reverse-incremental-search-ascii-query-then-search-and-accept-newlines")
 try:
@@ -298,9 +305,9 @@ finally:
 sys.exit(0 if complete and reaped and cleaned and terminal_restored else 1)
 PYPROBE
 
-# Only prefix fixtures may collect without a semantic baseline.
+# Prefix fixtures and Unicode incremental search may collect without a semantic baseline.
 # Transport/probe integrity and cleanup remain mandatory in every mode.
-if { [ "$mode" = prefix ] || [ "$mode" = unicode-prefix ]; } && [ ! -e "$expected" ]; then
+if { [ "$mode" = prefix ] || [ "$mode" = unicode-prefix ] || [ "$mode" = unicode-incremental ]; } && [ ! -e "$expected" ]; then
   exit 0
 fi
 semantic="$report.semantic"

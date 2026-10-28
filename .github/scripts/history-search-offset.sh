@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Assert only the pinned GNU 8.3 search-offset fixture; retain the raw report.
+# Assert only the pinned GNU 8.3 search-offset fixtures; retain the raw report.
 set -euo pipefail
 if [ $# -ne 1 ] || { [ "$1" != primary ] && [ "$1" != replica ]; }; then
   echo 'usage: history-search-offset.sh <primary|replica>' >&2; exit 2
@@ -136,6 +136,6 @@ PROBE
   sha256sum "$readline/lib/libhistory.so" "$readline/lib/libreadline.so"
   LC_ALL=C timeout 5 "$work/probe"
 } 2>&1 | tee "$out"
-# Assert the pinned alpha, empty-query, missing-query, uppercase-query and UTF-8 rows.
-grep -E '^(header_version=|seed\[|utf8_seed_bytes=|operation=(history_set_pos|history_search)(_(empty|missing|uppercase|utf8))? )' "$out" > "$out.semantic"
+# Assert the pinned single-entry and multi-entry search rows.
+grep -E '^(header_version=|seed\[|utf8_seed_bytes=|multientry_seed\[|operation=(history_set_pos|history_search)(_(empty|missing|uppercase|utf8|multientry))? )' "$out" > "$out.semantic"
 diff -u .github/scripts/history-search-offset.expected "$out.semantic"

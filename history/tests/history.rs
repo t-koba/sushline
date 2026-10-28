@@ -508,6 +508,35 @@ fn history_search_includes_positioned_entry_with_directional_offsets() {
 }
 
 #[test]
+fn history_search_traversal_matches_pinned_multi_entry_fixture() {
+    // Mirrors the primary and fresh-replica GNU 8.3 fixture in
+    // history-search-offset.sh: the middle entry does not match, so each
+    // direction finds the nearest matching entry and moves the cursor there.
+    let mut history = History::new();
+    let lines: [&[u8]; 3] = [b"echo needle first", b"middle", b"echo needle last"];
+    for line in lines {
+        history.push_bytes(line.to_vec());
+    }
+    assert_eq!(history.len(), 3);
+
+    for (direction, entry_index, line) in [
+        (HistoryDirection::Previous, 0, lines[0]),
+        (HistoryDirection::Next, 2, lines[2]),
+    ] {
+        assert!(history.set_pos(1));
+        assert_eq!(history.where_history(), 1);
+        let found = history
+            .history_search_bytes(b"needle", direction)
+            .expect("match in the requested direction");
+        assert_eq!(found.entry_index, entry_index);
+        assert_eq!(found.byte_offset, 5);
+        assert_eq!(found.line_bytes, line);
+        assert_eq!(history.where_history(), entry_index);
+        assert_eq!(history.current_history().unwrap().line_bytes, line);
+    }
+}
+
+#[test]
 fn history_search_ignore_case_folds_ascii_bytes_only() {
     let mut h = History::new();
     h.push("ÄLPHA");

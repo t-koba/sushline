@@ -21,3 +21,10 @@ operation=history_set_pos_utf8 direction=-1 requested_position=0 return=1 final_
 operation=history_search_utf8 direction=-1 needle_hex=616c706861 return_offset=12 final_position=0 current_entry_bytes=17 current_entry_hex=cebb20616c70686120cebb20616c706861
 operation=history_set_pos_utf8 direction=+1 requested_position=0 return=1 final_position=0
 operation=history_search_utf8 direction=+1 needle_hex=616c706861 return_offset=3 final_position=0 current_entry_bytes=17 current_entry_hex=cebb20616c70686120cebb20616c706861
+multientry_seed[0]_bytes=17 hex=6563686f206e6565646c65206669727374
+multientry_seed[1]_bytes=6 hex=6d6964646c65
+multientry_seed[2]_bytes=16 hex=6563686f206e6565646c65206c617374
+operation=history_set_pos_multientry direction=-1 requested_position=1 return=1 final_position=1
+operation=history_search_multientry direction=-1 needle_hex=6e6565646c65 return_offset=5 final_position=0 current_entry_bytes=17 current_entry_hex=6563686f206e6565646c65206669727374
+operation=history_set_pos_multientry direction=+1 requested_position=1 return=1 final_position=1
+operation=history_search_multientry direction=+1 needle_hex=6e6565646c65 return_offset=5 final_position=2 current_entry_bytes=16 current_entry_hex=6563686f206e6565646c65206c617374

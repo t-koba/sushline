@@ -445,3 +445,22 @@ fn incremental_history_search_keeps_the_edit_when_matching_its_own_entry() {
         );
     }
 }
+
+#[test]
+fn reverse_incremental_search_matches_invalid_utf8_history_fixture() {
+    let terminal =
+        MemoryTerminal::with_events(vec![TerminalEvent::Bytes(b"\x12alpha\n\r".to_vec())]);
+    let mut history = History::new();
+    history.push_bytes(b"pre\xffALPHA".to_vec());
+    let mut editor = Editor::new(Config::default(), terminal, history);
+    editor
+        .load_inputrc_str("set search-ignore-case on")
+        .unwrap();
+
+    assert_eq!(
+        editor
+            .read_line(Prompt::new("> "), &mut TestHistoryHook)
+            .unwrap(),
+        ReadlineResult::Line(b"pre\xffALPHA".to_vec())
+    );
+}

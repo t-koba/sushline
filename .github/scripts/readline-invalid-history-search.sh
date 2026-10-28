@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Raw measurement only, shared by the primary and fresh-runner replica.
-# One fixed C.UTF-8 direct-library fixture; no search outcome is asserted.
+# Shared by the pinned primary and fresh-runner replica.
+# Assert only the agreed, fixture-scoped C.UTF-8 search observation.
 set -euo pipefail
 ulimit -c 0
 report_kind=${1:?report kind must be primary or replica}
@@ -148,7 +148,7 @@ import tempfile
 import termios
 import time
 
-# No terminal emulator, Bash host, expected search result, or UTF-8 decoding.
+# No terminal emulator, Bash host, or UTF-8 decoding.
 # Raw terminal and side-channel bytes are bounded separately. A ten-second
 # deadline covers prompt readiness, input delivery, collection and child exit.
 LIMIT = 16384
@@ -271,3 +271,8 @@ finally:
     print(f"fixture_cleanup={int(cleaned)}")
 sys.exit(0 if complete and reaped and cleaned and terminal_restored else 1)
 PYPROBE
+
+semantic="$report.semantic"
+grep -E '^(measurement=|locale_requested=|terminal=|inputrc=|entry_hex=|query_hex=|input_keys_hex=|input_sequence=|header_version=|runtime_version=|pinned_libraries=|loaded_library_path_check=|seed_integrity=|search_ignore_case=|runtime_version_text_hex=|locale_hex=|loaded_library_relative_path_hex=|seeded_entry_hex=|accepted_is_null=|accepted_hex=|child_returncode=|input_sent=|terminal_restored=|timeout=|failure_stage=|transport_integrity=|child_reaped=|file_descriptors_closed=|fixture_cleanup=)' "$report" > "$semantic"
+diff -u .github/scripts/readline-invalid-history-search.expected "$semantic"
+rm -f -- "$semantic"

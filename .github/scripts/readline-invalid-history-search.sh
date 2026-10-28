@@ -1,11 +1,20 @@
 #!/usr/bin/env bash
 # Shared by the pinned primary and fresh-runner replica.
-# Assert only the agreed, fixture-scoped C.UTF-8 search observation.
+# Assert agreed fixture-scoped observations; prefix is measurement-only until pinned.
 set -euo pipefail
 ulimit -c 0
 report_kind=${1:?report kind must be primary or replica}
 case "$report_kind" in primary|replica) ;; *) echo "report kind must be primary or replica" >&2; exit 2 ;; esac
-report=/tmp/readline_invalid_history_search.out
+mode=${2:-incremental}
+case "$mode" in
+  incremental) report=/tmp/readline_invalid_history_search.out ;;
+  prefix) report=/tmp/readline_invalid_history_prefix_search.out ;;
+  *) echo "mode must be incremental or prefix" >&2; exit 2 ;;
+esac
+expected=.github/scripts/readline-invalid-history-search.expected
+if [ "$mode" = prefix ]; then
+  expected=.github/scripts/readline-invalid-history-prefix-search.expected
+fi
 rm -f -- "$report"
 readline="$HOME/.cache/sushline/readline-oracle"
 configure_flags=(--prefix="$readline" "$READLINE_ORACLE_CONFIGURE_FLAGS")
@@ -77,7 +86,9 @@ static void hex(int fd, const char *key, const char *text, size_t n) {
 
 int main(int argc, char **argv) {
     const struct rlimit no_core = {0, 0};
-    if (argc != 3 || setrlimit(RLIMIT_CORE, &no_core) != 0) return 2;
+    if (argc != 4 || setrlimit(RLIMIT_CORE, &no_core) != 0) return 2;
+    int prefix_search = strcmp(argv[3], "prefix") == 0;
+    if (!prefix_search && strcmp(argv[3], "incremental") != 0) return 2;
     prefix = argv[1];
     int fd = atoi(argv[2]);
     const char *locale = setlocale(LC_ALL, "C.UTF-8");
@@ -89,11 +100,12 @@ int main(int argc, char **argv) {
         rl_variable_bind("editing-mode", "emacs") != 0 ||
         rl_variable_bind("enable-bracketed-paste", "off") != 0 ||
         rl_variable_bind("search-ignore-case", "on") != 0 ||
-        rl_bind_key('\x12', rl_reverse_search_history) != 0 ||
+        rl_bind_key(prefix_search ? '\x0f' : '\x12',
+                    prefix_search ? rl_history_search_backward : rl_reverse_search_history) != 0 ||
         rl_bind_key('\n', rl_newline) != 0) return 5;
     const char *ignore_case = rl_variable_value("search-ignore-case");
     if (!ignore_case || strcmp(ignore_case, "on") != 0) return 5;
-    const char entry[] = {'p', 'r', 'e', (char)0xff, 'A', 'L', 'P', 'H', 'A', 0};
+    const char *entry = prefix_search ? "ALPHA\xfftail" : "pre\xff" "ALPHA";
     using_history();
     clear_history();
     add_history(entry);
@@ -133,7 +145,7 @@ if [ -z "$readline_libraries" ] || \
   echo "invalid history search probe did not load the pinned Readline library" >&2
   exit 1
 fi
-python3 - "$work/probe" "$readline" "$report_kind" <<'PYPROBE' | tee "$report"
+python3 - "$work/probe" "$readline" "$report_kind" "$mode" <<'PYPROBE' | tee "$report"
 import errno
 import fcntl
 import os
@@ -152,9 +164,13 @@ import time
 # Raw terminal and side-channel bytes are bounded separately. A ten-second
 # deadline covers prompt readiness, input delivery, collection and child exit.
 LIMIT = 16384
-ENTRY = b"pre\xffALPHA"
+if (len(sys.argv) != 5 or sys.argv[3] not in ("primary", "replica") or
+        sys.argv[4] not in ("incremental", "prefix")):
+    raise SystemExit("invalid report kind or mode")
+PREFIX = sys.argv[4] == "prefix"
+ENTRY = b"ALPHA\xfftail" if PREFIX else b"pre\xffALPHA"
 QUERY = b"alpha"
-KEYS = b"\x12" + QUERY + b"\n\n"
+KEYS = QUERY + b"\x0f\n" if PREFIX else b"\x12" + QUERY + b"\n\n"
 resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 directory = tempfile.mkdtemp(prefix="sushline-invalid-history-search-fixture-")
 child = None
@@ -166,17 +182,17 @@ complete = False
 timed_out = False
 terminal_restored = False
 stage = "setup"
-if len(sys.argv) != 4 or sys.argv[3] not in ("primary", "replica"):
-    raise SystemExit("invalid report kind")
 print(f"report={sys.argv[3]}")
-print("measurement=raw-direct-readline-invalid-history-search")
+print("measurement=raw-direct-readline-invalid-history-prefix-search" if PREFIX else
+      "measurement=raw-direct-readline-invalid-history-search")
 print("locale_requested=C.UTF-8")
 print("terminal=xterm-256color rows=24 columns=80")
 print("inputrc=dev-null isolated_home=1 core_disabled=1")
 print(f"entry_hex={ENTRY.hex()}")
 print(f"query_hex={QUERY.hex()}")
 print(f"input_keys_hex={KEYS.hex()}")
-print("input_sequence=reverse-incremental-search-ascii-query-then-search-and-accept-newlines")
+print("input_sequence=ascii-query-history-search-backward-control-o-accept-newline" if PREFIX else
+      "input_sequence=reverse-incremental-search-ascii-query-then-search-and-accept-newlines")
 try:
     master, slave = os.openpty()
     notify_r, notify_w = os.pipe()
@@ -192,7 +208,7 @@ try:
         os.setsid()
         fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
 
-    child = subprocess.Popen([sys.argv[1], sys.argv[2], str(notify_w)],
+    child = subprocess.Popen([sys.argv[1], sys.argv[2], str(notify_w), sys.argv[4]],
                              stdin=slave, stdout=slave, stderr=slave,
                              env=env, pass_fds=(notify_w, slave), preexec_fn=setup)
     os.close(notify_w)
@@ -272,7 +288,12 @@ finally:
 sys.exit(0 if complete and reaped and cleaned and terminal_restored else 1)
 PYPROBE
 
+# Only the new prefix fixture may collect without a semantic baseline.
+# Transport/probe integrity and cleanup remain mandatory in either mode.
+if [ "$mode" = prefix ] && [ ! -e "$expected" ]; then
+  exit 0
+fi
 semantic="$report.semantic"
 grep -E '^(measurement=|locale_requested=|terminal=|inputrc=|entry_hex=|query_hex=|input_keys_hex=|input_sequence=|header_version=|runtime_version=|pinned_libraries=|loaded_library_path_check=|seed_integrity=|search_ignore_case=|runtime_version_text_hex=|locale_hex=|loaded_library_relative_path_hex=|seeded_entry_hex=|accepted_is_null=|accepted_hex=|child_returncode=|input_sent=|terminal_restored=|timeout=|failure_stage=|transport_integrity=|child_reaped=|file_descriptors_closed=|fixture_cleanup=)' "$report" > "$semantic"
-diff -u .github/scripts/readline-invalid-history-search.expected "$semantic"
+diff -u "$expected" "$semantic"
 rm -f -- "$semantic"

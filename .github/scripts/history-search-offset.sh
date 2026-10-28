@@ -71,6 +71,27 @@ int main(void) {
         }
     }
     clear_history();
+    const char *utf8_seed = "\xce\xbb alpha \xce\xbb alpha";
+    add_history(utf8_seed);
+    printf("utf8_seed_bytes=%zu utf8_seed_hex=", strlen(utf8_seed));
+    print_hex(utf8_seed);
+    putchar('\n');
+    for (int direction = -1; direction <= 1; direction += 2) {
+        int positioned = history_set_pos(0);
+        int position = where_history();
+        printf("operation=history_set_pos_utf8 direction=%+d requested_position=0 return=%d final_position=%d\n",
+               direction, positioned, position);
+        fflush(stdout);
+        if (!positioned || position != 0) return 3;
+        int offset = history_search("alpha", direction);
+        HIST_ENTRY *entry = current_history();
+        printf("operation=history_search_utf8 direction=%+d needle_hex=616c706861 return_offset=%d final_position=%d current_entry_bytes=%zu current_entry_hex=",
+               direction, offset, where_history(), entry ? strlen(entry->line) : 0);
+        print_hex(entry ? entry->line : NULL);
+        putchar('\n');
+        fflush(stdout);
+    }
+    clear_history();
     return 0;
 }
 PROBE

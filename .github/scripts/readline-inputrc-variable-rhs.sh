@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Five fixture-scoped observations, shared by the pinned primary and fresh runner.
-# No branch-selection baseline is asserted before the pinned reports are reviewed.
+# Both runners assert branch outcomes against the reviewed pinned Readline 8.3 baseline.
 set -euo pipefail
 ulimit -c 0
 report_kind=${1:?report kind must be primary or replica}
@@ -202,8 +202,8 @@ def run_case(label, stored, rhs):
             rb"stored_comment_begin_hex=(?:[0-9a-f]{2}){0,128}\n"
             rb"accepted_is_null=[01]\naccepted_hex=(?:[0-9a-f]{2}){0,128}\n"
         )
-        # Only transport/identity checks: read status, diagnostics, stored value
-        # and selected marker are observations, not semantic expectations.
+        # Validate the protocol before projecting semantics below; preserve raw
+        # PTY/protocol observations in the report even when expectations fail.
         complete = bool(re.fullmatch(pattern, protocol) and sent and child.returncode == 0)
         if complete:
             print(protocol.decode("ascii"), end="")
@@ -235,3 +235,10 @@ def run_case(label, stored, rhs):
 results = [run_case(*case) for case in CASES]
 sys.exit(0 if all(results) else 1)
 PYPROBE
+
+# Keep raw observations and the runner label in each report, but compare the same
+# semantic projection for primary and replica, including transport and cleanup.
+semantic="$work/semantic"
+sed -e '/^report=/d' -e '/^raw_pty_hex=/d' -e '/^raw_protocol_hex=/d' \
+  "$report" > "$semantic"
+diff -u "$(dirname "$0")/readline-inputrc-variable-rhs.expected" "$semantic"

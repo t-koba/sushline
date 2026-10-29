@@ -1138,6 +1138,9 @@ fn variable_conditions_compare_raw_case_insensitive_strings() {
 
 #[test]
 fn variable_conditions_compare_only_the_first_rhs_token() {
+    // The pinned C-locale/Emacs `==` baseline covers stored "a" vs a / a b / "a"
+    // (true / true / false), and stored "a b" vs a b / "a b" (false / false).
+    // The matrix below also retains the broader, independently tested cases.
     let config = Config::default();
     let keymap = KeyMap::emacs_default();
     let mut variables = Variables::default_for_config(&config);

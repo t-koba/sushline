@@ -1399,6 +1399,8 @@ fn bash_readline_and_sushline_canonicalize_numeric_inputrc_storage() {
 #[test]
 fn bash_readline_and_sushline_tokenize_inputrc_variable_rhs() {
     // One PTY pair checks single-token and quoted multiword stored values.
+    // This includes the five pinned `==` cases: stored "a" vs a / a b / "a"
+    // yields T / T / F; stored "a b" vs a b / "a b" yields F / F.
     let mut inputrc = String::from("set editing-mode emacs\n");
     let mut keys = Vec::new();
     let mut expected = String::new();

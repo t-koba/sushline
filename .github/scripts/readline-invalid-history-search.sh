@@ -13,6 +13,7 @@ case "$mode" in
   unicode-incremental) report=/tmp/readline_unicode_history_incremental_search.out ;;
   c-locale-incremental) report=/tmp/readline_c_locale_history_incremental_search.out ;;
   c-locale-input-meta-incremental) report=/tmp/readline_c_locale_input_meta_history_incremental_search.out ;;
+  c-locale-input-meta-ascii-prefix) report=/tmp/readline_c_locale_input_meta_history_ascii_prefix_search.out ;;
   unicode-expansion-incremental) report=/tmp/readline_unicode_history_expansion_incremental_search.out ;;
   unicode-forward-incremental) report=/tmp/readline_unicode_history_forward_incremental_search.out ;;
   unicode-forward-expansion-incremental) report=/tmp/readline_unicode_history_forward_expansion_incremental_search.out ;;
@@ -31,6 +32,8 @@ elif [ "$mode" = c-locale-incremental ]; then
   expected=.github/scripts/readline-c-locale-history-incremental-search.expected
 elif [ "$mode" = c-locale-input-meta-incremental ]; then
   expected=.github/scripts/readline-c-locale-input-meta-history-incremental-search.expected
+elif [ "$mode" = c-locale-input-meta-ascii-prefix ]; then
+  expected=.github/scripts/readline-c-locale-input-meta-history-ascii-prefix-search.expected
 elif [ "$mode" = unicode-expansion-incremental ]; then
   expected=.github/scripts/readline-unicode-history-expansion-incremental-search.expected
 elif [ "$mode" = unicode-forward-incremental ]; then
@@ -115,7 +118,8 @@ int main(int argc, char **argv) {
     const struct rlimit no_core = {0, 0};
     if (argc != 4 || setrlimit(RLIMIT_CORE, &no_core) != 0) return 2;
     int unicode_prefix = strcmp(argv[3], "unicode-prefix") == 0;
-    int c_locale_input_meta = strcmp(argv[3], "c-locale-input-meta-incremental") == 0;
+    int c_locale_input_meta = strcmp(argv[3], "c-locale-input-meta-incremental") == 0 ||
+                              strcmp(argv[3], "c-locale-input-meta-ascii-prefix") == 0;
     int c_locale_incremental = c_locale_input_meta || strcmp(argv[3], "c-locale-incremental") == 0;
     int unicode_incremental = c_locale_incremental || strcmp(argv[3], "unicode-incremental") == 0;
     int forward_expansion = strcmp(argv[3], "unicode-forward-expansion-incremental") == 0;
@@ -222,7 +226,7 @@ import time
 LIMIT = 16384
 if (len(sys.argv) != 5 or sys.argv[3] not in ("primary", "replica") or
         sys.argv[4] not in ("incremental", "prefix", "unicode-prefix", "unicode-incremental", "c-locale-incremental",
-                            "c-locale-input-meta-incremental", "unicode-forward-incremental", "unicode-expansion-incremental",
+                            "c-locale-input-meta-incremental", "c-locale-input-meta-ascii-prefix", "unicode-forward-incremental", "unicode-expansion-incremental",
                             "unicode-forward-expansion-incremental", "unicode-query-expansion-incremental",
                             "unicode-forward-query-expansion-incremental")):
     raise SystemExit("invalid report kind or mode")
@@ -231,7 +235,8 @@ UNICODE_EXPANSION = FORWARD_EXPANSION or sys.argv[4] == "unicode-expansion-incre
 FORWARD_QUERY_EXPANSION = sys.argv[4] == "unicode-forward-query-expansion-incremental"
 QUERY_EXPANSION = FORWARD_QUERY_EXPANSION or sys.argv[4] == "unicode-query-expansion-incremental"
 UNICODE_FORWARD = FORWARD_QUERY_EXPANSION or FORWARD_EXPANSION or sys.argv[4] == "unicode-forward-incremental"
-C_LOCALE_INPUT_META = sys.argv[4] == "c-locale-input-meta-incremental"
+C_LOCALE_INPUT_META_ASCII_PREFIX = sys.argv[4] == "c-locale-input-meta-ascii-prefix"
+C_LOCALE_INPUT_META = C_LOCALE_INPUT_META_ASCII_PREFIX or sys.argv[4] == "c-locale-input-meta-incremental"
 C_LOCALE_INCREMENTAL = C_LOCALE_INPUT_META or sys.argv[4] == "c-locale-incremental"
 LOCALE = "C" if C_LOCALE_INCREMENTAL else "C.UTF-8"
 UNICODE_INCREMENTAL = C_LOCALE_INCREMENTAL or sys.argv[4] == "unicode-incremental"
@@ -243,6 +248,9 @@ if UNICODE_PREFIX or UNICODE_INCREMENTAL or UNICODE_FORWARD:
     ENTRY = b"\xc3\x84LPHA old"
     QUERY = b"\xc3\xa4lpha"
 KEYS = QUERY + b"\x0f\n" if PREFIX else b"\x12" + QUERY + b"\n\n"
+if C_LOCALE_INPUT_META_ASCII_PREFIX:
+    QUERY = b"a" + QUERY
+    KEYS = b"\x12" + QUERY + b"\n\n"
 if UNICODE_EXPANSION:
     ENTRY, QUERY = b"\xc3\x9f entry", b"ss"
     KEYS = b"\x12" + QUERY + b"\x12\n\n"
@@ -270,6 +278,7 @@ print("measurement=raw-direct-readline-unicode-history-forward-query-expansion-i
       "measurement=raw-direct-readline-unicode-history-forward-expansion-incremental-search" if FORWARD_EXPANSION else
       "measurement=raw-direct-readline-unicode-history-expansion-incremental-search" if UNICODE_EXPANSION else
       "measurement=raw-direct-readline-unicode-history-forward-incremental-search" if UNICODE_FORWARD else
+      "measurement=raw-direct-readline-c-locale-input-meta-history-ascii-prefix-search" if C_LOCALE_INPUT_META_ASCII_PREFIX else
       "measurement=raw-direct-readline-c-locale-input-meta-history-incremental-search" if C_LOCALE_INPUT_META else
       "measurement=raw-direct-readline-c-locale-history-incremental-search" if C_LOCALE_INCREMENTAL else
       "measurement=raw-direct-readline-unicode-history-incremental-search" if UNICODE_INCREMENTAL else
@@ -288,6 +297,7 @@ print(f"input_keys_hex={KEYS.hex()}")
 print("input_sequence=control-p-control-p-control-o-forward-incremental-search-ascii-query-then-search-and-accept-newlines" if FORWARD_EXPANSION else
       "input_sequence=reverse-incremental-search-ascii-query-control-r-repeat-then-search-and-accept-newlines" if UNICODE_EXPANSION else
       "input_sequence=control-p-control-p-control-o-forward-incremental-search-utf8-query-then-search-and-accept-newlines" if UNICODE_FORWARD else
+      "input_sequence=staged-reverse-search-ascii-a-prefix-then-c3-then-remaining-utf8-query-and-newlines" if C_LOCALE_INPUT_META_ASCII_PREFIX else
       "input_sequence=reverse-incremental-search-utf8-query-convert-meta-off-input-meta-on-then-search-and-accept-newlines" if C_LOCALE_INPUT_META else
       "input_sequence=reverse-incremental-search-utf8-query-then-search-and-accept-newlines" if UNICODE_INCREMENTAL or QUERY_EXPANSION else
       "input_sequence=utf8-query-history-search-backward-control-o-accept-newline" if UNICODE_PREFIX else
@@ -321,6 +331,31 @@ try:
     deadline = time.monotonic() + 10
     readers = [master, notify_r]
     stage = "prompt-and-collection"
+
+    def wait_for_terminal(marker, start):
+        marker_deadline = min(deadline, time.monotonic() + 2)
+        while marker not in raw[start:]:
+            remaining = marker_deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            ready, _, _ = select.select([master], [], [], min(0.05, remaining))
+            if not ready:
+                continue
+            try:
+                data = os.read(master, min(4096, LIMIT + 1 - len(raw)))
+            except BlockingIOError:
+                continue
+            except OSError as error:
+                if error.errno == errno.EIO:
+                    return False
+                raise
+            if not data:
+                return False
+            raw.extend(data)
+            if len(raw) > LIMIT:
+                raise ValueError()
+        return True
+
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
@@ -342,7 +377,24 @@ try:
                 stage = "output-limit"
                 raise ValueError()
         if not sent and b"P>" in raw:
-            if os.write(master, KEYS) != len(KEYS):
+            if C_LOCALE_INPUT_META_ASCII_PREFIX:
+                # Observe the ASCII search prompt and main prompt after c3
+                # before delivering the remaining UTF-8 query bytes.
+                if os.write(master, b"\x12") != 1:
+                    raise ValueError()
+                search_start = len(raw)
+                if not wait_for_terminal(b"reverse-i-search", search_start):
+                    raise ValueError()
+                query_start = len(raw)
+                if os.write(master, QUERY[:1]) != 1 or not wait_for_terminal(b"a':", query_start):
+                    raise ValueError()
+                main_start = len(raw)
+                if os.write(master, QUERY[1:2]) != 1 or not wait_for_terminal(b"P>", main_start):
+                    raise ValueError()
+                remaining = QUERY[2:] + b"\n\n"
+                if os.write(master, remaining) != len(remaining):
+                    raise ValueError()
+            elif os.write(master, KEYS) != len(KEYS):
                 raise ValueError()
             sent = True
         # Drain until no data remains after exit. The parent's slave stays
@@ -399,7 +451,7 @@ PYPROBE
 
 # Prefix, selected Unicode and C-locale fixtures may collect without a semantic baseline.
 # Transport/probe integrity and cleanup remain mandatory in every mode.
-if { [ "$mode" = c-locale-input-meta-incremental ] || [ "$mode" = c-locale-incremental ] || [ "$mode" = prefix ] || [ "$mode" = unicode-prefix ] || [ "$mode" = unicode-incremental ] || [ "$mode" = unicode-query-expansion-incremental ] || [ "$mode" = unicode-forward-query-expansion-incremental ]; } && [ ! -e "$expected" ]; then
+if { [ "$mode" = c-locale-input-meta-ascii-prefix ] || [ "$mode" = c-locale-input-meta-incremental ] || [ "$mode" = c-locale-incremental ] || [ "$mode" = prefix ] || [ "$mode" = unicode-prefix ] || [ "$mode" = unicode-incremental ] || [ "$mode" = unicode-query-expansion-incremental ] || [ "$mode" = unicode-forward-query-expansion-incremental ]; } && [ ! -e "$expected" ]; then
   exit 0
 fi
 semantic="$report.semantic"

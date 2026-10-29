@@ -3290,6 +3290,8 @@ jobs:
         run: bash .github/scripts/readline-invalid-history-search.sh primary c-locale-incremental
       - name: Measure raw C-locale input-meta reverse incremental search against the pinned release
         run: bash .github/scripts/readline-invalid-history-search.sh primary c-locale-input-meta-incremental
+      - name: Measure raw C-locale input-meta reverse incremental search after an ASCII prefix against the pinned release
+        run: bash .github/scripts/readline-invalid-history-search.sh primary c-locale-input-meta-ascii-prefix
       - name: Measure raw Unicode history expansion incremental search against the pinned release
         run: bash .github/scripts/readline-invalid-history-search.sh primary unicode-expansion-incremental
       - name: Measure raw Unicode history forward incremental search against the pinned release
@@ -3348,6 +3350,7 @@ jobs:
             /tmp/readline_unicode_history_incremental_search.out \
             /tmp/readline_c_locale_history_incremental_search.out \
             /tmp/readline_c_locale_input_meta_history_incremental_search.out \
+            /tmp/readline_c_locale_input_meta_history_ascii_prefix_search.out \
             /tmp/readline_unicode_history_expansion_incremental_search.out \
             /tmp/readline_unicode_history_forward_incremental_search.out \
             /tmp/readline_unicode_history_forward_expansion_incremental_search.out \
@@ -3456,6 +3459,8 @@ jobs:
         run: bash .github/scripts/readline-invalid-history-search.sh replica c-locale-incremental
       - name: Independently measure raw C-locale input-meta reverse incremental search
         run: bash .github/scripts/readline-invalid-history-search.sh replica c-locale-input-meta-incremental
+      - name: Independently measure raw C-locale input-meta reverse incremental search after an ASCII prefix
+        run: bash .github/scripts/readline-invalid-history-search.sh replica c-locale-input-meta-ascii-prefix
       - name: Measure raw Unicode history expansion incremental search against the pinned release
         run: bash .github/scripts/readline-invalid-history-search.sh replica unicode-expansion-incremental
       - name: Measure raw Unicode history forward incremental search against the pinned release
@@ -3544,6 +3549,14 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-c-locale-input-meta-history-incremental-search-replica
           path: /tmp/readline_c_locale_input_meta_history_incremental_search.out
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload independent pinned C-locale input-meta history ASCII-prefix search report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-c-locale-input-meta-history-ascii-prefix-search-replica
+          path: /tmp/readline_c_locale_input_meta_history_ascii_prefix_search.out
           if-no-files-found: warn
           retention-days: 14
       - name: Upload independent pinned Unicode-history-expansion-incremental-search report

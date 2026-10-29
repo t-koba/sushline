@@ -4651,6 +4651,43 @@ fn history_expansion_cold_start_percent_is_empty_in_pinned_fixture() {
 }
 
 #[test]
+fn history_expansion_percent_after_first_failed_search_is_empty_in_pinned_fixture() {
+    // Exact pinned GNU History 8.3 sequence: a first failed substring search
+    // leaves no matched word for the immediately following !:% designator.
+    let mut history = History::new();
+    history.push("echo alpha");
+    history.push("echo beta");
+    let histchars = HistoryChars::parse("!^#");
+    let policy = HistoryExpansionPolicy::default();
+    let mut state = HistoryExpansionState::new();
+
+    assert_eq!(
+        expand_history_with_state(
+            b"!?missing?",
+            &history,
+            histchars,
+            &policy,
+            &mut state,
+            |_| false,
+        ),
+        Err(HistoryExpansionError::EventNotFound(
+            "!?missing?".to_string()
+        )),
+    );
+    let result = expand_history_with_status_with_state(
+        b"!:%",
+        &history,
+        histchars,
+        &policy,
+        &mut state,
+        |_| false,
+    )
+    .unwrap();
+    assert_eq!(result.status, HistoryExpansionStatus::Expanded);
+    assert_eq!(result.line, b"");
+}
+
+#[test]
 fn history_expansion_reuses_search_after_failure_in_pinned_sequence() {
     // Pinned GNU History 8.3 primary/replica: seed once per sequence, with
     // no expansion outputs added. A fresh success→reuse session is the control.

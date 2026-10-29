@@ -62,8 +62,7 @@ int main(int argc, char **argv) {
                       strcmp(argv[1], "fresh-percent") != 0 &&
                       strcmp(argv[1], "failed-search-first-percent") != 0 &&
                       strcmp(argv[1], "percent-after-clear-reseed") != 0)) return 2;
-    raw_report = strcmp(argv[1], "failed-search-first-percent") == 0 ||
-                 strcmp(argv[1], "percent-after-clear-reseed") == 0;
+    raw_report = strcmp(argv[1], "percent-after-clear-reseed") == 0;
     printf("%sheader_version=0x%04x runtime_version=0x%04x\n",
            raw_report ? "raw_" : "", RL_READLINE_VERSION, rl_readline_version);
     if (RL_READLINE_VERSION != 0x0803 || rl_readline_version != 0x0803)
@@ -149,7 +148,11 @@ PROBE
         printf 'sequence=%s\n' "$sequence"
         probe_sequence=$sequence
         ;;
-      failed-search-first-percent|percent-after-clear-reseed)
+      failed-search-first-percent)
+        printf 'sequence=%s\n' "$sequence"
+        probe_sequence=$sequence
+        ;;
+      percent-after-clear-reseed)
         printf 'raw_sequence=%s\n' "$sequence"
         probe_sequence=$sequence
         ;;

@@ -31,3 +31,8 @@ sequence=fresh-percent
 header_version=0x0803 runtime_version=0x0803
 seed[0]_hex=6563686f20616c706861 seed[1]_hex=6563686f2062657461
 step=fresh-percent input_hex=213a25 status=1 output_hex=
+sequence=failed-search-first-percent
+header_version=0x0803 runtime_version=0x0803
+seed[0]_hex=6563686f20616c706861 seed[1]_hex=6563686f2062657461
+step=failed-search-first-percent-search input_hex=213f6d697373696e673f status=-1 output_hex=213f6d697373696e673f3a206576656e74206e6f7420666f756e64
+step=failed-search-first-percent input_hex=213a25 status=1 output_hex=

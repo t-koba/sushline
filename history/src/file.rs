@@ -191,6 +191,10 @@ impl History {
     }
 
     /// Write file.
+    ///
+    /// On Unix, if `path` is a symlink (or a relative symlink chain) to an
+    /// existing regular file, the write replaces that file while leaving the
+    /// symlink(s) in place.
     pub fn write_file(&self, path: impl AsRef<Path>) -> io::Result<()> {
         self.write_file_with_timestamps(path, false)
     }
@@ -198,6 +202,9 @@ impl History {
     /// Write file with timestamps.
     ///
     /// When enabled, writes stored timestamp text including any NUL suffix.
+    /// On Unix, if `path` is a symlink (or a relative symlink chain) to an
+    /// existing regular file, the write replaces that file while leaving the
+    /// symlink(s) in place.
     pub fn write_file_with_timestamps(
         &self,
         path: impl AsRef<Path>,

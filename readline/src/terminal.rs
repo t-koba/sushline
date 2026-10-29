@@ -211,8 +211,10 @@ impl Terminal {
     }
 
     /// Sets whether a caught SIGINT is re-delivered to a restored `SIG_DFL`
-    /// disposition on Unix, terminating the process after terminal and signal
-    /// cleanup. Defaults to `false`, leaving the read to [`SigintPolicy`].
+    /// disposition on Unix. This can terminate the process after terminal and
+    /// signal cleanup. The default is `false`, leaving the read to
+    /// [`SigintPolicy`]; enabling it matches the tested GNU Readline 8.3
+    /// direct-library controlling-PTY fixture.
     ///
     /// Configure before raw-mode entry. This does not enable signal catching,
     /// change caller-handler redelivery or `SIG_IGN`, or re-deliver hook-only

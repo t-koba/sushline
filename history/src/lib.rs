@@ -912,6 +912,28 @@ fn find_bytes_with_case(haystack: &[u8], needle: &[u8], ignore_case: bool) -> Op
         .position(|window| bytes_equal(window, needle, ignore_case))
 }
 
+fn rfind_case_insensitive_candidates(
+    haystack: &[u8],
+    needle: &[u8],
+    positions: impl Iterator<Item = usize>,
+) -> Option<usize> {
+    const MAX_FAILED_CANDIDATES: usize = 4;
+
+    let mut failed_candidates = 0;
+    for pos in positions {
+        if bytes_equal(&haystack[pos..pos + needle.len()], needle, true) {
+            return Some(pos);
+        }
+        failed_candidates += 1;
+        if failed_candidates > MAX_FAILED_CANDIDATES {
+            return haystack
+                .windows(needle.len())
+                .rposition(|window| bytes_equal(window, needle, true));
+        }
+    }
+    None
+}
+
 fn rfind_bytes_with_case(haystack: &[u8], needle: &[u8], ignore_case: bool) -> Option<usize> {
     if needle.is_empty() {
         return Some(0);
@@ -919,22 +941,18 @@ fn rfind_bytes_with_case(haystack: &[u8], needle: &[u8], ignore_case: bool) -> O
     if !ignore_case {
         return memchr::memmem::rfind(haystack, needle);
     }
-    let mut end = haystack.len().checked_sub(needle.len())?;
+    let last_start = haystack.len().checked_sub(needle.len())?;
+    let candidates = &haystack[..=last_start];
     let lower = needle[0].to_ascii_lowercase();
     let upper = needle[0].to_ascii_uppercase();
-    loop {
-        let pos = if lower == upper {
-            memchr::memrchr(lower, &haystack[..=end])
-        } else {
-            memchr::memrchr2(lower, upper, &haystack[..=end])
-        }?;
-        if bytes_equal(&haystack[pos..pos + needle.len()], needle, ignore_case) {
-            return Some(pos);
-        }
-        if pos == 0 {
-            return None;
-        }
-        end = pos - 1;
+    if lower == upper {
+        rfind_case_insensitive_candidates(haystack, needle, memchr::memrchr_iter(lower, candidates))
+    } else {
+        rfind_case_insensitive_candidates(
+            haystack,
+            needle,
+            memchr::memrchr2_iter(lower, upper, candidates),
+        )
     }
 }
 
@@ -1136,6 +1154,18 @@ mod tests {
         assert_eq!(rfind_bytes_with_case(b"xABCabc", b"ABC", true), Some(4));
         assert_eq!(rfind_bytes_with_case(b"aBaBa", b"AbA", true), Some(2));
         assert_eq!(rfind_bytes_with_case(b"abXa!", b"ab", true), Some(0));
+        let mut dense_candidates = vec![b'a'; 128];
+        dense_candidates.extend_from_slice(b"ab#ba#ac#cz#zz");
+        assert_eq!(
+            rfind_bytes_with_case(&dense_candidates, b"abaczz", true),
+            None
+        );
+        let mut earlier_match = b"abaczz".to_vec();
+        earlier_match.extend_from_slice(&dense_candidates);
+        assert_eq!(
+            rfind_bytes_with_case(&earlier_match, b"abaczz", true),
+            Some(0)
+        );
         assert_eq!(find_bytes_with_case(b"xABC", b"abc", false), None);
         assert_eq!(find_bytes_with_case(b"xABC", b"abc", true), Some(1));
     }

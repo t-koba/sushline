@@ -369,7 +369,11 @@ fn read_history_range_records(
     let limit = to
         .filter(|to| *to >= from)
         .map(|_| from.saturating_add(count));
-    let start = if limit.is_some() { from } else { 0 };
+    let start = if to.is_none() || limit.is_some() {
+        from
+    } else {
+        0
+    };
     let blocks = read_history_blocks(file, start, limit)?;
     Ok(group_history_blocks(
         &blocks,

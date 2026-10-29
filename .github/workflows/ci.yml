@@ -3280,6 +3280,8 @@ jobs:
         run: bash .github/scripts/readline-unicode-width.sh
       - name: Measure inputrc variable RHS tokenization against the pinned release
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary
+      - name: Measure raw inputrc term conditions against the pinned release
+        run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary term
       - name: Measure raw invalid-UTF-8 history search against the pinned release
         run: bash .github/scripts/readline-invalid-history-search.sh primary
       - name: Measure raw invalid-UTF-8 history prefix search against the pinned release
@@ -3342,6 +3344,7 @@ jobs:
             /tmp/readline_named_include.out \
             /tmp/readline_include_paths.out \
             /tmp/readline_inputrc_variable_rhs.out \
+            /tmp/readline_inputrc_term.out \
             /tmp/readline_include_cycle.out \
             /tmp/readline_include_depth.out \
             /tmp/readline_include_depth_32.out \
@@ -3452,6 +3455,8 @@ jobs:
         run: bash .github/scripts/readline-unicode-width.sh
       - name: Measure inputrc variable RHS tokenization against the pinned release
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh replica
+      - name: Measure raw inputrc term conditions against the pinned release
+        run: bash .github/scripts/readline-inputrc-variable-rhs.sh replica term
       - name: Measure raw invalid-UTF-8 history search against the pinned release
         run: bash .github/scripts/readline-invalid-history-search.sh replica
       - name: Measure raw invalid-UTF-8 history prefix search against the pinned release
@@ -3667,6 +3672,14 @@ jobs:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-history-search-offset-replica
           path: /tmp/history_search_offset_replica.out
           if-no-files-found: warn
+          retention-days: 14
+      - name: Upload independent pinned inputrc term report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-inputrc-term-replica
+          path: /tmp/readline_inputrc_term.out
+          if-no-files-found: error
           retention-days: 14
       - name: Upload independent pinned inputrc variable RHS report
         if: always()

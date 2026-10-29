@@ -1,20 +1,30 @@
 #!/usr/bin/env bash
-# Five fixture-scoped observations, shared by the pinned primary and fresh runner.
-# Both runners assert branch outcomes against the reviewed pinned Readline 8.3 baseline.
+# Fixture-scoped inputrc observations, shared by the pinned primary and fresh runner.
+# The default variable-rhs mode asserts five branch outcomes against the reviewed
+# pinned Readline 8.3 baseline. The term mode collects two raw term-condition
+# observations only and skips the semantic expected-file comparison.
 set -euo pipefail
 ulimit -c 0
 report_kind=${1:?report kind must be primary or replica}
 case "$report_kind" in primary|replica) ;; *) echo "invalid report kind" >&2; exit 2 ;; esac
-report=/tmp/readline_inputrc_variable_rhs.out
+mode=${2:-variable-rhs}
+case "$mode" in variable-rhs|term) ;; *) echo "invalid inputrc mode" >&2; exit 2 ;; esac
+case "$mode" in
+  variable-rhs) report=/tmp/readline_inputrc_variable_rhs.out ;;
+  term) report=/tmp/readline_inputrc_term.out ;;
+esac
 readline="$HOME/.cache/sushline/readline-oracle"
 configure_flags=(--prefix="$readline" "$READLINE_ORACLE_CONFIGURE_FLAGS")
 if [ "$READLINE_ORACLE_VERSION" != 8.3 ] || \
   [ ! -f "$readline/lib/libreadline.so" ] || \
   [ "$(cat "$readline/build-configuration" 2>/dev/null)" != "configure-accepted-v1 ${configure_flags[*]}" ]; then
-  echo "variable RHS probe requires the exact pinned Readline cache" >&2
+  case "$mode" in
+    term) echo "term condition probe requires the exact pinned Readline cache" >&2 ;;
+    *) echo "variable RHS probe requires the exact pinned Readline cache" >&2 ;;
+  esac
   exit 1
 fi
-work=$(mktemp -d /tmp/sushline-inputrc-variable-rhs-XXXXXXXX)
+work=$(mktemp -d /tmp/sushline-inputrc-${mode}-XXXXXXXX)
 trap 'rm -rf -- "$work"' EXIT
 cat > "$work/probe.c" <<'PROBE'
 #define _GNU_SOURCE
@@ -69,12 +79,22 @@ int main(int argc, char **argv) {
         strcmp(rl_library_version, "8.3") != 0) return 2;
     dl_iterate_phdr(check_library, NULL);
     if (libraries != 1) return 3;
+#ifdef TERM_MODE
+    rl_readline_name = "sushline-term-probe";
+#else
     rl_readline_name = "sushline-tokenization-probe";
+#endif
     if (rl_initialize() != 0) return 5;
     int status = rl_read_init_file("case.inputrc");
     const char *mode = rl_variable_value("editing-mode");
+#ifdef TERM_MODE
+    const char *term = getenv("TERM");
+    if (!mode || strcmp(mode, "emacs") != 0 || !term ||
+        strcmp(term, "xterm-256-color") != 0) return 5;
+#else
     const char *stored = rl_variable_value("comment-begin");
     if (!mode || strcmp(mode, "emacs") != 0 || !stored || strlen(stored) > 128) return 5;
+#endif
     if (dprintf(fd, "header_version=%04x\nruntime_version=%04x\n"
                 "pinned_libraries=%d\nloaded_library_path_check=exact-cache-realpath\n"
                 "editing_mode=emacs\nread_status=%d\n",
@@ -82,7 +102,11 @@ int main(int argc, char **argv) {
     hex(fd, "runtime_version_text_hex", rl_library_version, strlen(rl_library_version));
     hex(fd, "locale_hex", locale, strlen(locale));
     hex(fd, "loaded_library_relative_path_hex", loaded, strlen(loaded));
+#ifdef TERM_MODE
+    hex(fd, "term_hex", term, strlen(term));
+#else
     hex(fd, "stored_comment_begin_hex", stored, strlen(stored));
+#endif
     char *line = readline("P>");
     size_t n = line ? strnlen(line, 129) : 0;
     if (n > 128) { free(line); return 6; }
@@ -92,10 +116,15 @@ int main(int argc, char **argv) {
     return 0;
 }
 PROBE
+defines=()
+if [ "$mode" = term ]; then
+  defines=(-DTERM_MODE)
+fi
 cc -Wall -Wextra -Werror -o "$work/probe" "$work/probe.c" \
+  "${defines[@]}" \
   -I"$readline/include" -L"$readline/lib" \
   -Wl,-rpath,"$readline/lib" -lreadline -ldl
-python3 - "$work/probe" "$readline" "$report_kind" <<'PYPROBE' | tee "$report"
+python3 - "$work/probe" "$readline" "$report_kind" "$mode" <<'PYPROBE' | tee "$report"
 import errno
 import fcntl
 import os
@@ -111,30 +140,56 @@ import time
 
 LIMIT = 16384
 KEYS = b"\x0f\n"
-CASES = (
-    ("a_vs_a", b"a", b"a"),
-    ("a_vs_a_b", b"a", b"a b"),
-    ("a_vs_quoted_a", b"a", b'"a"'),
-    ("a_b_vs_a_b", b'"a b"', b"a b"),
-    ("a_b_vs_quoted_a_b", b'"a b"', b'"a b"'),
-)
+if len(sys.argv) != 5 or sys.argv[3] not in ("primary", "replica") or \
+        sys.argv[4] not in ("variable-rhs", "term"):
+    raise SystemExit("invalid report kind or mode")
+IS_TERM = sys.argv[4] == "term"
+if IS_TERM:
+    CASES = (("term_xterm", b"xterm"), ("term_xterm_256", b"xterm-256"))
+else:
+    CASES = (
+        ("a_vs_a", b"a", b"a"),
+        ("a_vs_a_b", b"a", b"a b"),
+        ("a_vs_quoted_a", b"a", b'"a"'),
+        ("a_b_vs_a_b", b'"a b"', b"a b"),
+        ("a_b_vs_quoted_a_b", b'"a b"', b'"a b"'),
+    )
 print(f"report={sys.argv[3]}")
-print("measurement=raw-direct-readline-inputrc-variable-rhs")
+if IS_TERM:
+    print("measurement=raw-direct-readline-inputrc-term")
+else:
+    print("measurement=raw-direct-readline-inputrc-variable-rhs")
 print("locale_requested=C editing_mode_requested=emacs")
-print("terminal=xterm-256color rows=24 columns=80")
+if IS_TERM:
+    print("terminal=xterm-256-color rows=24 columns=80")
+else:
+    print("terminal=xterm-256color rows=24 columns=80")
 print("initial_inputrc=dev-null isolated_home=1 core_disabled=1")
-print("condition_operator_hex=3d3d true_marker_hex=49465f54525545 false_marker_hex=49465f46414c5345")
+if IS_TERM:
+    print("condition_prefix_hex=7465726d3d true_marker_hex=49465f54525545 false_marker_hex=49465f46414c5345")
+else:
+    print("condition_operator_hex=3d3d true_marker_hex=49465f54525545 false_marker_hex=49465f46414c5345")
 
 
-def run_case(label, stored, rhs):
-    contents = (b"set editing-mode emacs\nset enable-bracketed-paste off\n"
-                b"set comment-begin " + stored + b"\n$if comment-begin == " + rhs +
-                b'\n"\\C-o": "IF_TRUE"\n$else\n"\\C-o": "IF_FALSE"\n$endif\n')
+def run_case(label, *args):
+    if IS_TERM:
+        term, = args
+        contents = (b"set editing-mode emacs\nset enable-bracketed-paste off\n"
+                    b"$if term=" + term +
+                    b'\n"\\C-o": "IF_TRUE"\n$else\n"\\C-o": "IF_FALSE"\n$endif\n')
+    else:
+        stored, rhs = args
+        contents = (b"set editing-mode emacs\nset enable-bracketed-paste off\n"
+                    b"set comment-begin " + stored + b"\n$if comment-begin == " + rhs +
+                    b'\n"\\C-o": "IF_TRUE"\n$else\n"\\C-o": "IF_FALSE"\n$endif\n')
     print(f"case={label}")
     print(f"inputrc_contents_hex={contents.hex()}")
     print(f"input_keys_hex={KEYS.hex()}")
     print("prompt_hex=503e")
-    directory = tempfile.mkdtemp(prefix="sushline-variable-rhs-fixture-")
+    if IS_TERM:
+        directory = tempfile.mkdtemp(prefix="sushline-term-fixture-")
+    else:
+        directory = tempfile.mkdtemp(prefix="sushline-variable-rhs-fixture-")
     child = None
     fds = []
     raw, protocol, diagnostics = bytearray(), bytearray(), bytearray()
@@ -151,8 +206,12 @@ def run_case(label, stored, rhs):
         streams = {master: raw, notify_r: protocol, error_r: diagnostics}
         for fd in streams:
             os.set_blocking(fd, False)
+        if IS_TERM:
+            term_value = "xterm-256-color"
+        else:
+            term_value = "xterm-256color"
         env = {"PATH": "/usr/bin:/bin", "HOME": directory, "INPUTRC": "/dev/null",
-               "LC_ALL": "C", "TERM": "xterm-256color", "COLUMNS": "80", "LINES": "24"}
+               "LC_ALL": "C", "TERM": term_value, "COLUMNS": "80", "LINES": "24"}
 
         def setup():
             os.setsid()
@@ -194,16 +253,26 @@ def run_case(label, stored, rhs):
             if child.poll() is not None and not ready:
                 break
         restored = termios.tcgetattr(slave) == before
-        pattern = (
-            rb"header_version=0803\nruntime_version=0803\npinned_libraries=1\n"
-            rb"loaded_library_path_check=exact-cache-realpath\nediting_mode=emacs\n"
-            rb"read_status=-?[0-9]+\nruntime_version_text_hex=382e33\nlocale_hex=43\n"
-            rb"loaded_library_relative_path_hex=(?:[0-9a-f]{2}){1,128}\n"
-            rb"stored_comment_begin_hex=(?:[0-9a-f]{2}){0,128}\n"
-            rb"accepted_is_null=[01]\naccepted_hex=(?:[0-9a-f]{2}){0,128}\n"
-        )
-        # Validate the protocol before projecting semantics below; preserve raw
-        # PTY/protocol observations in the report even when expectations fail.
+        if IS_TERM:
+            pattern = (
+                rb"header_version=0803\nruntime_version=0803\npinned_libraries=1\n"
+                rb"loaded_library_path_check=exact-cache-realpath\nediting_mode=emacs\n"
+                rb"read_status=-?[0-9]+\nruntime_version_text_hex=382e33\nlocale_hex=43\n"
+                rb"loaded_library_relative_path_hex=(?:[0-9a-f]{2}){1,128}\n"
+                rb"term_hex=787465726d2d3235362d636f6c6f72\n"
+                rb"accepted_is_null=[01]\naccepted_hex=(?:[0-9a-f]{2}){0,128}\n"
+            )
+        else:
+            pattern = (
+                rb"header_version=0803\nruntime_version=0803\npinned_libraries=1\n"
+                rb"loaded_library_path_check=exact-cache-realpath\nediting_mode=emacs\n"
+                rb"read_status=-?[0-9]+\nruntime_version_text_hex=382e33\nlocale_hex=43\n"
+                rb"loaded_library_relative_path_hex=(?:[0-9a-f]{2}){1,128}\n"
+                rb"stored_comment_begin_hex=(?:[0-9a-f]{2}){0,128}\n"
+                rb"accepted_is_null=[01]\naccepted_hex=(?:[0-9a-f]{2}){0,128}\n"
+            )
+        # Validate transport/protocol before any semantic projection below;
+        # preserve raw PTY/protocol observations even when expectations fail.
         complete = bool(re.fullmatch(pattern, protocol) and sent and child.returncode == 0)
         if complete:
             print(protocol.decode("ascii"), end="")
@@ -238,7 +307,10 @@ PYPROBE
 
 # Keep raw observations and the runner label in each report, but compare the same
 # semantic projection for primary and replica, including transport and cleanup.
-semantic="$work/semantic"
-sed -e '/^report=/d' -e '/^raw_pty_hex=/d' -e '/^raw_protocol_hex=/d' \
-  "$report" > "$semantic"
-diff -u "$(dirname "$0")/readline-inputrc-variable-rhs.expected" "$semantic"
+# The term mode is a raw measurement only: no expected branch outcomes are asserted.
+if [ "$mode" = variable-rhs ]; then
+  semantic="$work/semantic"
+  sed -e '/^report=/d' -e '/^raw_pty_hex=/d' -e '/^raw_protocol_hex=/d' \
+    "$report" > "$semantic"
+  diff -u "$(dirname "$0")/readline-inputrc-variable-rhs.expected" "$semantic"
+fi

@@ -237,7 +237,15 @@ where
                         state.after_non_kill_command();
                         return Ok(EditorOutcome::Continue);
                     }
-                    return self.handle_bytes(state, &[lower], hooks);
+                    // GNU runs the lowercase version of the full key
+                    // sequence, preserving any Meta (`ESC`) or `C-x`
+                    // prefix: `ESC C` dispatches `ESC c` (e.g.
+                    // capitalize-word), not plain `c`. Dropping the
+                    // prefix would insert `c` and corrupt C-locale
+                    // incremental-search meta conversion.
+                    let mut lowered = key[..key.len() - 1].to_vec();
+                    lowered.push(lower);
+                    return self.handle_bytes(state, &lowered, hooks);
                 }
                 state.after_non_kill_command();
             }

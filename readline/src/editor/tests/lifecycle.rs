@@ -116,14 +116,42 @@ fn do_lowercase_version_self_binding_does_not_recurse() {
 }
 
 #[test]
-fn do_lowercase_version_still_lowercases_uppercase_key() {
+fn do_lowercase_version_preserves_meta_prefix_for_unbound_lowercase() {
+    // GNU `do-lowercase-version` runs the lowercase version of the full
+    // key sequence: `ESC A` dispatches `ESC a`, not plain `a`. The default
+    // map leaves `ESC a` unbound, so it dings and inserts nothing. The
+    // pinned C-locale incremental-search fixture requires this prefix
+    // preservation: converted `ESC C` must dispatch `ESC c`
+    // (capitalize-word), not insert `c`.
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(vec![0x1b, b'A']),
         TerminalEvent::Bytes(b"\r".to_vec()),
     ]);
     let mut line = Editor::new(Config::default(), terminal, History::new());
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
-    assert_eq!(result, ReadlineResult::Line(b"a".to_vec()));
+    assert_eq!(result, ReadlineResult::Line(b"".to_vec()));
+    assert!(
+        line.terminal.out.contains("\x07"),
+        "unbound lowercase Meta must ding, got {:?}",
+        line.terminal.out
+    );
+}
+
+#[test]
+fn do_lowercase_version_dispatches_lowercase_meta_binding() {
+    // `ESC C` must run `ESC c` (capitalize-word), not insert `c`. Typing
+    // `hello`, moving to the start, then `ESC C` capitalizes to `Hello`;
+    // prefix-dropping would yield `chello` and break C-locale meta
+    // conversion in incremental search.
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"hello".to_vec()),
+        TerminalEvent::Bytes(vec![0x01]),
+        TerminalEvent::Bytes(vec![0x1b, b'C']),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(result, ReadlineResult::Line(b"Hello".to_vec()));
 }
 
 #[test]

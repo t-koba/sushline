@@ -779,6 +779,31 @@ fn search_ignore_case_matches_measured_utf8_single_scalar_pairs() {
 }
 
 #[test]
+fn history_reverse_incremental_search_matches_pinned_c_locale_meta_input_fixture() {
+    let inputrc = "set search-ignore-case on";
+    let locale_env = [("LC_ALL", "C")];
+    let history = ["ÄLPHA old"];
+    let keys = b"\x12\xc3\xa4lpha\n\n";
+    let bash = run_bash_readline_with_inputrc_file_and_history_and_env(
+        keys,
+        inputrc,
+        &history,
+        &locale_env,
+    );
+    let sushline =
+        run_sushline_harness_with_inputrc_and_history_and_env(keys, inputrc, &history, &locale_env);
+    // Pinned Readline 8.3 primary and fresh replica accept lpha: meta
+    // conversion exits the empty search, rather than testing Unicode folding.
+    for (name, output) in [("bash", &bash), ("sushline", &sushline)] {
+        assert_eq!(
+            accepted_line(output).as_deref(),
+            Some("lpha"),
+            "{name}={output}"
+        );
+    }
+}
+
+#[test]
 fn search_ignore_case_falls_back_to_ascii_in_c_locale() {
     let inputrc = "set search-ignore-case on";
     let locale_env = [("LC_ALL", "C")];

@@ -935,6 +935,11 @@ where
             state.input.changed_display = true;
             return Ok(EditorOutcome::Continue);
         }
+        if let Some(translated) = self.translate_meta_input(bytes) {
+            // Keep the Meta sequence atomic for terminator and binding lookup;
+            // a pending quote above consumes the raw byte instead.
+            return self.handle_reverse_search_single(state, &translated, hooks);
+        }
         // Incremental searches allow anything bound to quoted-insert to
         // start a quote (CHANGES 8.3 2.i inside the patch 0 baseline).
         if self.is_quoted_insert_binding(bytes) {

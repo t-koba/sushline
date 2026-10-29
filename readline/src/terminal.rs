@@ -47,7 +47,8 @@ pub enum TerminalEvent {
 /// This policy selects the read result, not OS signal disposition. Before
 /// applying it, the built-in [`Terminal`] re-delivers a caught SIGINT through
 /// a caller-installed handler after restoring it. A default disposition leaves
-/// the signal to this policy rather than terminating the process.
+/// the signal to this policy unless [`Terminal::set_reraise_sigint_default`]
+/// is enabled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SigintPolicy {
     /// After any caller-installed SIGINT handler returns, keep the partial
@@ -80,7 +81,8 @@ pub trait TerminalIo {
     /// a no-op, leaving custom backends' signal ownership unchanged. The built-in
     /// [`Terminal`] invokes the caller's saved non-default handler only for a
     /// signal it actually caught, not an input byte or a signal reported solely
-    /// by an embedder hook. Default dispositions remain governed by the policy.
+    /// by an embedder hook. Default dispositions follow the policy unless
+    /// [`Terminal::set_reraise_sigint_default`] is enabled.
     fn reraise_caught_sigint(&mut self) -> io::Result<()> {
         Ok(())
     }
@@ -170,6 +172,7 @@ pub struct Terminal {
     raw: bool,
     catch_signals: bool,
     catch_sigwinch: bool,
+    reraise_sigint_default: bool,
     input_meta_enabled: bool,
     /// Input that was read before a signal was noticed.
     ///
@@ -194,6 +197,7 @@ impl Terminal {
             raw: false,
             catch_signals: true,
             catch_sigwinch: true,
+            reraise_sigint_default: false,
             input_meta_enabled: false,
             #[cfg(unix)]
             pending: Vec::new(),
@@ -204,6 +208,18 @@ impl Terminal {
             #[cfg(unix)]
             caller_sigint_handler: false,
         }
+    }
+
+    /// Sets whether a caught SIGINT is re-delivered to a restored `SIG_DFL`
+    /// disposition on Unix, terminating the process after terminal and signal
+    /// cleanup. Defaults to `false`, leaving the read to [`SigintPolicy`].
+    ///
+    /// Configure before raw-mode entry. This does not enable signal catching,
+    /// change caller-handler redelivery or `SIG_IGN`, or re-deliver hook-only
+    /// reports or literal Ctrl-C bytes. If redelivery terminates the process,
+    /// neither `Continue` nor `Interrupted` can produce a read result.
+    pub fn set_reraise_sigint_default(&mut self, enabled: bool) {
+        self.reraise_sigint_default = enabled;
     }
 
     /// Sets whether the built-in terminal catches SIGINT, SIGQUIT, SIGTERM,
@@ -324,11 +340,18 @@ impl TerminalIo for Terminal {
 
     fn reraise_caught_sigint(&mut self) -> io::Result<()> {
         #[cfg(unix)]
-        if !self.raw && std::mem::take(&mut self.caught_sigint) && self.caller_sigint_handler {
-            // Run the caller's handler via the OS only after restoration,
-            // never from handle_readline_signal itself. A default disposition
-            // is handled by SigintPolicy instead of terminating the process.
-            if unsafe { libc::raise(libc::SIGINT) } != 0 {
+        if !self.raw && std::mem::take(&mut self.caught_sigint) {
+            let mut redeliver = self.caller_sigint_handler;
+            if self.reraise_sigint_default && !redeliver {
+                let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+                if unsafe { libc::sigaction(libc::SIGINT, std::ptr::null(), &mut action) } != 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                redeliver = action.sa_sigaction == libc::SIG_DFL;
+            }
+            // Raise only after terminal mode and dispositions have been restored,
+            // never from handle_readline_signal itself.
+            if redeliver && unsafe { libc::raise(libc::SIGINT) } != 0 {
                 return Err(io::Error::last_os_error());
             }
         }

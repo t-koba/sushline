@@ -553,20 +553,37 @@ mod builtin_sigint_policy {
         checks: usize,
         report_signal: bool,
         deliver_signal: bool,
+        literal_ctrl_c: bool,
     }
 
     impl Hooks for InputHook {
         fn check_signals(&mut self) -> Option<i32> {
             self.checks += 1;
             match self.checks {
-                1 => self.master.write_all(b"abc").unwrap(),
+                1 => {
+                    if self.literal_ctrl_c {
+                        // Pass Ctrl-C as data instead of asking the line
+                        // discipline to generate a foreground-process signal.
+                        let mut mode: libc::termios = unsafe { std::mem::zeroed() };
+                        assert_eq!(unsafe { libc::tcgetattr(libc::STDIN_FILENO, &mut mode) }, 0);
+                        mode.c_lflag &= !libc::ISIG;
+                        assert_eq!(
+                            unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &mode) },
+                            0
+                        );
+                    }
+                    self.master.write_all(b"abc").unwrap();
+                }
                 2 => {
-                    // The prefix has been dispatched. Queue the suffix and
-                    // deliver SIGINT without timing-dependent writer threads.
-                    self.master.write_all(b"X\r").unwrap();
+                    // The prefix has been dispatched. Deliver SIGINT then
+                    // queue X without timing-dependent writer threads.
                     if self.deliver_signal {
                         assert_eq!(unsafe { libc::raise(libc::SIGINT) }, 0);
                     }
+                    if self.literal_ctrl_c {
+                        self.master.write_all(b"\x03").unwrap();
+                    }
+                    self.master.write_all(b"X\r").unwrap();
                     if self.report_signal {
                         return Some(libc::SIGINT);
                     }
@@ -636,6 +653,7 @@ mod builtin_sigint_policy {
                     checks: 0,
                     report_signal,
                     deliver_signal,
+                    literal_ctrl_c: false,
                 };
                 HANDLER_CALLS.store(0, Ordering::SeqCst);
                 HANDLER_SAW_CANONICAL_MODE.store(false, Ordering::SeqCst);
@@ -775,6 +793,7 @@ mod builtin_sigint_policy {
             checks: 0,
             report_signal: false,
             deliver_signal: true,
+            literal_ctrl_c: false,
         };
         let first = line.read_line(Prompt::new("> "), &mut hook).unwrap();
         assert_eq!(first, ReadlineResult::Interrupted);
@@ -828,5 +847,163 @@ mod builtin_sigint_policy {
             stdout,
             stderr
         );
+    }
+
+    const RERAISE_PROBE_ENV: &str = "SUSHLINE_SIGINT_RERAISE_PROBE";
+    const ACCEPTED_MARKER: &str = "SUSHLINE_SIGINT_ACCEPTED";
+
+    #[test]
+    fn reraise_default_child_probe() {
+        let Ok(mode) = std::env::var(RERAISE_PROBE_ENV) else {
+            return;
+        };
+        unsafe { libc::alarm(10) };
+        // The parent retains the slave to inspect termios even if SIGINT
+        // terminates this child before destructors or test cleanup can run.
+        let master: i32 = std::env::var("SUSHLINE_SIGINT_MASTER_FD")
+            .unwrap()
+            .parse()
+            .unwrap();
+        let master = unsafe { std::fs::File::from_raw_fd(master) };
+        let disposition = match mode.as_str() {
+            "ignored" => libc::SIG_IGN,
+            "handler" => caller_handler as *const () as usize,
+            _ => libc::SIG_DFL,
+        };
+        unsafe {
+            let mut action: libc::sigaction = std::mem::zeroed();
+            action.sa_sigaction = disposition;
+            libc::sigemptyset(&mut action.sa_mask);
+            assert_eq!(
+                libc::sigaction(libc::SIGINT, &action, std::ptr::null_mut()),
+                0
+            );
+        }
+        let mut terminal = Terminal::new();
+        if mode != "default-off" {
+            terminal.set_reraise_sigint_default(true);
+        }
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        let interrupted = std::env::var("SUSHLINE_SIGINT_INTERRUPTED").unwrap() == "true";
+        if interrupted {
+            line.set_sigint_policy(SigintPolicy::Interrupted);
+        }
+        let mut hook = InputHook {
+            master,
+            checks: 0,
+            report_signal: matches!(mode.as_str(), "hook" | "early"),
+            deliver_signal: !matches!(mode.as_str(), "hook" | "bytes"),
+            literal_ctrl_c: mode == "bytes",
+        };
+        let first = line.read_line(Prompt::new("sigint> "), &mut hook).unwrap();
+        // SIG_IGN is not a read interruption; the other nonterminating cases
+        // must still honor the independently selected read-result policy.
+        if interrupted && mode != "ignored" {
+            assert_eq!(first, ReadlineResult::Interrupted);
+            assert_eq!(
+                line.read_line(Prompt::new("sigint> "), &mut ()).unwrap(),
+                ReadlineResult::Line(b"X".to_vec())
+            );
+        } else {
+            assert_eq!(first, ReadlineResult::Line(b"abcX".to_vec()));
+        }
+        if mode == "handler" {
+            assert_eq!(HANDLER_CALLS.load(Ordering::SeqCst), 1);
+            assert!(HANDLER_SAW_CANONICAL_MODE.load(Ordering::SeqCst));
+        }
+        let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+        assert_eq!(
+            unsafe { libc::sigaction(libc::SIGINT, std::ptr::null(), &mut action) },
+            0
+        );
+        assert_eq!(action.sa_sigaction, disposition);
+        println!("{ACCEPTED_MARKER}");
+        std::io::stdout().flush().unwrap();
+        unsafe { libc::alarm(0) };
+    }
+
+    #[test]
+    fn default_disposition_redelivery_is_opt_in_and_restores_termios() {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::process::ExitStatusExt;
+        for mode in [
+            "default-off",
+            "os",
+            "early",
+            "hook",
+            "bytes",
+            "ignored",
+            "handler",
+        ] {
+            for interrupted in [false, true] {
+                let mut master = -1;
+                let mut slave = -1;
+                unsafe {
+                    assert_eq!(
+                        libc::openpty(
+                            &mut master,
+                            &mut slave,
+                            std::ptr::null_mut(),
+                            std::ptr::null(),
+                            std::ptr::null()
+                        ),
+                        0
+                    );
+                }
+                // openpty descriptors are inherited by the child. Only the
+                // master is consumed there; the parent keeps both ends alive.
+                let _master = unsafe { OwnedFd::from_raw_fd(master) };
+                let slave = unsafe { std::fs::File::from_raw_fd(slave) };
+                let mut before: libc::termios = unsafe { std::mem::zeroed() };
+                assert_eq!(
+                    unsafe { libc::tcgetattr(slave.as_raw_fd(), &mut before) },
+                    0
+                );
+                assert_ne!(before.c_lflag & libc::ICANON, 0);
+                let output = std::process::Command::new(std::env::current_exe().unwrap())
+                    .args([
+                        "builtin_sigint_policy::reraise_default_child_probe",
+                        "--exact",
+                        "--nocapture",
+                    ])
+                    .env(RERAISE_PROBE_ENV, mode)
+                    .env("SUSHLINE_SIGINT_MASTER_FD", master.to_string())
+                    .env("SUSHLINE_SIGINT_INTERRUPTED", interrupted.to_string())
+                    .env("INPUTRC", "/dev/null")
+                    .stdin(slave.try_clone().unwrap())
+                    .output()
+                    .unwrap();
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let context = format!(
+                    "mode={mode}, interrupted={interrupted}: {:?}\n{stdout}\n{stderr}",
+                    output.status
+                );
+                if matches!(mode, "os" | "early") {
+                    assert_eq!(output.status.signal(), Some(libc::SIGINT), "{context}");
+                    assert!(!stdout.contains(ACCEPTED_MARKER), "{context}");
+                } else {
+                    assert!(output.status.success(), "{context}");
+                    assert!(stdout.contains(ACCEPTED_MARKER), "{context}");
+                }
+                let mut after: libc::termios = unsafe { std::mem::zeroed() };
+                assert_eq!(unsafe { libc::tcgetattr(slave.as_raw_fd(), &mut after) }, 0);
+                assert_eq!(before.c_iflag, after.c_iflag, "{context}");
+                assert_eq!(before.c_oflag, after.c_oflag, "{context}");
+                assert_eq!(before.c_cflag, after.c_cflag, "{context}");
+                assert_eq!(before.c_lflag, after.c_lflag, "{context}");
+                assert_eq!(before.c_cc, after.c_cc, "{context}");
+                assert_eq!(
+                    unsafe { libc::cfgetispeed(&before) },
+                    unsafe { libc::cfgetispeed(&after) },
+                    "{context}"
+                );
+                assert_eq!(
+                    unsafe { libc::cfgetospeed(&before) },
+                    unsafe { libc::cfgetospeed(&after) },
+                    "{context}"
+                );
+            }
+        }
     }
 }

@@ -192,6 +192,8 @@ impl History {
 
     /// Write file.
     ///
+    /// On Unix, with umask 022, full writes create missing destinations with
+    /// mode `0o600` and replace existing mode-0644 destinations with mode `0o600`.
     /// On Unix, if `path` is a symlink (or a relative symlink chain) to an
     /// existing regular file, the write replaces that file while leaving the
     /// symlink(s) in place.
@@ -202,6 +204,8 @@ impl History {
     /// Write file with timestamps.
     ///
     /// When enabled, writes stored timestamp text including any NUL suffix.
+    /// On Unix, with umask 022, full writes create missing destinations with
+    /// mode `0o600` and replace existing mode-0644 destinations with mode `0o600`.
     /// On Unix, if `path` is a symlink (or a relative symlink chain) to an
     /// existing regular file, the write replaces that file while leaving the
     /// symlink(s) in place.

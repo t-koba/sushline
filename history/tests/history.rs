@@ -6,7 +6,10 @@ use history::expansion::{
     expand_history_with_status_with_state, get_history_event, history_arg_extract,
     history_tokenize,
 };
-use history::{History, HistoryDirection, HistoryEntry, HistoryMultiline, HistoryUndoEntry};
+use history::{
+    History, HistoryDirection, HistoryEntry, HistoryMultiline, HistoryNulPolicy,
+    HistoryReadOptions, HistoryUndoEntry,
+};
 
 #[test]
 fn navigates_history_and_restores_current_edit() {
@@ -1696,7 +1699,7 @@ fn history_files_preserve_non_utf8_bytes() {
 fn history_files_preserve_embedded_nul_bytes() {
     // The pinned GNU History 8.3 direct-library fixtures truncate each tested
     // command at its first NUL, skip a leading-NUL command, and read later
-    // lines. This Rust reader intentionally preserves the raw file bytes.
+    // lines. The default Rust reader preserves the raw file bytes.
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");
 
@@ -1772,6 +1775,185 @@ fn history_files_preserve_embedded_nul_bytes() {
     assert_eq!(roundtrip.entries()[0].line_bytes, b"alpha");
     assert_eq!(roundtrip.entries()[1].timestamp.as_deref(), None);
     assert_eq!(roundtrip.entries()[1].line_bytes, b"beta");
+}
+
+#[test]
+fn explicit_nul_truncation_matches_pinned_full_file_fixtures() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    let options = HistoryReadOptions {
+        nul_policy: HistoryNulPolicy::TruncateAtNul,
+        ..Default::default()
+    };
+    assert_eq!(
+        HistoryReadOptions::default().multiline,
+        HistoryMultiline::PerLine
+    );
+    assert_eq!(
+        HistoryReadOptions::default().nul_policy,
+        HistoryNulPolicy::Preserve
+    );
+    // Pinned GNU History 8.3 full-file command and timestamp NUL fixtures.
+    type ExpectedEntry<'a> = (&'a [u8], Option<&'a str>);
+    let fixtures: &[(&[u8], &[ExpectedEntry<'_>])] = &[
+        (
+            b"one\0hidden\nnext\0tail\nfinal\n",
+            &[(b"one", None), (b"next", None), (b"final", None)],
+        ),
+        (b"\0hidden\nnext\n", &[(b"next", None)]),
+        (
+            b"#123\nalpha\0tail\nbeta\n#456\nlast\n",
+            &[
+                (b"alpha", Some("#123")),
+                (b"beta", None),
+                (b"last", Some("#456")),
+            ],
+        ),
+        (
+            b"#1700000000\0suffix\nalpha\nbeta\n",
+            &[(b"alpha", Some("#1700000000")), (b"beta", None)],
+        ),
+    ];
+    for &(bytes, expected) in fixtures {
+        fs::write(&path, bytes).unwrap();
+        let loaded = History::read_file_with_options(&path, options).unwrap();
+        assert_eq!(loaded.entries().len(), expected.len());
+        for (entry, &(line, timestamp)) in loaded.entries().iter().zip(expected) {
+            assert_eq!(entry.line_bytes, line);
+            assert_eq!(entry.timestamp.as_deref(), timestamp);
+        }
+        let preserved = History::read_file(&path).unwrap();
+        assert_eq!(
+            preserved.entries(),
+            History::read_file_with_options(&path, HistoryReadOptions::default())
+                .unwrap()
+                .entries()
+        );
+        // Writing remains independent: stored command and timestamp NUL bytes
+        // from a preserving read are emitted unchanged.
+        preserved.write_file_with_timestamps(&path, true).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+    }
+
+    // Additional product cases, not GNU fixture claims: truncation precedes
+    // recognition and decoding, but does not make #\0digits a timestamp.
+    fs::write(&path, b"#\x00123\n#456\nraw\xff\0tail\nignored\0tail").unwrap();
+    let loaded = History::read_file_with_options(&path, options).unwrap();
+    assert_eq!(loaded.entries()[0].line_bytes, b"#");
+    assert_eq!(loaded.entries()[1].line_bytes, b"#456");
+    assert_eq!(loaded.entries()[2].line_bytes, b"raw\xff");
+    assert_eq!(loaded.entries().len(), 3); // unterminated fragment still ignored
+    assert!(
+        loaded
+            .entries()
+            .iter()
+            .all(|entry| entry.timestamp.is_none())
+    );
+    fs::write(&path, b"#1\0\xff\nalpha\n").unwrap();
+    let loaded = History::read_file_with_options(&path, options).unwrap();
+    assert_eq!(loaded.entries()[0].timestamp.as_deref(), Some("#1"));
+    let preserved = History::read_file(&path).unwrap();
+    assert_eq!(
+        preserved.entries()[0].timestamp.as_deref(),
+        Some("#1\0\u{fffd}")
+    );
+}
+
+#[test]
+fn nul_policies_apply_to_range_capped_and_joined_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(
+        &path,
+        b"#1\0suffix\nalpha\0tail\n\0hidden\nbeta\0tail\n#2\nlast\0tail\n",
+    )
+    .unwrap();
+    for nul_policy in [HistoryNulPolicy::Preserve, HistoryNulPolicy::TruncateAtNul] {
+        for multiline in [HistoryMultiline::PerLine, HistoryMultiline::Joined] {
+            let options = HistoryReadOptions {
+                multiline,
+                nul_policy,
+            };
+            let full = History::read_file_with_options(&path, options).unwrap();
+            if nul_policy == HistoryNulPolicy::TruncateAtNul {
+                let expected: &[&[u8]] = match multiline {
+                    HistoryMultiline::PerLine => &[b"alpha", b"beta", b"last"],
+                    HistoryMultiline::Joined => &[b"alpha\n\nbeta", b"last"],
+                };
+                assert_eq!(
+                    full.entries()
+                        .iter()
+                        .map(|entry| entry.line_bytes.as_slice())
+                        .collect::<Vec<_>>(),
+                    expected
+                );
+            }
+            let mut uncapped = History::new();
+            uncapped
+                .load_file_with_options(&path, None, options)
+                .unwrap();
+            assert_eq!(uncapped.entries(), full.entries());
+            for cap in [0, 1, 2, 10] {
+                let mut capped = History::new();
+                capped
+                    .load_file_with_options(&path, Some(cap), options)
+                    .unwrap();
+                assert_eq!(
+                    capped.entries(),
+                    &full.entries()[full.len().saturating_sub(cap)..]
+                );
+            }
+            let range = History::read_file_range_with_options(&path, 0, Some(2), options).unwrap();
+            let expected: &[&[u8]] = match (nul_policy, multiline) {
+                (HistoryNulPolicy::Preserve, HistoryMultiline::PerLine) => {
+                    &[b"alpha\0tail", b"\0hidden"]
+                }
+                (HistoryNulPolicy::Preserve, HistoryMultiline::Joined) => {
+                    &[b"alpha\0tail\n\0hidden"]
+                }
+                (HistoryNulPolicy::TruncateAtNul, HistoryMultiline::PerLine) => &[b"alpha"],
+                (HistoryNulPolicy::TruncateAtNul, HistoryMultiline::Joined) => &[b"alpha"],
+            };
+            assert_eq!(
+                range
+                    .entries()
+                    .iter()
+                    .map(|entry| entry.line_bytes.as_slice())
+                    .collect::<Vec<_>>(),
+                expected
+            );
+            assert_eq!(
+                range.entries()[0].timestamp.as_deref(),
+                Some(if nul_policy == HistoryNulPolicy::Preserve {
+                    "#1\0suffix"
+                } else {
+                    "#1"
+                })
+            );
+            for cap in [None, Some(0), Some(1)] {
+                let mut loaded = History::new();
+                loaded
+                    .load_file_range_with_options(&path, 0, Some(2), cap, options)
+                    .unwrap();
+                let start = cap.map_or(0, |cap| range.len().saturating_sub(cap));
+                assert_eq!(loaded.entries(), &range.entries()[start..]);
+            }
+            if nul_policy == HistoryNulPolicy::Preserve {
+                assert_eq!(
+                    full.entries(),
+                    History::read_file_with_multiline(&path, multiline)
+                        .unwrap()
+                        .entries()
+                );
+                assert_eq!(
+                    range.entries(),
+                    History::read_file_range_with_multiline(&path, 0, Some(2), multiline)
+                        .unwrap()
+                        .entries()
+                );
+            }
+        }
+    }
 }
 
 #[test]

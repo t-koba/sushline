@@ -15,8 +15,9 @@ const TIMESTAMP_MARKER: u8 = b'#';
 pub struct HistoryEntry {
     /// Line bytes.
     pub line_bytes: Vec<u8>,
-    /// Retained decoded timestamp metadata, including any NUL suffix. File
-    /// input replaces invalid UTF-8 with U+FFFD.
+    /// Retained decoded timestamp metadata. File input replaces invalid UTF-8
+    /// with U+FFFD and preserves NUL suffixes unless explicitly truncated by
+    /// [`HistoryNulPolicy::TruncateAtNul`].
     pub timestamp: Option<String>,
     /// Modified.
     pub modified: bool,
@@ -153,6 +154,31 @@ pub enum HistoryMultiline {
     /// GNU History 8.3 range and full-file plain fixtures show the same joined
     /// bytes; see `COMPATIBILITY.md` for the fixture-scoped observations.
     Joined,
+}
+
+/// How completed physical history-file lines handle embedded NUL bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HistoryNulPolicy {
+    /// Retain command bytes and decoded timestamp suffixes (the default).
+    #[default]
+    Preserve,
+    /// Discard the first NUL and everything after it on each completed line,
+    /// before timestamp recognition and UTF-8 decoding. A leading NUL becomes
+    /// a blank command line; grouping and physical range counting are unchanged.
+    /// This reproduces command truncation, leading-NUL handling, and
+    /// timestamp-prefix parsing in the pinned GNU History 8.3 fixtures; it is
+    /// not a general GNU compatibility guarantee.
+    TruncateAtNul,
+}
+
+/// Read-side history-file policies. Defaults preserve NUL bytes and group one
+/// entry per physical line. These options do not affect file writing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct HistoryReadOptions {
+    /// How physical command lines are grouped into entries.
+    pub multiline: HistoryMultiline,
+    /// How embedded NUL bytes are handled before interpreting each line.
+    pub nul_policy: HistoryNulPolicy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

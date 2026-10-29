@@ -1,4 +1,4 @@
-use super::{History, HistoryEntry, HistoryMultiline};
+use super::{History, HistoryEntry, HistoryMultiline, HistoryNulPolicy, HistoryReadOptions};
 use std::collections::VecDeque;
 use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, Seek, Write};
@@ -40,9 +40,26 @@ impl History {
         path: impl AsRef<Path>,
         multiline: HistoryMultiline,
     ) -> io::Result<Self> {
+        Self::read_file_with_options(
+            path,
+            HistoryReadOptions {
+                multiline,
+                ..Default::default()
+            },
+        )
+    }
+
+    /// Read a file with explicit grouping and NUL policies.
+    ///
+    /// Format selection follows [`Self::read_file_with_multiline`], after the
+    /// NUL policy is applied to each completed physical line.
+    pub fn read_file_with_options(
+        path: impl AsRef<Path>,
+        options: HistoryReadOptions,
+    ) -> io::Result<Self> {
         let file = fs::File::open(path)?;
         let mut history = Self::new();
-        history.import_records(read_history_records(file, multiline)?, None);
+        history.import_records(read_history_records(file, options)?, None);
         history.file_loaded_len = history.entries.len();
         Ok(history)
     }
@@ -87,9 +104,30 @@ impl History {
         to: Option<usize>,
         multiline: HistoryMultiline,
     ) -> io::Result<Self> {
+        Self::read_file_range_with_options(
+            path,
+            from,
+            to,
+            HistoryReadOptions {
+                multiline,
+                ..Default::default()
+            },
+        )
+    }
+
+    /// Read a range with explicit grouping and NUL policies.
+    ///
+    /// Bounds and grouping follow [`Self::read_file_range_with_multiline`].
+    /// Lines made blank by NUL truncation still count toward the bounds.
+    pub fn read_file_range_with_options(
+        path: impl AsRef<Path>,
+        from: usize,
+        to: Option<usize>,
+        options: HistoryReadOptions,
+    ) -> io::Result<Self> {
         let file = fs::File::open(path)?;
         let mut history = Self::new();
-        history.import_records(read_history_range_records(file, from, to, multiline)?, None);
+        history.import_records(read_history_range_records(file, from, to, options)?, None);
         history.file_loaded_len = history.entries.len();
         Ok(history)
     }
@@ -122,11 +160,34 @@ impl History {
         max_entries: Option<usize>,
         multiline: HistoryMultiline,
     ) -> io::Result<()> {
+        self.load_file_with_options(
+            path,
+            max_entries,
+            HistoryReadOptions {
+                multiline,
+                ..Default::default()
+            },
+        )
+    }
+
+    /// Load a file with explicit grouping and NUL policies, retaining at most
+    /// `max_entries` entries after import. Format selection follows
+    /// [`Self::read_file_with_options`]; the cap applies after grouping.
+    pub fn load_file_with_options(
+        &mut self,
+        path: impl AsRef<Path>,
+        max_entries: Option<usize>,
+        options: HistoryReadOptions,
+    ) -> io::Result<()> {
         let file = fs::File::open(path)?;
-        let records = match (multiline, max_entries) {
-            (HistoryMultiline::PerLine, Some(limit)) => read_history_suffix(file, limit)?,
-            (HistoryMultiline::Joined, Some(limit)) => read_history_joined_suffix(file, limit)?,
-            _ => read_history_records(file, multiline)?,
+        let records = match (options.multiline, max_entries) {
+            (HistoryMultiline::PerLine, Some(limit)) => {
+                read_history_suffix(file, limit, options.nul_policy)?
+            }
+            (HistoryMultiline::Joined, Some(limit)) => {
+                read_history_joined_suffix(file, limit, options.nul_policy)?
+            }
+            _ => read_history_records(file, options)?,
         };
         self.import_records(records, max_entries);
         self.file_loaded_len = self.entries.len();
@@ -183,9 +244,32 @@ impl History {
         max_entries: Option<usize>,
         multiline: HistoryMultiline,
     ) -> io::Result<()> {
+        self.load_file_range_with_options(
+            path,
+            from,
+            to,
+            max_entries,
+            HistoryReadOptions {
+                multiline,
+                ..Default::default()
+            },
+        )
+    }
+
+    /// Load a range with explicit grouping and NUL policies, retaining at most
+    /// `max_entries` entries after import. Bounds and grouping follow
+    /// [`Self::read_file_range_with_options`]; the cap applies after grouping.
+    pub fn load_file_range_with_options(
+        &mut self,
+        path: impl AsRef<Path>,
+        from: usize,
+        to: Option<usize>,
+        max_entries: Option<usize>,
+        options: HistoryReadOptions,
+    ) -> io::Result<()> {
         let file = fs::File::open(path)?;
         self.import_records(
-            read_history_range_records(file, from, to, multiline)?,
+            read_history_range_records(file, from, to, options)?,
             max_entries,
         );
         self.file_loaded_len = self.entries.len();
@@ -405,14 +489,18 @@ fn read_history_range_records(
     file: fs::File,
     from: usize,
     to: Option<usize>,
-    multiline: HistoryMultiline,
+    options: HistoryReadOptions,
 ) -> io::Result<Vec<(Vec<u8>, Option<String>)>> {
     let count = range_count(from, to);
     let limit = to
         .filter(|to| *to >= from)
         .map(|_| from.saturating_add(count));
-    let blocks = read_history_blocks(file, from, limit)?;
-    Ok(group_history_blocks(&blocks, multiline, Some((0, count))))
+    let blocks = read_history_blocks(file, from, limit, options.nul_policy)?;
+    Ok(group_history_blocks(
+        &blocks,
+        options.multiline,
+        Some((0, count)),
+    ))
 }
 
 fn range_count(from: usize, to: Option<usize>) -> usize {
@@ -590,10 +678,10 @@ fn write_entry(
 
 fn read_history_records(
     file: fs::File,
-    multiline: HistoryMultiline,
+    options: HistoryReadOptions,
 ) -> io::Result<Vec<(Vec<u8>, Option<String>)>> {
-    let blocks = read_history_blocks(file, 0, None)?;
-    Ok(group_history_blocks(&blocks, multiline, None))
+    let blocks = read_history_blocks(file, 0, None, options.nul_policy)?;
+    Ok(group_history_blocks(&blocks, options.multiline, None))
 }
 
 /// The physical lines a timestamp record opens, or the lines that precede
@@ -617,6 +705,7 @@ enum HistoryLine<'a> {
 /// full, ranged and capped readers. Returning false stops at a finite range bound.
 fn scan_history_lines(
     file: fs::File,
+    nul_policy: HistoryNulPolicy,
     mut visit: impl FnMut(HistoryLine<'_>) -> bool,
 ) -> io::Result<()> {
     // Match GNU read_history_range rejecting non-regular descriptors after
@@ -644,9 +733,13 @@ fn scan_history_lines(
         if line.ends_with(b"\r") {
             line.pop();
         }
+        if nul_policy == HistoryNulPolicy::TruncateAtNul
+            && let Some(index) = line.iter().position(|&byte| byte == 0)
+        {
+            line.truncate(index);
+        }
         // GNU chooses the format from its first physical line. Invalid UTF-8
-        // in timestamp metadata must not turn a delimiter into command text;
-        // retain decoded metadata, including NUL suffixes.
+        // in timestamp metadata must not turn a delimiter into command text.
         let timestamp_record = is_timestamp_record(&line);
         if first_line {
             timestamped_file = timestamp_record;
@@ -671,10 +764,11 @@ fn read_history_blocks(
     file: fs::File,
     command_start: usize,
     command_limit: Option<usize>,
+    nul_policy: HistoryNulPolicy,
 ) -> io::Result<Vec<HistoryBlock>> {
     let mut blocks: Vec<HistoryBlock> = Vec::new();
     let mut command_lines = 0usize;
-    scan_history_lines(file, |line| {
+    scan_history_lines(file, nul_policy, |line| {
         let line = match line {
             HistoryLine::Timestamp(timestamp) => {
                 if command_start > 0 && command_lines <= command_start {
@@ -716,10 +810,14 @@ fn read_history_blocks(
 /// Retain entries rather than physical lines: blanks do not consume a slot or
 /// timestamp carrier eligibility. Allocate only as commands arrive, even when
 /// the caller supplies a very large limit. Mutation still happens via import.
-fn read_history_suffix(file: fs::File, limit: usize) -> io::Result<Vec<(Vec<u8>, Option<String>)>> {
+fn read_history_suffix(
+    file: fs::File,
+    limit: usize,
+    nul_policy: HistoryNulPolicy,
+) -> io::Result<Vec<(Vec<u8>, Option<String>)>> {
     let mut suffix = VecDeque::new();
     let mut pending_timestamp = None;
-    scan_history_lines(file, |line| {
+    scan_history_lines(file, nul_policy, |line| {
         match line {
             HistoryLine::Timestamp(timestamp) => pending_timestamp = Some(timestamp),
             HistoryLine::Command(line) if !line.is_empty() => {
@@ -737,13 +835,14 @@ fn read_history_suffix(file: fs::File, limit: usize) -> io::Result<Vec<(Vec<u8>,
 fn read_history_joined_suffix(
     file: fs::File,
     limit: usize,
+    nul_policy: HistoryNulPolicy,
 ) -> io::Result<Vec<(Vec<u8>, Option<String>)>> {
     let mut suffix = VecDeque::new();
     let mut joined = Vec::new();
     let mut timestamp = None;
     // Byte length alone cannot distinguish one plain blank line from no lines.
     let mut started = false;
-    scan_history_lines(file, |line| {
+    scan_history_lines(file, nul_policy, |line| {
         // Still validate and scan to EOF, but retain no payload for a zero cap.
         if limit == 0 {
             return true;
@@ -1136,6 +1235,8 @@ mod tests {
             b"\n \t\n\nlast\n\n \n",
             b"#1\n\n \t\n\nlast\n\n#2\n\n\n#3\n#4\n",
             b"unterminated",
+            b"\0hidden\nnext\0tail\n",
+            b"#1\0suffix\n\0hidden\nalpha\0tail\n\0blank\n#2\nlast\n",
             b"#123",
             b"#1\n#2\n\n#3\n",
             b"\n#1\n\n#2\nplain\n\n",
@@ -1167,8 +1268,18 @@ mod tests {
             .collect::<Vec<_>>();
         for fixture in fixtures.iter().copied().chain([many_blocks.as_slice()]) {
             fs::write(&path, fixture).unwrap();
-            for multiline in [HistoryMultiline::PerLine, HistoryMultiline::Joined] {
-                let full = read_history_records(fs::File::open(&path).unwrap(), multiline).unwrap();
+            for (multiline, nul_policy) in [HistoryMultiline::PerLine, HistoryMultiline::Joined]
+                .into_iter()
+                .flat_map(|multiline| {
+                    [HistoryNulPolicy::Preserve, HistoryNulPolicy::TruncateAtNul]
+                        .map(|nul_policy| (multiline, nul_policy))
+                })
+            {
+                let options = HistoryReadOptions {
+                    multiline,
+                    nul_policy,
+                };
+                let full = read_history_records(fs::File::open(&path).unwrap(), options).unwrap();
                 for cap in [0, 1, 10, 100, usize::MAX] {
                     let mut initial = vec![History::new()];
                     for stifle in [None, Some(0), Some(1), Some(3), Some(32)] {
@@ -1181,7 +1292,7 @@ mod tests {
                         expected.import_records(full.clone(), Some(cap));
                         expected.file_loaded_len = expected.entries.len();
                         actual
-                            .load_file_with_multiline(&path, Some(cap), multiline)
+                            .load_file_with_options(&path, Some(cap), options)
                             .unwrap();
                         assert_same_history(&actual, &expected);
                     }

@@ -1121,7 +1121,10 @@ mod tests {
         }
         assert_eq!(rfind_bytes_with_case(b"aA", b"a", true), Some(1));
         assert_eq!(rfind_bytes_with_case(b"aA", b"A", true), Some(1));
-        assert_eq!(rfind_bytes_with_case(b"\xff\x80\xff", b"\xff", true), Some(2));
+        assert_eq!(
+            rfind_bytes_with_case(b"\xff\x80\xff", b"\xff", true),
+            Some(2)
+        );
         assert_eq!(rfind_bytes_with_case(b"aA", b"a", false), Some(0));
         assert_eq!(rfind_bytes_with_case(b"xABC", b"abc", false), None);
         assert_eq!(rfind_bytes_with_case(b"xABCabc", b"ABC", false), Some(1));

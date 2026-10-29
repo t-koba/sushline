@@ -54,3 +54,11 @@ history_length_after_clear=0
 seed_replacement[0]_hex=6563686f20616c7068612d6e6577 seed_replacement[1]_hex=6563686f2067616d6d61
 history_length_after_reseed=2
 step=empty-old-after-clear-reseed input_hex=212d323a732f2f4f4d4547412f status=1 output_hex=6563686f204f4d4547412d6e6577
+sequence=empty-old-after-failed-search
+header_version=0x0803 runtime_version=0x0803
+seed[0]_hex=6563686f20616c706861 seed[1]_hex=6563686f2062657461
+step=failed-search input_hex=213f67616d6d613f status=-1 output_hex=213f67616d6d613f3a206576656e74206e6f7420666f756e64
+history_length_before_add=2
+history_length_after_add=3
+seed_added[2]_hex=6563686f2067616d6d612d6e6577
+step=empty-old-after-failed-search input_hex=212d313a732f2f4f4d4547412f status=-1 output_hex=3a732f2f4f4d4547412f3a206e6f2070726576696f757320737562737469747574696f6e

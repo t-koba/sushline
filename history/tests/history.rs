@@ -4795,6 +4795,47 @@ fn history_expansion_percent_reuses_matched_word_after_clear_and_reseed_in_pinne
 }
 
 #[test]
+fn history_expansion_empty_old_substitution_after_first_failed_search_fails_in_pinned_fixture() {
+    // The pinned GNU History 8.3 fixture starts with a failed first search,
+    // then adds the matching event before trying empty-old substitution.
+    let mut history = History::new();
+    history.push("echo alpha");
+    history.push("echo beta");
+    let histchars = HistoryChars::parse("!^#");
+    let policy = HistoryExpansionPolicy::default();
+    let mut state = HistoryExpansionState::new();
+
+    let failed_search = expand_history_with_status_with_state(
+        b"!?gamma?",
+        &history,
+        histchars,
+        &policy,
+        &mut state,
+        |_| false,
+    );
+    assert!(matches!(
+        failed_search,
+        Err(HistoryExpansionError::EventNotFound(message)) if message == "!?gamma?"
+    ));
+    assert_eq!(history.len(), 2);
+    history.push("echo gamma-new");
+    assert_eq!(history.len(), 3);
+    assert_eq!(history.entries()[2].line_bytes, b"echo gamma-new");
+
+    assert!(matches!(
+        expand_history_with_status_with_state(
+            b"!-1:s//OMEGA/",
+            &history,
+            histchars,
+            &policy,
+            &mut state,
+            |_| false,
+        ),
+        Err(HistoryExpansionError::SubstitutionFailed)
+    ));
+}
+
+#[test]
 fn history_expansion_empty_old_substitution_uses_search_after_clear_and_reseed_in_pinned_fixture() {
     // Exact pinned GNU History 8.3 sequence: the empty old substitution uses
     // the preceding `alpha` search after history is cleared and reseeded.

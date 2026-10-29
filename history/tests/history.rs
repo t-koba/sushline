@@ -2418,7 +2418,7 @@ fn finite_plain_joined_ranges_keep_blanks_and_later_timestamp_text() {
 }
 
 #[test]
-fn open_ended_timestamped_ranges_preserve_carriers_and_grouping() {
+fn suffix_timestamped_ranges_preserve_carriers_and_grouping() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");
     type Entries = &'static [(&'static str, Option<&'static str>)];
@@ -2456,34 +2456,37 @@ fn open_ended_timestamped_ranges_preserve_carriers_and_grouping() {
         (10, &[], &[]), // An open-ended blank-only block creates no entry.
         (11, &[], &[]), // EOF fragment is ignored, including beyond EOF.
         (20, &[], &[]),
+        (usize::MAX, &[], &[]),
     ];
     for newline in ["\n", "\r\n"] {
         let contents = "#1\n\nold\n\nB\n\nC\n#2\n#3\n\nD\n\nE\n\n#4\nfragment";
         fs::write(&path, contents.replace('\n', newline)).unwrap();
         for &(from, per_line, joined) in cases {
-            for (mode, expected) in [
-                (HistoryMultiline::PerLine, per_line),
-                (HistoryMultiline::Joined, joined),
-            ] {
-                let history =
-                    History::read_file_range_with_multiline(&path, from, None, mode).unwrap();
-                let actual: Vec<_> = history
-                    .entries()
-                    .iter()
-                    .map(|entry| (entry.line().into_owned(), entry.timestamp.as_deref()))
-                    .collect();
-                let expected: Vec<_> = expected
-                    .iter()
-                    .map(|&(line, timestamp)| (line.to_owned(), timestamp))
-                    .collect();
-                assert_eq!(actual, expected, "{from}..EOF {mode:?} {newline:?}");
+            for to in [None, Some(0), Some(from - 1)] {
+                for (mode, expected) in [
+                    (HistoryMultiline::PerLine, per_line),
+                    (HistoryMultiline::Joined, joined),
+                ] {
+                    let history =
+                        History::read_file_range_with_multiline(&path, from, to, mode).unwrap();
+                    let actual: Vec<_> = history
+                        .entries()
+                        .iter()
+                        .map(|entry| (entry.line().into_owned(), entry.timestamp.as_deref()))
+                        .collect();
+                    let expected: Vec<_> = expected
+                        .iter()
+                        .map(|&(line, timestamp)| (line.to_owned(), timestamp))
+                        .collect();
+                    assert_eq!(actual, expected, "{from}..{to:?} {mode:?} {newline:?}");
+                }
             }
         }
     }
 }
 
 #[test]
-fn open_ended_plain_ranges_preserve_blanks_and_timestamp_text() {
+fn suffix_plain_ranges_preserve_blanks_and_timestamp_text() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");
     fs::write(&path, b"\r\nA\r\n#2\r\n\r\nB\r\n\r\nfragment").unwrap();
@@ -2493,22 +2496,26 @@ fn open_ended_plain_ranges_preserve_blanks_and_timestamp_text() {
         (5, vec![], vec![""]),
         (6, vec![], vec![]),
         (20, vec![], vec![]),
+        (usize::MAX, vec![], vec![]),
     ] {
-        for (mode, expected) in [
-            (HistoryMultiline::PerLine, per_line),
-            (HistoryMultiline::Joined, joined),
-        ] {
-            let history = History::read_file_range_with_multiline(&path, from, None, mode).unwrap();
-            let actual: Vec<_> = history
-                .entries()
-                .iter()
-                .map(|entry| (entry.line().into_owned(), entry.timestamp.as_deref()))
-                .collect();
-            let expected: Vec<_> = expected
-                .into_iter()
-                .map(|line| (line.to_owned(), None))
-                .collect();
-            assert_eq!(actual, expected, "{from}..EOF {mode:?}");
+        for to in [None, Some(0), Some(from - 1)] {
+            for (mode, expected) in [
+                (HistoryMultiline::PerLine, per_line.clone()),
+                (HistoryMultiline::Joined, joined.clone()),
+            ] {
+                let history =
+                    History::read_file_range_with_multiline(&path, from, to, mode).unwrap();
+                let actual: Vec<_> = history
+                    .entries()
+                    .iter()
+                    .map(|entry| (entry.line().into_owned(), entry.timestamp.as_deref()))
+                    .collect();
+                let expected: Vec<_> = expected
+                    .into_iter()
+                    .map(|line| (line.to_owned(), None))
+                    .collect();
+                assert_eq!(actual, expected, "{from}..{to:?} {mode:?}");
+            }
         }
     }
 }

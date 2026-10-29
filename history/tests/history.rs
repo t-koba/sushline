@@ -4692,6 +4692,49 @@ fn history_expansion_search_memory_survives_clear_and_reseed_in_pinned_fixture()
 }
 
 #[test]
+fn history_expansion_percent_reuses_matched_word_after_failed_search_in_pinned_fixture() {
+    // Exact pinned GNU 8.3 sequence: the `%` expansion immediately follows a
+    // failed substring search in the same stateful session.
+    let mut history = History::new();
+    history.push("echo alpha");
+    history.push("echo beta");
+    let histchars = HistoryChars::parse("!^#");
+    let policy = HistoryExpansionPolicy::default();
+    let mut state = HistoryExpansionState::new();
+
+    assert_eq!(
+        expand_history_with_state(
+            b"!?alpha?",
+            &history,
+            histchars,
+            &policy,
+            &mut state,
+            |_| false
+        )
+        .unwrap(),
+        b"echo alpha".to_vec(),
+    );
+    assert_eq!(
+        expand_history_with_state(
+            b"!?missing?",
+            &history,
+            histchars,
+            &policy,
+            &mut state,
+            |_| false,
+        ),
+        Err(HistoryExpansionError::EventNotFound(
+            "!?missing?".to_string()
+        )),
+    );
+    assert_eq!(
+        expand_history_with_state(b"!:%", &history, histchars, &policy, &mut state, |_| false)
+            .unwrap(),
+        b"alpha".to_vec(),
+    );
+}
+
+#[test]
 fn history_expansion_selects_percent_word_by_match_position() {
     // GNU selects `%` from the substring match offset, so a needle spanning
     // word boundaries still yields the word holding the match start. The

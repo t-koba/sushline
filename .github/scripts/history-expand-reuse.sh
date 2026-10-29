@@ -37,14 +37,12 @@ static void print_hex(const char *s) {
         printf("%02x", (unsigned int)*p);
 }
 
-static int raw_report;
-
 static void expand(const char *label, const char *input) {
     char *in = strdup(input);
     if (in == NULL) exit(3);
     char *output = NULL;
     int status = history_expand(in, &output);
-    printf("%sstep=%s input_hex=", raw_report ? "raw_" : "", label);
+    printf("step=%s input_hex=", label);
     print_hex(input);
     printf(" status=%d output_hex=", status);
     print_hex(output);
@@ -59,16 +57,14 @@ int main(int argc, char **argv) {
                       strcmp(argv[1], "positive-control") != 0 &&
                       strcmp(argv[1], "failed-search-percent") != 0 &&
                       strcmp(argv[1], "reuse-after-clear") != 0)) return 2;
-    raw_report = strcmp(argv[1], "failed-search-percent") == 0;
-    printf("%sheader_version=0x%04x runtime_version=0x%04x\n",
-           raw_report ? "raw_" : "", RL_READLINE_VERSION, rl_readline_version);
+    printf("header_version=0x%04x runtime_version=0x%04x\n",
+           RL_READLINE_VERSION, rl_readline_version);
     if (RL_READLINE_VERSION != 0x0803 || rl_readline_version != 0x0803)
         return 2;
     using_history();
     add_history("echo alpha");
     add_history("echo beta");
-    printf("%sseed[0]_hex=6563686f20616c706861 seed[1]_hex=6563686f2062657461\n",
-           raw_report ? "raw_" : "");
+    printf("seed[0]_hex=6563686f20616c706861 seed[1]_hex=6563686f2062657461\n");
     /* Each sequence starts fresh; reuse-after-clear explicitly replaces its list. */
     expand("success", "!?alpha?");
     if (strcmp(argv[1], "reuse-after-clear") == 0) {
@@ -116,7 +112,7 @@ PROBE
   for sequence in failed-search positive-control percent-after-failure reuse-after-clear; do
     case "$sequence" in
       percent-after-failure)
-        printf 'raw_sequence=%s\n' "$sequence"
+        printf 'sequence=%s\n' "$sequence"
         probe_sequence=failed-search-percent
         ;;
       reuse-after-clear)

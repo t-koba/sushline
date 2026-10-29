@@ -887,6 +887,9 @@ fn rfind_bytes_with_case(haystack: &[u8], needle: &[u8], ignore_case: bool) -> O
     if needle.is_empty() {
         return Some(0);
     }
+    if !ignore_case {
+        return memchr::memmem::rfind(haystack, needle);
+    }
     haystack
         .windows(needle.len())
         .rposition(|window| bytes_equal(window, needle, ignore_case))
@@ -912,11 +915,31 @@ fn bytes_equal(left: &[u8], right: &[u8], ignore_case: bool) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::find_bytes_with_case;
+    use super::{find_bytes_with_case, rfind_bytes_with_case};
 
     #[test]
     fn byte_substring_matching_preserves_boundaries_and_case() {
         for ignore_case in [false, true] {
+            assert_eq!(rfind_bytes_with_case(b"", b"", ignore_case), Some(0));
+            assert_eq!(rfind_bytes_with_case(b"abc", b"", ignore_case), Some(0));
+            assert_eq!(rfind_bytes_with_case(b"", b"a", ignore_case), None);
+            assert_eq!(rfind_bytes_with_case(b"ab", b"abc", ignore_case), None);
+            assert_eq!(
+                rfind_bytes_with_case(b"\xffabcabc", b"abc", ignore_case),
+                Some(4)
+            );
+            assert_eq!(
+                rfind_bytes_with_case(b"ababa", b"aba", ignore_case),
+                Some(2)
+            );
+            assert_eq!(
+                rfind_bytes_with_case(b"\x00\xffa\x00\xff", b"\x00\xff", ignore_case),
+                Some(3)
+            );
+            assert_eq!(
+                rfind_bytes_with_case("Ä".as_bytes(), "ä".as_bytes(), ignore_case),
+                None
+            );
             assert_eq!(find_bytes_with_case(b"", b"", ignore_case), Some(0));
             assert_eq!(find_bytes_with_case(b"abc", b"", ignore_case), Some(0));
             assert_eq!(find_bytes_with_case(b"", b"a", ignore_case), None);
@@ -934,6 +957,10 @@ mod tests {
                 None
             );
         }
+        assert_eq!(rfind_bytes_with_case(b"xABC", b"abc", false), None);
+        assert_eq!(rfind_bytes_with_case(b"xABCabc", b"ABC", false), Some(1));
+        assert_eq!(rfind_bytes_with_case(b"xABCabc", b"ABC", true), Some(4));
+        assert_eq!(rfind_bytes_with_case(b"aBaBa", b"AbA", true), Some(2));
         assert_eq!(find_bytes_with_case(b"xABC", b"abc", false), None);
         assert_eq!(find_bytes_with_case(b"xABC", b"abc", true), Some(1));
     }

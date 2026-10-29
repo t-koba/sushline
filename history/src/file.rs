@@ -775,7 +775,17 @@ fn read_history_joined_suffix(
     Ok(suffix.into_iter().collect())
 }
 
-// Return the evicted buffer to the caller for its next line or joined block.
+// A buffer fits when it holds at most four times the record it would carry,
+// with a 1 KiB floor so tiny records still recycle their small scan
+// allocations without churn. A 1 MiB record keeps its ~2 MiB scan buffer
+// (the reader's growth), but a 1-byte tail never pins megabytes.
+fn buffer_fits(capacity: usize, len: usize) -> bool {
+    capacity <= len.saturating_mul(4).max(1024)
+}
+
+// Recycle buffers only while they fit the incoming record; otherwise shrink
+// the stored entry and drop the oversized scratch so a shrunken tail cannot
+// retain megabytes in either place.
 fn retain_history_suffix(
     suffix: &mut VecDeque<(Vec<u8>, Option<String>)>,
     line: &mut Vec<u8>,
@@ -785,15 +795,21 @@ fn retain_history_suffix(
     if limit == 0 {
         return;
     }
-    let mut retained = Vec::new();
+    let new_len = line.len();
+    let mut entry = std::mem::take(line);
+    if !buffer_fits(entry.capacity(), new_len) {
+        entry.shrink_to_fit();
+    }
     if suffix.len() == limit
         && let Some((evicted, _)) = suffix.pop_front()
+        && buffer_fits(evicted.capacity(), new_len)
     {
-        retained = evicted;
+        *line = evicted;
+        line.clear();
     }
-    std::mem::swap(line, &mut retained);
-    line.clear();
-    suffix.push_back((retained, timestamp));
+    // Otherwise the evicted buffer (if any) drops; `line` stays empty and the
+    // next scan allocates a small buffer.
+    suffix.push_back((entry, timestamp));
 }
 
 /// Group the blocks' physical lines into entries.
@@ -1006,6 +1022,109 @@ mod tests {
         line.extend_from_slice(b"discarded");
         retain_history_suffix(&mut empty, &mut line, Some("#3".into()), 0);
         assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn capped_suffix_drops_oversized_buffers() {
+        // Large-to-small through the shared policy: three 1 MiB records then
+        // six 1-byte records at cap 3. Disproportionate capacity must be
+        // neither stored in the tiny retained entries nor kept as the scratch
+        // Vec, while ordinary same-sized buffers still recycle (see the test
+        // above).
+        let mut suffix = VecDeque::new();
+        let mut line = Vec::new();
+        for index in 0..3usize {
+            line = vec![b'A' + index as u8; 1024 * 1024];
+            retain_history_suffix(
+                &mut suffix,
+                &mut line,
+                Some(format!("#{}", 1000 + index)),
+                3,
+            );
+            assert!(line.is_empty());
+        }
+        assert_eq!(suffix.len(), 3);
+        for (index, command) in b"xyzabc".iter().enumerate() {
+            line.extend_from_slice(&[*command]);
+            retain_history_suffix(
+                &mut suffix,
+                &mut line,
+                Some(format!("#{}", 2000 + index)),
+                3,
+            );
+            assert!(line.is_empty());
+        }
+        assert_eq!(suffix.len(), 3);
+        let expected: [(&[u8], &str); 3] = [(b"a", "#2003"), (b"b", "#2004"), (b"c", "#2005")];
+        for ((bytes, timestamp), (expected_bytes, expected_timestamp)) in
+            suffix.iter().zip(expected.iter())
+        {
+            assert_eq!(bytes.as_slice(), *expected_bytes);
+            assert_eq!(timestamp.as_deref(), Some(*expected_timestamp));
+            // A 1-byte tail must not retain megabytes; 4 KiB is far above the
+            // small-scan allocation but far below the 1 MiB prefix.
+            assert!(
+                bytes.capacity() <= 4096,
+                "retained capacity {} for len {}",
+                bytes.capacity(),
+                bytes.len()
+            );
+        }
+        assert!(
+            line.capacity() <= 4096,
+            "scratch capacity {}",
+            line.capacity()
+        );
+    }
+
+    #[test]
+    fn capped_mixed_size_file_loads_bound_memory() {
+        // Cap 3 with three 1 MiB commands followed by six 1-byte commands, as
+        // in the reviewer reproduction. Both groupings go through the scanner
+        // (`line`) and, for Joined, the incremental `joined` buffer, so this
+        // exercises the reuse path end to end.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history");
+        let mut bytes = Vec::new();
+        for index in 0..3usize {
+            bytes.extend_from_slice(format!("#{}\n", 1000 + index).as_bytes());
+            bytes.extend_from_slice(&vec![b'A' + index as u8; 1024 * 1024]);
+            bytes.extend_from_slice(b"\n");
+        }
+        for (index, command) in b"xyzabc".iter().enumerate() {
+            bytes.extend_from_slice(format!("#{}\n", 2000 + index).as_bytes());
+            bytes.push(*command);
+            bytes.extend_from_slice(b"\n");
+        }
+        fs::write(&path, &bytes).unwrap();
+        for multiline in [HistoryMultiline::PerLine, HistoryMultiline::Joined] {
+            let mut history = History::new();
+            history
+                .load_file_with_multiline(&path, Some(3), multiline)
+                .unwrap();
+            assert_eq!(history.len(), 3, "multiline {multiline:?}");
+            let expected: [(&[u8], &str); 3] = [(b"a", "#2003"), (b"b", "#2004"), (b"c", "#2005")];
+            for (entry, (expected_bytes, expected_timestamp)) in
+                history.entries().iter().zip(expected.iter())
+            {
+                assert_eq!(
+                    entry.line_bytes.as_slice(),
+                    *expected_bytes,
+                    "multiline {multiline:?}"
+                );
+                assert_eq!(
+                    entry.timestamp.as_deref(),
+                    Some(*expected_timestamp),
+                    "multiline {multiline:?}"
+                );
+                assert!(
+                    entry.line_bytes.capacity() <= 4096,
+                    "multiline {multiline:?} retained capacity {} for len {}",
+                    entry.line_bytes.capacity(),
+                    entry.line_bytes.len()
+                );
+            }
+        }
     }
 
     #[test]

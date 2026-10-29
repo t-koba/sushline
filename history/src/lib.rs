@@ -756,7 +756,8 @@ impl History {
         match direction {
             HistoryDirection::Previous => {
                 let end = pos.min(self.entries.len().saturating_sub(1));
-                if !anchored {
+                // A one-byte ignore-case query has no bigram bits to filter on.
+                if !anchored && (!ignore_case || needle.len() > 1) {
                     let needle_mask = byte_bigram_mask(needle);
                     let finder = memchr::memmem::FinderRev::new(needle);
                     return self.entries[..=end].iter().enumerate().rev().find_map(

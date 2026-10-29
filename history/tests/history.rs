@@ -4795,6 +4795,48 @@ fn history_expansion_percent_reuses_matched_word_after_clear_and_reseed_in_pinne
 }
 
 #[test]
+fn history_expansion_empty_old_substitution_uses_search_after_clear_and_reseed_in_pinned_fixture() {
+    // Exact pinned GNU History 8.3 sequence: the empty old substitution uses
+    // the preceding `alpha` search after history is cleared and reseeded.
+    let mut history = History::new();
+    history.push("echo alpha");
+    history.push("echo beta");
+    let histchars = HistoryChars::parse("!^#");
+    let policy = HistoryExpansionPolicy::default();
+    let mut state = HistoryExpansionState::new();
+
+    let matched = expand_history_with_status_with_state(
+        b"!?alpha?",
+        &history,
+        histchars,
+        &policy,
+        &mut state,
+        |_| false,
+    )
+    .unwrap();
+    assert_eq!(matched.status, HistoryExpansionStatus::Expanded);
+    assert_eq!(matched.line, b"echo alpha");
+    assert_eq!(history.len(), 2);
+    history.clear();
+    assert_eq!(history.len(), 0);
+    history.push("echo alpha-new");
+    history.push("echo gamma");
+    assert_eq!(history.len(), 2);
+
+    let substitution = expand_history_with_status_with_state(
+        b"!-2:s//OMEGA/",
+        &history,
+        histchars,
+        &policy,
+        &mut state,
+        |_| false,
+    )
+    .unwrap();
+    assert_eq!(substitution.status, HistoryExpansionStatus::Expanded);
+    assert_eq!(substitution.line, b"echo OMEGA-new");
+}
+
+#[test]
 fn history_expansion_percent_reuses_matched_word_after_failed_search_in_pinned_fixture() {
     // Exact pinned GNU 8.3 sequence: the `%` expansion immediately follows a
     // failed substring search in the same stateful session.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Assert only the pinned GNU 8.3 search-reuse sequences; retain the raw report.
+# Assert pinned GNU 8.3 reuse fixtures; keep the cold-start `%` probe raw.
 set -euo pipefail
 if [ $# -ne 1 ] || { [ "$1" != primary ] && [ "$1" != replica ]; }; then
   echo 'usage: history-expand-reuse.sh <primary|replica>' >&2; exit 2
@@ -37,12 +37,14 @@ static void print_hex(const char *s) {
         printf("%02x", (unsigned int)*p);
 }
 
+static int raw_report;
+
 static void expand(const char *label, const char *input) {
     char *in = strdup(input);
     if (in == NULL) exit(3);
     char *output = NULL;
     int status = history_expand(in, &output);
-    printf("step=%s input_hex=", label);
+    printf("%sstep=%s input_hex=", raw_report ? "raw_" : "", label);
     print_hex(input);
     printf(" status=%d output_hex=", status);
     print_hex(output);
@@ -56,17 +58,21 @@ int main(int argc, char **argv) {
     if (argc != 2 || (strcmp(argv[1], "failed-search") != 0 &&
                       strcmp(argv[1], "positive-control") != 0 &&
                       strcmp(argv[1], "failed-search-percent") != 0 &&
-                      strcmp(argv[1], "reuse-after-clear") != 0)) return 2;
-    printf("header_version=0x%04x runtime_version=0x%04x\n",
-           RL_READLINE_VERSION, rl_readline_version);
+                      strcmp(argv[1], "reuse-after-clear") != 0 &&
+                      strcmp(argv[1], "fresh-percent") != 0)) return 2;
+    raw_report = strcmp(argv[1], "fresh-percent") == 0;
+    printf("%sheader_version=0x%04x runtime_version=0x%04x\n",
+           raw_report ? "raw_" : "", RL_READLINE_VERSION, rl_readline_version);
     if (RL_READLINE_VERSION != 0x0803 || rl_readline_version != 0x0803)
         return 2;
     using_history();
     add_history("echo alpha");
     add_history("echo beta");
-    printf("seed[0]_hex=6563686f20616c706861 seed[1]_hex=6563686f2062657461\n");
+    printf("%sseed[0]_hex=6563686f20616c706861 seed[1]_hex=6563686f2062657461\n",
+           raw_report ? "raw_" : "");
     /* Each sequence starts fresh; reuse-after-clear explicitly replaces its list. */
-    expand("success", "!?alpha?");
+    if (strcmp(argv[1], "fresh-percent") != 0)
+        expand("success", "!?alpha?");
     if (strcmp(argv[1], "reuse-after-clear") == 0) {
         printf("seed_original[0]_length=%zu hex=", strlen("echo alpha"));
         print_hex("echo alpha");
@@ -86,6 +92,9 @@ int main(int argc, char **argv) {
     } else if (strcmp(argv[1], "failed-search-percent") == 0) {
         expand("failed-search", "!?missing?");
         expand("percent-after-failure", "!:%");
+    } else if (strcmp(argv[1], "fresh-percent") == 0) {
+        /* Keep this process's first expansion call as the cold-start probe. */
+        expand("fresh-percent", "!:%");
     } else {
         if (strcmp(argv[1], "failed-search") == 0)
             expand("failed-search", "!?missing?");
@@ -109,7 +118,7 @@ PROBE
   echo 'pinned_library_paths=validated'
   sha256sum "$readline/lib/libhistory.so" "$readline/lib/libreadline.so"
   probe_status=0
-  for sequence in failed-search positive-control percent-after-failure reuse-after-clear; do
+  for sequence in failed-search positive-control percent-after-failure reuse-after-clear fresh-percent; do
     case "$sequence" in
       percent-after-failure)
         printf 'sequence=%s\n' "$sequence"
@@ -117,6 +126,10 @@ PROBE
         ;;
       reuse-after-clear)
         printf 'sequence=%s\n' "$sequence"
+        probe_sequence=$sequence
+        ;;
+      fresh-percent)
+        printf 'raw_sequence=%s\n' "$sequence"
         probe_sequence=$sequence
         ;;
       *)

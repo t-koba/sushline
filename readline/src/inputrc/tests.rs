@@ -1262,6 +1262,8 @@ fn legacy_mode_and_term_conditions_use_compact_assignment_syntax() {
     let keymap = KeyMap::emacs_default();
     let variables = Variables::default_for_config(&config);
     // Inject TERM rather than changing process-global state in parallel tests.
+    // The direct pinned 8.3 cases are term=xterm (true) and
+    // term=xterm-256 (false); the remaining rows are parser fixtures.
     for (condition, expected) in [
         ("term=xterm", true),
         ("term=xterm-256-color", true),

@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Fixture-scoped inputrc observations, shared by the pinned primary and fresh runner.
-# The default variable-rhs mode asserts five branch outcomes against the reviewed
-# pinned Readline 8.3 baseline. The term mode collects two raw term-condition
-# observations only and skips the semantic expected-file comparison.
+# The variable-rhs and term modes assert their reviewed, fixture-scoped
+# Readline 8.3 branch outcomes while retaining the raw PTY/protocol reports.
 set -euo pipefail
 ulimit -c 0
 report_kind=${1:?report kind must be primary or replica}
@@ -305,12 +304,13 @@ results = [run_case(*case) for case in CASES]
 sys.exit(0 if all(results) else 1)
 PYPROBE
 
-# Keep raw observations and the runner label in each report, but compare the same
-# semantic projection for primary and replica, including transport and cleanup.
-# The term mode is a raw measurement only: no expected branch outcomes are asserted.
-if [ "$mode" = variable-rhs ]; then
-  semantic="$work/semantic"
-  sed -e '/^report=/d' -e '/^raw_pty_hex=/d' -e '/^raw_protocol_hex=/d' \
-    "$report" > "$semantic"
-  diff -u "$(dirname "$0")/readline-inputrc-variable-rhs.expected" "$semantic"
-fi
+# Keep raw observations and the runner label in each report, but compare all
+# semantic fields, transport integrity, and cleanup for primary and replica.
+case "$mode" in
+  variable-rhs) expected="$(dirname "$0")/readline-inputrc-variable-rhs.expected" ;;
+  term) expected="$(dirname "$0")/readline-inputrc-term.expected" ;;
+esac
+semantic="$work/semantic"
+sed -e '/^report=/d' -e '/^raw_pty_hex=/d' -e '/^raw_protocol_hex=/d' \
+  "$report" > "$semantic"
+diff -u "$expected" "$semantic"

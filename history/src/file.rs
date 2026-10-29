@@ -366,7 +366,10 @@ fn read_history_range_records(
     multiline: HistoryMultiline,
 ) -> io::Result<Vec<(Vec<u8>, Option<String>)>> {
     let count = range_count(from, to);
-    let blocks = read_history_blocks(file)?;
+    let limit = to
+        .filter(|to| *to >= from)
+        .map(|_| from.saturating_add(count));
+    let blocks = read_history_blocks(file, limit)?;
     Ok(group_history_blocks(
         &blocks,
         multiline,
@@ -551,7 +554,7 @@ fn read_history_records(
     file: fs::File,
     multiline: HistoryMultiline,
 ) -> io::Result<Vec<(Vec<u8>, Option<String>)>> {
-    let blocks = read_history_blocks(file)?;
+    let blocks = read_history_blocks(file, None)?;
     Ok(group_history_blocks(&blocks, multiline, None))
 }
 
@@ -565,7 +568,10 @@ struct HistoryBlock {
     lines: Vec<Vec<u8>>,
 }
 
-fn read_history_blocks(file: fs::File) -> io::Result<Vec<HistoryBlock>> {
+fn read_history_blocks(
+    file: fs::File,
+    command_limit: Option<usize>,
+) -> io::Result<Vec<HistoryBlock>> {
     // Match GNU read_history_range rejecting non-regular descriptors after
     // open (EINVAL): /dev/null and similar specials error instead of loading
     // as empty, while symlinks resolve to their target descriptor.
@@ -580,6 +586,7 @@ fn read_history_blocks(file: fs::File) -> io::Result<Vec<HistoryBlock>> {
     let mut line = Vec::new();
     let mut first_line = true;
     let mut timestamped_file = false;
+    let mut command_lines = 0usize;
     while reader.read_until(b'\n', &mut line)? != 0 {
         if !line.ends_with(b"\n") {
             // GNU ingests a physical line only when the scan hits LF, so a
@@ -625,6 +632,13 @@ fn read_history_blocks(file: fs::File) -> io::Result<Vec<HistoryBlock>> {
             .expect("a block was just pushed")
             .lines
             .push(std::mem::take(&mut line));
+        // Only command lines (including blanks) advance the finite bound.
+        // Grouping a range needs its prefix for timestamp carriers, but no
+        // lines or metadata after its last selected physical command line.
+        command_lines += 1;
+        if command_limit == Some(command_lines) {
+            break;
+        }
         line.clear();
     }
     Ok(blocks)

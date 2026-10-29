@@ -2132,6 +2132,7 @@ fn non_regular_history_reads_error_like_gnu() {
     for result in [
         History::read_file("/dev/null").map(|history| history.len()),
         History::read_file_range("/dev/null", 0, None).map(|history| history.len()),
+        History::read_file_range("/dev/null", 0, Some(1)).map(|history| history.len()),
     ] {
         let err = result.expect_err("reading /dev/null must error like GNU");
         assert_eq!(err.kind(), ErrorKind::InvalidInput);
@@ -2281,6 +2282,90 @@ fn reads_history_file_ranges_and_controls_timestamp_writes() {
         .write_file_with_timestamps(&no_timestamps, false)
         .unwrap();
     assert_eq!(fs::read_to_string(no_timestamps).unwrap(), "two\nthree\n");
+}
+
+#[test]
+fn finite_ranges_preserve_carriers_and_grouping_at_crlf_boundaries() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    // Blanks count toward the bound, consecutive timestamps do not, and
+    // the final unterminated fragment is never a command line.
+    fs::write(
+        &path,
+        b"#1\r\n\r\nA\r\n\r\nB\r\n#2\r\n#3\r\n\r\nC\r\n\r\nD\r\nfragment",
+    )
+    .unwrap();
+    type Entries = &'static [(&'static str, Option<&'static str>)];
+    let cases: &[(usize, Option<usize>, Entries, Entries)] = &[
+        (0, Some(1), &[], &[("", None)]),
+        (0, Some(3), &[("A", Some("#1"))], &[("A", Some("#1"))]),
+        (2, Some(4), &[("B", None)], &[("B", None)]),
+        (4, Some(6), &[("C", Some("#3"))], &[("C", Some("#3"))]),
+        (5, Some(7), &[("C", Some("#3"))], &[("C", Some("#3"))]),
+        (6, Some(6), &[], &[("", None)]),
+        (
+            5,
+            Some(8),
+            &[("C", Some("#3")), ("D", None)],
+            &[("C\n\nD", Some("#3"))],
+        ),
+        (8, Some(9), &[], &[]),
+        (7, Some(0), &[("D", None)], &[("D", None)]),
+        (7, None, &[("D", None)], &[("D", None)]),
+    ];
+    for &(from, to, per_line, joined) in cases {
+        for (mode, expected) in [
+            (HistoryMultiline::PerLine, per_line),
+            (HistoryMultiline::Joined, joined),
+        ] {
+            let history = History::read_file_range_with_multiline(&path, from, to, mode).unwrap();
+            let actual: Vec<_> = history
+                .entries()
+                .iter()
+                .map(|entry| (entry.line().into_owned(), entry.timestamp.as_deref()))
+                .collect();
+            let expected: Vec<_> = expected
+                .iter()
+                .map(|&(line, timestamp)| (line.to_owned(), timestamp))
+                .collect();
+            assert_eq!(actual, expected, "{from}..{to:?} {mode:?}");
+        }
+    }
+}
+
+#[test]
+fn finite_plain_joined_ranges_keep_blanks_and_later_timestamp_text() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    // A blank first line selects plain format, even when the selected
+    // range starts at a later timestamp-shaped command line.
+    fs::write(&path, b"\r\nA\r\n#2\r\n\r\nB\r\nfragment").unwrap();
+    for (from, to, expected) in [
+        (1, 3, Some("A\n#2")),
+        (2, 2, Some("#2")),
+        (3, 4, Some("")),
+        (1, 5, Some("A\n#2\n\nB")),
+        (4, 9, Some("B")),
+        (5, 9, None),
+    ] {
+        let history = History::read_file_range_with_multiline(
+            &path,
+            from,
+            Some(to),
+            HistoryMultiline::Joined,
+        )
+        .unwrap();
+        let actual: Vec<_> = history
+            .entries()
+            .iter()
+            .map(|entry| (entry.line().into_owned(), entry.timestamp.as_deref()))
+            .collect();
+        let expected: Vec<_> = expected
+            .into_iter()
+            .map(|line| (line.to_owned(), None))
+            .collect();
+        assert_eq!(actual, expected, "{from}..{to}");
+    }
 }
 
 #[test]

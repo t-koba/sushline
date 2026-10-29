@@ -369,11 +369,12 @@ fn read_history_range_records(
     let limit = to
         .filter(|to| *to >= from)
         .map(|_| from.saturating_add(count));
-    let blocks = read_history_blocks(file, limit)?;
+    let start = if limit.is_some() { from } else { 0 };
+    let blocks = read_history_blocks(file, start, limit)?;
     Ok(group_history_blocks(
         &blocks,
         multiline,
-        Some((from, count)),
+        Some((from - start, count)),
     ))
 }
 
@@ -554,7 +555,7 @@ fn read_history_records(
     file: fs::File,
     multiline: HistoryMultiline,
 ) -> io::Result<Vec<(Vec<u8>, Option<String>)>> {
-    let blocks = read_history_blocks(file, None)?;
+    let blocks = read_history_blocks(file, 0, None)?;
     Ok(group_history_blocks(&blocks, multiline, None))
 }
 
@@ -564,12 +565,15 @@ struct HistoryBlock {
     /// The timestamp record that opened the block; None for the lines
     /// before the first timestamp record.
     timestamp: Option<String>,
-    /// The physical lines of the block.
+    /// A nonblank command before the retained range already carried the timestamp.
+    carrier_skipped: bool,
+    /// The retained physical lines of the block.
     lines: Vec<Vec<u8>>,
 }
 
 fn read_history_blocks(
     file: fs::File,
+    command_start: usize,
     command_limit: Option<usize>,
 ) -> io::Result<Vec<HistoryBlock>> {
     // Match GNU read_history_range rejecting non-regular descriptors after
@@ -612,8 +616,12 @@ fn read_history_blocks(
         if timestamped_file && timestamp_record {
             // A timestamp record opens the block of the physical lines that
             // follow it. Retain the decoded metadata, including NUL suffixes.
+            if command_start > 0 && command_lines <= command_start {
+                blocks.clear();
+            }
             blocks.push(HistoryBlock {
                 timestamp: Some(String::from_utf8_lossy(&line).into_owned()),
+                carrier_skipped: false,
                 lines: Vec::new(),
             });
             line.clear();
@@ -624,17 +632,19 @@ fn read_history_blocks(
             // timestamp of their own.
             blocks.push(HistoryBlock {
                 timestamp: None,
+                carrier_skipped: false,
                 lines: Vec::new(),
             });
         }
-        blocks
-            .last_mut()
-            .expect("a block was just pushed")
-            .lines
-            .push(std::mem::take(&mut line));
+        let block = blocks.last_mut().expect("a block was just pushed");
+        if command_lines < command_start {
+            // Keep the block timestamp distinct from carrier eligibility:
+            // Joined grouping still follows timestamped rules after a cut.
+            block.carrier_skipped |= !line.is_empty();
+        } else {
+            block.lines.push(std::mem::take(&mut line));
+        }
         // Only command lines (including blanks) advance the finite bound.
-        // Grouping a range needs its prefix for timestamp carriers, but no
-        // lines or metadata after its last selected physical command line.
         command_lines += 1;
         if command_limit == Some(command_lines) {
             break;
@@ -713,7 +723,11 @@ fn group_history_blocks(
         }
         // The timestamp record applies to the first command line of its
         // block; a range that starts inside the block selects no timestamp.
-        let carrier = command_lines.first().copied();
+        let carrier = if block.carrier_skipped {
+            None
+        } else {
+            command_lines.first().copied()
+        };
         let (start, end) = match selection {
             // The whole block, so that a joined entry keeps the blank lines
             // that follow its last command line.

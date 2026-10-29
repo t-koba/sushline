@@ -2299,7 +2299,17 @@ fn finite_ranges_preserve_carriers_and_grouping_at_crlf_boundaries() {
     let cases: &[(usize, Option<usize>, Entries, Entries)] = &[
         (0, Some(1), &[], &[("", None)]),
         (0, Some(3), &[("A", Some("#1"))], &[("A", Some("#1"))]),
+        // The #1 carrier A was discarded. The block must still use
+        // timestamped Joined rules: trim boundary blanks, do not inherit
+        // the timestamp, and emit an empty entry only for a one-line cut.
+        (2, Some(2), &[], &[("", None)]),
         (2, Some(4), &[("B", None)], &[("B", None)]),
+        (
+            2,
+            Some(8),
+            &[("B", None), ("C", Some("#3")), ("D", None)],
+            &[("B", None), ("C\n\nD", Some("#3"))],
+        ),
         (4, Some(6), &[("C", Some("#3"))], &[("C", Some("#3"))]),
         (5, Some(7), &[("C", Some("#3"))], &[("C", Some("#3"))]),
         (6, Some(6), &[], &[("", None)]),
@@ -2329,6 +2339,45 @@ fn finite_ranges_preserve_carriers_and_grouping_at_crlf_boundaries() {
                 .map(|&(line, timestamp)| (line.to_owned(), timestamp))
                 .collect();
             assert_eq!(actual, expected, "{from}..{to:?} {mode:?}");
+        }
+    }
+}
+
+#[test]
+fn finite_timestamped_ranges_discard_carriers_but_not_block_grouping() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(&path, b"#1\nold\n\n\nB\n\n#2\n#3\n\nC\n\n#4\nfragment").unwrap();
+    type Entries = &'static [(&'static str, Option<&'static str>)];
+    let cases: &[(usize, usize, Entries, Entries)] = &[
+        (1, 3, &[], &[]), // Multiple blanks do not make a timestamped entry.
+        (1, 5, &[("B", None)], &[("B", None)]),
+        (
+            1,
+            8,
+            &[("B", None), ("C", Some("#3"))],
+            &[("B", None), ("C", Some("#3"))],
+        ),
+        (5, 8, &[("C", Some("#3"))], &[("C", Some("#3"))]),
+        (8, 9, &[], &[]), // Empty trailing block and unterminated fragment.
+    ];
+    for &(from, to, per_line, joined) in cases {
+        for (mode, expected) in [
+            (HistoryMultiline::PerLine, per_line),
+            (HistoryMultiline::Joined, joined),
+        ] {
+            let history =
+                History::read_file_range_with_multiline(&path, from, Some(to), mode).unwrap();
+            let actual: Vec<_> = history
+                .entries()
+                .iter()
+                .map(|entry| (entry.line().into_owned(), entry.timestamp.as_deref()))
+                .collect();
+            let expected: Vec<_> = expected
+                .iter()
+                .map(|&(line, timestamp)| (line.to_owned(), timestamp))
+                .collect();
+            assert_eq!(actual, expected, "{from}..{to} {mode:?}");
         }
     }
 }

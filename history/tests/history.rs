@@ -4655,6 +4655,43 @@ fn history_expansion_reuses_search_after_failure_in_pinned_sequence() {
 }
 
 #[test]
+fn history_expansion_search_memory_survives_clear_and_reseed_in_pinned_fixture() {
+    // Mirrors the pinned GNU 8.3 primary/fresh-replica fixture exactly: the
+    // remembered substring is used against the new entries after clear/reseed.
+    let mut history = History::new();
+    history.push("echo alpha");
+    history.push("echo beta");
+    let histchars = HistoryChars::parse("!^#");
+    let policy = HistoryExpansionPolicy::default();
+    let mut state = HistoryExpansionState::new();
+
+    assert_eq!(
+        expand_history_with_state(
+            b"!?alpha?",
+            &history,
+            histchars,
+            &policy,
+            &mut state,
+            |_| false
+        )
+        .unwrap(),
+        b"echo alpha".to_vec(),
+    );
+    assert_eq!(history.len(), 2);
+    history.clear();
+    assert_eq!(history.len(), 0);
+    history.push("echo alpha-new");
+    history.push("echo gamma");
+    assert_eq!(history.len(), 2);
+
+    assert_eq!(
+        expand_history_with_state(b"!??", &history, histchars, &policy, &mut state, |_| false)
+            .unwrap(),
+        b"echo alpha-new".to_vec(),
+    );
+}
+
+#[test]
 fn history_expansion_selects_percent_word_by_match_position() {
     // GNU selects `%` from the substring match offset, so a needle spanning
     // word boundaries still yields the word holding the match start. The

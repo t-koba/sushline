@@ -59,8 +59,7 @@ int main(int argc, char **argv) {
                       strcmp(argv[1], "positive-control") != 0 &&
                       strcmp(argv[1], "failed-search-percent") != 0 &&
                       strcmp(argv[1], "reuse-after-clear") != 0)) return 2;
-    raw_report = strcmp(argv[1], "failed-search-percent") == 0 ||
-                 strcmp(argv[1], "reuse-after-clear") == 0;
+    raw_report = strcmp(argv[1], "failed-search-percent") == 0;
     printf("%sheader_version=0x%04x runtime_version=0x%04x\n",
            raw_report ? "raw_" : "", RL_READLINE_VERSION, rl_readline_version);
     if (RL_READLINE_VERSION != 0x0803 || rl_readline_version != 0x0803)
@@ -73,20 +72,20 @@ int main(int argc, char **argv) {
     /* Each sequence starts fresh; reuse-after-clear explicitly replaces its list. */
     expand("success", "!?alpha?");
     if (strcmp(argv[1], "reuse-after-clear") == 0) {
-        printf("raw_seed_original[0]_length=%zu hex=", strlen("echo alpha"));
+        printf("seed_original[0]_length=%zu hex=", strlen("echo alpha"));
         print_hex("echo alpha");
-        printf("\nraw_seed_original[1]_length=%zu hex=", strlen("echo beta"));
+        printf("\nseed_original[1]_length=%zu hex=", strlen("echo beta"));
         print_hex("echo beta");
-        printf("\nraw_history_length_before_clear=%d\n", history_length);
+        printf("\nhistory_length_before_clear=%d\n", history_length);
         clear_history();
-        printf("raw_history_length_after_clear=%d\n", history_length);
+        printf("history_length_after_clear=%d\n", history_length);
         add_history("echo alpha-new");
         add_history("echo gamma");
-        printf("raw_seed_replacement[0]_length=%zu hex=", strlen("echo alpha-new"));
+        printf("seed_replacement[0]_length=%zu hex=", strlen("echo alpha-new"));
         print_hex("echo alpha-new");
-        printf("\nraw_seed_replacement[1]_length=%zu hex=", strlen("echo gamma"));
+        printf("\nseed_replacement[1]_length=%zu hex=", strlen("echo gamma"));
         print_hex("echo gamma");
-        printf("\nraw_history_length_after_reseed=%d\n", history_length);
+        printf("\nhistory_length_after_reseed=%d\n", history_length);
         expand("reuse-after-clear", "!??");
     } else if (strcmp(argv[1], "failed-search-percent") == 0) {
         expand("failed-search", "!?missing?");
@@ -121,7 +120,7 @@ PROBE
         probe_sequence=failed-search-percent
         ;;
       reuse-after-clear)
-        printf 'raw_sequence=%s\n' "$sequence"
+        printf 'sequence=%s\n' "$sequence"
         probe_sequence=$sequence
         ;;
       *)
@@ -134,5 +133,5 @@ PROBE
   done
   exit "$probe_status"
 } 2>&1 | tee "$out"
-grep -E '^(sequence=|header_version=|seed\[|step=)' "$out" > "$out.semantic"
+grep -E '^(sequence=|header_version=|seed\[|seed_(original|replacement)\[|history_length_|step=)' "$out" > "$out.semantic"
 diff -u .github/scripts/history-expand-reuse.expected "$out.semantic"

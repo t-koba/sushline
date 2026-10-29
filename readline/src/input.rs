@@ -1124,6 +1124,18 @@ where
         {
             let accepted = accept_search_line(state, &search);
             state.buffer = LineBuffer::from_bytes(accepted);
+            if raw_meta && search.match_line.is_some() {
+                // Like explicit termination, raw-meta exit leaves point at
+                // the match start before dispatching the ordinary input.
+                let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
+                let locale_lowercase = self.search_locale_lowercase(ignore_case);
+                state.buffer.set_point(isearch_terminate_point(
+                    state.buffer.as_bytes(),
+                    &search.query,
+                    ignore_case,
+                    locale_lowercase.as_ref(),
+                ));
+            }
             if search.match_line.is_none() {
                 state.history_entry_index = search.original_history_entry_index;
                 state.undo = search.original_undo.clone();

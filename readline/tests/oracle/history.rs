@@ -830,6 +830,32 @@ fn history_reverse_incremental_search_matches_pinned_c_locale_input_meta_fixture
 }
 
 #[test]
+fn history_reverse_incremental_search_matches_pinned_c_locale_input_meta_ascii_prefix_fixture() {
+    let inputrc = "set search-ignore-case on\nset convert-meta off\nset input-meta on";
+    let locale_env = [("LC_ALL", "C")];
+    let history = ["ÄLPHA old"];
+    let keys = b"\x12a\xc3\xa4lpha\n\n";
+    let bash = run_bash_readline_with_inputrc_file_and_history_and_env(
+        keys,
+        inputrc,
+        &history,
+        &locale_env,
+    );
+    let sushline =
+        run_sushline_harness_with_inputrc_and_history_and_env(keys, inputrc, &history, &locale_env);
+    // Both pinned Readline 8.3 reports match ASCII a, then leave search
+    // on the first high byte and insert ordinary input at the match start.
+    // This fixture does not establish Unicode search behavior.
+    for (name, output) in [("bash", &bash), ("sushline", &sushline)] {
+        assert_eq!(
+            accepted_line(output).as_deref().map(str::as_bytes),
+            Some(&b"\xc3\x84LPH\xc3\xa4lphaA old"[..]),
+            "{name}={output}"
+        );
+    }
+}
+
+#[test]
 fn search_ignore_case_falls_back_to_ascii_in_c_locale() {
     let inputrc = "set search-ignore-case on";
     let locale_env = [("LC_ALL", "C")];

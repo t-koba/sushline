@@ -3278,6 +3278,8 @@ jobs:
         run: bash .github/scripts/readline-horizontal-render.sh
       - name: Measure Unicode cell widths against the pinned release
         run: bash .github/scripts/readline-unicode-width.sh
+      - name: Measure inputrc variable RHS tokenization against the pinned release
+        run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary
       - name: Measure raw invalid-UTF-8 history search against the pinned release
         run: bash .github/scripts/readline-invalid-history-search.sh primary
       - name: Measure raw invalid-UTF-8 history prefix search against the pinned release
@@ -3339,6 +3341,7 @@ jobs:
             /tmp/readline_paste.out \
             /tmp/readline_named_include.out \
             /tmp/readline_include_paths.out \
+            /tmp/readline_inputrc_variable_rhs.out \
             /tmp/readline_include_cycle.out \
             /tmp/readline_include_depth.out \
             /tmp/readline_include_depth_32.out \
@@ -3447,6 +3450,8 @@ jobs:
         run: bash .github/scripts/readline-horizontal-render.sh
       - name: Measure Unicode cell widths against the pinned release
         run: bash .github/scripts/readline-unicode-width.sh
+      - name: Measure inputrc variable RHS tokenization against the pinned release
+        run: bash .github/scripts/readline-inputrc-variable-rhs.sh replica
       - name: Measure raw invalid-UTF-8 history search against the pinned release
         run: bash .github/scripts/readline-invalid-history-search.sh replica
       - name: Measure raw invalid-UTF-8 history prefix search against the pinned release
@@ -3663,3 +3668,27 @@ jobs:
           path: /tmp/history_search_offset_replica.out
           if-no-files-found: warn
           retention-days: 14
+      - name: Upload independent pinned inputrc variable RHS report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-inputrc-variable-rhs-replica
+          path: /tmp/readline_inputrc_variable_rhs.out
+          if-no-files-found: error
+          retention-days: 14
+      - name: Download the primary inputrc variable RHS report
+        uses: actions/download-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-measurements
+          path: ${{ runner.temp }}/sushline-primary-measurements/
+      - name: Require primary and fresh-replica inputrc variable RHS agreement
+        run: |
+          set -euo pipefail
+          primary="$RUNNER_TEMP/sushline-primary-measurements/readline_inputrc_variable_rhs.out"
+          replica=/tmp/readline_inputrc_variable_rhs.out
+          test -f "$primary"
+          test -f "$replica"
+          grep -qx 'report=primary' "$primary"
+          grep -qx 'report=replica' "$replica"
+          # Exact raw observations must agree; only the report role differs.
+          diff -u <(sed '/^report=/d' "$primary") <(sed '/^report=/d' "$replica")

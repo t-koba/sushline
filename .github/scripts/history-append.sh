@@ -32,7 +32,6 @@ int main(int argc, char **argv) {
     int missing = strcmp(argv[2], "missing") == 0;
     int mode = strcmp(argv[2], "mode") == 0;
     int symlink = strcmp(argv[2], "symlink") == 0;
-    int oversized = strcmp(argv[2], "oversized") == 0;
     int timestamped = atoi(argv[2]), count = atoi(argv[3]);
     using_history();
     if (missing) {
@@ -58,9 +57,7 @@ int main(int argc, char **argv) {
     int status = append_history(count, argv[1]);
     FILE *file = fopen(argv[1], "rb");
     if (!file) return 3;
-    if (oversized) {
-        printf("raw_oversized count=%d status=%d hex=", count, status);
-    } else if (mode) {
+    if (mode) {
         struct stat info;
         if (stat(argv[1], &info) != 0) return 3;
         printf("mode count=%d status=%d mode=%04o hex=", count, status,
@@ -83,7 +80,7 @@ int main(int argc, char **argv) {
     while ((byte = fgetc(file)) != EOF) printf("%02x", (unsigned int)byte);
     if (ferror(file) || fclose(file) != 0) return 3;
     putchar('\n');
-    return oversized ? 0 : status != 0;
+    return status != 0;
 }
 PROBE
 cc -Wall -Wextra -Werror -o "$work/probe" "$work/probe.c" \
@@ -111,9 +108,8 @@ for count in 0 1; do
   rm -f -- "$work/missing"
   LC_ALL=C timeout 5 "$work/probe" "$work/missing" missing "$count"
 done
-printf 'raw_sequence=oversized-count\n'
 printf 'old-tail' > "$work/oversized"
-LC_ALL=C timeout 5 "$work/probe" "$work/oversized" oversized 3
+LC_ALL=C timeout 5 "$work/probe" "$work/oversized" 0 3
 printf 'old\n' > "$work/history"
 chmod 0644 "$work/history"
 LC_ALL=C timeout 5 "$work/probe" "$work/history" mode 1

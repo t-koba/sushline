@@ -1129,6 +1129,22 @@ fn appends_to_unterminated_history_file_tails() {
 }
 
 #[test]
+fn oversized_append_history_count_matches_pinned_fixture() {
+    // GNU History 8.3 append_history(3) selects both available entries and
+    // does not separate the first appended line from this unterminated tail.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(&path, b"old-tail").unwrap();
+
+    let mut history = History::new();
+    history.push("new1");
+    history.push("new2");
+    history.append_last_to_file(&path, 3).unwrap();
+
+    assert_eq!(fs::read(&path).unwrap(), b"old-tailnew1\nnew2\n");
+}
+
+#[test]
 fn failed_full_write_cleans_up_sibling_tmp() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");

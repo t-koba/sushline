@@ -12,6 +12,7 @@ case "$mode" in
   unicode-prefix) report=/tmp/readline_unicode_history_prefix_search.out ;;
   unicode-incremental) report=/tmp/readline_unicode_history_incremental_search.out ;;
   c-locale-incremental) report=/tmp/readline_c_locale_history_incremental_search.out ;;
+  c-locale-input-meta-incremental) report=/tmp/readline_c_locale_input_meta_history_incremental_search.out ;;
   unicode-expansion-incremental) report=/tmp/readline_unicode_history_expansion_incremental_search.out ;;
   unicode-forward-incremental) report=/tmp/readline_unicode_history_forward_incremental_search.out ;;
   unicode-forward-expansion-incremental) report=/tmp/readline_unicode_history_forward_expansion_incremental_search.out ;;
@@ -28,6 +29,8 @@ elif [ "$mode" = unicode-incremental ]; then
   expected=.github/scripts/readline-unicode-history-incremental-search.expected
 elif [ "$mode" = c-locale-incremental ]; then
   expected=.github/scripts/readline-c-locale-history-incremental-search.expected
+elif [ "$mode" = c-locale-input-meta-incremental ]; then
+  expected=.github/scripts/readline-c-locale-input-meta-history-incremental-search.expected
 elif [ "$mode" = unicode-expansion-incremental ]; then
   expected=.github/scripts/readline-unicode-history-expansion-incremental-search.expected
 elif [ "$mode" = unicode-forward-incremental ]; then
@@ -112,7 +115,8 @@ int main(int argc, char **argv) {
     const struct rlimit no_core = {0, 0};
     if (argc != 4 || setrlimit(RLIMIT_CORE, &no_core) != 0) return 2;
     int unicode_prefix = strcmp(argv[3], "unicode-prefix") == 0;
-    int c_locale_incremental = strcmp(argv[3], "c-locale-incremental") == 0;
+    int c_locale_input_meta = strcmp(argv[3], "c-locale-input-meta-incremental") == 0;
+    int c_locale_incremental = c_locale_input_meta || strcmp(argv[3], "c-locale-incremental") == 0;
     int unicode_incremental = c_locale_incremental || strcmp(argv[3], "unicode-incremental") == 0;
     int forward_expansion = strcmp(argv[3], "unicode-forward-expansion-incremental") == 0;
     int unicode_expansion = forward_expansion || strcmp(argv[3], "unicode-expansion-incremental") == 0;
@@ -132,6 +136,9 @@ int main(int argc, char **argv) {
         rl_variable_bind("editing-mode", "emacs") != 0 ||
         rl_variable_bind("enable-bracketed-paste", "off") != 0 ||
         rl_variable_bind("search-ignore-case", "on") != 0 ||
+        (c_locale_input_meta &&
+         (rl_variable_bind("convert-meta", "off") != 0 ||
+          rl_variable_bind("input-meta", "on") != 0)) ||
         (!unicode_forward && rl_bind_key(prefix_search ? '\x0f' : '\x12',
                     prefix_search ? rl_history_search_backward : rl_reverse_search_history) != 0) ||
         rl_bind_key('\n', rl_newline) != 0) return 5;
@@ -140,6 +147,11 @@ int main(int argc, char **argv) {
          rl_function_of_keyseq("\x10", rl_get_keymap(), NULL) != rl_get_previous_history)) return 5;
     const char *ignore_case = rl_variable_value("search-ignore-case");
     if (!ignore_case || strcmp(ignore_case, "on") != 0) return 5;
+    const char *convert_meta = c_locale_input_meta ? rl_variable_value("convert-meta") : NULL;
+    const char *input_meta = c_locale_input_meta ? rl_variable_value("input-meta") : NULL;
+    if (c_locale_input_meta &&
+        (!convert_meta || strcmp(convert_meta, "off") != 0 ||
+         !input_meta || strcmp(input_meta, "on") != 0)) return 5;
     const char *entry = query_expansion ? "SS" : unicode_expansion ? "\xc3\x9f entry" : (unicode_prefix || unicode_incremental || unicode_forward) ? "\xc3\x84LPHA old" : prefix_search ? "ALPHA\xfftail" : "pre\xff" "ALPHA";
     using_history();
     clear_history();
@@ -153,6 +165,8 @@ int main(int argc, char **argv) {
                 "pinned_libraries=%d\nloaded_library_path_check=exact-cache-realpath\n"
                 "seed_integrity=1\nsearch_ignore_case=on\n",
                 RL_READLINE_VERSION, rl_readline_version, libraries) < 0) return 4;
+    if (c_locale_input_meta &&
+        dprintf(fd, "convert_meta=%s\ninput_meta=%s\n", convert_meta, input_meta) < 0) return 4;
     hex(fd, "runtime_version_text_hex", rl_library_version, strlen(rl_library_version));
     hex(fd, "locale_hex", locale, strlen(locale));
     hex(fd, "loaded_library_relative_path_hex", loaded, strlen(loaded));
@@ -208,7 +222,7 @@ import time
 LIMIT = 16384
 if (len(sys.argv) != 5 or sys.argv[3] not in ("primary", "replica") or
         sys.argv[4] not in ("incremental", "prefix", "unicode-prefix", "unicode-incremental", "c-locale-incremental",
-                            "unicode-forward-incremental", "unicode-expansion-incremental",
+                            "c-locale-input-meta-incremental", "unicode-forward-incremental", "unicode-expansion-incremental",
                             "unicode-forward-expansion-incremental", "unicode-query-expansion-incremental",
                             "unicode-forward-query-expansion-incremental")):
     raise SystemExit("invalid report kind or mode")
@@ -217,7 +231,8 @@ UNICODE_EXPANSION = FORWARD_EXPANSION or sys.argv[4] == "unicode-expansion-incre
 FORWARD_QUERY_EXPANSION = sys.argv[4] == "unicode-forward-query-expansion-incremental"
 QUERY_EXPANSION = FORWARD_QUERY_EXPANSION or sys.argv[4] == "unicode-query-expansion-incremental"
 UNICODE_FORWARD = FORWARD_QUERY_EXPANSION or FORWARD_EXPANSION or sys.argv[4] == "unicode-forward-incremental"
-C_LOCALE_INCREMENTAL = sys.argv[4] == "c-locale-incremental"
+C_LOCALE_INPUT_META = sys.argv[4] == "c-locale-input-meta-incremental"
+C_LOCALE_INCREMENTAL = C_LOCALE_INPUT_META or sys.argv[4] == "c-locale-incremental"
 LOCALE = "C" if C_LOCALE_INCREMENTAL else "C.UTF-8"
 UNICODE_INCREMENTAL = C_LOCALE_INCREMENTAL or sys.argv[4] == "unicode-incremental"
 UNICODE_PREFIX = sys.argv[4] == "unicode-prefix"
@@ -255,6 +270,7 @@ print("measurement=raw-direct-readline-unicode-history-forward-query-expansion-i
       "measurement=raw-direct-readline-unicode-history-forward-expansion-incremental-search" if FORWARD_EXPANSION else
       "measurement=raw-direct-readline-unicode-history-expansion-incremental-search" if UNICODE_EXPANSION else
       "measurement=raw-direct-readline-unicode-history-forward-incremental-search" if UNICODE_FORWARD else
+      "measurement=raw-direct-readline-c-locale-input-meta-history-incremental-search" if C_LOCALE_INPUT_META else
       "measurement=raw-direct-readline-c-locale-history-incremental-search" if C_LOCALE_INCREMENTAL else
       "measurement=raw-direct-readline-unicode-history-incremental-search" if UNICODE_INCREMENTAL else
       "measurement=raw-direct-readline-unicode-history-prefix-search" if UNICODE_PREFIX else
@@ -272,6 +288,7 @@ print(f"input_keys_hex={KEYS.hex()}")
 print("input_sequence=control-p-control-p-control-o-forward-incremental-search-ascii-query-then-search-and-accept-newlines" if FORWARD_EXPANSION else
       "input_sequence=reverse-incremental-search-ascii-query-control-r-repeat-then-search-and-accept-newlines" if UNICODE_EXPANSION else
       "input_sequence=control-p-control-p-control-o-forward-incremental-search-utf8-query-then-search-and-accept-newlines" if UNICODE_FORWARD else
+      "input_sequence=reverse-incremental-search-utf8-query-convert-meta-off-input-meta-on-then-search-and-accept-newlines" if C_LOCALE_INPUT_META else
       "input_sequence=reverse-incremental-search-utf8-query-then-search-and-accept-newlines" if UNICODE_INCREMENTAL or QUERY_EXPANSION else
       "input_sequence=utf8-query-history-search-backward-control-o-accept-newline" if UNICODE_PREFIX else
       "input_sequence=ascii-query-history-search-backward-control-o-accept-newline" if PREFIX else
@@ -337,7 +354,9 @@ try:
     pattern = (
         rb"header_version=0803\nruntime_version=0803\npinned_libraries=1\n"
         rb"loaded_library_path_check=exact-cache-realpath\nseed_integrity=1\n"
-        rb"search_ignore_case=on\nruntime_version_text_hex=[0-9a-f]{2,128}\n"
+        rb"search_ignore_case=on\n"
+        + (rb"convert_meta=off\ninput_meta=on\n" if C_LOCALE_INPUT_META else b"")
+        + rb"runtime_version_text_hex=[0-9a-f]{2,128}\n"
         rb"locale_hex=[0-9a-f]{2,128}\nloaded_library_relative_path_hex=[0-9a-f]{2,256}\n"
         + (rb"binding_integrity=1\nseeded_entry_count=2\nseeded_predecessor_hex=7072696f72\n"
            if UNICODE_FORWARD else b"")
@@ -380,10 +399,10 @@ PYPROBE
 
 # Prefix, selected Unicode and C-locale fixtures may collect without a semantic baseline.
 # Transport/probe integrity and cleanup remain mandatory in every mode.
-if { [ "$mode" = c-locale-incremental ] || [ "$mode" = prefix ] || [ "$mode" = unicode-prefix ] || [ "$mode" = unicode-incremental ] || [ "$mode" = unicode-query-expansion-incremental ] || [ "$mode" = unicode-forward-query-expansion-incremental ]; } && [ ! -e "$expected" ]; then
+if { [ "$mode" = c-locale-input-meta-incremental ] || [ "$mode" = c-locale-incremental ] || [ "$mode" = prefix ] || [ "$mode" = unicode-prefix ] || [ "$mode" = unicode-incremental ] || [ "$mode" = unicode-query-expansion-incremental ] || [ "$mode" = unicode-forward-query-expansion-incremental ]; } && [ ! -e "$expected" ]; then
   exit 0
 fi
 semantic="$report.semantic"
-grep -E '^(measurement=|locale_requested=|terminal=|inputrc=|inputrc_contents_hex=|entry_hex=|query_hex=|input_keys_hex=|input_sequence=|header_version=|runtime_version=|pinned_libraries=|loaded_library_path_check=|seed_integrity=|search_ignore_case=|runtime_version_text_hex=|locale_hex=|loaded_library_relative_path_hex=|binding_integrity=|seeded_entry_count=|seeded_predecessor_hex=|seeded_entry_hex=|accepted_is_null=|accepted_hex=|child_returncode=|input_sent=|terminal_restored=|timeout=|failure_stage=|transport_integrity=|child_reaped=|file_descriptors_closed=|fixture_cleanup=)' "$report" > "$semantic"
+grep -E '^(measurement=|locale_requested=|terminal=|inputrc=|inputrc_contents_hex=|entry_hex=|query_hex=|input_keys_hex=|input_sequence=|header_version=|runtime_version=|pinned_libraries=|loaded_library_path_check=|seed_integrity=|search_ignore_case=|convert_meta=|input_meta=|runtime_version_text_hex=|locale_hex=|loaded_library_relative_path_hex=|binding_integrity=|seeded_entry_count=|seeded_predecessor_hex=|seeded_entry_hex=|accepted_is_null=|accepted_hex=|child_returncode=|input_sent=|terminal_restored=|timeout=|failure_stage=|transport_integrity=|child_reaped=|file_descriptors_closed=|fixture_cleanup=)' "$report" > "$semantic"
 diff -u "$expected" "$semantic"
 rm -f -- "$semantic"

@@ -919,6 +919,15 @@ fn rfind_bytes_with_case(haystack: &[u8], needle: &[u8], ignore_case: bool) -> O
     if !ignore_case {
         return memchr::memmem::rfind(haystack, needle);
     }
+    if needle.len() == 1 {
+        let lower = needle[0].to_ascii_lowercase();
+        let upper = needle[0].to_ascii_uppercase();
+        return if lower == upper {
+            memchr::memrchr(lower, haystack)
+        } else {
+            memchr::memrchr2(lower, upper, haystack)
+        };
+    }
     haystack
         .windows(needle.len())
         .rposition(|window| bytes_equal(window, needle, ignore_case))
@@ -1110,6 +1119,10 @@ mod tests {
                 None
             );
         }
+        assert_eq!(rfind_bytes_with_case(b"aA", b"a", true), Some(1));
+        assert_eq!(rfind_bytes_with_case(b"aA", b"A", true), Some(1));
+        assert_eq!(rfind_bytes_with_case(b"\xff\x80\xff", b"\xff", true), Some(2));
+        assert_eq!(rfind_bytes_with_case(b"aA", b"a", false), Some(0));
         assert_eq!(rfind_bytes_with_case(b"xABC", b"abc", false), None);
         assert_eq!(rfind_bytes_with_case(b"xABCabc", b"ABC", false), Some(1));
         assert_eq!(rfind_bytes_with_case(b"xABCabc", b"ABC", true), Some(4));

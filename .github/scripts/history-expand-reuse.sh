@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Assert pinned GNU 8.3 reuse fixtures; keep failed-search-first `%` raw.
+# Assert pinned GNU 8.3 reuse fixtures; keep unmeasured probes raw.
 set -euo pipefail
 if [ $# -ne 1 ] || { [ "$1" != primary ] && [ "$1" != replica ]; }; then
   echo 'usage: history-expand-reuse.sh <primary|replica>' >&2; exit 2
@@ -60,8 +60,10 @@ int main(int argc, char **argv) {
                       strcmp(argv[1], "failed-search-percent") != 0 &&
                       strcmp(argv[1], "reuse-after-clear") != 0 &&
                       strcmp(argv[1], "fresh-percent") != 0 &&
-                      strcmp(argv[1], "failed-search-first-percent") != 0)) return 2;
-    raw_report = strcmp(argv[1], "failed-search-first-percent") == 0;
+                      strcmp(argv[1], "failed-search-first-percent") != 0 &&
+                      strcmp(argv[1], "percent-after-clear-reseed") != 0)) return 2;
+    raw_report = strcmp(argv[1], "failed-search-first-percent") == 0 ||
+                 strcmp(argv[1], "percent-after-clear-reseed") == 0;
     printf("%sheader_version=0x%04x runtime_version=0x%04x\n",
            raw_report ? "raw_" : "", RL_READLINE_VERSION, rl_readline_version);
     if (RL_READLINE_VERSION != 0x0803 || rl_readline_version != 0x0803)
@@ -91,6 +93,16 @@ int main(int argc, char **argv) {
         print_hex("echo gamma");
         printf("\nhistory_length_after_reseed=%d\n", history_length);
         expand("reuse-after-clear", "!??");
+    } else if (strcmp(argv[1], "percent-after-clear-reseed") == 0) {
+        printf("raw_history_length_before_clear=%d\n", history_length);
+        clear_history();
+        printf("raw_history_length_after_clear=%d\n", history_length);
+        add_history("echo alpha-new");
+        add_history("echo gamma");
+        printf("raw_seed_replacement[0]_hex=6563686f20616c7068612d6e6577 "
+               "raw_seed_replacement[1]_hex=6563686f2067616d6d61\n");
+        printf("raw_history_length_after_reseed=%d\n", history_length);
+        expand("percent-after-clear-reseed", "!:%");
     } else if (strcmp(argv[1], "failed-search-percent") == 0) {
         expand("failed-search", "!?missing?");
         expand("percent-after-failure", "!:%");
@@ -123,7 +135,7 @@ PROBE
   echo 'pinned_library_paths=validated'
   sha256sum "$readline/lib/libhistory.so" "$readline/lib/libreadline.so"
   probe_status=0
-  for sequence in failed-search positive-control percent-after-failure reuse-after-clear fresh-percent failed-search-first-percent; do
+  for sequence in failed-search positive-control percent-after-failure reuse-after-clear fresh-percent failed-search-first-percent percent-after-clear-reseed; do
     case "$sequence" in
       percent-after-failure)
         printf 'sequence=%s\n' "$sequence"
@@ -137,7 +149,7 @@ PROBE
         printf 'sequence=%s\n' "$sequence"
         probe_sequence=$sequence
         ;;
-      failed-search-first-percent)
+      failed-search-first-percent|percent-after-clear-reseed)
         printf 'raw_sequence=%s\n' "$sequence"
         probe_sequence=$sequence
         ;;

@@ -942,7 +942,8 @@ fn bytes_equal(left: &[u8], right: &[u8], ignore_case: bool) -> bool {
 fn byte_bigram_mask(bytes: &[u8]) -> u64 {
     bytes.windows(2).fold(0, |mask, pair| {
         let k = u16::from_be_bytes([pair[0], pair[1]]) as u32;
-        let h = k.wrapping_mul(0x9e3779b1) ^ (k >> 3);
+        let product = k.wrapping_mul(0x9e37_79b1);
+        let h = product ^ (product >> 16);
         mask | (1u64 << (h & 63))
     })
 }

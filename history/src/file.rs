@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 const MAX_SYMLINK_HOPS: usize = 40;
+const HISTORY_TRUNCATE_BUFFER_SIZE: usize = 64 * 1024;
 
 impl History {
     /// Default file path.
@@ -315,7 +316,8 @@ impl History {
         }
         // Count in fixed-size buffers, not physical lines: a single line may
         // itself be arbitrarily large. File offsets and counts use u64.
-        let mut source = io::BufReader::new(fs::File::open(path)?);
+        let mut source =
+            io::BufReader::with_capacity(HISTORY_TRUNCATE_BUFFER_SIZE, fs::File::open(path)?);
         let mut lf_count = 0u64;
         loop {
             let buffer = loop {

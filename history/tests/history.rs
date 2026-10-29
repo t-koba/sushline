@@ -1054,11 +1054,11 @@ fn truncate_file_streams_across_buffers_with_exact_suffixes() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");
     let mut inputs = vec![vec![b'\n'; 20_000], vec![0xff; 40_000]];
-    // Put LF and CRLF boundaries on either side of the scan buffer boundary,
-    // and retain a tail longer than a buffer, including non-text bytes.
-    for prefix_len in 8190..=8194 {
+    // Put LF and CRLF boundaries on either side of the 64 KiB scan buffer,
+    // including a CRLF split across buffers; retain a long non-text tail too.
+    for prefix_len in (64 * 1024 - 2)..=(64 * 1024 + 2) {
         let mut input = vec![b'x'; prefix_len];
-        input.extend_from_slice(b"\n#1700000000\r\n\ncommand\r\n");
+        input.extend_from_slice(b"\r\n#1700000000\r\n\ncommand\r\n");
         input.extend(vec![0xff; 40_000]);
         input.extend_from_slice(b"\0unterminated\r");
         inputs.push(input);

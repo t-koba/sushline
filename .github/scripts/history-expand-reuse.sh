@@ -61,19 +61,48 @@ int main(int argc, char **argv) {
                       strcmp(argv[1], "failed-search-first-percent") != 0 &&
                       strcmp(argv[1], "percent-after-clear-reseed") != 0 &&
                       strcmp(argv[1], "empty-old-after-clear-reseed") != 0 &&
-                      strcmp(argv[1], "empty-old-after-failed-search") != 0)) return 2;
+                      strcmp(argv[1], "empty-old-after-failed-search") != 0 &&
+                      strcmp(argv[1], "stifle-after-add") != 0 &&
+                      strcmp(argv[1], "stifle-before-add") != 0)) return 2;
     printf("header_version=0x%04x runtime_version=0x%04x\n",
            RL_READLINE_VERSION, rl_readline_version);
     if (RL_READLINE_VERSION != 0x0803 || rl_readline_version != 0x0803)
         return 2;
     using_history();
+    if (strcmp(argv[1], "stifle-before-add") == 0) {
+        stifle_history(2);
+        printf("history_base_after_stifle_empty=%d history_length_after_stifle_empty=%d\n",
+               history_base, history_length);
+        add_history("echo alpha");
+        add_history("echo bravo");
+        add_history("echo charlie");
+        printf("history_base_after_three_adds=%d history_length_after_three_adds=%d\n",
+               history_base, history_length);
+        expand("before_add_absolute_1", "!1");
+        expand("before_add_absolute_2", "!2");
+        expand("before_add_absolute_3", "!3");
+        expand("before_add_relative_1", "!-1");
+        expand("before_add_relative_2", "!-2");
+        add_history("echo delta");
+        printf("history_base_after_fourth_add=%d history_length_after_fourth_add=%d\n",
+               history_base, history_length);
+        expand("before_add_after_absolute_1", "!1");
+        expand("before_add_after_absolute_2", "!2");
+        expand("before_add_after_absolute_3", "!3");
+        expand("before_add_after_absolute_4", "!4");
+        expand("before_add_after_relative_1", "!-1");
+        expand("before_add_after_relative_2", "!-2");
+        clear_history();
+        return 0;
+    }
     add_history("echo alpha");
     add_history("echo beta");
     printf("seed[0]_hex=6563686f20616c706861 seed[1]_hex=6563686f2062657461\n");
     /* Each sequence starts fresh; reuse-after-clear explicitly replaces its list. */
     if (strcmp(argv[1], "fresh-percent") != 0 &&
         strcmp(argv[1], "failed-search-first-percent") != 0 &&
-        strcmp(argv[1], "empty-old-after-failed-search") != 0)
+        strcmp(argv[1], "empty-old-after-failed-search") != 0 &&
+        strcmp(argv[1], "stifle-after-add") != 0)
         expand("success", "!?alpha?");
     if (strcmp(argv[1], "reuse-after-clear") == 0) {
         printf("seed_original[0]_length=%zu hex=", strlen("echo alpha"));
@@ -119,6 +148,28 @@ int main(int argc, char **argv) {
         printf("history_length_after_add=%d\n", history_length);
         printf("seed_added[2]_hex=6563686f2067616d6d612d6e6577\n");
         expand("empty-old-after-failed-search", "!-1:s//OMEGA/");
+    } else if (strcmp(argv[1], "stifle-after-add") == 0) {
+        add_history("echo charlie");
+        printf("seed[2]_hex=6563686f20636861726c6965\n");
+        printf("history_base_before_stifle=%d history_length_before_stifle=%d\n",
+               history_base, history_length);
+        stifle_history(2);
+        printf("history_base_after_stifle=%d history_length_after_stifle=%d\n",
+               history_base, history_length);
+        expand("after_stifle_absolute_1", "!1");
+        expand("after_stifle_absolute_2", "!2");
+        expand("after_stifle_absolute_3", "!3");
+        expand("after_stifle_relative_1", "!-1");
+        expand("after_stifle_relative_2", "!-2");
+        add_history("echo delta");
+        printf("history_base_after_capped_append=%d history_length_after_capped_append=%d\n",
+               history_base, history_length);
+        expand("after_append_absolute_1", "!1");
+        expand("after_append_absolute_2", "!2");
+        expand("after_append_absolute_3", "!3");
+        expand("after_append_absolute_4", "!4");
+        expand("after_append_relative_1", "!-1");
+        expand("after_append_relative_2", "!-2");
     } else if (strcmp(argv[1], "failed-search-percent") == 0) {
         expand("failed-search", "!?missing?");
         expand("percent-after-failure", "!:%");
@@ -151,7 +202,7 @@ PROBE
   echo 'pinned_library_paths=validated'
   sha256sum "$readline/lib/libhistory.so" "$readline/lib/libreadline.so"
   probe_status=0
-  for sequence in failed-search positive-control percent-after-failure reuse-after-clear fresh-percent failed-search-first-percent percent-after-clear-reseed empty-old-after-clear-reseed empty-old-after-failed-search; do
+  for sequence in failed-search positive-control percent-after-failure reuse-after-clear fresh-percent failed-search-first-percent percent-after-clear-reseed empty-old-after-clear-reseed empty-old-after-failed-search stifle-after-add stifle-before-add; do
     case "$sequence" in
       percent-after-failure)
         printf 'sequence=%s\n' "$sequence"
@@ -191,5 +242,5 @@ PROBE
   done
   exit "$probe_status"
 } 2>&1 | tee "$out"
-grep -E '^(sequence=|header_version=|seed\[|seed_(original|replacement|added)\[|history_length_|step=)' "$out" > "$out.semantic"
+grep -E '^(sequence=|header_version=|seed\[|seed_(original|replacement|added)\[|history_(base|length)_|step=)' "$out" > "$out.semantic"
 diff -u .github/scripts/history-expand-reuse.expected "$out.semantic"

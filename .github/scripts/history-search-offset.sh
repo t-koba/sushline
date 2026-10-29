@@ -117,8 +117,7 @@ int main(void) {
         putchar('\n');
         fflush(stdout);
     }
-    /* Keep these two failed multi-entry searches raw until both pinned runners
-       have been reviewed; their suffix is excluded from the semantic projection. */
+    /* These failed multi-entry searches were reviewed in both pinned runners. */
     for (int direction = -1; direction <= 1; direction += 2) {
         int positioned = history_set_pos(1);
         int position = where_history();
@@ -203,7 +202,6 @@ PROBE
   sha256sum "$readline/lib/libhistory.so" "$readline/lib/libreadline.so"
   LC_ALL=C timeout 5 "$work/probe"
 } 2>&1 | tee "$out"
-# Assert reviewed rows only. The multi-entry failed-search observations remain raw
-# in both reports until their primary and fresh-replica outcomes are reviewed.
-grep -E '^(header_version=|seed\[|utf8_seed_bytes=|multientry_seed\[|current_match_seed\[|invalidbyte_seed_bytes=|operation=(history_set_pos|history_search)(_(empty|missing|uppercase|utf8|multientry|current_match|invalidbyte_needle))? )' "$out" > "$out.semantic"
+# Assert the reviewed rows, including the two failed multi-entry searches.
+grep -E '^(header_version=|seed\[|utf8_seed_bytes=|multientry_seed\[|current_match_seed\[|invalidbyte_seed_bytes=|operation=(history_set_pos|history_search)(_(empty|missing|uppercase|utf8|multientry(_missing)?|current_match|invalidbyte_needle))? )' "$out" > "$out.semantic"
 diff -u .github/scripts/history-search-offset.expected "$out.semantic"

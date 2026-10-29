@@ -28,6 +28,10 @@ operation=history_set_pos_multientry direction=-1 requested_position=1 return=1 
 operation=history_search_multientry direction=-1 needle_hex=6e6565646c65 return_offset=5 final_position=0 current_entry_bytes=17 current_entry_hex=6563686f206e6565646c65206669727374
 operation=history_set_pos_multientry direction=+1 requested_position=1 return=1 final_position=1
 operation=history_search_multientry direction=+1 needle_hex=6e6565646c65 return_offset=5 final_position=2 current_entry_bytes=16 current_entry_hex=6563686f206e6565646c65206c617374
+operation=history_set_pos_multientry_missing direction=-1 requested_position=1 return=1 final_position=1
+operation=history_search_multientry_missing direction=-1 needle_hex=6d697373696e67 return_offset=-1 final_position=1 current_entry_bytes=6 current_entry_hex=6d6964646c65
+operation=history_set_pos_multientry_missing direction=+1 requested_position=1 return=1 final_position=1
+operation=history_search_multientry_missing direction=+1 needle_hex=6d697373696e67 return_offset=-1 final_position=1 current_entry_bytes=6 current_entry_hex=6d6964646c65
 current_match_seed[0]_bytes=15 hex=61206e6565646c65206265666f7265
 current_match_seed[1]_bytes=19 hex=6563686f206e6565646c652063757272656e74
 current_match_seed[2]_bytes=19 hex=6c6f6e676572206e6565646c65206166746572

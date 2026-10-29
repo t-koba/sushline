@@ -537,6 +537,27 @@ fn history_search_traversal_matches_pinned_multi_entry_fixture() {
 }
 
 #[test]
+fn failed_multi_entry_history_search_matches_pinned_fixture() {
+    // Mirrors the pinned GNU 8.3 failed-search rows for the same three-entry
+    // fixture: both directions return no match and preserve position 1 on `middle`.
+    let mut history = History::new();
+    let lines: [&[u8]; 3] = [b"echo needle first", b"middle", b"echo needle last"];
+    for line in lines {
+        history.push_bytes(line.to_vec());
+    }
+    assert_eq!(history.len(), 3);
+    assert_eq!(lines[1].len(), 6);
+
+    for direction in [HistoryDirection::Previous, HistoryDirection::Next] {
+        assert!(history.set_pos(1));
+        assert_eq!(history.where_history(), 1);
+        assert_eq!(history.history_search_bytes(b"missing", direction), None);
+        assert_eq!(history.where_history(), 1);
+        assert_eq!(history.current_history().unwrap().line_bytes, lines[1]);
+    }
+}
+
+#[test]
 fn history_search_current_match_matches_pinned_multi_entry_fixture() {
     // Mirrors the primary and fresh-replica GNU 8.3 current-match fixture in
     // history-search-offset.sh: all entries match, so both directions retain

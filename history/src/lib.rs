@@ -749,6 +749,19 @@ impl History {
         match direction {
             HistoryDirection::Previous => {
                 let end = pos.min(self.entries.len().saturating_sub(1));
+                if !anchored && !ignore_case {
+                    let finder = memchr::memmem::FinderRev::new(needle);
+                    return self.entries[..=end].iter().enumerate().rev().find_map(
+                        |(idx, entry)| {
+                            let byte_offset = finder.rfind(&entry.line_bytes)?;
+                            Some(HistorySearchMatch {
+                                entry_index: idx,
+                                byte_offset,
+                                line_bytes: entry.line_bytes.clone(),
+                            })
+                        },
+                    );
+                }
                 self.entries[..=end]
                     .iter()
                     .enumerate()

@@ -1075,11 +1075,19 @@ where
         bytes: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
+        // In the C/POSIX raw-meta configuration, a high-bit byte leaves
+        // search and is dispatched as ordinary input, not added to the query.
+        // Do not extend this byte rule to other encodings. Pending quoted
+        // input has already been consumed by handle_reverse_search_single.
+        let raw_meta = matches!(self.variables.lc_ctype(), Some("C" | "POSIX"))
+            && !self.flag(BoolVariable::ConvertMeta)
+            && self.flag(BoolVariable::InputMeta)
+            && bytes.first().is_some_and(|byte| byte & 0x80 != 0);
         // GNU incremental search appends printable input to the query even
         // when the active keymap binds it: only controls/escape sequences
         // terminate and execute. Bypass the keymap for chunks without
         // ASCII controls.
-        if !bytes.is_empty() && !bytes.iter().any(|byte| byte.is_ascii_control()) {
+        if !raw_meta && !bytes.is_empty() && !bytes.iter().any(|byte| byte.is_ascii_control()) {
             let input = bytes.to_vec();
             search.query.extend(input);
             search.match_index = None;
@@ -1107,10 +1115,13 @@ where
             }
             _ => None,
         };
-        if let Some(direction) = repeat_direction {
+        if !raw_meta && let Some(direction) = repeat_direction {
             return self.repeat_reverse_search(state, search, direction);
         }
-        if command_binding.is_some() || self.keymap.has_prefix(self.keymap.current(), bytes) {
+        if raw_meta
+            || command_binding.is_some()
+            || self.keymap.has_prefix(self.keymap.current(), bytes)
+        {
             let accepted = accept_search_line(state, &search);
             state.buffer = LineBuffer::from_bytes(accepted);
             if search.match_line.is_none() {

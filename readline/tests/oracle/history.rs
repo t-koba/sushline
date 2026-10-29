@@ -804,6 +804,32 @@ fn history_reverse_incremental_search_matches_pinned_c_locale_meta_input_fixture
 }
 
 #[test]
+fn history_reverse_incremental_search_matches_pinned_c_locale_input_meta_fixture() {
+    let inputrc = "set search-ignore-case on\nset convert-meta off\nset input-meta on";
+    let locale_env = [("LC_ALL", "C")];
+    let history = ["ÄLPHA old"];
+    let keys = b"\x12\xc3\xa4lpha\n\n";
+    let bash = run_bash_readline_with_inputrc_file_and_history_and_env(
+        keys,
+        inputrc,
+        &history,
+        &locale_env,
+    );
+    let sushline =
+        run_sushline_harness_with_inputrc_and_history_and_env(keys, inputrc, &history, &locale_env);
+    // Both pinned Readline 8.3 reports leave the empty search and accept
+    // the raw query as ordinary input; this does not test Unicode folding.
+    for (name, output) in [("bash", &bash), ("sushline", &sushline)] {
+        assert_eq!(
+            accepted_line(output).as_deref().map(str::as_bytes),
+            Some(&b"\xc3\xa4lpha"[..]),
+            "{name}={output}"
+        );
+    }
+    assert!(!sushline.contains("failed reverse-i-search"), "{sushline}");
+}
+
+#[test]
 fn search_ignore_case_falls_back_to_ascii_in_c_locale() {
     let inputrc = "set search-ignore-case on";
     let locale_env = [("LC_ALL", "C")];

@@ -875,6 +875,9 @@ fn find_bytes_with_case(haystack: &[u8], needle: &[u8], ignore_case: bool) -> Op
     if needle.is_empty() {
         return Some(0);
     }
+    if !ignore_case {
+        return memchr::memmem::find(haystack, needle);
+    }
     haystack
         .windows(needle.len())
         .position(|window| bytes_equal(window, needle, ignore_case))
@@ -905,4 +908,33 @@ fn bytes_equal(left: &[u8], right: &[u8], ignore_case: bool) -> bool {
             .iter()
             .zip(right)
             .all(|(a, b)| a.eq_ignore_ascii_case(b))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::find_bytes_with_case;
+
+    #[test]
+    fn byte_substring_matching_preserves_boundaries_and_case() {
+        for ignore_case in [false, true] {
+            assert_eq!(find_bytes_with_case(b"", b"", ignore_case), Some(0));
+            assert_eq!(find_bytes_with_case(b"abc", b"", ignore_case), Some(0));
+            assert_eq!(find_bytes_with_case(b"", b"a", ignore_case), None);
+            assert_eq!(find_bytes_with_case(b"ab", b"abc", ignore_case), None);
+            assert_eq!(
+                find_bytes_with_case(b"\xffabcabc", b"abc", ignore_case),
+                Some(1)
+            );
+            assert_eq!(
+                find_bytes_with_case(b"a\x00\xff", b"\x00\xff", ignore_case),
+                Some(1)
+            );
+            assert_eq!(
+                find_bytes_with_case("Ä".as_bytes(), "ä".as_bytes(), ignore_case),
+                None
+            );
+        }
+        assert_eq!(find_bytes_with_case(b"xABC", b"abc", false), None);
+        assert_eq!(find_bytes_with_case(b"xABC", b"abc", true), Some(1));
+    }
 }

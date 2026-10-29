@@ -402,6 +402,7 @@ name = "sushline-history"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "memchr",
  "tempfile",
  "windows-sys",
 ]

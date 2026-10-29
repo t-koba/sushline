@@ -125,6 +125,7 @@ impl History {
         let file = fs::File::open(path)?;
         let records = match (multiline, max_entries) {
             (HistoryMultiline::PerLine, Some(limit)) => read_history_suffix(file, limit)?,
+            (HistoryMultiline::Joined, Some(limit)) => read_history_joined_suffix(file, limit)?,
             _ => read_history_records(file, multiline)?,
         };
         self.import_records(records, max_entries);
@@ -737,6 +738,55 @@ fn read_history_suffix(file: fs::File, limit: usize) -> io::Result<Vec<(Vec<u8>,
     Ok(suffix.into_iter().collect())
 }
 
+/// Keep only the capped suffix and one incrementally joined block. A plain
+/// block may start with an empty line; timestamped blocks need a carrier first.
+fn read_history_joined_suffix(
+    file: fs::File,
+    limit: usize,
+) -> io::Result<Vec<(Vec<u8>, Option<String>)>> {
+    let mut suffix = VecDeque::new();
+    let mut retain = |line, timestamp| {
+        if suffix.len() == limit {
+            suffix.pop_front();
+        }
+        suffix.push_back((line, timestamp));
+    };
+    let mut joined = Vec::new();
+    let mut timestamp = None;
+    // Byte length alone cannot distinguish one plain blank line from no lines.
+    let mut started = false;
+    scan_history_lines(file, |line| {
+        // Still validate and scan to EOF, but retain no payload for a zero cap.
+        if limit == 0 {
+            return true;
+        }
+        match line {
+            HistoryLine::Timestamp(next) => {
+                if started {
+                    retain(std::mem::take(&mut joined), timestamp.take());
+                    started = false;
+                }
+                timestamp = Some(next);
+            }
+            HistoryLine::Command(line) => {
+                if !started && timestamp.is_some() && line.is_empty() {
+                    return true;
+                }
+                if started {
+                    joined.push(b'\n');
+                }
+                joined.extend_from_slice(line);
+                started = true;
+            }
+        }
+        true
+    })?;
+    if started {
+        retain(joined, timestamp);
+    }
+    Ok(suffix.into_iter().collect())
+}
+
 /// Group the blocks' physical lines into entries.
 ///
 /// The selection bounds the grouping to a run of physical command lines,
@@ -914,10 +964,13 @@ mod tests {
     }
 
     #[test]
-    fn capped_per_line_load_matches_full_parse_and_import() {
+    fn capped_load_matches_full_parse_and_import() {
         let fixtures: &[&[u8]] = &[
             b"",
+            b"\n",
             b"\n\r\n\n",
+            b"\n \t\n\nlast\n\n \n",
+            b"#1\n\n \t\n\nlast\n\n#2\n\n\n#3\n#4\n",
             b"unterminated",
             b"#123",
             b"#1\n#2\n\n#3\n",
@@ -932,26 +985,33 @@ mod tests {
         ];
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("history");
-        for fixture in fixtures {
+        // More than ten real blocks, interleaved with empty/no-carrier blocks:
+        // those blocks must not evict real entries from the suffix.
+        let many_blocks = (0..14)
+            .flat_map(|i| {
+                format!("#{}\n\nraw\n\n#{}\n\n#{}\n", i * 3, i * 3 + 1, i * 3 + 2).into_bytes()
+            })
+            .collect::<Vec<_>>();
+        for fixture in fixtures.iter().copied().chain([many_blocks.as_slice()]) {
             fs::write(&path, fixture).unwrap();
-            let full =
-                read_history_records(fs::File::open(&path).unwrap(), HistoryMultiline::PerLine)
-                    .unwrap();
-            for cap in [0, 1, 10, 100, usize::MAX] {
-                let mut initial = vec![History::new()];
-                for stifle in [None, Some(0), Some(1), Some(3), Some(32)] {
-                    for position in [0, 2, 4, 7] {
-                        initial.push(seeded_history(stifle, position));
+            for multiline in [HistoryMultiline::PerLine, HistoryMultiline::Joined] {
+                let full = read_history_records(fs::File::open(&path).unwrap(), multiline).unwrap();
+                for cap in [0, 1, 10, 100, usize::MAX] {
+                    let mut initial = vec![History::new()];
+                    for stifle in [None, Some(0), Some(1), Some(3), Some(32)] {
+                        for position in [0, 2, 4, 7] {
+                            initial.push(seeded_history(stifle, position));
+                        }
                     }
-                }
-                for mut actual in initial {
-                    let mut expected = actual.clone();
-                    expected.import_records(full.clone(), Some(cap));
-                    expected.file_loaded_len = expected.entries.len();
-                    actual
-                        .load_file_with_multiline(&path, Some(cap), HistoryMultiline::PerLine)
-                        .unwrap();
-                    assert_same_history(&actual, &expected);
+                    for mut actual in initial {
+                        let mut expected = actual.clone();
+                        expected.import_records(full.clone(), Some(cap));
+                        expected.file_loaded_len = expected.entries.len();
+                        actual
+                            .load_file_with_multiline(&path, Some(cap), multiline)
+                            .unwrap();
+                        assert_same_history(&actual, &expected);
+                    }
                 }
             }
         }
@@ -961,29 +1021,48 @@ mod tests {
     fn capped_load_errors_do_not_mutate_history() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("history");
-        for cap in [0, 1, 10, usize::MAX] {
-            let mut history = seeded_history(Some(3), 7);
-            let before = history.clone();
-            assert!(
-                history
-                    .load_file(dir.path().join("missing"), Some(cap))
-                    .is_err()
-            );
-            assert_same_history(&history, &before);
-            assert!(history.load_file(dir.path(), Some(cap)).is_err());
-            assert_same_history(&history, &before);
-            #[cfg(unix)]
-            {
-                let error = history.load_file("/dev/null", Some(cap)).unwrap_err();
-                assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        for multiline in [HistoryMultiline::PerLine, HistoryMultiline::Joined] {
+            for cap in [0, 1, 10, usize::MAX] {
+                let mut history = seeded_history(Some(3), 7);
+                let before = history.clone();
+                assert!(
+                    history
+                        .load_file_with_multiline(dir.path().join("missing"), Some(cap), multiline)
+                        .is_err()
+                );
                 assert_same_history(&history, &before);
+                assert!(
+                    history
+                        .load_file_with_multiline(dir.path(), Some(cap), multiline)
+                        .is_err()
+                );
+                assert_same_history(&history, &before);
+                #[cfg(unix)]
+                {
+                    let error = history
+                        .load_file_with_multiline("/dev/null", Some(cap), multiline)
+                        .unwrap_err();
+                    assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+                    assert_same_history(&history, &before);
+                }
+                for fixture in [
+                    b"one\ntwo\nthree\n".as_slice(),
+                    b"#1\none\n#2\ntwo\n#3\nthree\n",
+                ] {
+                    fs::write(&path, fixture).unwrap();
+                    // Fail at EOF, after Joined has accumulated plain payload or
+                    // emitted timestamped blocks (and evicted one at cap=1).
+                    FAIL_READ_AFTER_LINES.with(|fail| {
+                        fail.set(Some(fixture.iter().filter(|b| **b == b'\n').count()))
+                    });
+                    let error = history
+                        .load_file_with_multiline(&path, Some(cap), multiline)
+                        .unwrap_err();
+                    assert_eq!(error.to_string(), "injected read error");
+                    assert_eq!(FAIL_READ_AFTER_LINES.with(Cell::get), None);
+                    assert_same_history(&history, &before);
+                }
             }
-            fs::write(&path, b"one\ntwo\nthree\n").unwrap();
-            FAIL_READ_AFTER_LINES.with(|fail| fail.set(Some(2)));
-            let error = history.load_file(&path, Some(cap)).unwrap_err();
-            assert_eq!(error.to_string(), "injected read error");
-            assert_eq!(FAIL_READ_AFTER_LINES.with(Cell::get), None);
-            assert_same_history(&history, &before);
         }
     }
 

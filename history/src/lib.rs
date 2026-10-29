@@ -756,7 +756,7 @@ impl History {
         match direction {
             HistoryDirection::Previous => {
                 let end = pos.min(self.entries.len().saturating_sub(1));
-                if !anchored && !ignore_case {
+                if !anchored {
                     let needle_mask = byte_bigram_mask(needle);
                     let finder = memchr::memmem::FinderRev::new(needle);
                     return self.entries[..=end].iter().enumerate().rev().find_map(
@@ -764,7 +764,11 @@ impl History {
                             if self.search_masks[idx] & needle_mask != needle_mask {
                                 return None;
                             }
-                            let byte_offset = finder.rfind(&entry.line_bytes)?;
+                            let byte_offset = if ignore_case {
+                                rfind_bytes_with_case(&entry.line_bytes, needle, ignore_case)
+                            } else {
+                                finder.rfind(&entry.line_bytes)
+                            }?;
                             Some(HistorySearchMatch {
                                 entry_index: idx,
                                 byte_offset,
@@ -937,11 +941,13 @@ fn bytes_equal(left: &[u8], right: &[u8], ignore_case: bool) -> bool {
             .all(|(a, b)| a.eq_ignore_ascii_case(b))
 }
 
-// A substring contains all of its needle's byte pairs. Hash collisions only
-// admit extra exact checks; zero pairs (including one-byte needles) filter none.
+// A substring contains all of its needle's ASCII-folded byte pairs. These are
+// only a prefilter: exact matching preserves semantics in both case modes.
+// Hash collisions admit extra checks; zero pairs (including one-byte needles) filter none.
 fn byte_bigram_mask(bytes: &[u8]) -> u64 {
     bytes.windows(2).fold(0, |mask, pair| {
-        let k = u16::from_be_bytes([pair[0], pair[1]]) as u32;
+        let k =
+            u16::from_be_bytes([pair[0].to_ascii_lowercase(), pair[1].to_ascii_lowercase()]) as u32;
         let product = k.wrapping_mul(0x9e37_79b1);
         let h = product ^ (product >> 16);
         mask | (1u64 << (h & 63))

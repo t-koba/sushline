@@ -1,4 +1,5 @@
 use super::{History, HistoryEntry, HistoryMultiline};
+use std::collections::VecDeque;
 use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, Seek, Write};
 use std::path::{Path, PathBuf};
@@ -122,7 +123,11 @@ impl History {
         multiline: HistoryMultiline,
     ) -> io::Result<()> {
         let file = fs::File::open(path)?;
-        self.import_records(read_history_records(file, multiline)?, max_entries);
+        let records = match (multiline, max_entries) {
+            (HistoryMultiline::PerLine, Some(limit)) => read_history_suffix(file, limit)?,
+            _ => read_history_records(file, multiline)?,
+        };
+        self.import_records(records, max_entries);
         self.file_loaded_len = self.entries.len();
         Ok(())
     }
@@ -602,11 +607,17 @@ struct HistoryBlock {
     lines: Vec<Vec<u8>>,
 }
 
-fn read_history_blocks(
+enum HistoryLine<'a> {
+    Timestamp(String),
+    Command(&'a mut Vec<u8>),
+}
+
+/// Scan completed physical lines, sharing format selection and decoding across
+/// full, ranged and capped readers. Returning false stops at a finite range bound.
+fn scan_history_lines(
     file: fs::File,
-    command_start: usize,
-    command_limit: Option<usize>,
-) -> io::Result<Vec<HistoryBlock>> {
+    mut visit: impl FnMut(HistoryLine<'_>) -> bool,
+) -> io::Result<()> {
     // Match GNU read_history_range rejecting non-regular descriptors after
     // open (EINVAL): /dev/null and similar specials error instead of loading
     // as empty, while symlinks resolve to their target descriptor.
@@ -616,48 +627,67 @@ fn read_history_blocks(
             "history read requires a regular file",
         ));
     }
-    let mut blocks: Vec<HistoryBlock> = Vec::new();
     let mut reader = io::BufReader::new(file);
     let mut line = Vec::new();
     let mut first_line = true;
     let mut timestamped_file = false;
-    let mut command_lines = 0usize;
-    while reader.read_until(b'\n', &mut line)? != 0 {
-        if !line.ends_with(b"\n") {
+    loop {
+        #[cfg(test)]
+        tests::check_read_error()?;
+        if reader.read_until(b'\n', &mut line)? == 0 || !line.ends_with(b"\n") {
             // GNU ingests a physical line only when the scan hits LF, so a
-            // trailing EOF fragment without a terminator is ignored while
-            // preceding completed lines are retained.
-            line.clear();
+            // trailing EOF fragment without a terminator is ignored.
             break;
         }
         line.pop();
         if line.ends_with(b"\r") {
             line.pop();
         }
-        // GNU chooses the file format from its first physical line. In a
-        // timestamped file, later raw `#` plus ASCII digit prefixes delimit
-        // records; elsewhere the same bytes are command text. Invalid UTF-8
+        // GNU chooses the format from its first physical line. Invalid UTF-8
         // in timestamp metadata must not turn a delimiter into command text;
-        // the public String field stores it with replacement characters.
+        // retain decoded metadata, including NUL suffixes.
         let timestamp_record = is_timestamp_record(&line);
         if first_line {
             timestamped_file = timestamp_record;
             first_line = false;
         }
-        if timestamped_file && timestamp_record {
-            // A timestamp record opens the block of the physical lines that
-            // follow it. Retain the decoded metadata, including NUL suffixes.
-            if command_start > 0 && command_lines <= command_start {
-                blocks.clear();
-            }
-            blocks.push(HistoryBlock {
-                timestamp: Some(String::from_utf8_lossy(&line).into_owned()),
-                carrier_skipped: false,
-                lines: Vec::new(),
-            });
-            line.clear();
-            continue;
+        let keep_scanning = if timestamped_file && timestamp_record {
+            visit(HistoryLine::Timestamp(
+                String::from_utf8_lossy(&line).into_owned(),
+            ))
+        } else {
+            visit(HistoryLine::Command(&mut line))
+        };
+        if !keep_scanning {
+            break;
         }
+        line.clear();
+    }
+    Ok(())
+}
+
+fn read_history_blocks(
+    file: fs::File,
+    command_start: usize,
+    command_limit: Option<usize>,
+) -> io::Result<Vec<HistoryBlock>> {
+    let mut blocks: Vec<HistoryBlock> = Vec::new();
+    let mut command_lines = 0usize;
+    scan_history_lines(file, |line| {
+        let line = match line {
+            HistoryLine::Timestamp(timestamp) => {
+                if command_start > 0 && command_lines <= command_start {
+                    blocks.clear();
+                }
+                blocks.push(HistoryBlock {
+                    timestamp: Some(timestamp),
+                    carrier_skipped: false,
+                    lines: Vec::new(),
+                });
+                return true;
+            }
+            HistoryLine::Command(line) => line,
+        };
         if blocks.is_empty() {
             // The lines before the first timestamp record carry no
             // timestamp of their own.
@@ -673,16 +703,38 @@ fn read_history_blocks(
             // Joined grouping still follows timestamped rules after a cut.
             block.carrier_skipped |= !line.is_empty();
         } else {
-            block.lines.push(std::mem::take(&mut line));
+            block.lines.push(std::mem::take(line));
         }
         // Only command lines (including blanks) advance the finite bound.
         command_lines += 1;
-        if command_limit == Some(command_lines) {
-            break;
-        }
-        line.clear();
-    }
+        command_limit != Some(command_lines)
+    })?;
     Ok(blocks)
+}
+
+/// Retain entries rather than physical lines: blanks do not consume a slot or
+/// timestamp carrier eligibility. Allocate only as commands arrive, even when
+/// the caller supplies a very large limit. Mutation still happens via import.
+fn read_history_suffix(file: fs::File, limit: usize) -> io::Result<Vec<(Vec<u8>, Option<String>)>> {
+    let mut suffix = VecDeque::new();
+    let mut pending_timestamp = None;
+    scan_history_lines(file, |line| {
+        match line {
+            HistoryLine::Timestamp(timestamp) => pending_timestamp = Some(timestamp),
+            HistoryLine::Command(line) if !line.is_empty() => {
+                let timestamp = pending_timestamp.take();
+                if limit > 0 {
+                    if suffix.len() == limit {
+                        suffix.pop_front();
+                    }
+                    suffix.push_back((std::mem::take(line), timestamp));
+                }
+            }
+            HistoryLine::Command(_) => {}
+        }
+        true
+    })?;
+    Ok(suffix.into_iter().collect())
 }
 
 /// Group the blocks' physical lines into entries.
@@ -818,6 +870,137 @@ mod tests {
     // cannot interfere and injected failures never leak an open file handle.
     thread_local! {
         pub(super) static FAIL_CLOSE: Cell<bool> = const { Cell::new(false) };
+        static FAIL_READ_AFTER_LINES: Cell<Option<usize>> = const { Cell::new(None) };
+    }
+
+    // Fail a scan after completed lines, without platform-specific special
+    // files or concurrent file changes. One-shot and local to this test thread.
+    pub(super) fn check_read_error() -> io::Result<()> {
+        FAIL_READ_AFTER_LINES.with(|fail| match fail.get() {
+            Some(0) => {
+                fail.set(None);
+                Err(io::Error::other("injected read error"))
+            }
+            Some(left) => {
+                fail.set(Some(left - 1));
+                Ok(())
+            }
+            None => Ok(()),
+        })
+    }
+
+    fn assert_same_history(actual: &History, expected: &History) {
+        assert_eq!(actual.entries, expected.entries);
+        assert_eq!(actual.cursor, expected.cursor);
+        assert_eq!(actual.current_edit, expected.current_edit);
+        assert_eq!(actual.max_entries, expected.max_entries);
+        assert_eq!(actual.file_loaded_len, expected.file_loaded_len);
+    }
+
+    fn seeded_history(stifle: Option<usize>, position: usize) -> History {
+        let mut history = History::new();
+        for line in ["old one", "old two", "old three", "old four"] {
+            history.push(line);
+            history.add_time("#99");
+        }
+        history.entries[0].modified = true;
+        if let Some(limit) = stifle {
+            history.stifle(limit);
+        }
+        history.restore_offset(position);
+        history.current_edit = b"current\0\xffedit".to_vec();
+        history.file_loaded_len = history.entries.len().saturating_sub(1);
+        history
+    }
+
+    #[test]
+    fn capped_per_line_load_matches_full_parse_and_import() {
+        let fixtures: &[&[u8]] = &[
+            b"",
+            b"\n\r\n\n",
+            b"unterminated",
+            b"#123",
+            b"#1\n#2\n\n#3\n",
+            b"\n#1\n\n#2\nplain\n\n",
+            b"first\n\n#123\nlast\n\n#456",
+            b"\r\nfirst\r\n\r\n#1\xff\0suffix\r\nlast\r\n\r\nignored\r",
+            b"#1\n\n#2\n\nfirst\n\nsecond\n\n#3\n#4\n\nthird\n\n#5",
+            b"#1\xff\0suffix\r\n\r\nraw\xff\0command\r\n\r\nsecond\r\n#2\0tail\r\n\r\nlast\r\nignored",
+            // Both exceed cap=10; the timestamp carrier is outside that suffix.
+            b"\n0\n1\n\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n\nignored",
+            b"#1\n\n0\n1\n\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n\n#2",
+        ];
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history");
+        for fixture in fixtures {
+            fs::write(&path, fixture).unwrap();
+            let full =
+                read_history_records(fs::File::open(&path).unwrap(), HistoryMultiline::PerLine)
+                    .unwrap();
+            for cap in [0, 1, 10, 100, usize::MAX] {
+                let mut initial = vec![History::new()];
+                for stifle in [None, Some(0), Some(1), Some(3), Some(32)] {
+                    for position in [0, 2, 4, 7] {
+                        initial.push(seeded_history(stifle, position));
+                    }
+                }
+                for mut actual in initial {
+                    let mut expected = actual.clone();
+                    expected.import_records(full.clone(), Some(cap));
+                    expected.file_loaded_len = expected.entries.len();
+                    actual
+                        .load_file_with_multiline(&path, Some(cap), HistoryMultiline::PerLine)
+                        .unwrap();
+                    assert_same_history(&actual, &expected);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn capped_load_errors_do_not_mutate_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history");
+        for cap in [0, 1, 10, usize::MAX] {
+            let mut history = seeded_history(Some(3), 7);
+            let before = history.clone();
+            assert!(
+                history
+                    .load_file(dir.path().join("missing"), Some(cap))
+                    .is_err()
+            );
+            assert_same_history(&history, &before);
+            assert!(history.load_file(dir.path(), Some(cap)).is_err());
+            assert_same_history(&history, &before);
+            #[cfg(unix)]
+            {
+                let error = history.load_file("/dev/null", Some(cap)).unwrap_err();
+                assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+                assert_same_history(&history, &before);
+            }
+            fs::write(&path, b"one\ntwo\nthree\n").unwrap();
+            FAIL_READ_AFTER_LINES.with(|fail| fail.set(Some(2)));
+            let error = history.load_file(&path, Some(cap)).unwrap_err();
+            assert_eq!(error.to_string(), "injected read error");
+            assert_eq!(FAIL_READ_AFTER_LINES.with(Cell::get), None);
+            assert_same_history(&history, &before);
+        }
+    }
+
+    #[test]
+    fn range_stops_before_later_scan_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history");
+        fs::write(&path, b"#1\n\ncarrier\nlater\n").unwrap();
+        // The blank counts, the timestamp does not. Neither grouping may
+        // continue reading after the two selected command lines.
+        for multiline in [HistoryMultiline::PerLine, HistoryMultiline::Joined] {
+            FAIL_READ_AFTER_LINES.with(|fail| fail.set(Some(3)));
+            let result = History::read_file_range_with_multiline(&path, 0, Some(2), multiline);
+            let remaining = FAIL_READ_AFTER_LINES.with(|fail| fail.replace(None));
+            assert_eq!(remaining, Some(0));
+            assert_eq!(result.unwrap().entries[0].line_bytes, b"carrier");
+        }
     }
 
     fn with_close_error(operation: impl FnOnce() -> io::Result<()>) {

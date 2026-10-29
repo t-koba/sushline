@@ -190,6 +190,7 @@ pub struct HistorySearchMatch {
 /// to recover a valid position.
 pub struct History {
     entries: Vec<HistoryEntry>,
+    search_masks: Vec<u64>,
     cursor: Option<usize>,
     current_edit: Vec<u8>,
     max_entries: Option<usize>,
@@ -228,6 +229,7 @@ impl History {
         if self.entries.len() > max_len {
             let remove = self.entries.len() - max_len;
             self.entries.drain(..remove);
+            self.search_masks.drain(..remove);
             self.file_loaded_len = self.file_loaded_len.saturating_sub(remove);
         }
         self.reset_cursor();
@@ -269,6 +271,7 @@ impl History {
     /// Clear.
     pub fn clear(&mut self) {
         self.entries.clear();
+        self.search_masks.clear();
         self.file_loaded_len = 0;
         self.reset_cursor();
     }
@@ -299,6 +302,7 @@ impl History {
         }
         let position = self.where_history();
         let removed = self.entries.remove(index);
+        self.search_masks.remove(index);
         if index < self.file_loaded_len {
             self.file_loaded_len = self.file_loaded_len.saturating_sub(1);
         }
@@ -322,6 +326,7 @@ impl History {
                 undo_list,
             },
         );
+        self.search_masks[index] = byte_bigram_mask(&entry.line_bytes);
         // Replacing content keeps the positioned cursor (and any stashed
         // current edit), matching the pinned GNU behavior.
         Some(previous)
@@ -361,6 +366,7 @@ impl History {
             return false;
         };
         if entry.line_bytes != line {
+            self.search_masks[index] = byte_bigram_mask(&line);
             entry.line_bytes = line;
             entry.modified = true;
         }
@@ -459,6 +465,7 @@ impl History {
         if !suppress_adjacent_duplicate
             || self.entries.last().map(|entry| entry.line_bytes.as_slice()) != Some(line.as_slice())
         {
+            self.search_masks.push(byte_bigram_mask(&line));
             self.entries.push(HistoryEntry {
                 line_bytes: line,
                 timestamp,
@@ -750,9 +757,13 @@ impl History {
             HistoryDirection::Previous => {
                 let end = pos.min(self.entries.len().saturating_sub(1));
                 if !anchored && !ignore_case {
+                    let needle_mask = byte_bigram_mask(needle);
                     let finder = memchr::memmem::FinderRev::new(needle);
                     return self.entries[..=end].iter().enumerate().rev().find_map(
                         |(idx, entry)| {
+                            if self.search_masks[idx] & needle_mask != needle_mask {
+                                return None;
+                            }
                             let byte_offset = finder.rfind(&entry.line_bytes)?;
                             Some(HistorySearchMatch {
                                 entry_index: idx,
@@ -926,9 +937,130 @@ fn bytes_equal(left: &[u8], right: &[u8], ignore_case: bool) -> bool {
             .all(|(a, b)| a.eq_ignore_ascii_case(b))
 }
 
+// A substring contains all of its needle's byte pairs. Hash collisions only
+// admit extra exact checks; zero pairs (including one-byte needles) filter none.
+fn byte_bigram_mask(bytes: &[u8]) -> u64 {
+    bytes.windows(2).fold(0, |mask, pair| {
+        let k = u16::from_be_bytes([pair[0], pair[1]]) as u32;
+        let h = k.wrapping_mul(0x9e3779b1) ^ (k >> 3);
+        mask | (1u64 << (h & 63))
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{find_bytes_with_case, rfind_bytes_with_case};
+    use super::{
+        History, HistoryDirection, HistorySearchMatch, find_bytes_with_case, rfind_bytes_with_case,
+    };
+
+    #[test]
+    fn previous_search_matches_reference_after_mutations() {
+        fn check(history: &History) {
+            let mut needles: Vec<&[u8]> = vec![
+                b"",
+                b"a",
+                b"z",
+                b"abc",
+                b"ABC",
+                b"aba",
+                b"replaced",
+                b"absent",
+                b"\x00\xff",
+                b"\xff",
+                b"\xff\x80",
+                b"\x80\x00",
+            ];
+            // Every substring must survive the filter, including raw bytes.
+            for entry in history.entries() {
+                for start in 0..entry.line_bytes.len() {
+                    for end in start + 1..=entry.line_bytes.len() {
+                        needles.push(&entry.line_bytes[start..end]);
+                    }
+                }
+            }
+            for needle in needles {
+                for pos in 0..=history.len() {
+                    for (anchored, ignore_case) in [(false, false), (true, false), (false, true)] {
+                        let expected = history.entries().iter().enumerate().rev().find_map(
+                            |(index, entry)| {
+                                if index > pos || needle.is_empty() {
+                                    return None;
+                                }
+                                let byte_offset =
+                                    entry.line_bytes.windows(needle.len()).rposition(|bytes| {
+                                        if ignore_case {
+                                            bytes.eq_ignore_ascii_case(needle)
+                                        } else {
+                                            bytes == needle
+                                        }
+                                    })?;
+                                let byte_offset = if anchored {
+                                    entry.line_bytes.starts_with(needle).then_some(0)?
+                                } else {
+                                    byte_offset
+                                };
+                                Some(HistorySearchMatch {
+                                    entry_index: index,
+                                    byte_offset,
+                                    line_bytes: entry.line_bytes.clone(),
+                                })
+                            },
+                        );
+                        assert_eq!(
+                            history.search_from_pos_bytes_with_case(
+                                needle,
+                                HistoryDirection::Previous,
+                                pos,
+                                anchored,
+                                ignore_case,
+                            ),
+                            expected,
+                            "needle={needle:?}, pos={pos}, anchored={anchored}, ignore_case={ignore_case}",
+                        );
+                    }
+                }
+            }
+        }
+
+        let mut history = History::new();
+        for line in [
+            b"old abc".as_slice(),
+            b"ababa",
+            b"\x00\xffa\x00\xff",
+            b"ABC",
+            b"",
+        ] {
+            history.push_bytes(line.to_vec());
+            check(&history);
+        }
+        // A suppressed append must not insert a mask of its own.
+        history.push_entry(Vec::new(), None, true);
+        check(&history);
+        history.enforce_max_len(Some(4));
+        check(&history);
+        history.stifle(4);
+        history.push("new abc abc");
+        check(&history);
+        assert!(history.replace(0, "replaced aba aba").is_some());
+        check(&history);
+        assert!(history.set_line_bytes(1, b"\xff\x80\x00\xff\x80".to_vec()));
+        check(&history);
+        assert!(history.set_line_bytes(1, b"\xff\x80\x00\xff\x80".to_vec()));
+        assert!(history.remove(2).is_some());
+        check(&history);
+        assert!(history.remove(history.len()).is_none());
+        assert!(history.replace(history.len(), "invalid").is_none());
+        assert!(!history.set_line_bytes(history.len(), vec![0]));
+        check(&history);
+        history.clear();
+        check(&history);
+        history.push_bytes(b"\x80\x00abcabc".to_vec());
+        history.push("ABC");
+        check(&history);
+        history.stifle(0);
+        history.push("discarded");
+        check(&history);
+    }
 
     #[test]
     fn byte_substring_matching_preserves_boundaries_and_case() {

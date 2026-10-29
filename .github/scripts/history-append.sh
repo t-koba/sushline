@@ -110,6 +110,8 @@ for count in 0 1; do
 done
 printf 'old-tail' > "$work/oversized"
 LC_ALL=C timeout 5 "$work/probe" "$work/oversized" 0 3
+printf '#1700000000\nold-tail' > "$work/oversized_timestamped"
+LC_ALL=C timeout 5 "$work/probe" "$work/oversized_timestamped" 1 3
 printf 'old\n' > "$work/history"
 chmod 0644 "$work/history"
 LC_ALL=C timeout 5 "$work/probe" "$work/history" mode 1

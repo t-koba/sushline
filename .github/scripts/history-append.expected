@@ -7,5 +7,6 @@ timestamped count=2 status=0 hex=23313730303030303030300a6f6c642d7461696c2331373
 missing count=0 status=2 errno=2 exists=0
 missing count=1 status=2 errno=2 exists=0
 plain count=3 status=0 hex=6f6c642d7461696c6e6577310a6e6577320a
+timestamped count=3 status=0 hex=23313730303030303030300a6f6c642d7461696c233137303030303030310a6e6577310a233137303030303030320a6e6577320a
 mode count=1 status=0 mode=0644 hex=6f6c640a6e65770a
 symlink count=1 status=0 target_mode=0644 link_is_symlink=1 target=history-target hex=6f6c640a6e65770a

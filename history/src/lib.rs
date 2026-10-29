@@ -61,6 +61,24 @@ impl HistoryEntry {
         let digits = text.strip_prefix(TIMESTAMP_MARKER as char)?;
         parse_seconds(digits)
     }
+
+    /// A GNU `history_get_time`-style view using an explicit comment marker.
+    ///
+    /// Returns the parsed seconds only when the first byte of the GNU
+    /// timestamp-text view matches `comment_char`; otherwise it returns zero.
+    /// The decimal-prefix conversion uses the same rules as
+    /// [`timestamp_seconds`](Self::timestamp_seconds). Like GNU, a missing
+    /// timestamp or failed conversion returns zero. This is a read-only view
+    /// and does not change the stored timestamp or process-global state.
+    pub fn gnu_timestamp_seconds(&self, comment_char: u8) -> i64 {
+        let Some(text) = self.gnu_timestamp_text() else {
+            return 0;
+        };
+        if text.as_bytes().first().copied() != Some(comment_char) {
+            return 0;
+        }
+        text.get(1..).and_then(parse_seconds).unwrap_or(0)
+    }
 }
 
 /// Read the base-10 integer prefix after a timestamp record's marker.

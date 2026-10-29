@@ -2020,6 +2020,34 @@ fn history_entry_timestamp_seconds_parse_decimal_prefixes_and_overflow() {
 }
 
 #[test]
+fn gnu_timestamp_seconds_respects_explicit_comment_marker() {
+    let cases = [
+        (Some("#1700000000"), b'#', 1_700_000_000),
+        (Some("#1700000000"), b'!', 0),
+        (Some("#1700000000"), 0, 0),
+        (Some("! -17tail"), b'!', -17),
+        (Some("#\u{b}1700000000"), b'#', 1_700_000_000),
+        (Some("#9223372036854775808"), b'#', 0),
+        (Some("#1700000000\0suffix"), b'#', 1_700_000_000),
+        (None, b'#', 0),
+    ];
+
+    for (timestamp, comment_char, expected) in cases {
+        let entry = HistoryEntry {
+            line_bytes: Vec::new(),
+            timestamp: timestamp.map(str::to_owned),
+            modified: false,
+            undo_list: Vec::new(),
+        };
+        assert_eq!(
+            entry.gnu_timestamp_seconds(comment_char),
+            expected,
+            "timestamp {timestamp:?} with comment character {comment_char:?}"
+        );
+    }
+}
+
+#[test]
 fn history_file_entries_expose_their_timestamp_seconds() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");

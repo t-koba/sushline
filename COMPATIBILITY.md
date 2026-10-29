@@ -25,18 +25,17 @@ continues there; the evidence of such a host is not scoped to a release. The
 host the claims were measured on links Readline statically and exports the
 release number 0x0803, the 8.3 release this document targets. Its library's
 own version label reads 8.1, so the image states the release two ways and
-the two disagree; the release identity rests on the release number, because
-the host's command list holds the two names the 8.3 release adds to the
-library's function table (`execute-named-command` and `export-completions`):
-the shell registers neither of them, and no earlier release holds them, the
-installed 8.2 release's library listing neither in its own function dump, so
-the code is the 8.3 release and the label is stale. The suite reads the
-number and the label from the image that carries them and asks the host for
-its command list, and it names all three in its note, so the evidence
-carries the release it was measured on. The CI job builds the Readline
-release this document names from the upstream tarball and links the pinned
-Bash host against it, so the same suite runs against that release there as
-well. The build is configured with the options the job names in its log and
+the two disagree. The release identity rests on the release number: the
+host's command list holds the two names the 8.3 release adds to the
+library's function table (`execute-named-command` and `export-completions`).
+The shell registers neither name, and the installed 8.2 library's own
+function dump lists neither, so the host's code is the 8.3 release and
+the 8.1 label is stale. The suite reads the number and the label from the
+image that carries them and asks the host for its command list, naming all
+three in its note so the evidence carries the release it was measured on.
+The CI job builds the Readline release this document names from the upstream
+tarball and links the pinned Bash host against it, so the same suite runs
+against that release there as well. The build is configured with the options the job names in its log and
 in the cache keys, and the job stops the build when the release's configure
 does not accept one of them; the host's Readline selection is named in the
 cache key as well, so neither a library nor a host built another way is

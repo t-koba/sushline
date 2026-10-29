@@ -117,6 +117,23 @@ int main(void) {
         putchar('\n');
         fflush(stdout);
     }
+    /* Keep these two failed multi-entry searches raw until both pinned runners
+       have been reviewed; their suffix is excluded from the semantic projection. */
+    for (int direction = -1; direction <= 1; direction += 2) {
+        int positioned = history_set_pos(1);
+        int position = where_history();
+        printf("operation=history_set_pos_multientry_missing direction=%+d requested_position=1 return=%d final_position=%d\n",
+               direction, positioned, position);
+        fflush(stdout);
+        if (!positioned || position != 1) return 3;
+        int offset = history_search("missing", direction);
+        HIST_ENTRY *entry = current_history();
+        printf("operation=history_search_multientry_missing direction=%+d needle_hex=6d697373696e67 return_offset=%d final_position=%d current_entry_bytes=%zu current_entry_hex=",
+               direction, offset, where_history(), entry ? strlen(entry->line) : 0);
+        print_hex(entry ? entry->line : NULL);
+        putchar('\n');
+        fflush(stdout);
+    }
     clear_history();
     const char *current_match_entries[] = {
         "a needle before", "echo needle current", "longer needle after"
@@ -186,6 +203,7 @@ PROBE
   sha256sum "$readline/lib/libhistory.so" "$readline/lib/libreadline.so"
   LC_ALL=C timeout 5 "$work/probe"
 } 2>&1 | tee "$out"
-# Assert the pinned single-entry, multi-entry, current-match, and invalid-byte search rows.
+# Assert reviewed rows only. The multi-entry failed-search observations remain raw
+# in both reports until their primary and fresh-replica outcomes are reviewed.
 grep -E '^(header_version=|seed\[|utf8_seed_bytes=|multientry_seed\[|current_match_seed\[|invalidbyte_seed_bytes=|operation=(history_set_pos|history_search)(_(empty|missing|uppercase|utf8|multientry|current_match|invalidbyte_needle))? )' "$out" > "$out.semantic"
 diff -u .github/scripts/history-search-offset.expected "$out.semantic"

@@ -1,6 +1,6 @@
 use super::{History, HistoryEntry, HistoryMultiline};
 use std::fs::{self, OpenOptions};
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -313,8 +313,25 @@ impl History {
                 "history truncate requires a regular file",
             ));
         }
-        let bytes = fs::read(path)?;
-        let lf_count = bytes.iter().filter(|&&byte| byte == b'\n').count();
+        // Count in fixed-size buffers, not physical lines: a single line may
+        // itself be arbitrarily large. File offsets and counts use u64.
+        let mut source = io::BufReader::new(fs::File::open(path)?);
+        let mut lf_count = 0u64;
+        loop {
+            let buffer = loop {
+                match source.fill_buf() {
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                    result => break result?,
+                }
+            };
+            if buffer.is_empty() {
+                break;
+            }
+            lf_count += buffer.iter().filter(|&&byte| byte == b'\n').count() as u64;
+            let len = buffer.len();
+            source.consume(len);
+        }
+        let max_len = max_len as u64;
         if lf_count <= max_len {
             #[cfg(unix)]
             {
@@ -323,19 +340,36 @@ impl History {
             }
             return Ok(());
         }
-        let keep_from = if max_len == 0 {
-            bytes.len()
-        } else {
-            bytes
+        if max_len == 0 {
+            return write_atomic(path, |_| Ok(()));
+        }
+        source.rewind()?;
+        let mut skip = lf_count - max_len;
+        while skip > 0 {
+            let buffer = loop {
+                match source.fill_buf() {
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                    result => break result?,
+                }
+            };
+            if buffer.is_empty() {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "history changed during truncation",
+                ));
+            }
+            let len = buffer
                 .iter()
-                .enumerate()
-                .filter(|&(_, byte)| *byte == b'\n')
-                .nth(lf_count - max_len - 1)
-                .unwrap()
-                .0
-                + 1
-        };
-        write_atomic(path, |file| file.write_all(&bytes[keep_from..]))
+                .position(|&byte| {
+                    if byte == b'\n' {
+                        skip -= 1;
+                    }
+                    skip == 0
+                })
+                .map_or(buffer.len(), |index| index + 1);
+            source.consume(len);
+        }
+        write_atomic(path, |file| io::copy(&mut source, file).map(|_| ()))
     }
 
     fn write_entries(&self, file: &mut fs::File, write_timestamps: bool) -> io::Result<()> {
@@ -823,6 +857,21 @@ mod tests {
             history.write_file(&path).unwrap();
             assert_eq!(fs::read(&path).unwrap(), b"replacement\n");
             assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+        }
+    }
+
+    #[test]
+    fn truncate_close_failure_preserves_destination_and_removes_temp() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history");
+        for limit in [0, 1] {
+            fs::write(&path, b"one\ntwo\ntail").unwrap();
+            with_close_error(|| History::truncate_file(&path, limit));
+            assert_eq!(fs::read(&path).unwrap(), b"one\ntwo\ntail");
+            assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+            History::truncate_file(&path, limit).unwrap();
+            let expected: &[u8] = if limit == 0 { b"" } else { b"two\ntail" };
+            assert_eq!(fs::read(&path).unwrap(), expected);
         }
     }
 

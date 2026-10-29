@@ -1023,7 +1023,11 @@ fn reads_writes_appends_and_truncates_history_files() {
 fn truncate_file_preserves_noop_bytes_and_truncates_when_needed() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");
-    let cases: [(&[u8], usize, &[u8]); 7] = [
+    let cases: &[(&[u8], usize, &[u8])] = &[
+        (b"", 0, b""),
+        (b"unterminated", 0, b"unterminated"),
+        (b"unterminated", usize::MAX, b"unterminated"),
+        (b"A\nB\nC", usize::MAX, b"A\nB\nC"),
         (b"A\n\nB\n", 10, b"A\n\nB\n"),
         (b"A\n\nB\n", 1, b"B\n"),
         (b"A\nB", 10, b"A\nB"),
@@ -1033,7 +1037,7 @@ fn truncate_file_preserves_noop_bytes_and_truncates_when_needed() {
         (b"A\nB\nC", 2, b"A\nB\nC"),
     ];
 
-    for (input, max_len, expected) in cases {
+    for &(input, max_len, expected) in cases {
         fs::write(&path, input).unwrap();
         History::truncate_file(&path, max_len).unwrap();
         let output = fs::read(&path).unwrap();
@@ -1042,6 +1046,47 @@ fn truncate_file_preserves_noop_bytes_and_truncates_when_needed() {
             expected,
             "fixture {input:?}, max_len {max_len}"
         );
+    }
+}
+
+#[test]
+fn truncate_file_streams_across_buffers_with_exact_suffixes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    let mut inputs = vec![vec![b'\n'; 20_000], vec![0xff; 40_000]];
+    // Put LF and CRLF boundaries on either side of the scan buffer boundary,
+    // and retain a tail longer than a buffer, including non-text bytes.
+    for prefix_len in 8190..=8194 {
+        let mut input = vec![b'x'; prefix_len];
+        input.extend_from_slice(b"\n#1700000000\r\n\ncommand\r\n");
+        input.extend(vec![0xff; 40_000]);
+        input.extend_from_slice(b"\0unterminated\r");
+        inputs.push(input);
+    }
+    for input in inputs {
+        let lf_count = input.iter().filter(|&&byte| byte == b'\n').count();
+        for limit in [0, 1, 2, 3, lf_count, lf_count + 1, usize::MAX] {
+            // The original in-memory definition is the oracle, independent
+            // of scan buffer sizes or the length of the unterminated tail.
+            let start = if lf_count <= limit {
+                0
+            } else if limit == 0 {
+                input.len()
+            } else {
+                input
+                    .iter()
+                    .enumerate()
+                    .filter(|&(_, byte)| *byte == b'\n')
+                    .nth(lf_count - limit - 1)
+                    .unwrap()
+                    .0
+                    + 1
+            };
+            fs::write(&path, &input).unwrap();
+            History::truncate_file(&path, limit).unwrap();
+            assert_eq!(fs::read(&path).unwrap(), input[start..], "limit {limit}");
+            assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+        }
     }
 }
 

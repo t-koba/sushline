@@ -118,5 +118,4 @@ chmod 0644 "$work/history-target"
 ln -s history-target "$work/history-link"
 LC_ALL=C timeout 5 "$work/probe" "$work/history-link" symlink 1
 } | tee "$out"
-grep -v '^raw_' "$out" > "$out.semantic"
-diff -u .github/scripts/history-append.expected "$out.semantic"
+diff -u .github/scripts/history-append.expected "$out"

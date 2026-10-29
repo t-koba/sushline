@@ -723,13 +723,7 @@ fn read_history_suffix(file: fs::File, limit: usize) -> io::Result<Vec<(Vec<u8>,
         match line {
             HistoryLine::Timestamp(timestamp) => pending_timestamp = Some(timestamp),
             HistoryLine::Command(line) if !line.is_empty() => {
-                let timestamp = pending_timestamp.take();
-                if limit > 0 {
-                    if suffix.len() == limit {
-                        suffix.pop_front();
-                    }
-                    suffix.push_back((std::mem::take(line), timestamp));
-                }
+                retain_history_suffix(&mut suffix, line, pending_timestamp.take(), limit);
             }
             HistoryLine::Command(_) => {}
         }
@@ -745,12 +739,6 @@ fn read_history_joined_suffix(
     limit: usize,
 ) -> io::Result<Vec<(Vec<u8>, Option<String>)>> {
     let mut suffix = VecDeque::new();
-    let mut retain = |line, timestamp| {
-        if suffix.len() == limit {
-            suffix.pop_front();
-        }
-        suffix.push_back((line, timestamp));
-    };
     let mut joined = Vec::new();
     let mut timestamp = None;
     // Byte length alone cannot distinguish one plain blank line from no lines.
@@ -763,7 +751,7 @@ fn read_history_joined_suffix(
         match line {
             HistoryLine::Timestamp(next) => {
                 if started {
-                    retain(std::mem::take(&mut joined), timestamp.take());
+                    retain_history_suffix(&mut suffix, &mut joined, timestamp.take(), limit);
                     started = false;
                 }
                 timestamp = Some(next);
@@ -782,9 +770,30 @@ fn read_history_joined_suffix(
         true
     })?;
     if started {
-        retain(joined, timestamp);
+        retain_history_suffix(&mut suffix, &mut joined, timestamp, limit);
     }
     Ok(suffix.into_iter().collect())
+}
+
+// Return the evicted buffer to the caller for its next line or joined block.
+fn retain_history_suffix(
+    suffix: &mut VecDeque<(Vec<u8>, Option<String>)>,
+    line: &mut Vec<u8>,
+    timestamp: Option<String>,
+    limit: usize,
+) {
+    if limit == 0 {
+        return;
+    }
+    let mut retained = Vec::new();
+    if suffix.len() == limit
+        && let Some((evicted, _)) = suffix.pop_front()
+    {
+        retained = evicted;
+    }
+    std::mem::swap(line, &mut retained);
+    line.clear();
+    suffix.push_back((retained, timestamp));
 }
 
 /// Group the blocks' physical lines into entries.
@@ -964,6 +973,42 @@ mod tests {
     }
 
     #[test]
+    fn capped_suffix_recycles_evicted_buffer() {
+        let mut suffix = VecDeque::new();
+        let mut line = b"long first command".to_vec();
+        let first_buffer = line.as_ptr();
+        let first_capacity = line.capacity();
+        retain_history_suffix(&mut suffix, &mut line, Some("#1".into()), 1);
+        assert!(line.is_empty());
+        assert_eq!(
+            suffix[0],
+            (b"long first command".to_vec(), Some("#1".into()))
+        );
+
+        line.extend_from_slice(b"x");
+        let second_buffer = line.as_ptr();
+        retain_history_suffix(&mut suffix, &mut line, Some("#2".into()), 1);
+        assert_eq!(suffix.len(), 1);
+        assert_eq!(suffix[0], (b"x".to_vec(), Some("#2".into())));
+        assert_eq!(suffix[0].0.as_ptr(), second_buffer);
+        assert!(line.is_empty());
+        assert_eq!(line.as_ptr(), first_buffer);
+        assert_eq!(line.capacity(), first_capacity);
+
+        line.extend_from_slice(b"last");
+        retain_history_suffix(&mut suffix, &mut line, None, 1);
+        assert_eq!(suffix[0], (b"last".to_vec(), None));
+        assert_eq!(suffix[0].0.as_ptr(), first_buffer);
+        assert!(line.is_empty());
+        assert_eq!(line.as_ptr(), second_buffer);
+
+        let mut empty = VecDeque::new();
+        line.extend_from_slice(b"discarded");
+        retain_history_suffix(&mut empty, &mut line, Some("#3".into()), 0);
+        assert!(empty.is_empty());
+    }
+
+    #[test]
     fn capped_load_matches_full_parse_and_import() {
         let fixtures: &[&[u8]] = &[
             b"",
@@ -989,7 +1034,16 @@ mod tests {
         // those blocks must not evict real entries from the suffix.
         let many_blocks = (0..14)
             .flat_map(|i| {
-                format!("#{}\n\nraw\n\n#{}\n\n#{}\n", i * 3, i * 3 + 1, i * 3 + 2).into_bytes()
+                // Alternating sizes exercise reuse without leaking an old tail,
+                // including records crossing the scanner's read buffer boundary.
+                let command = "x".repeat(if i % 2 == 0 { 9000 } else { i + 1 });
+                format!(
+                    "#{}\n\n{command}\nraw\n\n#{}\n\n#{}\n",
+                    i * 3,
+                    i * 3 + 1,
+                    i * 3 + 2
+                )
+                .into_bytes()
             })
             .collect::<Vec<_>>();
         for fixture in fixtures.iter().copied().chain([many_blocks.as_slice()]) {

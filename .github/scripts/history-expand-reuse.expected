@@ -27,3 +27,7 @@ seed_replacement[0]_length=14 hex=6563686f20616c7068612d6e6577
 seed_replacement[1]_length=10 hex=6563686f2067616d6d61
 history_length_after_reseed=2
 step=reuse-after-clear input_hex=213f3f status=1 output_hex=6563686f20616c7068612d6e6577
+sequence=fresh-percent
+header_version=0x0803 runtime_version=0x0803
+seed[0]_hex=6563686f20616c706861 seed[1]_hex=6563686f2062657461
+step=fresh-percent input_hex=213a25 status=1 output_hex=

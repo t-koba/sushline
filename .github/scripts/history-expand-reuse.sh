@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Assert pinned GNU 8.3 reuse fixtures; keep no-prior-match `%` probes raw.
+# Assert pinned GNU 8.3 reuse fixtures; keep failed-search-first `%` raw.
 set -euo pipefail
 if [ $# -ne 1 ] || { [ "$1" != primary ] && [ "$1" != replica ]; }; then
   echo 'usage: history-expand-reuse.sh <primary|replica>' >&2; exit 2
@@ -61,8 +61,7 @@ int main(int argc, char **argv) {
                       strcmp(argv[1], "reuse-after-clear") != 0 &&
                       strcmp(argv[1], "fresh-percent") != 0 &&
                       strcmp(argv[1], "failed-search-first-percent") != 0)) return 2;
-    raw_report = strcmp(argv[1], "fresh-percent") == 0 ||
-                 strcmp(argv[1], "failed-search-first-percent") == 0;
+    raw_report = strcmp(argv[1], "failed-search-first-percent") == 0;
     printf("%sheader_version=0x%04x runtime_version=0x%04x\n",
            raw_report ? "raw_" : "", RL_READLINE_VERSION, rl_readline_version);
     if (RL_READLINE_VERSION != 0x0803 || rl_readline_version != 0x0803)
@@ -134,7 +133,11 @@ PROBE
         printf 'sequence=%s\n' "$sequence"
         probe_sequence=$sequence
         ;;
-      fresh-percent|failed-search-first-percent)
+      fresh-percent)
+        printf 'sequence=%s\n' "$sequence"
+        probe_sequence=$sequence
+        ;;
+      failed-search-first-percent)
         printf 'raw_sequence=%s\n' "$sequence"
         probe_sequence=$sequence
         ;;

@@ -37,12 +37,14 @@ static void print_hex(const char *s) {
         printf("%02x", (unsigned int)*p);
 }
 
+static int raw_report;
+
 static void expand(const char *label, const char *input) {
     char *in = strdup(input);
     if (in == NULL) exit(3);
     char *output = NULL;
     int status = history_expand(in, &output);
-    printf("step=%s input_hex=", label);
+    printf("%sstep=%s input_hex=", raw_report ? "raw_" : "", label);
     print_hex(input);
     printf(" status=%d output_hex=", status);
     print_hex(output);
@@ -54,20 +56,28 @@ static void expand(const char *label, const char *input) {
 
 int main(int argc, char **argv) {
     if (argc != 2 || (strcmp(argv[1], "failed-search") != 0 &&
-                      strcmp(argv[1], "positive-control") != 0)) return 2;
-    printf("header_version=0x%04x runtime_version=0x%04x\n",
-           RL_READLINE_VERSION, rl_readline_version);
+                      strcmp(argv[1], "positive-control") != 0 &&
+                      strcmp(argv[1], "failed-search-percent") != 0)) return 2;
+    raw_report = strcmp(argv[1], "failed-search-percent") == 0;
+    printf("%sheader_version=0x%04x runtime_version=0x%04x\n",
+           raw_report ? "raw_" : "", RL_READLINE_VERSION, rl_readline_version);
     if (RL_READLINE_VERSION != 0x0803 || rl_readline_version != 0x0803)
         return 2;
     using_history();
     add_history("echo alpha");
     add_history("echo beta");
-    printf("seed[0]_hex=6563686f20616c706861 seed[1]_hex=6563686f2062657461\n");
+    printf("%sseed[0]_hex=6563686f20616c706861 seed[1]_hex=6563686f2062657461\n",
+           raw_report ? "raw_" : "");
     /* Seed once: do not clear/reseed or add expansion outputs between calls. */
     expand("success", "!?alpha?");
-    if (strcmp(argv[1], "failed-search") == 0)
+    if (strcmp(argv[1], "failed-search-percent") == 0) {
         expand("failed-search", "!?missing?");
-    expand("reuse", "!??");
+        expand("percent-after-failure", "!:%");
+    } else {
+        if (strcmp(argv[1], "failed-search") == 0)
+            expand("failed-search", "!?missing?");
+        expand("reuse", "!??");
+    }
     clear_history();
     return 0;
 }
@@ -86,10 +96,16 @@ PROBE
   echo 'pinned_library_paths=validated'
   sha256sum "$readline/lib/libhistory.so" "$readline/lib/libreadline.so"
   probe_status=0
-  for sequence in failed-search positive-control; do
-    printf 'sequence=%s\n' "$sequence"
+  for sequence in failed-search positive-control percent-after-failure; do
+    if [ "$sequence" = percent-after-failure ]; then
+      printf 'raw_sequence=%s\n' "$sequence"
+      probe_sequence=failed-search-percent
+    else
+      printf 'sequence=%s\n' "$sequence"
+      probe_sequence=$sequence
+    fi
     # A new process isolates History's internal expansion memory per sequence.
-    LC_ALL=C timeout 5 "$work/probe" "$sequence" || probe_status=$?
+    LC_ALL=C timeout 5 "$work/probe" "$probe_sequence" || probe_status=$?
   done
   exit "$probe_status"
 } 2>&1 | tee "$out"

@@ -5888,9 +5888,9 @@ fn history_expansion_scans_event_prefixes_by_delimiters() {
 
 #[test]
 fn history_expansion_consults_search_delimiters_for_string_prefixes() {
-    // Custom search delimiters additionally terminate `!string` prefix
-    // scans (mirroring the History `history_search_delimiter_chars` set)
-    // while `!?` needles scan identically under either policy.
+    // Paired with history_expand_probe's four search_delimiters_* rows.
+    // An empty/default set mirrors GNU's NULL; dot terminates only `!string`
+    // prefixes, not `!?` needles. Pinned GNU 8.3 confirmation is pending.
     let mut history = History::new();
     history.push("foo wrong");
     history.push("foo.bar correct");
@@ -5905,21 +5905,23 @@ fn history_expansion_consults_search_delimiters_for_string_prefixes() {
         search_delimiters: Vec::new(),
         ..HistoryExpansionPolicy::default()
     };
-    assert_eq!(
-        expand_history(b"!foo.bar", &history, histchars, &custom, |_| false).unwrap(),
-        b"foo.bar qux.bar".to_vec(),
-    );
-    assert_eq!(
-        expand_history(b"!foo.bar", &history, histchars, &empty, |_| false).unwrap(),
-        b"foo.bar qux".to_vec(),
-    );
+    for (input, policy, expected) in [
+        (b"!foo.bar".as_slice(), &empty, b"foo.bar qux".as_slice()),
+        (b"!foo.bar", &custom, b"foo.bar qux.bar"),
+        (b"!?bar", &empty, b"foo.bar qux"),
+        (b"!?bar", &custom, b"foo.bar qux"),
+    ] {
+        let result =
+            expand_history_with_status(input, &history, histchars, policy, |_| false).unwrap();
+        assert_eq!(result.line, expected, "input={input:?}");
+        assert_eq!(result.status, HistoryExpansionStatus::Expanded);
+    }
+    // Retain the closed-needle controls beyond the four direct GNU fixtures.
     for policy in [&custom, &empty] {
-        for typed in [b"!?bar".as_slice(), b"!?bar?".as_slice()] {
-            assert_eq!(
-                expand_history(typed, &history, histchars, policy, |_| false).unwrap(),
-                b"foo.bar qux".to_vec(),
-            );
-        }
+        assert_eq!(
+            expand_history(b"!?bar?", &history, histchars, policy, |_| false).unwrap(),
+            b"foo.bar qux".to_vec(),
+        );
     }
 }
 

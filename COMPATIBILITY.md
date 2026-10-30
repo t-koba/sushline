@@ -167,6 +167,30 @@ History 8.2 produced those rows directionally; that is not pinned 8.3
 evidence, and the new pinned CI assertions still require a confirming run.
 This fixture makes no claim about other delimiter lists or shell parsing.
 
+### Search-delimiter expansion fixture
+
+The GNU History 8.3 [`history_expand_probe`](.github/workflows/ci.yml)
+adds four bounded assertions for `history_search_delimiter_chars`. Each call
+independently seeds `foo wrong`, `foo.bar correct`, `foobar`, and `foo.bar qux`,
+then requires `history_set_pos(history_length)` to succeed before expansion
+so the search starts at the newest event. CI expects status 1 and these
+exact output bytes in `history_expand.out`:
+
+| Search delimiters | Input | Expected output | Expected output (hex) |
+| --- | --- | --- | --- |
+| `NULL` (default) | `!foo.bar` | `foo.bar qux` | `666f6f2e62617220717578` |
+| `.` | `!foo.bar` | `foo.bar qux.bar` | `666f6f2e626172207175782e626172` |
+| `NULL` (default) | `!?bar` | `foo.bar qux` | `666f6f2e62617220717578` |
+| `.` | `!?bar` | `foo.bar qux` | `666f6f2e62617220717578` |
+
+[`history_expansion_consults_search_delimiters_for_string_prefixes`](history/tests/history.rs)
+asserts these four outputs and Rust `Expanded` status with empty/default and
+custom-dot `HistoryExpansionPolicy::search_delimiters`. Local GNU History 8.2
+produced these pairs directionally with successful positioning; this is not
+pinned 8.3 evidence, and pinned confirmation is pending. Only these prefix
+and unaffected substring-control cases are covered, not arbitrary delimiter
+sets. This policy is explicit Rust API configuration, not inputrc-configurable.
+
 ### Current-line event expansion fixture
 
 The pinned GNU History 8.3 [`history_expand_probe`](.github/workflows/ci.yml)

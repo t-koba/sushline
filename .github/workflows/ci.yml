@@ -1735,6 +1735,36 @@ jobs:
               history_word_delimiters = saved;
           }
 
+          /* Pair with Rust's newest-event lookup, not the position left by
+             add_history. Reset the seed and restore policy for every call. */
+          static void run_search_delimiters(const char *label, const char *input,
+                                            char *delimiters) {
+              char *saved = history_search_delimiter_chars;
+              history_search_delimiter_chars = delimiters;
+              clear_history();
+              add_history("foo wrong");
+              add_history("foo.bar correct");
+              add_history("foobar");
+              add_history("foo.bar qux");
+              if (!history_set_pos(history_length)) {
+                  fprintf(stderr, "%s: failed to position at history end\n", label);
+                  exit(EXIT_FAILURE);
+              }
+              char *in = strdup(input);
+              if (in == NULL) {
+                  exit(EXIT_FAILURE);
+              }
+              char *output = NULL;
+              int status = history_expand(in, &output);
+              printf("%s: status=%d output_hex=", label, status);
+              print_hex_bytes(output);
+              printf("\n");
+              fflush(stdout);
+              free(in);
+              free(output);
+              history_search_delimiter_chars = saved;
+          }
+
           /* Emit pinned GNU 8.3 lexical observations: tokenize, single-word
              extract, and word-selector expansion on the same seeded entry.
              Each sub-measurement resets the history first, so cases stay
@@ -1805,6 +1835,10 @@ jobs:
               run_quote_state("quote_state_unquoted_control", 0);
               run_word_delimiters("word_delimiters_default_control", NULL);
               run_word_delimiters("word_delimiters_comma", " \t\n;&()|<>,");
+              run_search_delimiters("search_delimiters_default_prefix", "!foo.bar", NULL);
+              run_search_delimiters("search_delimiters_dot_prefix", "!foo.bar", ".");
+              run_search_delimiters("search_delimiters_default_substring", "!?bar", NULL);
+              run_search_delimiters("search_delimiters_dot_substring", "!?bar", ".");
               run("current_line", "printf !#");
               run("current_line_quote", "echo a b !#:q");
               run("current_line_word_zero", "echo a b !#:0");
@@ -1894,6 +1928,10 @@ jobs:
           quote_state_unquoted_control: status=1 output_hex=6563686f20612062
           word_delimiters_default_control: status=1 output_hex=67616d6d61
           word_delimiters_comma: status=1 output_hex=2c
+          search_delimiters_default_prefix: status=1 output_hex=666f6f2e62617220717578
+          search_delimiters_dot_prefix: status=1 output_hex=666f6f2e626172207175782e626172
+          search_delimiters_default_substring: status=1 output_hex=666f6f2e62617220717578
+          search_delimiters_dot_substring: status=1 output_hex=666f6f2e62617220717578
           current_line: status=1 output_hex=7072696e7466207072696e746620
           current_line_quote: status=1 output_hex=6563686f2061206220276563686f206120622027
           current_line_word_zero: status=1 output_hex=6563686f20612062206563686f

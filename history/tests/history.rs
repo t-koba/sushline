@@ -3515,6 +3515,39 @@ fn history_expansion_supports_line_so_far_status_and_policy() {
 }
 
 #[test]
+fn history_expansion_inhibit_index_zero_matches_pinned_fixture() {
+    // Paired with history_expand_probe's index-zero callback and index-one
+    // control in the pinned GNU History 8.3 CI fixture.
+    let mut history = History::new();
+    for entry in ["echo previous", "echo a b", "echo a b"] {
+        history.push(entry);
+    }
+    for (input, expected, status) in [
+        (
+            b"!!".as_slice(),
+            b"!!".as_slice(),
+            HistoryExpansionStatus::Unchanged,
+        ),
+        (
+            b"x!!".as_slice(),
+            b"xecho a b".as_slice(),
+            HistoryExpansionStatus::Expanded,
+        ),
+    ] {
+        let result = expand_history_with_status(
+            input,
+            &history,
+            HistoryChars::parse("!^#"),
+            &HistoryExpansionPolicy::default(),
+            |index| index == 0,
+        )
+        .unwrap();
+        assert_eq!(result.line, expected, "input={input:?}");
+        assert_eq!(result.status, status, "input={input:?}");
+    }
+}
+
+#[test]
 fn history_expansion_current_line_event_supports_shared_suffixes() {
     // GNU libhistory experiment 17a07a322bfb4d238c646834fb691b82 with prior
     // history `prior event`: the `!#` suffix flows through the shared

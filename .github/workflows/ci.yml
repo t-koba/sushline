@@ -1686,6 +1686,17 @@ jobs:
               free(output);
           }
 
+          static int inhibit_index_zero(char *input, int index) {
+              (void)input;
+              return index == 0;
+          }
+
+          static void run_inhibited(const char *label, const char *input) {
+              history_inhibit_expansion_function = inhibit_index_zero;
+              run(label, input);
+              history_inhibit_expansion_function = NULL;
+          }
+
           static void print_hex_bytes(const char *s) {
               if (s == NULL) {
                   printf("(null)");
@@ -1760,6 +1771,8 @@ jobs:
           int main(void) {
               using_history();
               run("event_bang_bang", "!!");
+              run_inhibited("inhibit_index_zero", "!!");
+              run_inhibited("inhibit_index_one_control", "x!!");
               run("last_word", "!$");
               run("word_zero", "!:0");
               run("head_modifier", "!!:h");
@@ -1833,6 +1846,8 @@ jobs:
             }
           done <<'EXPECTED'
           event_bang_bang: status=1 output_hex=6563686f20612062
+          inhibit_index_zero: status=0 output_hex=2121
+          inhibit_index_one_control: status=1 output_hex=786563686f20612062
           last_word: status=1 output_hex=62
           word_zero: status=1 output_hex=6563686f
           head_modifier: status=1 output_hex=6563686f20612062

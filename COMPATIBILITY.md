@@ -167,6 +167,29 @@ History 8.2 produced those rows directionally; that is not pinned 8.3
 evidence, and the new pinned CI assertions still require a confirming run.
 This fixture makes no claim about other delimiter lists or shell parsing.
 
+### Current-line event expansion fixture
+
+The pinned GNU History 8.3 [`history_expand_probe`](.github/workflows/ci.yml)
+now asserts five current-line `!#` cases, each independently seeded with
+`echo previous`, `echo a b`, and `echo a b`. Each expected GNU status is 1;
+exact output bytes (including trailing spaces) are retained as hex in
+`history_expand.out`:
+
+| Input | Expected output (hex) |
+| --- | --- |
+| `printf !#` | `7072696e7466207072696e746620` |
+| `echo a b !#:q` | `6563686f2061206220276563686f206120622027` |
+| `echo a b !#:0` | `6563686f20612062206563686f` |
+| `echo a b !#:s/a/X/` | `6563686f20612062206563686f2058206220` |
+| `echo a b !#:$` | `6563686f206120622062` |
+
+[`history_expansion_current_line_event_supports_shared_suffixes`](history/tests/history.rs)
+asserts the same seed, output bytes, and Rust `Expanded` status. Local GNU
+History 8.2 produced these five status/output pairs directionally; it is not
+pinned 8.3 evidence, and these new CI assertions still require a confirming
+pinned run. This comparison covers only these five inputs, not general
+current-line event or modifier compatibility.
+
 ## User-Facing Readline Commands
 
 GNU command names below come from the Readline User Manual bindable-command

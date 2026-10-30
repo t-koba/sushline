@@ -3587,13 +3587,15 @@ fn history_expansion_inherited_quote_state_matches_pinned_fixture() {
 
 #[test]
 fn history_expansion_current_line_event_supports_shared_suffixes() {
-    // GNU libhistory experiment 17a07a322bfb4d238c646834fb691b82 with prior
-    // history `prior event`: the `!#` suffix flows through the shared
-    // word-designator/modifier path.
+    // Paired with the five current_line* rows in CI's history_expand_probe.
+    // Local GNU 8.2 measurements are directional; pinned 8.3 CI must confirm.
     let mut history = History::new();
-    history.push("prior event");
+    history.push("echo previous");
+    history.push("echo a b");
+    history.push("echo a b");
     let policy = HistoryExpansionPolicy::default();
     for (input, expected) in [
+        (b"printf !#".as_slice(), b"printf printf ".as_slice()),
         (
             b"echo a b !#:q".as_slice(),
             b"echo a b 'echo a b '".as_slice(),
@@ -3605,12 +3607,18 @@ fn history_expansion_current_line_event_supports_shared_suffixes() {
         ),
         (b"echo a b !#:$".as_slice(), b"echo a b b".as_slice()),
     ] {
+        let result = expand_history_with_status(
+            input,
+            &history,
+            HistoryChars::parse("!^#"),
+            &policy,
+            |_| false,
+        )
+        .unwrap();
+        assert_eq!(result.line, expected, "input={input:?}");
         assert_eq!(
-            expand_history(input, &history, HistoryChars::parse("!^#"), &policy, |_| {
-                false
-            },)
-            .unwrap(),
-            expected,
+            result.status,
+            HistoryExpansionStatus::Expanded,
             "input={input:?}"
         );
     }

@@ -96,3 +96,28 @@ step=before_add_after_absolute_3 input_hex=2133 status=1 output_hex=6563686f2063
 step=before_add_after_absolute_4 input_hex=2134 status=1 output_hex=6563686f2064656c7461
 step=before_add_after_relative_1 input_hex=212d31 status=1 output_hex=6563686f2064656c7461
 step=before_add_after_relative_2 input_hex=212d32 status=1 output_hex=6563686f20636861726c6965
+sequence=quick-basic
+header_version=0x0803 runtime_version=0x0803
+seed[0]_hex=6563686f206f6c64
+step=quick-basic input_hex=5e6f6c645e6e65775e status=1 output_hex=6563686f206e6577
+sequence=quick-unescaped
+header_version=0x0803 runtime_version=0x0803
+seed[0]_hex=6563686f206f6c64
+step=quick-unescaped input_hex=5e6f6c645e267461696c5e status=1 output_hex=6563686f206f6c647461696c
+sequence=ordinary-unescaped
+header_version=0x0803 runtime_version=0x0803
+seed[0]_hex=6563686f206f6c64
+step=ordinary-unescaped input_hex=21213a735e6f6c645e267461696c5e status=1 output_hex=6563686f206f6c647461696c
+sequence=quick-escaped
+header_version=0x0803 runtime_version=0x0803
+seed[0]_hex=6563686f206f6c64
+step=quick-escaped input_hex=5e6f6c645e5c267461696c5e status=1 output_hex=6563686f20267461696c
+sequence=ordinary-escaped
+header_version=0x0803 runtime_version=0x0803
+seed[0]_hex=6563686f206f6c64
+step=ordinary-escaped input_hex=21213a735e6f6c645e5c267461696c5e status=1 output_hex=6563686f20267461696c
+sequence=quick-memory
+header_version=0x0803 runtime_version=0x0803
+seed[0]_hex=6563686f206f6c64
+step=quick-memory-first input_hex=5e6f6c645e267461696c5e status=1 output_hex=6563686f206f6c647461696c
+step=quick-memory-repeat input_hex=21213a26 status=1 output_hex=6563686f206f6c647461696c

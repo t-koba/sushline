@@ -63,12 +63,38 @@ int main(int argc, char **argv) {
                       strcmp(argv[1], "empty-old-after-clear-reseed") != 0 &&
                       strcmp(argv[1], "empty-old-after-failed-search") != 0 &&
                       strcmp(argv[1], "stifle-after-add") != 0 &&
-                      strcmp(argv[1], "stifle-before-add") != 0)) return 2;
+                      strcmp(argv[1], "stifle-before-add") != 0 &&
+                      strcmp(argv[1], "quick-basic") != 0 &&
+                      strcmp(argv[1], "quick-unescaped") != 0 &&
+                      strcmp(argv[1], "ordinary-unescaped") != 0 &&
+                      strcmp(argv[1], "quick-escaped") != 0 &&
+                      strcmp(argv[1], "ordinary-escaped") != 0 &&
+                      strcmp(argv[1], "quick-memory") != 0)) return 2;
     printf("header_version=0x%04x runtime_version=0x%04x\n",
            RL_READLINE_VERSION, rl_readline_version);
     if (RL_READLINE_VERSION != 0x0803 || rl_readline_version != 0x0803)
         return 2;
     using_history();
+    if (strncmp(argv[1], "quick-", 6) == 0 || strncmp(argv[1], "ordinary-", 9) == 0) {
+        add_history("echo old");
+        printf("seed[0]_hex=6563686f206f6c64\n");
+        if (strcmp(argv[1], "quick-basic") == 0)
+            expand("quick-basic", "^old^new^");
+        else if (strcmp(argv[1], "quick-unescaped") == 0)
+            expand("quick-unescaped", "^old^&tail^");
+        else if (strcmp(argv[1], "ordinary-unescaped") == 0)
+            expand("ordinary-unescaped", "!!:s^old^&tail^");
+        else if (strcmp(argv[1], "quick-escaped") == 0)
+            expand("quick-escaped", "^old^\\&tail^");
+        else if (strcmp(argv[1], "ordinary-escaped") == 0)
+            expand("ordinary-escaped", "!!:s^old^\\&tail^");
+        else {
+            expand("quick-memory-first", "^old^&tail^");
+            expand("quick-memory-repeat", "!!:&");
+        }
+        clear_history();
+        return 0;
+    }
     if (strcmp(argv[1], "stifle-before-add") == 0) {
         stifle_history(2);
         printf("history_base_after_stifle_empty=%d history_length_after_stifle_empty=%d\n",
@@ -202,7 +228,7 @@ PROBE
   echo 'pinned_library_paths=validated'
   sha256sum "$readline/lib/libhistory.so" "$readline/lib/libreadline.so"
   probe_status=0
-  for sequence in failed-search positive-control percent-after-failure reuse-after-clear fresh-percent failed-search-first-percent percent-after-clear-reseed empty-old-after-clear-reseed empty-old-after-failed-search stifle-after-add stifle-before-add; do
+  for sequence in failed-search positive-control percent-after-failure reuse-after-clear fresh-percent failed-search-first-percent percent-after-clear-reseed empty-old-after-clear-reseed empty-old-after-failed-search stifle-after-add stifle-before-add quick-basic quick-unescaped ordinary-unescaped quick-escaped ordinary-escaped quick-memory; do
     case "$sequence" in
       percent-after-failure)
         printf 'sequence=%s\n' "$sequence"

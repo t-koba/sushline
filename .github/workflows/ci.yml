@@ -2831,7 +2831,9 @@ jobs:
           ulimit -c 0
           readline="$HOME/.cache/sushline/readline-oracle"
           # Assert only direct-library results measured in two independent
-          # pinned Readline 8.3 reports; this makes no Bash or public-C-ABI claim.
+          # pinned Readline 8.3 reports. The new true-EOF cases are measurements
+          # only until pinned CI evidence is reviewed; neither makes a Bash or
+          # public-C-ABI claim.
           cat > /tmp/readline_paste_probe.c <<'PROBE'
           #include <stdio.h>
           #include <stdlib.h>
@@ -2889,6 +2891,7 @@ jobs:
           import resource
           import select
           import signal
+          import termios
           import time
 
           probe = "/tmp/readline_paste_probe"
@@ -2900,10 +2903,12 @@ jobs:
               "split_terminator_trial_2": (5, "73706c6974"),
           }
 
-          def measure(name, chunks):
+          def measure(name, chunks, true_eof=False):
               print(f"measurement_case={name}", flush=True)
               print("fixture_term=xterm-256color inputrc=/dev/null locale=C")
               print("signals_sent=none split_settle_seconds=0.2")
+              if true_eof:
+                  print("eof_method=canonical_veof_twice checkpoint_timeout_seconds=1.0")
               pid, master = pty.fork()
               if pid == 0:
                   try:
@@ -2922,6 +2927,7 @@ jobs:
               observation_timeout = False
               hook_ready_seen = False
               writes = []
+              eof_checkpoint = {}
 
               def poll_child():
                   nonlocal status
@@ -2976,9 +2982,20 @@ jobs:
                   # The event hook runs after terminal preparation, before input.
                   hook_ready_seen = read_until(b"paste_hook_ready=1\r\n", 3.0)
                   if hook_ready_seen:
-                      # Separate writes (and a bounded drain/settle) deliberately
-                      # split the terminator; the final CR accepts the pasted line.
-                      for label, data in chunks + [("accept", b"\r")]:
+                      if true_eof:
+                          # Like the Bash/Sushline EOF tests, keep the PTY master
+                          # open: the first canonical VEOF releases queued bytes,
+                          # the second causes a real zero-byte read (not raw ^D).
+                          attrs = termios.tcgetattr(master)
+                          attrs[3] = (attrs[3] | termios.ICANON) & ~termios.ECHO
+                          attrs[6][termios.VEOF] = b"\x04"
+                          termios.tcsetattr(master, termios.TCSANOW, attrs)
+                          inputs = chunks + [("canonical_eof", b"\x04\x04")]
+                      else:
+                          # Separate writes deliberately split the terminator;
+                          # the final CR accepts the pasted line.
+                          inputs = chunks + [("accept", b"\r")]
+                      for label, data in inputs:
                           count = "not_written"
                           if poll_child() is None:
                               _, writable, _ = select.select([], [master], [], 1.0)
@@ -2989,6 +3006,28 @@ jobs:
                                       count = f"error_errno_{error.errno}"
                           writes.append((label, data, count))
                           read_until(b"\x00", 0.2)
+                      if true_eof:
+                          # With echo disabled, redisplay is an observable EOF
+                          # checkpoint. Record rather than predict its outcome.
+                          redisplay_seen = read_until(b"partial", 1.0)
+                          eof_checkpoint = {
+                              "redisplay_seen": int(redisplay_seen),
+                              "child_alive": int(poll_child() is None),
+                              "done_before_followup": int(b"done\r\n" in transcript),
+                              "master_open": int(bool(termios.tcgetattr(master))),
+                          }
+                          # EOF may finish only the paste, not readline itself.
+                          # A later LF lets us report the returned line separately.
+                          count = "not_written"
+                          if poll_child() is None and b"done\r\n" not in transcript:
+                              _, writable, _ = select.select([], [master], [], 1.0)
+                              if writable:
+                                  try:
+                                      count = os.write(master, b"\n")
+                                  except OSError as error:
+                                      count = f"error_errno_{error.errno}"
+                              writes.append(("followup_accept", b"\n", count))
+                          eof_checkpoint["followup_sent"] = int(count == 1)
                   done_seen = read_until(b"done\r\n", 3.0)
                   if not wait_for_exit(1.0):
                       observation_timeout = True
@@ -2998,6 +3037,8 @@ jobs:
                   returncode = os.waitstatus_to_exitcode(status)
                   print(f"hook_ready_seen={int(hook_ready_seen)}")
                   print(f"done_seen={int(done_seen)}")
+                  for field, value in eof_checkpoint.items():
+                      print(f"eof_checkpoint_{field}={value}")
                   for index, (label, data, count) in enumerate(writes, 1):
                       print(f"write_{index}_label={label} requested={len(data)} "
                             f"count={count} hex={data.hex()}")
@@ -3030,26 +3071,40 @@ jobs:
                       raise SystemExit(f"{name}: observation timed out or required cleanup kill")
                   if any(count != len(data) for _, data, count in writes):
                       raise SystemExit(f"{name}: PTY input write was incomplete")
-                  if fields["result_is_null"] != "0":
-                      raise SystemExit(f"{name}: Readline returned no line")
-                  expected_len, expected_hex = expected_results[name]
-                  if fields["result_len"] != str(expected_len):
-                      raise SystemExit(f"{name}: unexpected returned-line length")
-                  if fields["result_hex"] != expected_hex:
-                      raise SystemExit(f"{name}: unexpected returned-line bytes")
+                  if not true_eof:
+                      if fields["result_is_null"] != "0":
+                          raise SystemExit(f"{name}: Readline returned no line")
+                      expected_len, expected_hex = expected_results[name]
+                      if fields["result_len"] != str(expected_len):
+                          raise SystemExit(f"{name}: unexpected returned-line length")
+                      if fields["result_hex"] != expected_hex:
+                          raise SystemExit(f"{name}: unexpected returned-line bytes")
                   print("fixture_completed=1", flush=True)
+                  return (fields, returncode, done_seen, observation_timeout,
+                          cleanup_kill_sent, eof_checkpoint)
               finally:
                   try:
                       kill_and_reap()
                   finally:
                       os.close(master)
 
+          eof_results = {}
           for trial in (1, 2):
               measure(f"payload_cr_trial_{trial}", [("frame", b"\x1b[200~A\rB\x1b[201~")])
               measure(f"split_terminator_trial_{trial}", [
                   ("frame_and_terminator_prefix", b"\x1b[200~split\x1b[20"),
                   ("terminator_suffix", b"1~"),
               ])
+              for case, suffix in (("partial_payload_eof", b""),
+                                   ("truncated_terminator_eof", b"\x1b[201")):
+                  result = measure(f"{case}_trial_{trial}", [
+                      ("unterminated_paste", b"\x1b[200~partial" + suffix),
+                  ], true_eof=True)
+                  if trial == 1:
+                      eof_results[case] = result
+                  else:
+                      print(f"repeatability_case={case} trials=2 "
+                            f"repeatable={int(result == eof_results[case])}", flush=True)
           PYPROBE
       - name: Measure named, unknown-user, and empty-home inputrc includes against the pinned release
         run: |

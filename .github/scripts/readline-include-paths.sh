@@ -65,6 +65,7 @@ if [ -z "$readline_libraries" ] || \
 fi
 python3 - <<'PYPROBE' | tee /tmp/readline_include_paths.out
 import os
+import pwd
 import re
 import resource
 import shutil
@@ -204,6 +205,30 @@ def setup_dollar_home(base):
     os.makedirs(empty_home)
     return outer_path, cwd_dir, empty_home
 
+def setup_unknown_user_cwd_marker(base):
+    # Refuse to measure a known account, regardless of its home directory.
+    try:
+        pwd.getpwnam("sushline-no-such-user")
+    except KeyError:
+        pass
+    else:
+        raise ValueError()
+    cwd_dir = os.path.join(base, "cwd")
+    marker_dir = os.path.join(cwd_dir, "~sushline-no-such-user")
+    outer_dir = os.path.join(base, "outer")
+    home = os.path.join(base, "home")
+    os.makedirs(marker_dir)
+    os.makedirs(outer_dir)
+    os.makedirs(home)
+    with open(os.path.join(marker_dir, "marker.inputrc"), "w", encoding="utf-8") as handle:
+        handle.write("set completion-ignore-case on\n")
+    outer_path = os.path.join(outer_dir, "outer.inputrc")
+    with open(outer_path, "w", encoding="utf-8") as handle:
+        handle.write("set completion-ignore-case off\n")
+        handle.write("$include ~sushline-no-such-user/marker.inputrc\n")
+        handle.write("set editing-mode vi\n")
+    return outer_path, cwd_dir, home
+
 def setup_missing(base):
     outer_path = os.path.join(base, "outer.inputrc")
     missing_path = os.path.join(base, "missing.inputrc")
@@ -219,6 +244,7 @@ try:
     ok = run_case("tilde_home", setup_tilde) and ok
     ok = run_case("dollar_home_literal", setup_dollar_home) and ok
     ok = run_case("missing_continues", setup_missing) and ok
+    ok = run_case("unknown_user_cwd_marker", setup_unknown_user_cwd_marker) and ok
     if not ok:
         raise ValueError()
 except Exception:

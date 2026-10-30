@@ -578,6 +578,29 @@ fn unknown_tilde_user_include_is_silently_skipped() {
 }
 
 #[test]
+fn unknown_tilde_user_include_preserves_relative_cwd_marker_path() {
+    let spelling = "~sushline-no-such-user/marker.inputrc";
+    let path = expand_include_path_with_home(spelling, |user| {
+        assert_eq!(user, "sushline-no-such-user");
+        None // Synthetic lookup failure, independent of the host's accounts.
+    })
+    .unwrap();
+    assert_eq!(path, PathBuf::from(spelling));
+    assert!(path.is_relative());
+
+    let cwd = tempfile::tempdir().unwrap();
+    let marker_dir = cwd.path().join("~sushline-no-such-user");
+    fs::create_dir(&marker_dir).unwrap();
+    let marker = marker_dir.join("marker.inputrc");
+    let contents = "set completion-ignore-case on\n";
+    fs::write(&marker, contents).unwrap();
+    // Resolve against a test-owned CWD without changing the process CWD.
+    let resolved = cwd.path().join(path);
+    assert_eq!(resolved, marker);
+    assert_eq!(fs::read_to_string(resolved).unwrap(), contents);
+}
+
+#[test]
 fn empty_home_tilde_user_include_is_skipped() {
     // Synthetic passwd data: lookup succeeds, but the home field is empty.
     // Pinned GNU Readline 8.3 skips this include rather than reading from CWD.

@@ -237,7 +237,9 @@ impl InputrcParser {
                     }
                     Some("include") if *active_stack.last().unwrap_or(&true) => {
                         let path = parts.collect::<Vec<_>>().join(" ");
-                        let path = expand_include_path(&path);
+                        let Some(path) = expand_include_path(&path) else {
+                            continue;
+                        };
                         let Ok(included) = fs::read(&path) else {
                             continue;
                         };
@@ -713,14 +715,14 @@ fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
     std::cmp::Ordering::Equal
 }
 
-fn expand_include_path(path: &str) -> PathBuf {
+fn expand_include_path(path: &str) -> Option<PathBuf> {
     expand_include_path_with_home(path, user_home_dir)
 }
 
 fn expand_include_path_with_home(
     path: &str,
     user_home: impl FnOnce(&str) -> Option<PathBuf>,
-) -> PathBuf {
+) -> Option<PathBuf> {
     let mut path = path.trim().to_string();
     if let Ok(decoded) = decode_inputrc_string(&path) {
         path = decoded;
@@ -728,21 +730,24 @@ fn expand_include_path_with_home(
     if let Some(rest) = path.strip_prefix("~/")
         && let Some(home) = std::env::var_os("HOME")
     {
-        return PathBuf::from(home).join(rest);
+        return Some(PathBuf::from(home).join(rest));
     }
     if let Some(rest) = path.strip_prefix('~') {
         let (user, suffix) = rest.split_once('/').unwrap_or((rest, ""));
         if !user.is_empty()
             && let Some(home) = user_home(user)
         {
-            return if suffix.is_empty() {
+            if home.as_os_str().is_empty() {
+                return None;
+            }
+            return Some(if suffix.is_empty() {
                 home
             } else {
                 home.join(suffix)
-            };
+            });
         }
     }
-    PathBuf::from(path)
+    Some(PathBuf::from(path))
 }
 
 fn user_home_dir(user: &str) -> Option<PathBuf> {

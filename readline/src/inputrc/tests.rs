@@ -578,9 +578,9 @@ fn unknown_tilde_user_include_is_silently_skipped() {
 }
 
 #[test]
-fn empty_home_tilde_user_include_expands_to_a_relative_path() {
+fn empty_home_tilde_user_include_is_skipped() {
     // Synthetic passwd data: lookup succeeds, but the home field is empty.
-    // This records Sushline's behavior, not an unmeasured GNU compatibility claim.
+    // Pinned GNU Readline 8.3 skips this include rather than reading from CWD.
     let passwd = "sushline-empty-home-inputrc:x:12345:12345:::/bin/false\n";
     let user = "sushline-empty-home-inputrc";
     assert_eq!(home_from_passwd(passwd, user), Some(PathBuf::new()));
@@ -588,8 +588,7 @@ fn empty_home_tilde_user_include_expands_to_a_relative_path() {
         expand_include_path_with_home("~sushline-empty-home-inputrc/marker.inputrc", |name| {
             home_from_passwd(passwd, name)
         });
-    assert_eq!(path, PathBuf::from("marker.inputrc"));
-    assert!(path.is_relative());
+    assert_eq!(path, None);
     assert_eq!(home_from_passwd(passwd, "unknown"), None);
 }
 

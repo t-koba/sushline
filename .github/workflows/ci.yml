@@ -3051,11 +3051,12 @@ jobs:
                   ("terminator_suffix", b"1~"),
               ])
           PYPROBE
-      - name: Measure named and unknown-user inputrc includes against the pinned release
+      - name: Measure named, unknown-user, and empty-home inputrc includes against the pinned release
         run: |
           set -euo pipefail
           ulimit -c 0
           readline="$HOME/.cache/sushline/readline-oracle"
+          trap 'rm -f /tmp/readline_named_include_probe{,.c} /tmp/readline_empty_home{.c,.so}' EXIT
           # Measurement-only direct-library probe for named-user and
           # nonexistent-user `$include` behavior. The C program initializes
           # the pinned library with no user configuration, then reads one
@@ -3066,8 +3067,10 @@ jobs:
           # diagnostic presence, and cleanup fields. This is a direct-library
           # measurement against the pinned release only; it makes no Bash-behavior or
           # public-C-ABI claim and leaves recursive-include cycle handling
-          # out of scope.
+          # out of scope. A separate synthetic empty-home account trial below
+          # uses a test-only interposer; it does not share the unknown-user case.
           cat > /tmp/readline_named_include_probe.c <<'PROBE'
+          #include <dlfcn.h>
           #include <stdio.h>
           #include <string.h>
           #include <readline/readline.h>
@@ -3092,6 +3095,10 @@ jobs:
               int is_vi = mode != NULL && strncmp(mode, "vi", 2) == 0;
               printf("completion_ignore_case_on=%d\n", is_on);
               printf("editing_mode_vi=%d\n", is_vi);
+              unsigned int (*hits)(void) = dlsym(RTLD_DEFAULT, "sushline_empty_home_hits");
+              if (hits != NULL) {
+                  printf("interposer_hits=%u\n", hits());
+              }
               fflush(stdout);
               return 0;
           }
@@ -3099,11 +3106,10 @@ jobs:
           cc -Wall -Wextra -Werror -o /tmp/readline_named_include_probe \
             /tmp/readline_named_include_probe.c \
             -I"$readline/include" -L"$readline/lib" \
-            -Wl,-rpath,"$readline/lib" -lreadline
+            -Wl,-rpath,"$readline/lib" -lreadline -ldl 2>/dev/null
           # The probe has to load the pinned release, not the image's
           # library, or the measurement repeats an observation made elsewhere.
-          loader_report=$(env -u SHELLOPTS ldd /tmp/readline_named_include_probe)
-          echo "$loader_report"
+          loader_report=$(env -u SHELLOPTS ldd /tmp/readline_named_include_probe 2>/dev/null)
           readline_libraries=$(printf '%s\n' "$loader_report" | grep 'libreadline' || true)
           if [ -z "$readline_libraries" ]; then
             echo "the named-include probe loaded no Readline library" >&2
@@ -3111,6 +3117,77 @@ jobs:
           fi
           if printf '%s\n' "$readline_libraries" | grep -v -F "$readline/lib/" > /dev/null; then
             echo "the named-include probe loaded Readline outside the pinned prefix" >&2
+            exit 1
+          fi
+          # Only the fixed synthetic name is intercepted. All other account
+          # lookups delegate to libc; neither host passwd data nor HOME changes.
+          cat > /tmp/readline_empty_home.c <<'INTERPOSER'
+          #define _GNU_SOURCE
+          #include <dlfcn.h>
+          #include <errno.h>
+          #include <pwd.h>
+          #include <stddef.h>
+          #include <string.h>
+
+          #define TEST_USER "sushline-empty-home-inputrc"
+          static unsigned int hits;
+          static const char data[] = TEST_USER "\0x\0\0\0/bin/false";
+
+          unsigned int sushline_empty_home_hits(void) { return hits; }
+
+          static int fill(struct passwd *entry, char *buffer, size_t length) {
+              if (length < sizeof(data)) {
+                  return ERANGE;
+              }
+              memcpy(buffer, data, sizeof(data));
+              *entry = (struct passwd) {
+                  .pw_name = buffer,
+                  .pw_passwd = buffer + sizeof(TEST_USER),
+                  .pw_uid = 12345,
+                  .pw_gid = 12345,
+                  .pw_gecos = buffer + sizeof(TEST_USER) + 2,
+                  .pw_dir = buffer + sizeof(TEST_USER) + 3,
+                  .pw_shell = buffer + sizeof(TEST_USER) + 4,
+              };
+              return 0;
+          }
+
+          struct passwd *getpwnam(const char *name) {
+              if (strcmp(name, TEST_USER) == 0) {
+                  static struct passwd entry;
+                  static char buffer[sizeof(data)];
+                  ++hits;
+                  fill(&entry, buffer, sizeof(buffer));
+                  return &entry;
+              }
+              struct passwd *(*next)(const char *) = dlsym(RTLD_NEXT, "getpwnam");
+              if (next == NULL) {
+                  errno = ENOSYS;
+                  return NULL;
+              }
+              return next(name);
+          }
+
+          int getpwnam_r(const char *name, struct passwd *entry, char *buffer,
+                        size_t length, struct passwd **result) {
+              if (strcmp(name, TEST_USER) == 0) {
+                  ++hits;
+                  int status = fill(entry, buffer, length);
+                  *result = status == 0 ? entry : NULL;
+                  return status;
+              }
+              int (*next)(const char *, struct passwd *, char *, size_t,
+                          struct passwd **) = dlsym(RTLD_NEXT, "getpwnam_r");
+              if (next == NULL) {
+                  *result = NULL;
+                  return ENOSYS;
+              }
+              return next(name, entry, buffer, length, result);
+          }
+          INTERPOSER
+          if ! cc -Wall -Wextra -Werror -shared -fPIC -o /tmp/readline_empty_home.so \
+            /tmp/readline_empty_home.c -ldl 2>/dev/null; then
+            echo "empty-home interposer compilation failed" >&2
             exit 1
           fi
           # The fixture owns every input file it reads: for each of two
@@ -3124,6 +3201,7 @@ jobs:
           python3 - <<'PYPROBE' | tee /tmp/readline_named_include.out
           import os
           import pwd
+          import re
           import resource
           import shutil
           import subprocess
@@ -3261,6 +3339,66 @@ jobs:
           ):
               if first[key] != second[key]:
                   raise SystemExit("direct-library named-user trials disagree")
+
+          # One independent CWD-relative marker fixture. The account lookup must
+          # be hit, but no GNU outcome is presumed before pinned evidence arrives.
+          # Only validated bounded fields are printed, never child diagnostics.
+          def run_empty_home_trial():
+              tempdir = tempfile.mkdtemp(prefix="sushline-empty-home-", dir="/tmp")
+              try:
+                  marker = os.path.basename(tempdir) + ".inputrc"
+                  if os.path.exists("/" + marker):
+                      raise SystemExit("empty-home marker fixture is unavailable")
+                  with open(os.path.join(tempdir, marker), "w", encoding="utf-8") as handle:
+                      handle.write("set completion-ignore-case on\n")
+                  outer = os.path.join(tempdir, "outer.inputrc")
+                  with open(outer, "w", encoding="utf-8") as handle:
+                      handle.write("set completion-ignore-case off\nset editing-mode emacs\n")
+                      handle.write(f"$include ~sushline-empty-home-inputrc/{marker}\n")
+                      handle.write("set editing-mode vi\n")
+                  env = os.environ.copy()
+                  env.update(INPUTRC="/dev/null", LC_ALL="C", TERM="dumb",
+                             LD_PRELOAD="/tmp/readline_empty_home.so")
+                  try:
+                      completed = subprocess.run(
+                          [probe, outer], input=b"", stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, cwd=tempdir, env=env, timeout=5,
+                      )
+                  except subprocess.TimeoutExpired:
+                      raise SystemExit("empty-home probe timed out") from None
+                  if completed.returncode != 0:
+                      raise SystemExit("empty-home probe exited unsuccessfully")
+                  fields = dict(line.partition("=")[::2] for line in
+                                completed.stdout.decode("ascii", "replace").splitlines())
+                  patterns = {
+                      "readline_release": re.escape(expected),
+                      "read_status": r"-?[0-9]{1,10}",
+                      "completion_ignore_case_on": r"[01]",
+                      "editing_mode_vi": r"[01]",
+                      "interposer_hits": r"[0-9]{1,5}",
+                  }
+                  if fields.keys() != patterns.keys() or any(
+                      re.fullmatch(pattern, fields[key]) is None
+                      for key, pattern in patterns.items()
+                  ):
+                      raise SystemExit("empty-home probe emitted invalid result fields")
+                  if int(fields["interposer_hits"]) == 0:
+                      raise SystemExit("empty-home account lookup was not intercepted")
+                  print("empty_home_pinned_loader_guard=1")
+                  print(f"empty_home_readline_release={fields['readline_release']}")
+                  print(f"empty_home_read_status={fields['read_status']}")
+                  print(f"empty_home_relative_marker_loaded={fields['completion_ignore_case_on']}")
+                  print(f"empty_home_editing_mode_vi={fields['editing_mode_vi']}")
+                  print(f"empty_home_stderr_nonempty={int(bool(completed.stderr))}")
+                  print(f"empty_home_interposer_hits={fields['interposer_hits']}")
+              except OSError:
+                  raise SystemExit("empty-home fixture setup or execution failed") from None
+              finally:
+                  shutil.rmtree(tempdir, ignore_errors=True)
+                  if os.path.exists(tempdir):
+                      raise SystemExit("empty-home fixture cleanup failed")
+
+          run_empty_home_trial()
           PYPROBE
       - name: Measure inputrc include path rules against the pinned release
         run: bash .github/scripts/readline-include-paths.sh

@@ -714,6 +714,13 @@ fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
 }
 
 fn expand_include_path(path: &str) -> PathBuf {
+    expand_include_path_with_home(path, user_home_dir)
+}
+
+fn expand_include_path_with_home(
+    path: &str,
+    user_home: impl FnOnce(&str) -> Option<PathBuf>,
+) -> PathBuf {
     let mut path = path.trim().to_string();
     if let Ok(decoded) = decode_inputrc_string(&path) {
         path = decoded;
@@ -726,7 +733,7 @@ fn expand_include_path(path: &str) -> PathBuf {
     if let Some(rest) = path.strip_prefix('~') {
         let (user, suffix) = rest.split_once('/').unwrap_or((rest, ""));
         if !user.is_empty()
-            && let Some(home) = user_home_dir(user)
+            && let Some(home) = user_home(user)
         {
             return if suffix.is_empty() {
                 home
@@ -740,6 +747,10 @@ fn expand_include_path(path: &str) -> PathBuf {
 
 fn user_home_dir(user: &str) -> Option<PathBuf> {
     let passwd = fs::read_to_string("/etc/passwd").ok()?;
+    home_from_passwd(&passwd, user)
+}
+
+fn home_from_passwd(passwd: &str, user: &str) -> Option<PathBuf> {
     passwd.lines().find_map(|line| {
         let mut fields = line.split(':');
         (fields.next() == Some(user))

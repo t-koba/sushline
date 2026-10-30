@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Shared measurement for the `$include path rules` audit: CWD-relative,
-# `~/` via controlled HOME, literal `$HOME`, and missing-include
-# continuation, including a controlled named-account lookup error.
+# quoted CWD-relative paths with spaces, `~/` via controlled HOME, literal `$HOME`,
+# and missing-include continuation, including a controlled named-account
+# lookup error.
 # Measurement only against the pinned release.
 set -euo pipefail
 ulimit -c 0
@@ -263,6 +264,22 @@ def setup_cwd_relative(base):
     os.makedirs(home)
     return outer_path, cwd_dir, home
 
+def setup_quoted_cwd_relative(base):
+    cwd_dir = os.path.join(base, "cwd")
+    outer_dir = os.path.join(base, "outer")
+    home = os.path.join(base, "home")
+    os.makedirs(cwd_dir)
+    os.makedirs(outer_dir)
+    os.makedirs(home)
+    with open(os.path.join(cwd_dir, "included file.inputrc"), "w", encoding="utf-8") as handle:
+        handle.write("set completion-ignore-case on\n")
+    outer_path = os.path.join(outer_dir, "outer.inputrc")
+    with open(outer_path, "w", encoding="utf-8") as handle:
+        handle.write("set completion-ignore-case off\n")
+        handle.write('$include "included file.inputrc"\n')
+        handle.write("set editing-mode vi\n")
+    return outer_path, cwd_dir, home
+
 def setup_tilde(base):
     home = os.path.join(base, "controlled-home")
     os.makedirs(home)
@@ -330,6 +347,7 @@ def setup_missing(base):
 try:
     ok = True
     ok = run_case("cwd_relative", setup_cwd_relative) and ok
+    ok = run_case("quoted_cwd_relative", setup_quoted_cwd_relative) and ok
     ok = run_case("tilde_home", setup_tilde) and ok
     ok = run_case("dollar_home_literal", setup_dollar_home) and ok
     ok = run_case("missing_continues", setup_missing) and ok

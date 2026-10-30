@@ -971,6 +971,7 @@ jobs:
             printf '[final-LF-control]\n'
             cat /tmp/history_full_nul_eof_terminated.out
           } > /tmp/history_full_nul_eof.out
+          diff -u .github/scripts/history-full-nul-eof.expected /tmp/history_full_nul_eof.out
           # A NUL inside the timestamp metadata line is measured separately:
           # retain each entry's raw/parsed timestamp and the command list.
           printf '#1700000000\000suffix\nalpha\nbeta\n' > /tmp/history_timestamp_nul

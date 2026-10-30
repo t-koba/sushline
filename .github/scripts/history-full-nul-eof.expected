@@ -1,0 +1,13 @@
+[unterminated-final-line]
+readline_release=8.3
+history_multiline_entries=0
+read_history_status=ok
+entry_count=1
+entry_0=one
+[final-LF-control]
+readline_release=8.3
+history_multiline_entries=0
+read_history_status=ok
+entry_count=2
+entry_0=one
+entry_1=ignored

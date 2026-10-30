@@ -1921,6 +1921,65 @@ fn explicit_nul_truncation_matches_pinned_full_file_fixtures() {
 }
 
 #[test]
+fn pinned_gnu_history_8_3_nul_eof_fixture_matches_sushline_policies() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    let preserve_options = HistoryReadOptions {
+        multiline: HistoryMultiline::PerLine,
+        nul_policy: HistoryNulPolicy::Preserve,
+    };
+    let truncate_options = HistoryReadOptions {
+        nul_policy: HistoryNulPolicy::TruncateAtNul,
+        ..preserve_options
+    };
+    // The workflow asserts GNU 8.3's result in history-full-nul-eof.expected:
+    // it ignores the unfinished fragment and truncates the final-LF command
+    // at NUL. Default Preserve keeps that suffix; TruncateAtNul matches it.
+    struct Fixture {
+        bytes: &'static [u8],
+        preserved: &'static [&'static [u8]],
+        truncated: &'static [&'static [u8]],
+    }
+    let fixtures = [
+        Fixture {
+            bytes: b"one\nignored\0tail",
+            preserved: &[b"one"],
+            truncated: &[b"one"],
+        },
+        Fixture {
+            bytes: b"one\nignored\0tail\n",
+            preserved: &[b"one", b"ignored\0tail"],
+            truncated: &[b"one", b"ignored"],
+        },
+    ];
+    for fixture in fixtures {
+        fs::write(&path, fixture.bytes).unwrap();
+        let preserved = History::read_file_with_options(&path, preserve_options).unwrap();
+        assert_eq!(
+            preserved
+                .entries()
+                .iter()
+                .map(|entry| entry.line_bytes.as_slice())
+                .collect::<Vec<_>>(),
+            fixture.preserved
+        );
+        assert_eq!(
+            History::read_file(&path).unwrap().entries(),
+            preserved.entries()
+        );
+        let truncated = History::read_file_with_options(&path, truncate_options).unwrap();
+        assert_eq!(
+            truncated
+                .entries()
+                .iter()
+                .map(|entry| entry.line_bytes.as_slice())
+                .collect::<Vec<_>>(),
+            fixture.truncated
+        );
+    }
+}
+
+#[test]
 fn nul_policies_apply_to_range_capped_and_joined_reads() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");

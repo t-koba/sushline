@@ -601,6 +601,32 @@ fn unknown_tilde_user_include_preserves_relative_cwd_marker_path() {
 }
 
 #[test]
+fn failed_tilde_user_lookup_preserves_relative_cwd_marker_path() {
+    let spelling = "~sushline-lookup-error-inputrc/marker.inputrc";
+    let lookup_error = std::io::Error::from(std::io::ErrorKind::Other);
+    let path = expand_include_path_with_home(spelling, |user| {
+        assert_eq!(user, "sushline-lookup-error-inputrc");
+        // The resolver receives None for unavailable account data, regardless
+        // of whether lookup failed or the account was simply absent.
+        Err::<PathBuf, _>(lookup_error).ok()
+    })
+    .unwrap();
+    assert_eq!(path, PathBuf::from(spelling));
+    assert!(path.is_relative());
+
+    let cwd = tempfile::tempdir().unwrap();
+    let marker_dir = cwd.path().join("~sushline-lookup-error-inputrc");
+    fs::create_dir(&marker_dir).unwrap();
+    let marker = marker_dir.join("marker.inputrc");
+    let contents = "set completion-ignore-case on\n";
+    fs::write(&marker, contents).unwrap();
+    // Model CWD-relative resolution without a process-global chdir.
+    let resolved = cwd.path().join(path);
+    assert_eq!(resolved, marker);
+    assert_eq!(fs::read_to_string(resolved).unwrap(), contents);
+}
+
+#[test]
 fn empty_home_tilde_user_include_is_skipped() {
     // Synthetic passwd data: lookup succeeds, but the home field is empty.
     // Pinned GNU Readline 8.3 skips this include rather than reading from CWD.

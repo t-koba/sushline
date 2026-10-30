@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Shared measurement for the `$include path rules` audit: CWD-relative,
 # `~/` via controlled HOME, literal `$HOME`, and missing-include
-# continuation. Measurement only against the pinned release.
+# continuation, including a controlled named-account lookup error.
+# Measurement only against the pinned release.
 set -euo pipefail
 ulimit -c 0
-trap 'rm -f /tmp/readline_include_paths_probe.c /tmp/readline_include_paths_probe' EXIT
+lookup_error_dir=$(mktemp -d /tmp/sushline-lookup-error-XXXXXX)
+trap 'rm -f /tmp/readline_include_paths_probe.c /tmp/readline_include_paths_probe; rm -rf "$lookup_error_dir"' EXIT
 readline="$HOME/.cache/sushline/readline-oracle"
 # Fail closed on a missing or differently configured cache.
 marker="$readline/build-configuration"
@@ -16,10 +18,13 @@ if [ ! -f "$readline/lib/libreadline.so" ] || [ ! -f "$marker" ] || \
   exit 1
 fi
 # Direct-library probe: initialize with no user configuration, read one
-# test-owned outer file, and report only release, read status, and
-# boolean sentinel states. No input is read.
+# test-owned outer file, and report release, library identity, lookup hits,
+# read status, and boolean sentinel states. No input is read.
 cat > /tmp/readline_include_paths_probe.c <<'PROBE'
+#define _GNU_SOURCE
+#include <dlfcn.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/resource.h>
 #include <readline/readline.h>
@@ -28,17 +33,29 @@ extern int rl_readline_version;
 
 int main(int argc, char **argv) {
     const struct rlimit no_core = {0, 0};
-    if (argc != 2 || setrlimit(RLIMIT_CORE, &no_core) != 0) {
+    if (argc != 3 || setrlimit(RLIMIT_CORE, &no_core) != 0) {
         return 2;
     }
     printf("readline_release=%d.%d\n", rl_readline_version >> 8,
            rl_readline_version & 0xff);
     fflush(stdout);
-    if (rl_initialize() != 0) {
+    Dl_info library;
+    char *loaded = NULL;
+    char *expected = realpath(argv[2], NULL);
+    if (dladdr((void *)rl_read_init_file, &library) != 0) {
+        loaded = realpath(library.dli_fname, NULL);
+    }
+    int pinned = loaded != NULL && expected != NULL && strcmp(loaded, expected) == 0;
+    free(loaded);
+    free(expected);
+    printf("pinned_library_loaded=%d\n", pinned);
+    if (!pinned || rl_initialize() != 0) {
         return 1;
     }
     int status = rl_read_init_file(argv[1]);
     printf("read_status=%d\n", status);
+    unsigned int (*lookup_hits)(void) = dlsym(RTLD_DEFAULT, "sushline_lookup_error_hits");
+    printf("lookup_error_hits=%u\n", lookup_hits != NULL ? lookup_hits() : 0);
     const char *ignore_case = rl_variable_value("completion-ignore-case");
     int is_on = ignore_case != NULL && strcmp(ignore_case, "on") == 0;
     const char *mode = rl_variable_value("editing-mode");
@@ -52,7 +69,7 @@ PROBE
 if ! cc -Wall -Wextra -Werror -o /tmp/readline_include_paths_probe \
   /tmp/readline_include_paths_probe.c \
   -I"$readline/include" -L"$readline/lib" \
-  -Wl,-rpath,"$readline/lib" -lreadline 2>/dev/null; then
+  -Wl,-rpath,"$readline/lib" -lreadline -ldl 2>/dev/null; then
   echo "paths probe compilation failed" >&2
   exit 1
 fi
@@ -63,6 +80,58 @@ if [ -z "$readline_libraries" ] || \
   echo "paths probe did not load the pinned Readline library" >&2
   exit 1
 fi
+# The interposer is used only in the lookup-error child's environment. Other
+# account names go to libc; the exact fixture name fails with EIO, not absence.
+cat > "$lookup_error_dir/interposer.c" <<'INTERPOSER'
+#define _GNU_SOURCE
+#include <dlfcn.h>
+#include <errno.h>
+#include <pwd.h>
+#include <stddef.h>
+#include <string.h>
+
+static unsigned int hits;
+unsigned int sushline_lookup_error_hits(void) { return hits; }
+
+struct passwd *getpwnam(const char *name) {
+    if (strcmp(name, "sushline-lookup-error-inputrc") == 0) {
+        ++hits;
+        errno = EIO;
+        return NULL;
+    }
+    struct passwd *(*next)(const char *) = dlsym(RTLD_NEXT, "getpwnam");
+    if (next != NULL) {
+        return next(name);
+    }
+    errno = ENOSYS;
+    return NULL;
+}
+
+int getpwnam_r(const char *name, struct passwd *pwd, char *buffer,
+              size_t size, struct passwd **result) {
+    if (strcmp(name, "sushline-lookup-error-inputrc") == 0) {
+        ++hits;
+        *result = NULL;
+        errno = EIO;
+        return EIO;
+    }
+    int (*next)(const char *, struct passwd *, char *, size_t, struct passwd **) =
+        dlsym(RTLD_NEXT, "getpwnam_r");
+    if (next != NULL) {
+        return next(name, pwd, buffer, size, result);
+    }
+    *result = NULL;
+    errno = ENOSYS;
+    return ENOSYS;
+}
+INTERPOSER
+if ! cc -Wall -Wextra -Werror -shared -fPIC -o "$lookup_error_dir/interposer.so" \
+  "$lookup_error_dir/interposer.c" -ldl 2>/dev/null; then
+  echo "paths probe interposer compilation failed" >&2
+  exit 1
+fi
+SUSHLINE_LOOKUP_ERROR_PRELOAD="$lookup_error_dir/interposer.so" \
+SUSHLINE_PINNED_READLINE="$readline/lib/libreadline.so" \
 python3 - <<'PYPROBE' | tee /tmp/readline_include_paths.out
 import os
 import pwd
@@ -77,13 +146,18 @@ probe = "/tmp/readline_include_paths_probe"
 expected = os.environ["READLINE_ORACLE_VERSION"]
 resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
-def run_child(label, outer_path, cwd, home):
+def run_child(label, outer_path, cwd, home, lookup_error=False):
     child = None
     try:
         env = os.environ.copy()
+        # Do not inherit unrelated loader overrides into the measurement.
+        env.pop("LD_PRELOAD", None)
+        env.pop("LD_LIBRARY_PATH", None)
+        if lookup_error:
+            env["LD_PRELOAD"] = os.environ["SUSHLINE_LOOKUP_ERROR_PRELOAD"]
         env.update(INPUTRC="/dev/null", LC_ALL="C", TERM="dumb", HOME=home)
         child = subprocess.Popen(
-            [probe, outer_path],
+            [probe, outer_path, os.environ["SUSHLINE_PINNED_READLINE"]],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -104,12 +178,16 @@ def run_child(label, outer_path, cwd, home):
             if separator and key in {
                 "readline_release",
                 "read_status",
+                "pinned_library_loaded",
+                "lookup_error_hits",
                 "completion_ignore_case_on",
                 "editing_mode_vi",
             }:
                 fields[key] = value
         valid = (
             fields.get("readline_release") == expected
+            and fields.get("pinned_library_loaded") == "1"
+            and re.fullmatch(r"[0-9]{1,10}", fields.get("lookup_error_hits", "")) is not None
             and re.fullmatch(r"-?[0-9]+", fields.get("read_status", "")) is not None
             and fields.get("completion_ignore_case_on") in {"0", "1"}
             and fields.get("editing_mode_vi") in {"0", "1"}
@@ -117,12 +195,17 @@ def run_child(label, outer_path, cwd, home):
         if valid:
             print(f"{label}_readline_release={fields['readline_release']}")
             print(f"{label}_read_status={fields['read_status']}")
+            print(f"{label}_pinned_library_loaded={fields['pinned_library_loaded']}")
+            print(f"{label}_lookup_error_hits={fields['lookup_error_hits']}")
             print(f"{label}_completion_ignore_case_on={fields['completion_ignore_case_on']}")
             print(f"{label}_editing_mode_vi={fields['editing_mode_vi']}")
         print(f"{label}_probe_stderr_nonempty={int(bool(stderr_bytes))}")
         print(f"{label}_probe_timeout={int(timed_out)}")
         print(f"{label}_probe_returncode={child.returncode}")
-        completed = valid and not timed_out and child.returncode == 0
+        completed = (
+            valid and not timed_out and child.returncode == 0
+            and (not lookup_error or int(fields["lookup_error_hits"]) > 0)
+        )
         print(f"{label}_fixture_completed={int(completed)}")
         return valid, completed, dict(fields), child.returncode, bool(stderr_bytes), timed_out
     finally:
@@ -134,7 +217,7 @@ def run_child(label, outer_path, cwd, home):
                 if stream is not None:
                     stream.close()
 
-def run_case(case, setup):
+def run_case(case, setup, lookup_error=False):
     records = []
     base = None
     try:
@@ -143,7 +226,7 @@ def run_case(case, setup):
             outer_path, cwd, home = setup(base)
             label = f"{case}_trial{trial}"
             valid, completed, fields, returncode, stderr_flag, timed_out = run_child(
-                label, outer_path, cwd, home
+                label, outer_path, cwd, home, lookup_error
             )
             try:
                 shutil.rmtree(base, ignore_errors=True)
@@ -205,16 +288,16 @@ def setup_dollar_home(base):
     os.makedirs(empty_home)
     return outer_path, cwd_dir, empty_home
 
-def setup_unknown_user_cwd_marker(base):
+def setup_user_cwd_marker(base, username):
     # Refuse to measure a known account, regardless of its home directory.
     try:
-        pwd.getpwnam("sushline-no-such-user")
+        pwd.getpwnam(username)
     except KeyError:
         pass
     else:
         raise ValueError()
     cwd_dir = os.path.join(base, "cwd")
-    marker_dir = os.path.join(cwd_dir, "~sushline-no-such-user")
+    marker_dir = os.path.join(cwd_dir, "~" + username)
     outer_dir = os.path.join(base, "outer")
     home = os.path.join(base, "home")
     os.makedirs(marker_dir)
@@ -225,9 +308,15 @@ def setup_unknown_user_cwd_marker(base):
     outer_path = os.path.join(outer_dir, "outer.inputrc")
     with open(outer_path, "w", encoding="utf-8") as handle:
         handle.write("set completion-ignore-case off\n")
-        handle.write("$include ~sushline-no-such-user/marker.inputrc\n")
+        handle.write(f"$include ~{username}/marker.inputrc\n")
         handle.write("set editing-mode vi\n")
     return outer_path, cwd_dir, home
+
+def setup_unknown_user_cwd_marker(base):
+    return setup_user_cwd_marker(base, "sushline-no-such-user")
+
+def setup_lookup_error_cwd_marker(base):
+    return setup_user_cwd_marker(base, "sushline-lookup-error-inputrc")
 
 def setup_missing(base):
     outer_path = os.path.join(base, "outer.inputrc")
@@ -245,6 +334,8 @@ try:
     ok = run_case("dollar_home_literal", setup_dollar_home) and ok
     ok = run_case("missing_continues", setup_missing) and ok
     ok = run_case("unknown_user_cwd_marker", setup_unknown_user_cwd_marker) and ok
+    ok = run_case("lookup_error_cwd_marker", setup_lookup_error_cwd_marker,
+                  lookup_error=True) and ok
     if not ok:
         raise ValueError()
 except Exception:

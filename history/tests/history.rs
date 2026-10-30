@@ -1980,6 +1980,51 @@ fn pinned_gnu_history_8_3_nul_eof_fixture_matches_sushline_policies() {
 }
 
 #[test]
+fn joined_nul_eof_inputs_match_both_sushline_policies() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    let preserve_options = HistoryReadOptions {
+        multiline: HistoryMultiline::Joined,
+        nul_policy: HistoryNulPolicy::Preserve,
+    };
+    let truncate_options = HistoryReadOptions {
+        nul_policy: HistoryNulPolicy::TruncateAtNul,
+        ..preserve_options
+    };
+    // Product-side expectations for the exact byte sequences sent to the
+    // pinned GNU probe; this test does not assert a GNU result.
+    let fixtures: &[(&[u8], &[&[u8]], &[&[u8]])] = &[
+        (b"one\nignored\0tail", &[b"one"], &[b"one"]),
+        (
+            b"one\nignored\0tail\n",
+            &[b"one\nignored\0tail"],
+            &[b"one\nignored"],
+        ),
+    ];
+    for &(bytes, preserved, truncated) in fixtures {
+        fs::write(&path, bytes).unwrap();
+        let preserved_history = History::read_file_with_options(&path, preserve_options).unwrap();
+        assert_eq!(
+            preserved_history
+                .entries()
+                .iter()
+                .map(|entry| entry.line_bytes.as_slice())
+                .collect::<Vec<_>>(),
+            preserved
+        );
+        let truncated_history = History::read_file_with_options(&path, truncate_options).unwrap();
+        assert_eq!(
+            truncated_history
+                .entries()
+                .iter()
+                .map(|entry| entry.line_bytes.as_slice())
+                .collect::<Vec<_>>(),
+            truncated
+        );
+    }
+}
+
+#[test]
 fn nul_policies_apply_to_range_capped_and_joined_reads() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");

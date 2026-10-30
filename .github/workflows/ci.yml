@@ -1869,8 +1869,8 @@ jobs:
           fi
           # Retain the complete measurement, then assert selected direct-
           # library results paired with Rust history-expansion regressions.
-          # The quote-state expectations need pinned GNU History 8.3 confirmation;
-          # local 8.2 observations alone do not establish compatibility.
+          # The quote-state rows were confirmed by pinned GNU History 8.3 CI;
+          # local 8.2 observations are directional, not compatibility evidence.
           # The delimiter pair likewise needs pinned confirmation; it covers
           # only !!:2 on echo alpha,beta gamma with default/comma delimiters.
           /tmp/history_expand_probe | tee /tmp/history_expand.out

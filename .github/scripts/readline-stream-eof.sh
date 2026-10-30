@@ -122,8 +122,14 @@ for case_name in empty unterminated newline; do
   HOME="$work/home" INPUTRC=/dev/null LC_ALL=C \
     timeout 5 "$work/probe" "$readline" "$case_name" | tee -a "$report"
 done
-cases=$(grep -c '^release=8\.3 case=' "$report" || true)
-if [ "$cases" != 3 ]; then
-  echo "stream EOF probe did not record all three cases" >&2
+projection="$work/projection"
+expected=.github/scripts/readline-stream-eof.expected
+if ! grep -E '^(release=8\.3 case=|first_null=|second_null=)' "$report" > "$projection"; then
+  echo "stream EOF probe did not record its result rows" >&2
+  exit 1
+fi
+if ! cmp -s "$expected" "$projection"; then
+  echo "stream EOF probe differed from pinned Readline 8.3 results:" >&2
+  diff -u "$expected" "$projection" >&2 || true
   exit 1
 fi

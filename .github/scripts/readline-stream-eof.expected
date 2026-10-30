@@ -1,0 +1,9 @@
+release=8.3 case=empty
+first_null=1 first_hex=
+second_null=1 second_hex=
+release=8.3 case=unterminated
+first_null=0 first_hex=616263
+second_null=1 second_hex=
+release=8.3 case=newline
+first_null=0 first_hex=616263
+second_null=1 second_hex=

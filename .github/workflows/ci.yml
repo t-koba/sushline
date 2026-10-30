@@ -956,6 +956,21 @@ jobs:
           grep -qx 'entry_0=one' /tmp/history_full_nul_timestamped.out
           grep -qx 'entry_1=next' /tmp/history_full_nul_timestamped.out
           grep -qx 'entry_2=final' /tmp/history_full_nul_timestamped.out
+          # Compare a NUL-bearing final command with and without its LF.
+          printf 'one\nignored\000tail' > /tmp/history_full_nul_eof_unterminated
+          /tmp/history_full_probe /tmp/history_full_nul_eof_unterminated | tee /tmp/history_full_nul_eof_unterminated.out
+          grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/history_full_nul_eof_unterminated.out
+          grep -qx 'read_history_status=ok' /tmp/history_full_nul_eof_unterminated.out
+          printf 'one\nignored\000tail\n' > /tmp/history_full_nul_eof_terminated
+          /tmp/history_full_probe /tmp/history_full_nul_eof_terminated | tee /tmp/history_full_nul_eof_terminated.out
+          grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/history_full_nul_eof_terminated.out
+          grep -qx 'read_history_status=ok' /tmp/history_full_nul_eof_terminated.out
+          {
+            printf '[unterminated-final-line]\n'
+            cat /tmp/history_full_nul_eof_unterminated.out
+            printf '[final-LF-control]\n'
+            cat /tmp/history_full_nul_eof_terminated.out
+          } > /tmp/history_full_nul_eof.out
           # A NUL inside the timestamp metadata line is measured separately:
           # retain each entry's raw/parsed timestamp and the command list.
           printf '#1700000000\000suffix\nalpha\nbeta\n' > /tmp/history_timestamp_nul
@@ -3401,6 +3416,9 @@ jobs:
             /tmp/history_full_nul_plain.out \
             /tmp/history_full_nul_leading.out \
             /tmp/history_full_nul_timestamped.out \
+            /tmp/history_full_nul_eof_unterminated.out \
+            /tmp/history_full_nul_eof_terminated.out \
+            /tmp/history_full_nul_eof.out \
             /tmp/history_timestamp_nul.out \
             /tmp/history_rust_full_late_record.out \
             /tmp/history_full_file_comparison.out \

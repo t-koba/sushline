@@ -1715,6 +1715,26 @@ jobs:
               }
           }
 
+          /* Separate seed and restored policy keep this paired delimiter
+             measurement isolated from the other expansion fixtures. */
+          static void run_word_delimiters(const char *label, char *delimiters) {
+              char *saved = history_word_delimiters;
+              if (delimiters != NULL) {
+                  history_word_delimiters = delimiters;
+              }
+              clear_history();
+              add_history("echo alpha,beta gamma");
+              char selector[] = "!!:2";
+              char *output = NULL;
+              int status = history_expand(selector, &output);
+              printf("%s: status=%d output_hex=", label, status);
+              print_hex_bytes(output);
+              printf("\n");
+              fflush(stdout);
+              free(output);
+              history_word_delimiters = saved;
+          }
+
           /* Emit pinned GNU 8.3 lexical observations: tokenize, single-word
              extract, and word-selector expansion on the same seeded entry.
              Each sub-measurement resets the history first, so cases stay
@@ -1783,6 +1803,8 @@ jobs:
               run_inhibited("inhibit_index_one_control", "x!!");
               run_quote_state("quote_state_single", '\'');
               run_quote_state("quote_state_unquoted_control", 0);
+              run_word_delimiters("word_delimiters_default_control", NULL);
+              run_word_delimiters("word_delimiters_comma", " \t\n;&()|<>,");
               run("last_word", "!$");
               run("word_zero", "!:0");
               run("head_modifier", "!!:h");
@@ -1849,6 +1871,8 @@ jobs:
           # library results paired with Rust history-expansion regressions.
           # The quote-state expectations need pinned GNU History 8.3 confirmation;
           # local 8.2 observations alone do not establish compatibility.
+          # The delimiter pair likewise needs pinned confirmation; it covers
+          # only !!:2 on echo alpha,beta gamma with default/comma delimiters.
           /tmp/history_expand_probe | tee /tmp/history_expand.out
           while IFS= read -r expected; do
             grep -Fqx "$expected" /tmp/history_expand.out || {
@@ -1861,6 +1885,8 @@ jobs:
           inhibit_index_one_control: status=1 output_hex=786563686f20612062
           quote_state_single: status=0 output_hex=2121
           quote_state_unquoted_control: status=1 output_hex=6563686f20612062
+          word_delimiters_default_control: status=1 output_hex=67616d6d61
+          word_delimiters_comma: status=1 output_hex=2c
           last_word: status=1 output_hex=62
           word_zero: status=1 output_hex=6563686f
           head_modifier: status=1 output_hex=6563686f20612062

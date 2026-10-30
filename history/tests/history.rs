@@ -4198,6 +4198,26 @@ fn custom_history_word_delimiters_preserve_punctuation_fields() {
         word_delimiters: b" \t\n;&()|<>,".to_vec(),
         ..HistoryExpansionPolicy::default()
     };
+    // Paired with history_expand_probe's default/comma delimiter rows.
+    // The selected punctuation field is a word, not a discarded separator.
+    let mut history = History::new();
+    history.push("echo alpha,beta gamma");
+    for (selected_policy, expected) in [
+        (&HistoryExpansionPolicy::default(), b"gamma".as_slice()),
+        (&policy, b",".as_slice()),
+    ] {
+        let expanded = expand_history_with_status(
+            b"!!:2",
+            &history,
+            HistoryChars::parse("!^#"),
+            selected_policy,
+            |_| false,
+        )
+        .unwrap();
+        assert_eq!(expanded.line, expected);
+        assert_eq!(expanded.status, HistoryExpansionStatus::Expanded);
+    }
+
     for (line, expected) in [
         (
             b"echo alpha,beta gamma".as_slice(),

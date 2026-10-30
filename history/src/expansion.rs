@@ -412,11 +412,12 @@ pub fn expand_history_with_status_with_state(
 /// Parse leading quick-substitution fields with escape handling.
 ///
 /// Scans the fields after a leading `quick` marker. A backslash followed by
-/// `quick` emits the marker as field data; any other backslash is preserved
-/// literally. Returns the decoded `old`/`new` fields and the index just past
-/// the scanned fields (including a closing marker when present). Returns
-/// `None` when the old-field terminator is missing, leaving the line to normal
-/// expansion handling. Ordinary `:s` parsing is unchanged.
+/// `quick` emits the marker as field data; the replacement field also follows
+/// ordinary substitution semantics, so unescaped `&` inserts the old field
+/// and `\&` emits a literal ampersand. Returns the decoded `old`/`new` fields
+/// and the index just past the scanned fields (including a closing marker when
+/// present). Returns `None` when the old-field terminator is missing, leaving
+/// the line to normal expansion handling.
 fn parse_quick_substitution(line: &[u8], quick: u8) -> Option<(Vec<u8>, Vec<u8>, usize)> {
     debug_assert_eq!(line.first(), Some(&quick));
     let mut old = Vec::new();
@@ -436,21 +437,8 @@ fn parse_quick_substitution(line: &[u8], quick: u8) -> Option<(Vec<u8>, Vec<u8>,
         }
     }?;
     idx = old_delimiter + 1;
-    let mut new = Vec::new();
-    loop {
-        match line.get(idx).copied() {
-            None => return Some((old, new, idx)),
-            Some(b'\\') if line.get(idx + 1) == Some(&quick) => {
-                new.push(quick);
-                idx += 2;
-            }
-            Some(byte) if byte == quick => return Some((old, new, idx + 1)),
-            Some(byte) => {
-                new.push(byte);
-                idx += 1;
-            }
-        }
-    }
+    let (new, next_idx) = read_history_substitution_part(line, idx, quick, Some(&old));
+    Some((old, new, next_idx))
 }
 
 fn is_escaped_history_expansion(line: &[u8], idx: usize) -> bool {

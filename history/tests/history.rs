@@ -4950,6 +4950,49 @@ fn quick_substitution_honors_escaped_delimiters() {
 }
 
 #[test]
+fn quick_substitution_expands_and_escapes_replacement_ampersands() {
+    // Pinned GNU History 8.3 primary fixture: quick and ordinary substitution
+    // both expand `&` to the old field, while `\&` is literal; the expanded
+    // replacement is also reused by a following `!!:&`.
+    let histchars = HistoryChars::parse("!^#");
+    let policy = HistoryExpansionPolicy::default();
+    let mut history = History::new();
+    history.push("echo old");
+
+    for (typed, expected) in [
+        (b"^old^&tail^".as_slice(), b"echo oldtail".as_slice()),
+        (b"!!:s^old^&tail^".as_slice(), b"echo oldtail".as_slice()),
+        (b"^old^\\&tail^".as_slice(), b"echo &tail".as_slice()),
+        (b"!!:s^old^\\&tail^".as_slice(), b"echo &tail".as_slice()),
+    ] {
+        assert_eq!(
+            expand_history(typed, &history, histchars, &policy, |_| false).unwrap(),
+            expected,
+            "typed={typed:?}",
+        );
+    }
+
+    let mut state = HistoryExpansionState::new();
+    assert_eq!(
+        expand_history_with_state(
+            b"^old^&tail^",
+            &history,
+            histchars,
+            &policy,
+            &mut state,
+            |_| false,
+        )
+        .unwrap(),
+        b"echo oldtail",
+    );
+    assert_eq!(
+        expand_history_with_state(b"!!:&", &history, histchars, &policy, &mut state, |_| false,)
+            .unwrap(),
+        b"echo oldtail",
+    );
+}
+
+#[test]
 fn timestamped_reads_strip_leading_blanks_and_drop_blank_only_gaps() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");

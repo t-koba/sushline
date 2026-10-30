@@ -3306,6 +3306,8 @@ jobs:
         run: bash .github/scripts/readline-invalid-history-search.sh primary unicode-query-expansion-incremental
       - name: Measure raw Unicode query expansion forward incremental search against the pinned release
         run: bash .github/scripts/readline-invalid-history-search.sh primary unicode-forward-query-expansion-incremental
+      - name: Measure finite input-stream EOF against the pinned release
+        run: bash .github/scripts/readline-stream-eof.sh primary
       - name: Measure plain and timestamped History truncation against the pinned release
         run: bash .github/scripts/readline-history-truncate.sh primary
       - name: Measure History append fixtures against the pinned release
@@ -3362,6 +3364,7 @@ jobs:
             /tmp/readline_unicode_history_forward_expansion_incremental_search.out \
             /tmp/readline_unicode_history_query_expansion_incremental_search.out \
             /tmp/readline_unicode_history_forward_query_expansion_incremental_search.out \
+            /tmp/readline_stream_eof_primary.out \
             /tmp/history_truncate_primary.out \
             /tmp/history_append_primary.out \
             /tmp/history_write_mode_primary.out \
@@ -3481,6 +3484,8 @@ jobs:
         run: bash .github/scripts/readline-invalid-history-search.sh replica unicode-query-expansion-incremental
       - name: Measure raw Unicode query expansion forward incremental search against the pinned release
         run: bash .github/scripts/readline-invalid-history-search.sh replica unicode-forward-query-expansion-incremental
+      - name: Independently measure finite input-stream EOF against the pinned release
+        run: bash .github/scripts/readline-stream-eof.sh replica
       - name: Measure plain and timestamped History truncation against the pinned release
         run: bash .github/scripts/readline-history-truncate.sh replica
       - name: Measure History append fixtures against the pinned release
@@ -3511,6 +3516,14 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-horizontal-render-replica
           path: /tmp/readline_horizontal_render.out
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload independent pinned stream-EOF report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-stream-eof-replica
+          path: /tmp/readline_stream_eof_replica.out
           if-no-files-found: warn
           retention-days: 14
       - name: Upload independent pinned invalid-history-search report

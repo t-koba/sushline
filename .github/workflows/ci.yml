@@ -972,6 +972,23 @@ jobs:
             cat /tmp/history_full_nul_eof_terminated.out
           } > /tmp/history_full_nul_eof.out
           diff -u .github/scripts/history-full-nul-eof.expected /tmp/history_full_nul_eof.out
+          # Also record these cases in GNU's joined multiline mode.
+          printf 'one\nignored\000tail' > /tmp/history_full_nul_eof_joined_unterminated
+          /tmp/history_full_probe /tmp/history_full_nul_eof_joined_unterminated --mode 1 | tee /tmp/history_full_nul_eof_joined_unterminated.out
+          grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/history_full_nul_eof_joined_unterminated.out
+          grep -qx 'history_multiline_entries=1' /tmp/history_full_nul_eof_joined_unterminated.out
+          grep -qx 'read_history_status=ok' /tmp/history_full_nul_eof_joined_unterminated.out
+          printf 'one\nignored\000tail\n' > /tmp/history_full_nul_eof_joined_terminated
+          /tmp/history_full_probe /tmp/history_full_nul_eof_joined_terminated --mode 1 | tee /tmp/history_full_nul_eof_joined_terminated.out
+          grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/history_full_nul_eof_joined_terminated.out
+          grep -qx 'history_multiline_entries=1' /tmp/history_full_nul_eof_joined_terminated.out
+          grep -qx 'read_history_status=ok' /tmp/history_full_nul_eof_joined_terminated.out
+          {
+            printf '[unterminated-final-line]\n'
+            cat /tmp/history_full_nul_eof_joined_unterminated.out
+            printf '[final-LF-control]\n'
+            cat /tmp/history_full_nul_eof_joined_terminated.out
+          } > /tmp/history_full_nul_eof_joined.out
           # A NUL inside the timestamp metadata line is measured separately:
           # retain each entry's raw/parsed timestamp and the command list.
           printf '#1700000000\000suffix\nalpha\nbeta\n' > /tmp/history_timestamp_nul
@@ -3420,6 +3437,9 @@ jobs:
             /tmp/history_full_nul_eof_unterminated.out \
             /tmp/history_full_nul_eof_terminated.out \
             /tmp/history_full_nul_eof.out \
+            /tmp/history_full_nul_eof_joined_unterminated.out \
+            /tmp/history_full_nul_eof_joined_terminated.out \
+            /tmp/history_full_nul_eof_joined.out \
             /tmp/history_timestamp_nul.out \
             /tmp/history_rust_full_late_record.out \
             /tmp/history_full_file_comparison.out \

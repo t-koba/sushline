@@ -237,6 +237,9 @@ pub struct History {
     search_masks: Vec<u64>,
     cursor: Option<usize>,
     current_edit: Vec<u8>,
+    // Absolute event numbers skipped by capped appends; explicit stifling
+    // keeps the surviving entries' existing numbers.
+    event_base_offset: usize,
     max_entries: Option<usize>,
     file_loaded_len: usize,
 }
@@ -317,6 +320,7 @@ impl History {
         self.entries.clear();
         self.search_masks.clear();
         self.file_loaded_len = 0;
+        self.event_base_offset = 0;
         self.reset_cursor();
     }
 
@@ -506,9 +510,10 @@ impl History {
         timestamp: Option<String>,
         suppress_adjacent_duplicate: bool,
     ) {
-        if !suppress_adjacent_duplicate
-            || self.entries.last().map(|entry| entry.line_bytes.as_slice()) != Some(line.as_slice())
-        {
+        let added = !suppress_adjacent_duplicate
+            || self.entries.last().map(|entry| entry.line_bytes.as_slice())
+                != Some(line.as_slice());
+        if added {
             self.search_masks.push(byte_bigram_mask(&line));
             self.entries.push(HistoryEntry {
                 line_bytes: line,
@@ -516,6 +521,10 @@ impl History {
                 modified: false,
                 undo_list: Vec::new(),
             });
+            if let Some(max_entries) = self.max_entries {
+                let evicted = self.entries.len().saturating_sub(max_entries);
+                self.event_base_offset = self.event_base_offset.saturating_add(evicted);
+            }
         }
         self.enforce_max_len(self.max_entries);
         self.reset_cursor();
@@ -934,9 +943,17 @@ impl History {
         Some(self.entries[found].line_bytes.clone())
     }
 
-    /// Get 1 based entry.
+    /// Get 1 based entry by resident ordinal.
     pub fn get_1_based_entry(&self, index: usize) -> Option<&HistoryEntry> {
         index.checked_sub(1).and_then(|idx| self.entries.get(idx))
+    }
+
+    /// Get an entry by its GNU-style absolute event number.
+    pub(crate) fn get_event_entry(&self, event: usize) -> Option<&HistoryEntry> {
+        let first_event = self.event_base_offset.checked_add(1)?;
+        event
+            .checked_sub(first_event)
+            .and_then(|index| self.entries.get(index))
     }
 }
 

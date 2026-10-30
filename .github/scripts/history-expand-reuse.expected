@@ -96,6 +96,16 @@ step=before_add_after_absolute_3 input_hex=2133 status=1 output_hex=6563686f2063
 step=before_add_after_absolute_4 input_hex=2134 status=1 output_hex=6563686f2064656c7461
 step=before_add_after_relative_1 input_hex=212d31 status=1 output_hex=6563686f2064656c7461
 step=before_add_after_relative_2 input_hex=212d32 status=1 output_hex=6563686f20636861726c6965
+sequence=stifle-clear-reseed
+header_version=0x0803 runtime_version=0x0803
+history_base_before_clear=2 history_length_before_clear=2
+history_base_after_clear=1 history_length_after_clear=0
+history_base_after_reseed=2 history_length_after_reseed=2
+step=after_clear_absolute_1 input_hex=2131 status=-1 output_hex=21313a206576656e74206e6f7420666f756e64
+step=after_clear_absolute_2 input_hex=2132 status=1 output_hex=6563686f206563686f
+step=after_clear_absolute_3 input_hex=2133 status=1 output_hex=6563686f20666f7874726f74
+step=after_clear_relative_1 input_hex=212d31 status=1 output_hex=6563686f20666f7874726f74
+step=after_clear_relative_2 input_hex=212d32 status=1 output_hex=6563686f206563686f
 sequence=quick-basic
 header_version=0x0803 runtime_version=0x0803
 seed[0]_hex=6563686f206f6c64

@@ -324,6 +324,67 @@ fn stifled_raw_appends_preserve_numeric_positions() {
 }
 
 #[test]
+fn history_expansion_absolute_numbers_follow_stifled_append_base() {
+    // Pinned GNU History 8.3's `stifle-after-add` and `stifle-before-add`
+    // fixtures distinguish resident ordinals from absolute event numbers once
+    // appending while capped advances history_base.
+    let policy = HistoryExpansionPolicy::default();
+    let expand = |history: &History, line: &[u8]| {
+        expand_history(line, history, HistoryChars::parse("!^#"), &policy, |_| {
+            false
+        })
+    };
+
+    let mut stifled_after_add = History::new();
+    for line in ["echo alpha", "echo bravo", "echo charlie"] {
+        stifled_after_add.push(line);
+    }
+    stifled_after_add.stifle(2);
+    assert_eq!(expand(&stifled_after_add, b"!1").unwrap(), b"echo bravo");
+    assert_eq!(expand(&stifled_after_add, b"!2").unwrap(), b"echo charlie");
+    assert!(expand(&stifled_after_add, b"!3").is_err());
+    stifled_after_add.push("echo delta");
+    assert!(expand(&stifled_after_add, b"!1").is_err());
+    assert_eq!(expand(&stifled_after_add, b"!2").unwrap(), b"echo charlie");
+    assert_eq!(expand(&stifled_after_add, b"!3").unwrap(), b"echo delta");
+    assert!(expand(&stifled_after_add, b"!4").is_err());
+    assert_eq!(expand(&stifled_after_add, b"!-1").unwrap(), b"echo delta");
+    assert_eq!(expand(&stifled_after_add, b"!-2").unwrap(), b"echo charlie");
+    assert_eq!(
+        stifled_after_add.get_1_based_entry(1).unwrap().line_bytes,
+        b"echo charlie"
+    );
+
+    let mut stifled_before_add = History::new();
+    stifled_before_add.stifle(2);
+    for line in ["echo alpha", "echo bravo", "echo charlie"] {
+        stifled_before_add.push(line);
+    }
+    assert!(expand(&stifled_before_add, b"!1").is_err());
+    assert_eq!(expand(&stifled_before_add, b"!2").unwrap(), b"echo bravo");
+    assert_eq!(expand(&stifled_before_add, b"!3").unwrap(), b"echo charlie");
+    assert_eq!(
+        expand(&stifled_before_add, b"!-1").unwrap(),
+        b"echo charlie"
+    );
+    assert_eq!(expand(&stifled_before_add, b"!-2").unwrap(), b"echo bravo");
+    stifled_before_add.push("echo delta");
+    assert!(expand(&stifled_before_add, b"!1").is_err());
+    assert!(expand(&stifled_before_add, b"!2").is_err());
+    assert_eq!(expand(&stifled_before_add, b"!3").unwrap(), b"echo charlie");
+    assert_eq!(expand(&stifled_before_add, b"!4").unwrap(), b"echo delta");
+    assert_eq!(expand(&stifled_before_add, b"!-1").unwrap(), b"echo delta");
+    assert_eq!(
+        expand(&stifled_before_add, b"!-2").unwrap(),
+        b"echo charlie"
+    );
+
+    stifled_before_add.clear();
+    stifled_before_add.push("echo fresh");
+    assert_eq!(expand(&stifled_before_add, b"!1").unwrap(), b"echo fresh");
+}
+
+#[test]
 fn append_clears_current_edit_and_preserves_import_cursor() {
     let mut history = History::new();
     history.push("old");

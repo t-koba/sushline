@@ -64,6 +64,7 @@ int main(int argc, char **argv) {
                       strcmp(argv[1], "empty-old-after-failed-search") != 0 &&
                       strcmp(argv[1], "stifle-after-add") != 0 &&
                       strcmp(argv[1], "stifle-before-add") != 0 &&
+                      strcmp(argv[1], "stifle-clear-reseed") != 0 &&
                       strcmp(argv[1], "quick-basic") != 0 &&
                       strcmp(argv[1], "quick-unescaped") != 0 &&
                       strcmp(argv[1], "ordinary-unescaped") != 0 &&
@@ -92,6 +93,30 @@ int main(int argc, char **argv) {
             expand("quick-memory-first", "^old^&tail^");
             expand("quick-memory-repeat", "!!:&");
         }
+        clear_history();
+        return 0;
+    }
+    if (strcmp(argv[1], "stifle-clear-reseed") == 0) {
+        stifle_history(2);
+        add_history("echo alpha");
+        add_history("echo bravo");
+        add_history("echo charlie");
+        printf("history_base_before_clear=%d history_length_before_clear=%d\n",
+               history_base, history_length);
+        clear_history();
+        printf("history_base_after_clear=%d history_length_after_clear=%d\n",
+               history_base, history_length);
+        stifle_history(2);
+        add_history("echo delta");
+        add_history("echo echo");
+        add_history("echo foxtrot");
+        printf("history_base_after_reseed=%d history_length_after_reseed=%d\n",
+               history_base, history_length);
+        expand("after_clear_absolute_1", "!1");
+        expand("after_clear_absolute_2", "!2");
+        expand("after_clear_absolute_3", "!3");
+        expand("after_clear_relative_1", "!-1");
+        expand("after_clear_relative_2", "!-2");
         clear_history();
         return 0;
     }
@@ -228,7 +253,7 @@ PROBE
   echo 'pinned_library_paths=validated'
   sha256sum "$readline/lib/libhistory.so" "$readline/lib/libreadline.so"
   probe_status=0
-  for sequence in failed-search positive-control percent-after-failure reuse-after-clear fresh-percent failed-search-first-percent percent-after-clear-reseed empty-old-after-clear-reseed empty-old-after-failed-search stifle-after-add stifle-before-add quick-basic quick-unescaped ordinary-unescaped quick-escaped ordinary-escaped quick-memory; do
+  for sequence in failed-search positive-control percent-after-failure reuse-after-clear fresh-percent failed-search-first-percent percent-after-clear-reseed empty-old-after-clear-reseed empty-old-after-failed-search stifle-after-add stifle-before-add stifle-clear-reseed quick-basic quick-unescaped ordinary-unescaped quick-escaped ordinary-escaped quick-memory; do
     case "$sequence" in
       percent-after-failure)
         printf 'sequence=%s\n' "$sequence"

@@ -560,7 +560,7 @@ fn parse_history_event(
                         .map(|entry| entry.line_bytes.clone())
                 } else {
                     history
-                        .get_1_based_entry(event as usize)
+                        .get_event_entry(event as usize)
                         .map(|entry| entry.line_bytes.clone())
                 }
             });

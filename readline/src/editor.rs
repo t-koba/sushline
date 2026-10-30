@@ -424,7 +424,16 @@ where
                     return Err(error.into());
                 }
                 Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => {
-                    return self.finish_outcome(&mut state, EditorOutcome::Eof);
+                    // GNU Readline 8.3 returns a buffered partial line when a
+                    // finite input stream ends without a newline. Keep empty
+                    // stream EOF distinct, and use bytes rather than a string
+                    // conversion so the editor's byte-oriented buffer is intact.
+                    let outcome = if state.buffer.as_bytes().is_empty() {
+                        EditorOutcome::Eof
+                    } else {
+                        EditorOutcome::Accepted(state.buffer.as_bytes().to_vec())
+                    };
+                    return self.finish_outcome(&mut state, outcome);
                 }
                 Err(error) => return Err(error.into()),
             };

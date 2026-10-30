@@ -69,17 +69,17 @@ fn read_two_lines(bytes: &[u8]) -> (ReadlineResult, ReadlineResult) {
 }
 
 #[test]
-fn unexpected_eof_distinguishes_empty_partial_and_terminated_input() {
-    // Sushline-side baseline for the pinned GNU Readline 8.3 stream probe:
-    // finite backend EOF after `abc` currently discards the partial buffer;
-    // CR represents the terminal's Enter event for the newline control.
+fn unexpected_eof_accepts_partial_input_and_preserves_empty_eof() {
+    // Pinned GNU Readline 8.3 primary and fresh-replica fixtures both return
+    // `abc` at stream EOF. CR represents the terminal's Enter event for the
+    // newline-terminated control.
     assert_eq!(
         read_two_lines(b""),
         (ReadlineResult::Eof, ReadlineResult::Eof)
     );
     assert_eq!(
         read_two_lines(b"abc"),
-        (ReadlineResult::Eof, ReadlineResult::Eof)
+        (ReadlineResult::Line(b"abc".to_vec()), ReadlineResult::Eof)
     );
     assert_eq!(
         read_two_lines(b"abc\r"),

@@ -1993,16 +1993,25 @@ fn joined_nul_eof_inputs_match_both_sushline_policies() {
     };
     // Product-side expectations for the exact byte sequences sent to the
     // pinned GNU probe; this test does not assert a GNU result.
-    let fixtures: &[(&[u8], &[&[u8]], &[&[u8]])] = &[
-        (b"one\nignored\0tail", &[b"one"], &[b"one"]),
-        (
-            b"one\nignored\0tail\n",
-            &[b"one\nignored\0tail"],
-            &[b"one\nignored"],
-        ),
+    struct Fixture {
+        bytes: &'static [u8],
+        preserved: &'static [&'static [u8]],
+        truncated: &'static [&'static [u8]],
+    }
+    let fixtures = [
+        Fixture {
+            bytes: b"one\nignored\0tail",
+            preserved: &[b"one"],
+            truncated: &[b"one"],
+        },
+        Fixture {
+            bytes: b"one\nignored\0tail\n",
+            preserved: &[b"one\nignored\0tail"],
+            truncated: &[b"one\nignored"],
+        },
     ];
-    for &(bytes, preserved, truncated) in fixtures {
-        fs::write(&path, bytes).unwrap();
+    for fixture in fixtures {
+        fs::write(&path, fixture.bytes).unwrap();
         let preserved_history = History::read_file_with_options(&path, preserve_options).unwrap();
         assert_eq!(
             preserved_history
@@ -2010,7 +2019,7 @@ fn joined_nul_eof_inputs_match_both_sushline_policies() {
                 .iter()
                 .map(|entry| entry.line_bytes.as_slice())
                 .collect::<Vec<_>>(),
-            preserved
+            fixture.preserved
         );
         let truncated_history = History::read_file_with_options(&path, truncate_options).unwrap();
         assert_eq!(
@@ -2019,7 +2028,7 @@ fn joined_nul_eof_inputs_match_both_sushline_policies() {
                 .iter()
                 .map(|entry| entry.line_bytes.as_slice())
                 .collect::<Vec<_>>(),
-            truncated
+            fixture.truncated
         );
     }
 }

@@ -148,6 +148,7 @@ fn compatibility_document_classifies_editor_bind_and_history_coverage() {
         .filter(|line| line.starts_with('|') && line.contains("| Known deviation |"))
         .collect::<Vec<_>>();
     for deviation in [
+        "| Signal install/catch/reraise |",
         "| Recursive `$include` cycles |",
         "| `horizontal-scroll-mode` |",
     ] {
@@ -158,16 +159,6 @@ fn compatibility_document_classifies_editor_bind_and_history_coverage() {
             "COMPATIBILITY.md must retain the {deviation} deviation"
         );
     }
-    let signal_row = documented_rows
-        .lines()
-        .find(|line| line.starts_with("| Signal install/catch/reraise |"))
-        .expect("COMPATIBILITY.md must retain the signal row");
-    assert!(
-        signal_row.contains("| Implemented |")
-            && signal_row.contains("by default, `SIG_DFL`")
-            && signal_row.contains("set_reraise_sigint_default(false)"),
-        "the signal row must document default re-delivery and its opt-out: {signal_row}"
-    );
     assert!(documented_rows.lines().any(|line| {
         line.starts_with("| `$include ~user/<relative path>` for a known account |")
             && line.contains("| Compatible |")

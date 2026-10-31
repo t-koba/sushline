@@ -39,20 +39,6 @@ let mut editor = Editor::new(
 let _ = editor.read_line(Prompt::new("> "), &mut ());
 ```
 
-On Unix, the built-in terminal restores terminal/signal state and, by default,
-re-delivers an actually caught SIGINT to the saved disposition, including fatal
-`SIG_DFL`.
-Fatal redelivery prevents either `SigintPolicy` read result. For nonfatal handling
-of saved `SIG_DFL`, configure the terminal before constructing the editor:
-
-```rust
-let mut terminal = sushline::readline::Terminal::new();
-terminal.set_reraise_sigint_default(false);
-```
-
-This opt-out leaves the read to `SigintPolicy` (`Continue` by default); it does
-not change caller handlers, `SIG_IGN`, hook-only reports, or literal Ctrl-C bytes.
-
 ## Documentation
 
 - [`COMPATIBILITY.md`](COMPATIBILITY.md): baseline and scope.

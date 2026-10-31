@@ -44,12 +44,11 @@ pub enum TerminalEvent {
 
 /// How an editor handles SIGINT and unquoted Ctrl-C input bytes.
 ///
-/// This policy selects the read result, not OS signal disposition. On Unix,
-/// before applying it, the built-in [`Terminal`] re-delivers a caught SIGINT
-/// to the saved disposition after restoring terminal and signal state. With saved
-/// `SIG_DFL`, redelivery terminates the process by default, before either policy
-/// can produce a result. Use `Terminal::set_reraise_sigint_default(false)`
-/// to opt out of fatal redelivery and apply this policy instead.
+/// This policy selects the read result, not OS signal disposition. Before
+/// applying it, the built-in [`Terminal`] re-delivers a caught SIGINT through
+/// a caller-installed handler after restoring it. A default disposition leaves
+/// the signal to this policy unless [`Terminal::set_reraise_sigint_default`]
+/// is enabled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SigintPolicy {
     /// After any caller-installed SIGINT handler returns, keep the partial
@@ -67,8 +66,7 @@ pub trait TerminalIo {
     ///
     /// Custom backends retain the `Interrupted` default unless they opt in.
     /// The built-in [`Terminal`] defaults to `Continue`. An editor can override
-    /// either default with [`crate::Editor::set_sigint_policy`]. Fatal redelivery
-    /// of a genuinely caught signal prevents either policy from returning.
+    /// either default with [`crate::Editor::set_sigint_policy`].
     fn sigint_policy(&self) -> SigintPolicy {
         SigintPolicy::Interrupted
     }
@@ -80,12 +78,11 @@ pub trait TerminalIo {
     /// Re-delivers a caught SIGINT after [`Self::restore_mode`].
     ///
     /// The editor calls this before applying [`SigintPolicy`]. The default is
-    /// a no-op, leaving custom backends' signal ownership unchanged. On Unix,
-    /// the built-in [`Terminal`] re-delivers once to the saved caller handler
-    /// or, by default, `SIG_DFL`, only for a signal it actually caught, not an input byte or a
-    /// signal reported solely by an embedder hook. Fatal redelivery prevents
-    /// either policy result; `Terminal::set_reraise_sigint_default(false)`
-    /// opts out for `SIG_DFL` only. `SIG_IGN` stays ignored.
+    /// a no-op, leaving custom backends' signal ownership unchanged. The built-in
+    /// [`Terminal`] invokes the caller's saved non-default handler only for a
+    /// signal it actually caught, not an input byte or a signal reported solely
+    /// by an embedder hook. Default dispositions follow the policy unless
+    /// [`Terminal::set_reraise_sigint_default`] is enabled.
     fn reraise_caught_sigint(&mut self) -> io::Result<()> {
         Ok(())
     }
@@ -193,16 +190,14 @@ pub struct Terminal {
 }
 
 impl Terminal {
-    /// On Unix, creates a built-in terminal with both signal-catching groups
-    /// and fatal SIGINT redelivery to a saved `SIG_DFL` disposition enabled.
-    /// See [`Self::set_reraise_sigint_default`] for the nonfatal opt-out.
+    /// Creates a built-in terminal with both signal-catching groups enabled.
     pub fn new() -> Self {
         Self {
             stdout: io::stdout(),
             raw: false,
             catch_signals: true,
             catch_sigwinch: true,
-            reraise_sigint_default: true,
+            reraise_sigint_default: false,
             input_meta_enabled: false,
             #[cfg(unix)]
             pending: Vec::new(),
@@ -217,9 +212,9 @@ impl Terminal {
 
     /// Sets whether a caught SIGINT is re-delivered to a restored `SIG_DFL`
     /// disposition on Unix. This can terminate the process after terminal and
-    /// signal cleanup. The default is `true`, matching termination in the tested
-    /// GNU Readline 8.3 direct-library controlling-PTY fixture. Set `false` to
-    /// opt out of fatal redelivery and leave the read to [`SigintPolicy`].
+    /// signal cleanup. The default is `false`, leaving the read to
+    /// [`SigintPolicy`]; enabling it matches the tested GNU Readline 8.3
+    /// direct-library controlling-PTY fixture.
     ///
     /// Configure before raw-mode entry. This does not enable signal catching,
     /// change caller-handler redelivery or `SIG_IGN`, or re-deliver hook-only
@@ -239,14 +234,13 @@ impl Terminal {
     /// Disabling it leaves these process-wide dispositions to the embedder,
     /// which can report pending signals through `Hooks::check_signals`.
     /// This is built-in `Terminal` policy, not policy for custom [`TerminalIo`]
-    /// implementations. After restoring terminal mode and signal dispositions,
-    /// the built-in terminal re-delivers a caught `SIGINT` once to the saved
-    /// caller handler or, by default, `SIG_DFL`. Fatal redelivery prevents either
-    /// [`SigintPolicy`] result; `set_reraise_sigint_default(false)` opts
-    /// out for `SIG_DFL`. Otherwise the read follows the editor's policy
-    /// (continuation by default). With a simple caller handler, the measured
-    /// direct GNU Readline 8.3 fixture invokes that handler once and continues
-    /// `abc` + Ctrl-C + `X` as `abcX`; this is not a claim about Bash.
+    /// implementations. A caught `SIGINT` follows the editor's
+    /// [`SigintPolicy`] (continuation by default) after restoring terminal mode
+    /// and signal dispositions. If the caller installed a handler, the built-in
+    /// terminal re-delivers the caught signal to it; default dispositions remain
+    /// governed by the policy. With a simple caller handler, the measured direct GNU Readline 8.3
+    /// fixture invokes that handler once and continues `abc` + Ctrl-C + `X`
+    /// as `abcX`; this is not a claim about default dispositions or Bash.
     pub fn set_catch_signals(&mut self, catch: bool) {
         self.catch_signals = catch;
     }

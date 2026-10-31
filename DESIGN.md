@@ -195,22 +195,15 @@ their signal policy. An interrupted built-in poll/read without a caught event yi
 During an active `read_line`, Sushline may translate terminal and signal events
 into editor behavior; process-wide policy and post-read control flow remain the
 embedder's responsibility. `TerminalIo::sigint_policy` supplies the editor's
-initial SIGINT read-result policy: the built-in terminal selects `Continue`,
-while custom backends default to `Interrupted`; the embedder
+initial SIGINT policy: the built-in terminal continues the current read with
+its partial line, while custom backends default to `Interrupted`; the embedder
 can override either through `Editor::set_sigint_policy`. `Continue` echoes
 `^C` and processes queued bytes in the same read, while `Interrupted` returns
 `ReadlineResult::Interrupted` and leaves queued suffix bytes for the next read.
 This applies to SIGINT and unquoted Ctrl-C input only; other signals retain
-their existing path, and the policy itself does not install or re-raise signals.
-On Unix, the built-in terminal restores terminal/signal state before applying
-the policy, then re-delivers a genuinely caught SIGINT once to the saved caller
-handler or, by default, `SIG_DFL`. Fatal redelivery prevents either read-policy
-result.
-`Terminal::set_reraise_sigint_default(false)` opts out for `SIG_DFL`, allowing
-the read policy to apply instead. `SIG_IGN` stays ignored; hook-only reports and
-literal Ctrl-C bytes never trigger redelivery. When built-in catching is disabled,
-caller-owned dispositions remain in force and hooks can report pending signals
-through `Hooks::check_signals`.
+their existing path, and the policy does not install or re-raise signals. When
+built-in catching is disabled, caller-owned dispositions remain in force and
+hooks can report pending signals through `Hooks::check_signals`.
 
 Idle and input-available policy (GNU `rl_event_hook` / `rl_input_available_hook` /
 keyboard-input timeout) belongs to the embedder's `TerminalIo::read_event`

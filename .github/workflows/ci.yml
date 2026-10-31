@@ -508,6 +508,126 @@ jobs:
               if slave is not None:
                   os.close(slave)
           PYPROBE
+      - name: Measure one input-available hook against the pinned release
+        env:
+          # Hard budget for the PTY handshake and returned line, in seconds.
+          READLINE_INPUT_AVAILABLE_PROBE_TIMEOUT: "10"
+        run: |
+          set -euo pipefail
+          readline="$HOME/.cache/sushline/readline-oracle"
+          # Queue one finite line after terminal preparation, and establish
+          # real input readiness before installing the availability hook.
+          # This measures only this fixture, not cadence or event-loop equivalence.
+          cat > /tmp/readline_input_available_probe.c <<'PROBE'
+          #include <poll.h>
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <readline/readline.h>
+
+          static unsigned hooks;
+
+          /* readline.h declares rl_input_available_hook as rl_hook_func_t *,
+             whose rltypedefs.h signature is int (void). Report nonzero only
+             when the current input source actually has readable data. */
+          static int on_available(void) {
+              struct pollfd input = { .fd = fileno(rl_instream), .events = POLLIN };
+              int ready = poll(&input, 1, 0) == 1 && (input.revents & POLLIN) != 0;
+              ++hooks;
+              fprintf(stderr, "hook=%u available=%d return=%d\n", hooks, ready, ready);
+              if (!ready) {
+                  exit(2);
+              }
+              rl_input_available_hook = NULL;
+              return ready;
+          }
+
+          static int prepare_input(void) {
+              rl_pre_input_hook = NULL;
+              fprintf(stderr, "ready_for_input=1\n");
+              struct pollfd input = { .fd = fileno(rl_instream), .events = POLLIN };
+              /* The parent supplies input; the outer timeout bounds this wait. */
+              if (poll(&input, 1, -1) != 1 || !(input.revents & POLLIN)) {
+                  exit(3);
+              }
+              fprintf(stderr, "input_ready=1\n");
+              rl_input_available_hook = on_available;
+              return 0;
+          }
+
+          int main(void) {
+              setvbuf(stderr, NULL, _IONBF, 0);
+              fprintf(stderr, "readline_release=%d.%d\n", rl_readline_version >> 8,
+                      rl_readline_version & 0xff);
+              rl_pre_input_hook = prepare_input;
+              char *line = readline("available> ");
+              fprintf(stderr, "returned=%s\nhooks=%u\n", line ? line : "<EOF>", hooks);
+              int status = line ? 0 : 1;
+              free(line);
+              return status;
+          }
+          PROBE
+          # Compile against the pinned headers as well as the pinned library:
+          # incompatible callback signatures are errors, not implicit declarations.
+          cc -Wall -Wextra -Werror -o /tmp/readline_input_available_probe \
+            /tmp/readline_input_available_probe.c \
+            -I"$readline/include" -L"$readline/lib" \
+            -Wl,-rpath,"$readline/lib" -lreadline
+          loader_report=$(env -u SHELLOPTS ldd /tmp/readline_input_available_probe)
+          echo "$loader_report"
+          readline_libraries=$(printf '%s\n' "$loader_report" | grep 'libreadline' || true)
+          if [ -z "$readline_libraries" ] || \
+            printf '%s\n' "$readline_libraries" | grep -v -F "$readline/lib/" > /dev/null; then
+            echo "the input-available probe did not load Readline exclusively from the pinned prefix" >&2
+            exit 1
+          fi
+          timeout --signal=KILL "${READLINE_INPUT_AVAILABLE_PROBE_TIMEOUT}s" python3 - <<'PYPROBE'
+          import os
+          import pty
+          import select
+          import subprocess
+          import time
+
+          env = dict(os.environ, INPUTRC="/dev/null", LC_ALL="C", TERM="dumb")
+          deadline = time.monotonic() + float(env["READLINE_INPUT_AVAILABLE_PROBE_TIMEOUT"])
+          release = f"readline_release={env['READLINE_ORACLE_VERSION']}\n".encode()
+          handshake = release + b"ready_for_input=1\n"
+          master, slave = pty.openpty()
+          child = None
+          try:
+              child = subprocess.Popen(
+                  ["/tmp/readline_input_available_probe"], stdin=slave,
+                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
+              )
+              os.close(slave)
+              slave = None
+              before_input = b""
+              while len(before_input) < len(handshake):
+                  remaining = deadline - time.monotonic()
+                  if remaining <= 0 or not select.select([child.stderr], [], [], remaining)[0]:
+                      raise RuntimeError(f"input preparation timed out: {before_input!r}")
+                  chunk = os.read(child.stderr.fileno(), len(handshake) - len(before_input))
+                  if not chunk:
+                      raise RuntimeError(f"probe exited before input preparation: {before_input!r}")
+                  before_input += chunk
+              assert before_input == handshake, before_input
+              assert os.write(master, b"probe\n") == len(b"probe\n")
+              out, err = child.communicate(timeout=max(0, deadline - time.monotonic()))
+              report = before_input + err
+              print(f"input_available_hook: returncode={child.returncode} stdout={out!r} stderr={report!r}")
+              assert child.returncode == 0, child.returncode
+              assert out == b"available> probe\n", out
+              assert report == (
+                  handshake + b"input_ready=1\nhook=1 available=1 return=1\nreturned=probe\nhooks=1\n"
+              ), report
+          finally:
+              if child is not None:
+                  if child.poll() is None:
+                      child.kill()
+                  child.wait()
+              os.close(master)
+              if slave is not None:
+                  os.close(slave)
+          PYPROBE
       - name: Measure synthetic CS7 termios preparation against the pinned release
         run: |
           set -euo pipefail

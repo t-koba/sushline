@@ -3656,7 +3656,7 @@ jobs:
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary version-inequality
       - name: Observe raw inputrc version equality against the pinned release (primary)
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary version-equality
-      - name: Observe raw inputrc version double-equality against the pinned release (primary)
+      - name: Assert the exact inputrc version double-equality fixture against the pinned release (primary)
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary version-double-equality
       - name: Observe raw inputrc vi-mode true-branch fixture against the pinned release (primary)
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary mode-vi-true
@@ -3869,7 +3869,7 @@ jobs:
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh replica version-inequality
       - name: Observe raw inputrc version equality against the pinned release (replica)
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh replica version-equality
-      - name: Observe raw inputrc version double-equality against the pinned release (replica)
+      - name: Assert the exact inputrc version double-equality fixture against the pinned release (replica)
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh replica version-double-equality
       - name: Observe raw inputrc vi-mode true-branch fixture against the pinned release (replica)
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh replica mode-vi-true

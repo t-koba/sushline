@@ -7,7 +7,8 @@
 # application-name-prefix asserts only the exact shorter-name/longer-condition fixture.
 # version-inequality asserts only the exact measured version != 8.3 fixture.
 # version-equality asserts only the exact measured version = 8.3 fixture.
-# version-double-equality and mode-vi-true validate transport/protocol only pending review.
+# version-double-equality asserts only the exact measured version == 8.3 fixture.
+# mode-vi-true validates transport/protocol only pending review.
 # All modes retain the raw PTY/protocol reports.
 set -euo pipefail
 ulimit -c 0
@@ -419,8 +420,8 @@ results = [run_case(*case) for case in CASES]
 sys.exit(0 if all(results) else 1)
 PYPROBE
 
-# No semantic expectations until these exact observations are reviewed.
-if [ "$mode" = mode-vi-true ] || [ "$mode" = version-double-equality ]; then
+# The vi-mode true-branch result remains observation-only pending review.
+if [ "$mode" = mode-vi-true ]; then
   exit 0
 fi
 
@@ -432,16 +433,16 @@ if [ "$mode" = application-case ] || [ "$mode" = application-case-reverse ] || [
 fi
 
 # Keep raw observations and the runner label in each report. Conditions and
-# version-inequality/version-equality use a small branch projection after the
-# transport/protocol checks above; the other modes compare all semantic fields,
+# version-inequality/version-equality/version-double-equality use a small
+# branch projection after the transport/protocol checks above; other modes compare all semantic fields,
 # transport integrity, and cleanup as before.
 case "$mode" in
   variable-rhs) expected="$(dirname "$0")/readline-inputrc-variable-rhs.expected" ;;
   term) expected="$(dirname "$0")/readline-inputrc-term.expected" ;;
-  conditions|version-inequality|version-equality) expected="$(dirname "$0")/readline-inputrc-$mode.expected" ;;
+  conditions|version-inequality|version-equality|version-double-equality) expected="$(dirname "$0")/readline-inputrc-$mode.expected" ;;
 esac
 semantic="$work/semantic"
-if [ "$mode" = conditions ] || [ "$mode" = version-inequality ] || [ "$mode" = version-equality ]; then
+if [ "$mode" = conditions ] || [ "$mode" = version-inequality ] || [ "$mode" = version-equality ] || [ "$mode" = version-double-equality ]; then
   grep -E '^(measurement|application_name_requested|locale_requested|terminal|initial_inputrc|true_marker_hex|case|inputrc_contents_hex|read_status|accepted_is_null|accepted_hex)=' \
     "$report" > "$semantic"
 else

@@ -3656,6 +3656,8 @@ jobs:
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary version-inequality
       - name: Observe raw inputrc version equality against the pinned release (primary)
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary version-equality
+      - name: Observe raw inputrc vi-mode true-branch fixture against the pinned release (primary)
+        run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary mode-vi-true
       # Assert only this exact case-mismatch fixture; do not generalize the rule.
       - name: Assert pinned inputrc application-name case-mismatch fixture
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary application-case
@@ -3733,6 +3735,7 @@ jobs:
             /tmp/readline_inputrc_conditions.out \
             /tmp/readline_inputrc_version_inequality.out \
             /tmp/readline_inputrc_version_equality.out \
+            /tmp/readline_inputrc_mode_vi_true.out \
             /tmp/readline_inputrc_application_case.out \
             /tmp/readline_inputrc_application_case_reverse.out \
             /tmp/readline_inputrc_application_prefix.out \
@@ -3863,6 +3866,8 @@ jobs:
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh replica version-inequality
       - name: Observe raw inputrc version equality against the pinned release (replica)
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh replica version-equality
+      - name: Observe raw inputrc vi-mode true-branch fixture against the pinned release (replica)
+        run: bash .github/scripts/readline-inputrc-variable-rhs.sh replica mode-vi-true
       # Assert only this exact case-mismatch fixture; do not generalize the rule.
       - name: Assert pinned inputrc application-name case-mismatch fixture
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh replica application-case
@@ -4156,6 +4161,14 @@ jobs:
           path: /tmp/readline_inputrc_version_equality.out
           if-no-files-found: error
           retention-days: 14
+      - name: Upload independent pinned inputrc vi-mode true-branch report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-inputrc-mode-vi-true-replica
+          path: /tmp/readline_inputrc_mode_vi_true.out
+          if-no-files-found: error
+          retention-days: 14
       - name: Upload independent pinned inputrc conditions report
         if: always()
         uses: actions/upload-artifact@v4
@@ -4283,6 +4296,27 @@ jobs:
           # Compare every byte except the single report-role line, without a golden.
           if observations(primary, b"primary") != observations(replica, b"replica"):
               raise SystemExit("version equality reports differ")
+          PYCOMPARE
+      - name: Require primary and fresh-replica inputrc vi-mode fixture agreement
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCOMPARE'
+          import os
+          from pathlib import Path
+
+          primary = Path(os.environ["RUNNER_TEMP"]) / "sushline-primary-measurements/readline_inputrc_mode_vi_true.out"
+          replica = Path("/tmp/readline_inputrc_mode_vi_true.out")
+
+          def observations(path, role):
+              lines = path.read_bytes().splitlines(keepends=True)
+              role_line = b"report=" + role + b"\n"
+              if [line for line in lines if line.startswith(b"report=")] != [role_line]:
+                  raise SystemExit("missing, duplicate, or invalid report role")
+              return b"".join(line for line in lines if line != role_line)
+
+          # Compare every byte except the single report-role line, without a golden.
+          if observations(primary, b"primary") != observations(replica, b"replica"):
+              raise SystemExit("vi-mode fixture reports differ")
           PYCOMPARE
       - name: Require primary and fresh-replica inputrc conditions agreement
         run: |

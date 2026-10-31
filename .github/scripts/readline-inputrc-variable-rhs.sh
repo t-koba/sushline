@@ -5,14 +5,15 @@
 # application-case-reverse asserts the exact reciprocal casing fixture.
 # application-prefix asserts only the exact measured strict-prefix fixture.
 # application-name-prefix asserts only the exact shorter-name/longer-condition fixture.
-# version-inequality and version-equality validate transport/protocol only; outcomes await review.
+# version-inequality, version-equality, and mode-vi-true validate transport/protocol only.
+# Their outcomes await review.
 # All modes retain the raw PTY/protocol reports.
 set -euo pipefail
 ulimit -c 0
 report_kind=${1:?report kind must be primary or replica}
 case "$report_kind" in primary|replica) ;; *) echo "invalid report kind" >&2; exit 2 ;; esac
 mode=${2:-variable-rhs}
-case "$mode" in variable-rhs|term|conditions|application-case|application-case-reverse|application-prefix|application-name-prefix|version-inequality|version-equality) ;; *) echo "invalid inputrc mode" >&2; exit 2 ;; esac
+case "$mode" in variable-rhs|term|conditions|application-case|application-case-reverse|application-prefix|application-name-prefix|version-inequality|version-equality|mode-vi-true) ;; *) echo "invalid inputrc mode" >&2; exit 2 ;; esac
 case "$mode" in
   variable-rhs) report=/tmp/readline_inputrc_variable_rhs.out ;;
   term) report=/tmp/readline_inputrc_term.out ;;
@@ -23,6 +24,7 @@ case "$mode" in
   application-name-prefix) report=/tmp/readline_inputrc_application_name_prefix.out ;;
   version-inequality) report=/tmp/readline_inputrc_version_inequality.out ;;
   version-equality) report=/tmp/readline_inputrc_version_equality.out ;;
+  mode-vi-true) report=/tmp/readline_inputrc_mode_vi_true.out ;;
 esac
 readline="$HOME/.cache/sushline/readline-oracle"
 configure_flags=(--prefix="$readline" "$READLINE_ORACLE_CONFIGURE_FLAGS")
@@ -31,7 +33,7 @@ if [ "$READLINE_ORACLE_VERSION" != 8.3 ] || \
   [ "$(cat "$readline/build-configuration" 2>/dev/null)" != "configure-accepted-v1 ${configure_flags[*]}" ]; then
   case "$mode" in
     term) echo "term condition probe requires the exact pinned Readline cache" >&2 ;;
-    conditions|application-case|application-case-reverse|application-prefix|application-name-prefix|version-inequality|version-equality) echo "conditions probe requires the exact pinned Readline cache" >&2 ;;
+    conditions|application-case|application-case-reverse|application-prefix|application-name-prefix|version-inequality|version-equality|mode-vi-true) echo "conditions probe requires the exact pinned Readline cache" >&2 ;;
     *) echo "variable RHS probe requires the exact pinned Readline cache" >&2 ;;
   esac
   exit 1
@@ -106,7 +108,9 @@ int main(int argc, char **argv) {
     if (rl_initialize() != 0) return 5;
     int status = rl_read_init_file("case.inputrc");
     const char *mode = rl_variable_value("editing-mode");
-#ifdef CONDITIONS_MODE
+#ifdef MODE_VI_TRUE_MODE
+    if (!mode) return 5;
+#elif defined(CONDITIONS_MODE)
     if (!mode || strcmp(mode, "emacs") != 0) return 5;
 #elif defined(TERM_MODE)
     const char *term = getenv("TERM");
@@ -118,8 +122,8 @@ int main(int argc, char **argv) {
 #endif
     if (dprintf(fd, "header_version=%04x\nruntime_version=%04x\n"
                 "pinned_libraries=%d\nloaded_library_path_check=exact-cache-realpath\n"
-                "editing_mode=emacs\nread_status=%d\n",
-                RL_READLINE_VERSION, rl_readline_version, libraries, status) < 0) return 4;
+                "editing_mode=%s\nread_status=%d\n",
+                RL_READLINE_VERSION, rl_readline_version, libraries, mode, status) < 0) return 4;
     hex(fd, "runtime_version_text_hex", rl_library_version, strlen(rl_library_version));
     hex(fd, "locale_hex", locale, strlen(locale));
     hex(fd, "loaded_library_relative_path_hex", loaded, strlen(loaded));
@@ -142,6 +146,8 @@ PROBE
 defines=()
 if [ "$mode" = term ]; then
   defines=(-DTERM_MODE)
+elif [ "$mode" = mode-vi-true ]; then
+  defines=(-DCONDITIONS_MODE -DMODE_VI_TRUE_MODE)
 elif [ "$mode" = application-case-reverse ]; then
   defines=(-DCONDITIONS_MODE -DAPPLICATION_CASE_REVERSE_MODE)
 elif [ "$mode" = application-name-prefix ]; then
@@ -170,12 +176,14 @@ import time
 LIMIT = 16384
 KEYS = b"\x0f\n"
 if len(sys.argv) != 5 or sys.argv[3] not in ("primary", "replica") or \
-        sys.argv[4] not in ("variable-rhs", "term", "conditions", "application-case", "application-case-reverse", "application-prefix", "application-name-prefix", "version-inequality", "version-equality"):
+        sys.argv[4] not in ("variable-rhs", "term", "conditions", "application-case", "application-case-reverse", "application-prefix", "application-name-prefix", "version-inequality", "version-equality", "mode-vi-true"):
     raise SystemExit("invalid report kind or mode")
 IS_TERM = sys.argv[4] == "term"
 IS_CONDITIONS = sys.argv[4] == "conditions"
 IS_VERSION_INEQUALITY = sys.argv[4] == "version-inequality"
 IS_VERSION_EQUALITY = sys.argv[4] == "version-equality"
+IS_MODE_VI_TRUE = sys.argv[4] == "mode-vi-true"
+EDITING_MODE = b"vi" if IS_MODE_VI_TRUE else b"emacs"
 IS_APPLICATION_CASE = sys.argv[4] == "application-case"
 IS_APPLICATION_CASE_REVERSE = sys.argv[4] == "application-case-reverse"
 IS_APPLICATION_PREFIX = sys.argv[4] == "application-prefix"
@@ -183,7 +191,7 @@ IS_APPLICATION_NAME_PREFIX = sys.argv[4] == "application-name-prefix"
 IS_APPLICATION_CONDITION = (IS_CONDITIONS or IS_APPLICATION_CASE or
                             IS_APPLICATION_CASE_REVERSE or IS_APPLICATION_PREFIX or
                             IS_APPLICATION_NAME_PREFIX or IS_VERSION_INEQUALITY or
-                            IS_VERSION_EQUALITY)
+                            IS_VERSION_EQUALITY or IS_MODE_VI_TRUE)
 # Must match the unique rl_readline_name set before rl_initialize in the C probe.
 APPLICATION_NAME = (b"SUSHLINE-INPUTRC-CONDITIONS-PROBE" if IS_APPLICATION_CASE_REVERSE
                     else b"sushline-inputrc-conditions" if IS_APPLICATION_NAME_PREFIX
@@ -199,6 +207,8 @@ if IS_CONDITIONS:
         ("application_exact", APPLICATION_NAME),
         ("application_nonmatching", b"unrelated-application"),
     )
+elif IS_MODE_VI_TRUE:
+    CASES = (("mode_vi_true", b"mode=vi"),)
 elif IS_VERSION_INEQUALITY:
     CASES = (("version_ne_8_3", b"version != 8.3"),)
 elif IS_VERSION_EQUALITY:
@@ -234,7 +244,7 @@ elif IS_TERM:
     print("measurement=raw-direct-readline-inputrc-term")
 else:
     print("measurement=raw-direct-readline-inputrc-variable-rhs")
-print("locale_requested=C editing_mode_requested=emacs")
+print(f"locale_requested=C editing_mode_requested={EDITING_MODE.decode('ascii')}")
 if IS_TERM:
     print("terminal=xterm-256-color rows=24 columns=80")
 else:
@@ -251,7 +261,7 @@ else:
 def run_case(label, *args):
     if IS_APPLICATION_CONDITION:
         condition, = args
-        contents = (b"set editing-mode emacs\nset enable-bracketed-paste off\n"
+        contents = (b"set editing-mode " + EDITING_MODE + b"\nset enable-bracketed-paste off\n"
                     b"$if " + condition +
                     b'\n"\\C-o": "IF_TRUE"\n$else\n"\\C-o": "IF_FALSE"\n$endif\n')
     elif IS_TERM:
@@ -364,6 +374,9 @@ def run_case(label, *args):
                 rb"stored_comment_begin_hex=(?:[0-9a-f]{2}){0,128}\n"
                 rb"accepted_is_null=[01]\naccepted_hex=(?:[0-9a-f]{2}){0,128}\n"
             )
+        if IS_MODE_VI_TRUE:
+            # Record the library value without asserting the requested mode took effect.
+            pattern = pattern.replace(rb"editing_mode=emacs", rb"editing_mode=(?:emacs|vi)")
         if IS_APPLICATION_CASE or IS_APPLICATION_CASE_REVERSE:
             # Parsing must succeed; accepted_hex remains an observation, not a golden.
             pattern = pattern.replace(rb"read_status=-?[0-9]+", rb"read_status=0")
@@ -401,8 +414,8 @@ results = [run_case(*case) for case in CASES]
 sys.exit(0 if all(results) else 1)
 PYPROBE
 
-# No semantic expectations until the exact version observations are reviewed.
-if [ "$mode" = version-inequality ] || [ "$mode" = version-equality ]; then
+# No semantic expectations until these exact observations are reviewed.
+if [ "$mode" = version-inequality ] || [ "$mode" = version-equality ] || [ "$mode" = mode-vi-true ]; then
   exit 0
 fi
 

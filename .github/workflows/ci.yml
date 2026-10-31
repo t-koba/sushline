@@ -3353,6 +3353,13 @@ jobs:
                       }
                       if fields.keys() != required:
                           raise SystemExit(f"direct-library measurement {label} omitted a result field")
+                      expected_fields = {
+                          "read_status": "0",
+                          "completion_ignore_case_on": "1",
+                          "editing_mode_vi": "1",
+                      }
+                      if any(fields[key] != value for key, value in expected_fields.items()):
+                          raise SystemExit(f"direct-library measurement {label} differed from the pinned outcome")
                       if fields["readline_release"] != expected:
                           raise SystemExit(f"direct-library measurement {label} used an unexpected release")
                       print(f"{label}_readline_release={fields['readline_release']}")
@@ -3360,6 +3367,8 @@ jobs:
                       print(f"{label}_completion_ignore_case_on={fields['completion_ignore_case_on']}")
                       print(f"{label}_editing_mode_vi={fields['editing_mode_vi']}")
                       stderr_nonempty = bool(completed.stderr)
+                      if stderr_nonempty:
+                          raise SystemExit(f"direct-library measurement {label} emitted unexpected stderr")
                       print(f"{label}_probe_stderr_nonempty={int(stderr_nonempty)}")
                       print(f"{label}_probe_timeout=0")
                       print(f"{label}_probe_returncode={completed.returncode}")
@@ -3453,8 +3462,16 @@ jobs:
                       for key, pattern in patterns.items()
                   ):
                       raise SystemExit("empty-home probe emitted invalid result fields")
-                  if int(fields["interposer_hits"]) == 0:
-                      raise SystemExit("empty-home account lookup was not intercepted")
+                  expected_fields = {
+                      "read_status": "0",
+                      "completion_ignore_case_on": "0",
+                      "editing_mode_vi": "1",
+                      "interposer_hits": "1",
+                  }
+                  if any(fields[key] != value for key, value in expected_fields.items()):
+                      raise SystemExit("empty-home result differed from the pinned outcome")
+                  if completed.stderr:
+                      raise SystemExit("empty-home probe emitted unexpected stderr")
                   print("empty_home_pinned_loader_guard=1")
                   print(f"empty_home_readline_release={fields['readline_release']}")
                   print(f"empty_home_read_status={fields['read_status']}")

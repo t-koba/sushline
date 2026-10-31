@@ -415,6 +415,99 @@ jobs:
               if result.stdout != expected:
                   raise SystemExit(f"{label}: expected prompt bytes {expected.hex()}, got {result.stdout.hex()}")
           PYPROBE
+      - name: Measure an idle event hook against the pinned release
+        env:
+          # Total budget for the hook handshake and returned line, in seconds.
+          READLINE_EVENT_PROBE_TIMEOUT: "10"
+        run: |
+          set -euo pipefail
+          readline="$HOME/.cache/sushline/readline-oracle"
+          # A one-shot hook signals the parent before it supplies any input.
+          # This measures invocation during readline's input wait, not cadence
+          # or a general event loop; unregistering avoids scheduler-dependent counts.
+          cat > /tmp/readline_event_probe.c <<'PROBE'
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <readline/readline.h>
+
+          static unsigned hooks;
+
+          static int on_idle(void) {
+              ++hooks;
+              rl_event_hook = NULL;
+              fprintf(stderr, "hook=%u\n", hooks);
+              return 0;
+          }
+
+          int main(void) {
+              setvbuf(stderr, NULL, _IONBF, 0);
+              fprintf(stderr, "readline_release=%d.%d\n", rl_readline_version >> 8,
+                      rl_readline_version & 0xff);
+              rl_event_hook = on_idle;
+              char *line = readline("idle> ");
+              fprintf(stderr, "returned=%s\nhooks=%u\n", line ? line : "<EOF>", hooks);
+              int status = line ? 0 : 1;
+              free(line);
+              return status;
+          }
+          PROBE
+          cc -Wall -Wextra -Werror -o /tmp/readline_event_probe /tmp/readline_event_probe.c \
+            -I"$readline/include" -L"$readline/lib" \
+            -Wl,-rpath,"$readline/lib" -lreadline
+          loader_report=$(env -u SHELLOPTS ldd /tmp/readline_event_probe)
+          echo "$loader_report"
+          readline_libraries=$(printf '%s\n' "$loader_report" | grep 'libreadline' || true)
+          if [ -z "$readline_libraries" ] || \
+            printf '%s\n' "$readline_libraries" | grep -v -F "$readline/lib/" > /dev/null; then
+            echo "the event probe did not load Readline exclusively from the pinned prefix" >&2
+            exit 1
+          fi
+          python3 - <<'PYPROBE'
+          import os
+          import pty
+          import select
+          import subprocess
+          import time
+
+          env = dict(os.environ, INPUTRC="/dev/null", LC_ALL="C", TERM="dumb")
+          deadline = time.monotonic() + float(env["READLINE_EVENT_PROBE_TIMEOUT"])
+          release = f"readline_release={env['READLINE_ORACLE_VERSION']}\n".encode()
+          master, slave = pty.openpty()
+          child = None
+          try:
+              child = subprocess.Popen(
+                  ["/tmp/readline_event_probe"], stdin=slave,
+                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
+              )
+              os.close(slave)
+              slave = None
+              before_input = b""
+              while not before_input.endswith(b"hook=1\n"):
+                  remaining = deadline - time.monotonic()
+                  if remaining <= 0 or not select.select([child.stderr], [], [], remaining)[0]:
+                      raise RuntimeError(f"idle hook timed out: {before_input!r}")
+                  chunk = os.read(child.stderr.fileno(), 4096)
+                  if not chunk:
+                      raise RuntimeError(f"probe exited before idle hook: {before_input!r}")
+                  before_input += chunk
+              assert before_input == release + b"hook=1\n", before_input
+              # No input is queued until the library has invoked the hook.
+              os.write(master, b"probe\n")
+              out, err = child.communicate(timeout=max(0, deadline - time.monotonic()))
+              report = before_input + err
+              print(f"event_hook: returncode={child.returncode} stdout={out!r} stderr={report!r}")
+              assert child.returncode == 0, child.returncode
+              assert out == b"idle> probe\n", out
+              assert report == release + b"hook=1\nreturned=probe\nhooks=1\n", report
+          finally:
+              if child is not None:
+                  if child.poll() is None:
+                      child.kill()
+                  child.wait()
+              os.close(master)
+              if slave is not None:
+                  os.close(slave)
+          PYPROBE
       - name: Measure synthetic CS7 termios preparation against the pinned release
         run: |
           set -euo pipefail

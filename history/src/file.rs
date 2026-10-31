@@ -73,10 +73,11 @@ impl History {
     /// (see the fixture-scoped results in `COMPATIBILITY.md`).
     ///
     /// FROM below TO makes TO exclusive. Equal and reversed-bound results are
-    /// Sushline product rules. Equal bounds select the physical position at
+    /// Sushline product rules: equal bounds select the physical position at
     /// FROM, which may be blank and produce no entry; TO below FROM retains
-    /// remaining entries through EOF. The latter is retained because adopting
-    /// GNU's tested results would discard entries.
+    /// remaining entries through EOF. This read does not change the file; pass
+    /// `None` for an explicit suffix. Pinned GNU 8.3 results differ on the
+    /// cited edge fixtures (see `COMPATIBILITY.md`).
     pub fn read_file_range(
         path: impl AsRef<Path>,
         from: usize,
@@ -95,9 +96,11 @@ impl History {
     /// a partial block.
     ///
     /// FROM below TO makes TO exclusive. Equal and reversed-bound results are
-    /// Sushline product rules. Equal bounds select the physical position at
-    /// FROM; TO below FROM retains remaining entries through EOF. The latter
-    /// is retained because adopting GNU's tested results would discard entries.
+    /// Sushline product rules: equal bounds select the physical position at
+    /// FROM, which may yield no entry; TO below FROM retains remaining entries
+    /// through EOF. This read does not change the file; pass `None` for an
+    /// explicit suffix. Pinned GNU 8.3 results differ on the cited edge
+    /// fixtures (see `COMPATIBILITY.md`).
     pub fn read_file_range_with_multiline(
         path: impl AsRef<Path>,
         from: usize,
@@ -203,10 +206,11 @@ impl History {
     /// (see the fixture-scoped results in `COMPATIBILITY.md`).
     ///
     /// FROM below TO makes TO exclusive. Equal and reversed-bound results are
-    /// Sushline product rules. Equal bounds select the physical position at
+    /// Sushline product rules: equal bounds select the physical position at
     /// FROM, which may be blank and produce no entry; TO below FROM retains
-    /// remaining entries through EOF. The latter is retained because adopting
-    /// GNU's tested results would discard entries.
+    /// remaining entries through EOF. This read does not change the file; pass
+    /// `None` for an explicit suffix. Pinned GNU 8.3 results differ on the
+    /// cited edge fixtures (see `COMPATIBILITY.md`).
     pub fn load_file_range(
         &mut self,
         path: impl AsRef<Path>,
@@ -233,9 +237,11 @@ impl History {
     /// a partial block.
     ///
     /// FROM below TO makes TO exclusive. Equal and reversed-bound results are
-    /// Sushline product rules. Equal bounds select the physical position at
-    /// FROM; TO below FROM retains remaining entries through EOF. The latter
-    /// is retained because adopting GNU's tested results would discard entries.
+    /// Sushline product rules: equal bounds select the physical position at
+    /// FROM, which may yield no entry; TO below FROM retains remaining entries
+    /// through EOF. This read does not change the file; pass `None` for an
+    /// explicit suffix. Pinned GNU 8.3 results differ on the cited edge
+    /// fixtures (see `COMPATIBILITY.md`).
     pub fn load_file_range_with_multiline(
         &mut self,
         path: impl AsRef<Path>,

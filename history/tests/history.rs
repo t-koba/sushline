@@ -3223,8 +3223,8 @@ fn the_bounds_at_or_below_from_are_the_products_own_rule() {
             .unwrap();
     assert_eq!(lines(&joined), vec!["B1".to_string()]);
 
-    // Without timestamp records, equal bounds select FROM and reversed
-    // bounds continue through EOF, matching the pinned plain-file fixture.
+    // Without timestamp records, equal bounds select FROM. The pinned GNU
+    // fixture returns only C2 for reversed (2,1); Sushline retains C2 and C3.
     fs::write(&path, "C0\nC1\nC2\nC3\n").unwrap();
     let equal = History::read_file_range(&path, 0, Some(0)).unwrap();
     assert_eq!(lines(&equal), vec!["C0".to_string()]);

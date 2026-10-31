@@ -191,6 +191,13 @@ fn compatibility_document_classifies_editor_bind_and_history_coverage() {
         assert!(rows.is_empty(), "{forbidden} rows remain: {rows:?}");
     }
 
+    let range_row = compatibility
+        .lines()
+        .find(|line| line.starts_with("| File range: `read_history_range`"))
+        .expect("the History file-range row must remain documented");
+    assert!(range_row.contains("equal bounds (0,0) and (2,2) match"));
+    assert!(range_row.contains("reversed (2,1) differs: GNU returns {C2}, while Sushline's TO<FROM suffix rule returns {C2} {C3}"));
+
     // Rows whose first column names a long list of methods are locked by
     // their status alone, so the lock does not depend on the rest of the row.
     for (row_start, status) in [

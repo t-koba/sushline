@@ -142,12 +142,9 @@ impl History {
 
     /// Load file with a multiline policy.
     ///
-    /// The policy decides how the file's physical lines are grouped into
-    /// entries; the default groups one entry per physical line, which is
-    /// GNU's default `history_multiline_entries` mode. The file's first
-    /// physical line selects its format: later `#`-plus-digits lines are
-    /// timestamp records only when the file begins with such a record;
-    /// otherwise they are command text, as in GNU History.
+    /// Grouping and file-format selection follow
+    /// [`Self::read_file_with_multiline`]. This imports entries into `self`;
+    /// `max_entries` is applied after grouping.
     pub fn load_file_with_multiline(
         &mut self,
         path: impl AsRef<Path>,

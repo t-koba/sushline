@@ -1,6 +1,7 @@
 //! Stateful, cell-based single-line redisplay. The prompt and buffer share a
 //! viewport; indicators replace cells, rather than being added to its width.
 
+use crate::buffer::bytes_lossless;
 use crate::width::char_width;
 use std::ops::Range;
 
@@ -215,8 +216,12 @@ impl HorizontalViewport {
         }
         let mut col = 0;
         let mut base_visible = false;
+        let mut bytes = 0;
+        let mut split_columns = 0;
         for unit in &line.units {
             let next = col + unit.width;
+            let split = self.offset.saturating_sub(bytes);
+            bytes += unit.bytes;
             if unit.hidden {
                 // Replay hidden bytes even outside the window, including
                 // resets after clipped text. Logical-width prompt escapes
@@ -229,13 +234,26 @@ impl HorizontalViewport {
                 if base_visible {
                     out.push_str(&unit.text);
                 }
+            } else if split > 0
+                && split < unit.bytes
+                && unit.text.len() == unit.bytes
+                && unit.text.chars().count() == 1
+            {
+                // A byte offset inside a rendered multibyte scalar retains
+                // its continuation bytes. Use the existing raw-byte encoding,
+                // not a sliced str or replacement text. The pinned wide-edge
+                // fixture replays each remaining byte as one terminal cell.
+                let suffix = &unit.text.as_bytes()[split..];
+                out.push_str(&bytes_lossless(suffix));
+                split_columns = suffix.len();
+                base_visible = false;
             } else if col >= start && next <= end {
                 out.push_str(&unit.text);
                 base_visible = true;
             } else {
                 base_visible = false;
-                // A boundary through a wide glyph/expansion gets blank cells,
-                // not a sliced UTF-8 string, caret pair, or octal escape.
+                // Other cell boundaries still clip whole glyphs/expansions;
+                // never split a caret pair, octal escape or prompt unit.
                 let overlap = next.min(end).saturating_sub(col.max(start));
                 out.extend(std::iter::repeat_n(' ', overlap));
             }
@@ -244,7 +262,13 @@ impl HorizontalViewport {
         if right > 0 {
             out.push('>');
         }
-        (out, line.point.saturating_sub(self.margin).min(capacity))
+        (
+            out,
+            line.point
+                .saturating_sub(self.margin)
+                .saturating_add(split_columns)
+                .min(capacity),
+        )
     }
 
     /// Set the cell margin and the byte offset that matches it.
@@ -263,9 +287,9 @@ impl HorizontalViewport {
         self.margin = self.margin_at_offset(line);
     }
 
-    /// The cell margin that precedes the buffer text at the offset. An
-    /// offset inside a character clips that character, so the output stays
-    /// valid UTF-8 where GNU splits the sequence.
+    /// The cell margin that precedes the first complete buffer unit at the
+    /// offset. Layout emits any split scalar's suffix separately, without
+    /// changing the margin used for subsequent movement and restoration.
     fn margin_at_offset(&self, line: &DisplayLine) -> usize {
         let mut cell: usize = 0;
         let mut bytes: usize = 0;
@@ -499,6 +523,36 @@ mod tests {
     }
 
     #[test]
+    fn horizontal_scroll_does_not_split_byte_rendered_units() {
+        let text = format!("{}中{}", "0".repeat(50), "1".repeat(49));
+        for (byte_oriented, utf8_locale) in [(true, true), (false, false)] {
+            for output_meta in [true, false] {
+                let mut buffer = LineBuffer::from(text.as_str());
+                buffer.set_point(text.len());
+                let mut layout = Prompt::new("P>").horizontal_line();
+                layout.append(buffer.horizontal_line(
+                    None,
+                    RenderOptions {
+                        byte_oriented,
+                        utf8_locale,
+                        output_meta,
+                        ..RenderOptions::default()
+                    },
+                    2,
+                ));
+                // The offset is still inside the buffer's three-byte scalar,
+                // but its rendered unit is raw-byte markers or octal escapes.
+                // Keep the baseline whole-unit clipping and cursor placement.
+                let mut viewport = HorizontalViewport::default();
+                assert_eq!(
+                    viewport.layout(&layout, 80),
+                    (format!("<{}", "1".repeat(49)), 50)
+                );
+            }
+        }
+    }
+
+    #[test]
     fn horizontal_scroll_maps_only_visible_cells_not_indicators() {
         let mut viewport = HorizontalViewport::default();
         let layout = line("P>", &"a".repeat(30), 8);
@@ -560,7 +614,7 @@ mod tests {
     }
 
     #[test]
-    fn horizontal_scroll_never_splits_rendered_units_at_markers() {
+    fn horizontal_scroll_clips_units_except_at_multibyte_offsets() {
         for (text, options, atom) in [
             ("界", RenderOptions::default(), "界"),
             ("e\u{301}", RenderOptions::default(), "e\u{301}"),
@@ -584,7 +638,13 @@ mod tests {
                     let (out, col) = viewport.layout(&line, columns);
                     assert!(visible_width(&out) < columns);
                     assert!(col < columns);
-                    let remainder = out.replace(atom, "");
+                    let split = viewport.offset % text.len();
+                    let suffix = if text == "界" && split > 0 {
+                        bytes_lossless(&text.as_bytes()[split..])
+                    } else {
+                        String::new()
+                    };
+                    let remainder = out.replace(atom, "").replace(&suffix, "");
                     assert!(remainder.chars().all(|ch| " <>".contains(ch)), "{out:?}");
                 }
             }

@@ -585,29 +585,60 @@ fn bash_and_sushline_horizontal_scroll_bytewise_window_counts_bytes() {
 }
 
 #[test]
-fn bash_window_edge_splits_a_multibyte_character_that_sushline_keeps_valid() {
+fn bash_and_sushline_horizontal_scroll_split_wide_edge_and_restore() {
     if !c_utf8_locale_available() {
         return;
     }
-    // The window edge falls inside the wide glyph, so GNU writes the
-    // glyph's trailing bytes without its lead byte while Sushline clips the
-    // cell and keeps its output valid UTF-8. The batched path keeps the
-    // echoed line and the redisplay apart, so only the split makes the
-    // frame invalid UTF-8.
+    // Pinned GNU 8.3 writes b8 ad, omitting 中's e4 lead byte. Check raw
+    // bytes as well as the partial screen model's adjacent replacement cells;
+    // lossy decoding here is only for replay, never for terminal output.
     let text = format!("{}中{}", "0".repeat(50), "1".repeat(49));
-    let steps = vec![text.into_bytes()];
-    let bash = checkpoint_outputs_raw_with_locale(true, 80, "P>", &steps, "C.UTF-8");
-    let sushline = checkpoint_outputs_raw_with_locale(false, 80, "P>", &steps, "C.UTF-8");
-
-    let bash_frame = bash.last().expect("bash frame");
-    let sushline_frame = sushline.last().expect("sushline frame");
-    assert!(
-        std::str::from_utf8(bash_frame).is_err(),
-        "GNU splits the glyph: {bash_frame:?}"
-    );
-    assert!(
-        std::str::from_utf8(sushline_frame).is_ok(),
-        "Sushline keeps valid UTF-8: {sushline_frame:?}"
+    let steps = vec![text.into_bytes(), vec![1]]; // insertion, Ctrl-A
+    for bash in [true, false] {
+        let frames = checkpoint_outputs_raw_with_locale(bash, 80, "P>", &steps, "C.UTF-8");
+        assert!(
+            frames[0].windows(3).any(|bytes| bytes == b"<\xb8\xad"),
+            "bash={bash} insertion={:?}",
+            frames[0]
+        );
+        assert!(std::str::from_utf8(&frames[0]).is_err());
+        assert_eq!(
+            screen(&String::from_utf8_lossy(&frames[0]), 80),
+            (format!("<\u{fffd}\u{fffd}{}", "1".repeat(49)), 52),
+            "bash={bash}"
+        );
+        // Frames are cumulative; abort can redraw the split suffix again
+        // before Ctrl-A. Validate the final restored prompt, not that history.
+        let restored_start = frames[1]
+            .windows(2)
+            .rposition(|bytes| bytes == b"P>")
+            .expect("restored prompt");
+        let restored = std::str::from_utf8(&frames[1][restored_start..])
+            .expect("complete UTF-8 in the restored render");
+        assert!(restored.contains('中'), "bash={bash}: {restored:?}");
+        // Preserve the existing restoration: Sushline repaints one more
+        // trailing digit than Bash in this fixture, independently of the split.
+        assert_eq!(
+            screen(&String::from_utf8_lossy(&frames[1]), 80),
+            (
+                format!(
+                    "P>{}中{}>",
+                    "0".repeat(50),
+                    "1".repeat(if bash { 23 } else { 24 })
+                ),
+                2
+            ),
+            "bash={bash} restoration"
+        );
+    }
+    // C-locale input/meta handling retains its baseline cells and cursor.
+    let c_frames = checkpoint_outputs_raw_with_locale(false, 80, "P>", &steps, "C");
+    assert_eq!(
+        screen(
+            std::str::from_utf8(&c_frames[0]).expect("C-locale frame"),
+            80
+        ),
+        (format!("<--{}", "1".repeat(49)), 52)
     );
 }
 

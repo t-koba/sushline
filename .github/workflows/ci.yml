@@ -3655,7 +3655,7 @@ jobs:
       # Assert only this exact case-mismatch fixture; do not generalize the rule.
       - name: Assert pinned inputrc application-name case-mismatch fixture
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary application-case
-      - name: Measure raw reverse inputrc application-name casing against the pinned release
+      - name: Assert pinned reverse inputrc application-name case-mismatch fixture
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary application-case-reverse
       - name: Measure raw invalid-UTF-8 history search against the pinned release
         run: bash .github/scripts/readline-invalid-history-search.sh primary
@@ -3850,7 +3850,7 @@ jobs:
       # Assert only this exact case-mismatch fixture; do not generalize the rule.
       - name: Assert pinned inputrc application-name case-mismatch fixture
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh replica application-case
-      - name: Measure raw reverse inputrc application-name casing against the pinned release
+      - name: Assert pinned reverse inputrc application-name case-mismatch fixture
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh replica application-case-reverse
       - name: Measure raw invalid-UTF-8 history search against the pinned release
         run: bash .github/scripts/readline-invalid-history-search.sh replica

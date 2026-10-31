@@ -2,7 +2,7 @@
 # Fixture-scoped inputrc observations, shared by the pinned primary and fresh runner.
 # Golden modes assert reviewed, fixture-scoped Readline 8.3 branch outcomes.
 # application-case asserts one exact uppercase-condition/lowercase-name fixture.
-# application-case-reverse records the reciprocal fixture without a branch assertion.
+# application-case-reverse asserts the exact reciprocal casing fixture.
 # All modes retain the raw PTY/protocol reports.
 set -euo pipefail
 ulimit -c 0
@@ -181,10 +181,10 @@ if IS_CONDITIONS:
         ("application_nonmatching", b"unrelated-application"),
     )
 elif IS_APPLICATION_CASE:
-    # No expected branch yet: record one uppercase condition verbatim.
+    # Keep the measured uppercase condition verbatim.
     CASES = (("application_uppercase", b"SUSHLINE-INPUTRC-CONDITIONS-PROBE"),)
 elif IS_APPLICATION_CASE_REVERSE:
-    # Measurement only: record the lowercase condition, without predicting its branch.
+    # Keep the measured reciprocal lowercase condition verbatim.
     CASES = (("application_lowercase", b"sushline-inputrc-conditions-probe"),)
 elif IS_TERM:
     CASES = (("term_xterm", b"xterm"), ("term_xterm_256", b"xterm-256"))
@@ -372,15 +372,10 @@ results = [run_case(*case) for case in CASES]
 sys.exit(0 if all(results) else 1)
 PYPROBE
 
-# The reverse fixture has no reviewed branch outcome yet. Keep its raw report only.
-if [ "$mode" = application-case-reverse ]; then
-  exit 0
-fi
-
-# Assert only the measured uppercase-condition/lowercase-application fixture.
-if [ "$mode" = application-case ]; then
+# Assert only the two measured application-name casing fixtures.
+if [ "$mode" = application-case ] || [ "$mode" = application-case-reverse ]; then
   grep -E '^(measurement|application_name_requested|locale_requested|terminal|initial_inputrc|true_marker_hex|false_marker_hex|case|inputrc_contents_hex|input_keys_hex|prompt_hex|header_version|runtime_version|pinned_libraries|loaded_library_path_check|editing_mode|read_status|runtime_version_text_hex|locale_hex|loaded_library_relative_path_hex|application_name_hex|accepted_is_null|accepted_hex|diagnostics_hex|child_returncode|timeout|output_limit_exceeded|input_sent|terminal_restored|transport_integrity|child_reaped|fixture_cleanup)=' "$report" > "$report.semantic"
-  diff -u .github/scripts/readline-inputrc-application-case.expected "$report.semantic"
+  diff -u ".github/scripts/readline-inputrc-$mode.expected" "$report.semantic"
   exit 0
 fi
 

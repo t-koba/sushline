@@ -1433,6 +1433,34 @@ fn pinned_application_condition_case_mismatch_matches_sushline() {
 }
 
 #[test]
+fn pinned_application_condition_reverse_case_mismatch_matches_sushline() {
+    // The pinned GNU 8.3 primary and fresh-replica reports agree for this exact
+    // lowercase-condition/uppercase-application fixture; no broader case-folding
+    // rule is implied.
+    let config = Config {
+        application_name: "SUSHLINE-INPUTRC-CONDITIONS-PROBE".into(),
+        ..Config::default()
+    };
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::default_for_config(&config);
+    let inputrc = concat!(
+        "$if sushline-inputrc-conditions-probe\n",
+        "\"\\C-o\": \"IF_TRUE\"\n",
+        "$else\n",
+        "\"\\C-o\": \"IF_FALSE\"\n",
+        "$endif\n",
+    );
+    let diagnostics = InputrcParser::new()
+        .parse_str(inputrc, &config, &mut keymap, &mut variables)
+        .unwrap();
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
+        Some(&KeyBinding::Macro(b"IF_TRUE".to_vec())),
+    );
+}
+
+#[test]
 fn legacy_mode_and_term_conditions_use_compact_assignment_syntax() {
     let config = Config::default();
     let keymap = KeyMap::emacs_default();

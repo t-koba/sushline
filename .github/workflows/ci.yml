@@ -2902,6 +2902,10 @@ jobs:
               "split_terminator_trial_1": (5, "73706c6974"),
               "payload_cr_trial_2": (3, "410a42"),
               "split_terminator_trial_2": (5, "73706c6974"),
+              "partial_payload_eof_trial_1": (7, "7061727469616c"),
+              "partial_payload_eof_trial_2": (7, "7061727469616c"),
+              "truncated_terminator_eof_trial_1": (12, "7061727469616c1b5b323031"),
+              "truncated_terminator_eof_trial_2": (12, "7061727469616c1b5b323031"),
           }
 
           def measure(name, chunks, true_eof=False):
@@ -3072,14 +3076,13 @@ jobs:
                       raise SystemExit(f"{name}: observation timed out or required cleanup kill")
                   if any(count != len(data) for _, data, count in writes):
                       raise SystemExit(f"{name}: PTY input write was incomplete")
-                  if not true_eof:
-                      if fields["result_is_null"] != "0":
-                          raise SystemExit(f"{name}: Readline returned no line")
-                      expected_len, expected_hex = expected_results[name]
-                      if fields["result_len"] != str(expected_len):
-                          raise SystemExit(f"{name}: unexpected returned-line length")
-                      if fields["result_hex"] != expected_hex:
-                          raise SystemExit(f"{name}: unexpected returned-line bytes")
+                  if fields["result_is_null"] != "0":
+                      raise SystemExit(f"{name}: Readline returned no line")
+                  expected_len, expected_hex = expected_results[name]
+                  if fields["result_len"] != str(expected_len):
+                      raise SystemExit(f"{name}: unexpected returned-line length")
+                  if fields["result_hex"] != expected_hex:
+                      raise SystemExit(f"{name}: unexpected returned-line bytes")
                   print("fixture_completed=1", flush=True)
                   return (fields, returncode, done_seen, observation_timeout,
                           cleanup_kill_sent, eof_checkpoint)
@@ -3104,8 +3107,9 @@ jobs:
                   if trial == 1:
                       eof_results[case] = result
                   else:
-                      print(f"repeatability_case={case} trials=2 "
-                            f"repeatable={int(result == eof_results[case])}", flush=True)
+                      if result != eof_results[case]:
+                          raise SystemExit(f"{case}: true-EOF results differed between trials")
+                      print(f"repeatability_case={case} trials=2 repeatable=1", flush=True)
           PYPROBE
       - name: Measure named, unknown-user, and empty-home inputrc includes against the pinned release
         run: |

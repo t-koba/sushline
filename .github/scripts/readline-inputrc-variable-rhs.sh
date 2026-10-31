@@ -3,19 +3,21 @@
 # Golden modes assert reviewed, fixture-scoped Readline 8.3 branch outcomes.
 # application-case asserts one exact uppercase-condition/lowercase-name fixture.
 # application-case-reverse asserts the exact reciprocal casing fixture.
+# application-prefix only observes the exact strict-prefix fixture; no golden.
 # All modes retain the raw PTY/protocol reports.
 set -euo pipefail
 ulimit -c 0
 report_kind=${1:?report kind must be primary or replica}
 case "$report_kind" in primary|replica) ;; *) echo "invalid report kind" >&2; exit 2 ;; esac
 mode=${2:-variable-rhs}
-case "$mode" in variable-rhs|term|conditions|application-case|application-case-reverse) ;; *) echo "invalid inputrc mode" >&2; exit 2 ;; esac
+case "$mode" in variable-rhs|term|conditions|application-case|application-case-reverse|application-prefix) ;; *) echo "invalid inputrc mode" >&2; exit 2 ;; esac
 case "$mode" in
   variable-rhs) report=/tmp/readline_inputrc_variable_rhs.out ;;
   term) report=/tmp/readline_inputrc_term.out ;;
   conditions) report=/tmp/readline_inputrc_conditions.out ;;
   application-case) report=/tmp/readline_inputrc_application_case.out ;;
   application-case-reverse) report=/tmp/readline_inputrc_application_case_reverse.out ;;
+  application-prefix) report=/tmp/readline_inputrc_application_prefix.out ;;
 esac
 readline="$HOME/.cache/sushline/readline-oracle"
 configure_flags=(--prefix="$readline" "$READLINE_ORACLE_CONFIGURE_FLAGS")
@@ -24,7 +26,7 @@ if [ "$READLINE_ORACLE_VERSION" != 8.3 ] || \
   [ "$(cat "$readline/build-configuration" 2>/dev/null)" != "configure-accepted-v1 ${configure_flags[*]}" ]; then
   case "$mode" in
     term) echo "term condition probe requires the exact pinned Readline cache" >&2 ;;
-    conditions|application-case|application-case-reverse) echo "conditions probe requires the exact pinned Readline cache" >&2 ;;
+    conditions|application-case|application-case-reverse|application-prefix) echo "conditions probe requires the exact pinned Readline cache" >&2 ;;
     *) echo "variable RHS probe requires the exact pinned Readline cache" >&2 ;;
   esac
   exit 1
@@ -135,7 +137,7 @@ if [ "$mode" = term ]; then
   defines=(-DTERM_MODE)
 elif [ "$mode" = application-case-reverse ]; then
   defines=(-DCONDITIONS_MODE -DAPPLICATION_CASE_REVERSE_MODE)
-elif [ "$mode" = conditions ] || [ "$mode" = application-case ]; then
+elif [ "$mode" = conditions ] || [ "$mode" = application-case ] || [ "$mode" = application-prefix ]; then
   defines=(-DCONDITIONS_MODE)
 fi
 cc -Wall -Wextra -Werror -o "$work/probe" "$work/probe.c" \
@@ -159,13 +161,15 @@ import time
 LIMIT = 16384
 KEYS = b"\x0f\n"
 if len(sys.argv) != 5 or sys.argv[3] not in ("primary", "replica") or \
-        sys.argv[4] not in ("variable-rhs", "term", "conditions", "application-case", "application-case-reverse"):
+        sys.argv[4] not in ("variable-rhs", "term", "conditions", "application-case", "application-case-reverse", "application-prefix"):
     raise SystemExit("invalid report kind or mode")
 IS_TERM = sys.argv[4] == "term"
 IS_CONDITIONS = sys.argv[4] == "conditions"
 IS_APPLICATION_CASE = sys.argv[4] == "application-case"
 IS_APPLICATION_CASE_REVERSE = sys.argv[4] == "application-case-reverse"
-IS_APPLICATION_CONDITION = IS_CONDITIONS or IS_APPLICATION_CASE or IS_APPLICATION_CASE_REVERSE
+IS_APPLICATION_PREFIX = sys.argv[4] == "application-prefix"
+IS_APPLICATION_CONDITION = (IS_CONDITIONS or IS_APPLICATION_CASE or
+                            IS_APPLICATION_CASE_REVERSE or IS_APPLICATION_PREFIX)
 # Must match the unique rl_readline_name set before rl_initialize in the C probe.
 APPLICATION_NAME = (b"SUSHLINE-INPUTRC-CONDITIONS-PROBE" if IS_APPLICATION_CASE_REVERSE
                     else b"sushline-inputrc-conditions-probe")
@@ -186,6 +190,9 @@ elif IS_APPLICATION_CASE:
 elif IS_APPLICATION_CASE_REVERSE:
     # Keep the measured reciprocal lowercase condition verbatim.
     CASES = (("application_lowercase", b"sushline-inputrc-conditions-probe"),)
+elif IS_APPLICATION_PREFIX:
+    # Observe only this strict shorter prefix of the application name.
+    CASES = (("application_prefix", b"sushline-inputrc-conditions"),)
 elif IS_TERM:
     CASES = (("term_xterm", b"xterm"), ("term_xterm_256", b"xterm-256"))
 else:
@@ -371,6 +378,11 @@ def run_case(label, *args):
 results = [run_case(*case) for case in CASES]
 sys.exit(0 if all(results) else 1)
 PYPROBE
+
+# Retain the complete strict-prefix observation without asserting a branch result.
+if [ "$mode" = application-prefix ]; then
+  exit 0
+fi
 
 # Assert only the two measured application-name casing fixtures.
 if [ "$mode" = application-case ] || [ "$mode" = application-case-reverse ]; then

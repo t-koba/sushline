@@ -3495,9 +3495,10 @@ jobs:
           set -euo pipefail
           ulimit -c 0
           readline="$HOME/.cache/sushline/readline-oracle"
-          # Measurement only: two fresh direct-library processes read an
-          # absolute-path A -> B -> A fixture. No outcome is presumed, and
-          # only allowlisted fields reach the report or job log.
+          # Two fresh direct-library processes read an absolute-path A -> B -> A
+          # fixture. Assert only this pinned GNU 8.3 fixture's signal outcome;
+          # no broader cycle behavior is inferred. Only allowlisted fields reach
+          # the report or job log.
           cat > /tmp/readline_include_cycle_probe.c <<'PROBE'
           #include <stdio.h>
           #include <sys/resource.h>
@@ -3593,6 +3594,13 @@ jobs:
                           valid = False
                   elif not timed_out and child.returncode >= 0:
                       valid = False
+                  expected_outcome_matches = (
+                      not timed_out
+                      and child.returncode == -11
+                      and "read_status" not in fields
+                  )
+                  print(f"{label}_expected_outcome_matches={int(expected_outcome_matches)}")
+                  valid = valid and expected_outcome_matches
               finally:
                   # Reap even on a parsing/error path, before removing files
                   # that a still-running recursive reader could be using.

@@ -88,19 +88,10 @@ impl History {
 
     /// Read file range with a multiline policy.
     ///
-    /// FROM/TO bounds count physical command lines, including blank lines
-    /// that may contribute to joined entries; timestamp records are metadata
-    /// and do not count. This counting is pinned against GNU History 8.3 for
-    /// the tested FROM<TO cases (see `COMPATIBILITY.md`). The
-    /// selected lines are then grouped by the policy, so a range can end with
-    /// a partial block.
-    ///
-    /// FROM below TO makes TO exclusive. Equal and reversed-bound results are
-    /// Sushline product rules: equal bounds select the physical position at
-    /// FROM, which may yield no entry; TO below FROM retains remaining entries
-    /// through EOF. This read does not change the file; pass `None` for an
-    /// explicit suffix. Pinned GNU 8.3 results differ on the cited edge
-    /// fixtures (see `COMPATIBILITY.md`).
+    /// Bounds, including equal/reversed cases and `None`, follow
+    /// [`Self::read_file_range`]. The selected lines are grouped with
+    /// `multiline`; a joined range can end with a partial block, and blank
+    /// lines may contribute to that block.
     pub fn read_file_range_with_multiline(
         path: impl AsRef<Path>,
         from: usize,
@@ -199,18 +190,9 @@ impl History {
 
     /// Load file range.
     ///
-    /// The file is read with the default `HistoryMultiline` grouping. FROM/TO
-    /// bounds count physical command lines, including blank lines that carry
-    /// no entry; timestamp records are metadata and do not count. This
-    /// counting is pinned against GNU History 8.3 for the tested FROM<TO cases
-    /// (see the fixture-scoped results in `COMPATIBILITY.md`).
-    ///
-    /// FROM below TO makes TO exclusive. Equal and reversed-bound results are
-    /// Sushline product rules: equal bounds select the physical position at
-    /// FROM, which may be blank and produce no entry; TO below FROM retains
-    /// remaining entries through EOF. This read does not change the file; pass
-    /// `None` for an explicit suffix. Pinned GNU 8.3 results differ on the
-    /// cited edge fixtures (see `COMPATIBILITY.md`).
+    /// Uses the default grouping and bound semantics of
+    /// [`Self::read_file_range`]. This imports selected entries into `self`;
+    /// `max_entries` is applied after grouping.
     pub fn load_file_range(
         &mut self,
         path: impl AsRef<Path>,
@@ -229,19 +211,10 @@ impl History {
 
     /// Load file range with a multiline policy.
     ///
-    /// FROM/TO bounds count physical command lines, including blank lines
-    /// that may contribute to joined entries; timestamp records are metadata
-    /// and do not count. This counting is pinned against GNU History 8.3 for
-    /// the tested FROM<TO cases (see `COMPATIBILITY.md`). The
-    /// selected lines are then grouped by the policy, so a range can end with
-    /// a partial block.
-    ///
-    /// FROM below TO makes TO exclusive. Equal and reversed-bound results are
-    /// Sushline product rules: equal bounds select the physical position at
-    /// FROM, which may yield no entry; TO below FROM retains remaining entries
-    /// through EOF. This read does not change the file; pass `None` for an
-    /// explicit suffix. Pinned GNU 8.3 results differ on the cited edge
-    /// fixtures (see `COMPATIBILITY.md`).
+    /// Bounds and edge cases follow [`Self::read_file_range`]. The selected
+    /// lines are grouped with `multiline`, so a joined range can end with a
+    /// partial block. This imports selected entries into `self`;
+    /// `max_entries` is applied after grouping.
     pub fn load_file_range_with_multiline(
         &mut self,
         path: impl AsRef<Path>,

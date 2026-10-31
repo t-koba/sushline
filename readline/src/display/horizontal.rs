@@ -12,6 +12,8 @@ pub(crate) struct HorizontalViewport {
     /// The cell margin that precedes the visible text.
     margin: usize,
     visible: Range<usize>,
+    /// Physical cells emitted before the first complete visible buffer unit.
+    split_columns: usize,
 }
 
 #[derive(Debug, Default)]
@@ -164,6 +166,7 @@ impl HorizontalViewport {
         // Leave the final terminal cell unused: neither output nor cursor
         // placement should trigger automatic wrapping in horizontal mode.
         let capacity = columns.saturating_sub(1);
+        self.split_columns = 0;
         if capacity == 0 {
             // With no displayable cells, there is no viewport to preserve.
             // Reset both coordinates so a later resize cannot reuse a margin
@@ -206,10 +209,9 @@ impl HorizontalViewport {
             self.set_offset(line, line.point_bytes.saturating_sub(scroll - 1));
         }
         let left = usize::from(self.margin > 0);
-        let right = usize::from(line.width > self.margin + capacity && capacity > left);
+        let mut right = usize::from(line.width > self.margin + capacity && capacity > left);
         let start = self.margin + left;
-        let end = self.margin + capacity - right;
-        self.visible = start..end.min(line.width);
+        let mut end = self.margin + capacity - right;
         let mut out = line.prefix.clone();
         if left > 0 {
             out.push('<');
@@ -217,7 +219,6 @@ impl HorizontalViewport {
         let mut col = 0;
         let mut base_visible = false;
         let mut bytes = 0;
-        let mut split_columns = 0;
         for unit in &line.units {
             let next = col + unit.width;
             let split = self.offset.saturating_sub(bytes);
@@ -244,8 +245,16 @@ impl HorizontalViewport {
                 // not a sliced str or replacement text. The pinned wide-edge
                 // fixture replays each remaining byte as one terminal cell.
                 let suffix = &unit.text.as_bytes()[split..];
-                out.push_str(&bytes_lossless(suffix));
-                split_columns = suffix.len();
+                // These cells precede `start`, so reserve their space before
+                // rendering complete units. They can also require a right
+                // marker even when the logical cell window alone would fit.
+                right = usize::from(
+                    line.width > self.margin + capacity.saturating_sub(suffix.len())
+                        && capacity > left,
+                );
+                self.split_columns = suffix.len().min(capacity - left - right);
+                end = self.margin + capacity - right - self.split_columns;
+                out.push_str(&bytes_lossless(&suffix[..self.split_columns]));
                 base_visible = false;
             } else if col >= start && next <= end {
                 out.push_str(&unit.text);
@@ -259,6 +268,7 @@ impl HorizontalViewport {
             }
             col = next;
         }
+        self.visible = start..end.min(line.width);
         if right > 0 {
             out.push('>');
         }
@@ -266,7 +276,7 @@ impl HorizontalViewport {
             out,
             line.point
                 .saturating_sub(self.margin)
-                .saturating_add(split_columns)
+                .saturating_add(self.split_columns)
                 .min(capacity),
         )
     }
@@ -322,14 +332,14 @@ impl HorizontalViewport {
     pub(crate) fn visible_column(&self, position: usize) -> Option<usize> {
         self.visible
             .contains(&position)
-            .then(|| position - self.margin)
+            .then(|| position - self.margin + self.split_columns)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::buffer::{LineBuffer, RenderOptions};
+    use crate::buffer::{LineBuffer, RenderOptions, rendered_string_to_bytes};
     use crate::prompt::{Prompt, PromptEscapes};
     use crate::width::visible_width;
 
@@ -549,6 +559,35 @@ mod tests {
                     (format!("<{}", "1".repeat(49)), 50)
                 );
             }
+        }
+    }
+
+    #[test]
+    fn horizontal_scroll_reserves_split_suffix_cells_at_the_right_edge() {
+        // The 126-digit tail is the reviewer's full-right-edge reproduction.
+        // With 77 digits, only the emitted suffix makes a right marker needed.
+        for tail in [126, 77] {
+            let text = format!("{}中{}", "0".repeat(24), "1".repeat(tail));
+            let mut viewport = HorizontalViewport::default();
+            let layout = line("P>", &text, 76);
+            let (out, cursor) = viewport.layout(&layout, 80);
+            assert_eq!((viewport.offset, viewport.margin), (25, 27));
+            let raw = rendered_string_to_bytes(&out);
+            let expected = [b"<\xb8\xad".as_slice(), "1".repeat(75).as_bytes(), b">"].concat();
+            assert_eq!(raw, expected);
+            // Replay each retained continuation byte as one replacement cell,
+            // as in the pinned PTY fixture: no output reaches the wrap column.
+            assert_eq!(visible_width(&String::from_utf8_lossy(&raw)), 79);
+            assert_eq!(cursor, 52);
+            assert_eq!(viewport.visible_column(28), Some(3));
+            assert_eq!(viewport.visible_column(layout.point), Some(cursor));
+            assert_eq!(viewport.visible_column(102), Some(77));
+            for position in [27, 103, layout.width] {
+                assert_eq!(viewport.visible_column(position), None);
+            }
+            // Restoring the prompt must also clear the suffix's column shift.
+            viewport.layout(&line("P>", &text, 0), 80);
+            assert_eq!(viewport.visible_column(2), Some(2));
         }
     }
 

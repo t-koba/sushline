@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Assert the pinned GNU 8.3 search-offset fixtures, or measure a raw NUL query.
+# Assert the pinned GNU 8.3 search-offset or NUL-query fixture.
 set -euo pipefail
 if [ $# -lt 1 ] || [ $# -gt 2 ] || \
   { [ "$1" != primary ] && [ "$1" != replica ]; } || \
@@ -250,8 +250,10 @@ PROBE
   fi
   LC_ALL=C timeout 5 "$work/probe" "${probe_args[@]}"
 } 2>&1 | tee "$out"
-# This mode records observations only, without asserting GNU search results.
+# Assert exact fixture inputs and result/state rows; retain the raw identity report.
 if [ "$mode" = nul-query ]; then
+  grep -E '^(header_version=|seed\[|needle_bytes=|operation=)' "$out" > "$out.semantic"
+  diff -u .github/scripts/history-search-nul-query.expected "$out.semantic"
   exit 0
 fi
 # Assert the reviewed rows, including the two failed multi-entry searches.

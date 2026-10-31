@@ -16,9 +16,9 @@ fi
 # test-owned acyclic chains with 18 and 32 nested includes
 # respectively (main -> N included files; the leaf sets
 # `completion-ignore-case on`). The depth-18 chain is retained, and
-# the depth-32 chain repeats the same binary and trial logic.
-# No outcome is presumed, and only
-# allowlisted fields reach the report or job log.
+# the depth-32 chain repeats the same binary and trial logic. Assert only the
+# pinned 8.3 outcomes for these measured depths; infer nothing beyond them.
+# Only allowlisted fields reach the report or job log.
 cat > /tmp/readline_include_depth_probe.c <<'PROBE'
 #include <stdio.h>
 #include <string.h>
@@ -134,6 +134,14 @@ def run_trial(label):
                 valid = False
         elif not timed_out and child.returncode >= 0:
             valid = False
+        expected_outcome_matches = (
+            not timed_out
+            and child.returncode == 0
+            and fields.get("read_status") == "0"
+            and fields.get("completion_ignore_case_on") == "1"
+        )
+        print(f"{label}_expected_outcome_matches={int(expected_outcome_matches)}")
+        valid = valid and expected_outcome_matches
     finally:
         # Reap even on a parsing/error path, before removing files
         # that a still-running recursive reader could be using.

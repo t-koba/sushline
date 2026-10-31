@@ -3655,6 +3655,8 @@ jobs:
       # Assert only this exact case-mismatch fixture; do not generalize the rule.
       - name: Assert pinned inputrc application-name case-mismatch fixture
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary application-case
+      - name: Measure raw reverse inputrc application-name casing against the pinned release
+        run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary application-case-reverse
       - name: Measure raw invalid-UTF-8 history search against the pinned release
         run: bash .github/scripts/readline-invalid-history-search.sh primary
       - name: Measure raw invalid-UTF-8 history prefix search against the pinned release
@@ -3722,6 +3724,7 @@ jobs:
             /tmp/readline_inputrc_term.out \
             /tmp/readline_inputrc_conditions.out \
             /tmp/readline_inputrc_application_case.out \
+            /tmp/readline_inputrc_application_case_reverse.out \
             /tmp/readline_include_cycle.out \
             /tmp/readline_include_depth.out \
             /tmp/readline_include_depth_32.out \
@@ -3847,6 +3850,8 @@ jobs:
       # Assert only this exact case-mismatch fixture; do not generalize the rule.
       - name: Assert pinned inputrc application-name case-mismatch fixture
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh replica application-case
+      - name: Measure raw reverse inputrc application-name casing against the pinned release
+        run: bash .github/scripts/readline-inputrc-variable-rhs.sh replica application-case-reverse
       - name: Measure raw invalid-UTF-8 history search against the pinned release
         run: bash .github/scripts/readline-invalid-history-search.sh replica
       - name: Measure raw invalid-UTF-8 history prefix search against the pinned release
@@ -4083,6 +4088,14 @@ jobs:
           path: /tmp/history_search_nul_replica.out
           if-no-files-found: error
           retention-days: 14
+      - name: Upload independent pinned reverse inputrc application-name casing report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-inputrc-application-case-reverse-replica
+          path: /tmp/readline_inputrc_application_case_reverse.out
+          if-no-files-found: error
+          retention-days: 14
       - name: Upload independent pinned inputrc application-name casing report
         if: always()
         uses: actions/upload-artifact@v4
@@ -4125,6 +4138,17 @@ jobs:
           set -euo pipefail
           primary="$RUNNER_TEMP/sushline-primary-measurements/history_search_nul_primary.out"
           replica=/tmp/history_search_nul_replica.out
+          test -f "$primary"
+          test -f "$replica"
+          grep -qx 'report=primary' "$primary"
+          grep -qx 'report=replica' "$replica"
+          # Compare every byte except the report-role line, without a golden result.
+          diff -u <(sed '/^report=primary$/d' "$primary") <(sed '/^report=replica$/d' "$replica")
+      - name: Require primary and fresh-replica reverse inputrc application-name casing agreement
+        run: |
+          set -euo pipefail
+          primary="$RUNNER_TEMP/sushline-primary-measurements/readline_inputrc_application_case_reverse.out"
+          replica=/tmp/readline_inputrc_application_case_reverse.out
           test -f "$primary"
           test -f "$replica"
           grep -qx 'report=primary' "$primary"

@@ -2,18 +2,20 @@
 # Fixture-scoped inputrc observations, shared by the pinned primary and fresh runner.
 # Golden modes assert reviewed, fixture-scoped Readline 8.3 branch outcomes.
 # application-case asserts one exact uppercase-condition/lowercase-name fixture.
+# application-case-reverse records the reciprocal fixture without a branch assertion.
 # All modes retain the raw PTY/protocol reports.
 set -euo pipefail
 ulimit -c 0
 report_kind=${1:?report kind must be primary or replica}
 case "$report_kind" in primary|replica) ;; *) echo "invalid report kind" >&2; exit 2 ;; esac
 mode=${2:-variable-rhs}
-case "$mode" in variable-rhs|term|conditions|application-case) ;; *) echo "invalid inputrc mode" >&2; exit 2 ;; esac
+case "$mode" in variable-rhs|term|conditions|application-case|application-case-reverse) ;; *) echo "invalid inputrc mode" >&2; exit 2 ;; esac
 case "$mode" in
   variable-rhs) report=/tmp/readline_inputrc_variable_rhs.out ;;
   term) report=/tmp/readline_inputrc_term.out ;;
   conditions) report=/tmp/readline_inputrc_conditions.out ;;
   application-case) report=/tmp/readline_inputrc_application_case.out ;;
+  application-case-reverse) report=/tmp/readline_inputrc_application_case_reverse.out ;;
 esac
 readline="$HOME/.cache/sushline/readline-oracle"
 configure_flags=(--prefix="$readline" "$READLINE_ORACLE_CONFIGURE_FLAGS")
@@ -22,7 +24,7 @@ if [ "$READLINE_ORACLE_VERSION" != 8.3 ] || \
   [ "$(cat "$readline/build-configuration" 2>/dev/null)" != "configure-accepted-v1 ${configure_flags[*]}" ]; then
   case "$mode" in
     term) echo "term condition probe requires the exact pinned Readline cache" >&2 ;;
-    conditions|application-case) echo "conditions probe requires the exact pinned Readline cache" >&2 ;;
+    conditions|application-case|application-case-reverse) echo "conditions probe requires the exact pinned Readline cache" >&2 ;;
     *) echo "variable RHS probe requires the exact pinned Readline cache" >&2 ;;
   esac
   exit 1
@@ -82,7 +84,9 @@ int main(int argc, char **argv) {
         strcmp(rl_library_version, "8.3") != 0) return 2;
     dl_iterate_phdr(check_library, NULL);
     if (libraries != 1) return 3;
-#ifdef CONDITIONS_MODE
+#ifdef APPLICATION_CASE_REVERSE_MODE
+    rl_readline_name = "SUSHLINE-INPUTRC-CONDITIONS-PROBE";
+#elif defined(CONDITIONS_MODE)
     /* Unique application name for the condition fixtures, including casing. */
     rl_readline_name = "sushline-inputrc-conditions-probe";
 #elif defined(TERM_MODE)
@@ -129,6 +133,8 @@ PROBE
 defines=()
 if [ "$mode" = term ]; then
   defines=(-DTERM_MODE)
+elif [ "$mode" = application-case-reverse ]; then
+  defines=(-DCONDITIONS_MODE -DAPPLICATION_CASE_REVERSE_MODE)
 elif [ "$mode" = conditions ] || [ "$mode" = application-case ]; then
   defines=(-DCONDITIONS_MODE)
 fi
@@ -153,14 +159,16 @@ import time
 LIMIT = 16384
 KEYS = b"\x0f\n"
 if len(sys.argv) != 5 or sys.argv[3] not in ("primary", "replica") or \
-        sys.argv[4] not in ("variable-rhs", "term", "conditions", "application-case"):
+        sys.argv[4] not in ("variable-rhs", "term", "conditions", "application-case", "application-case-reverse"):
     raise SystemExit("invalid report kind or mode")
 IS_TERM = sys.argv[4] == "term"
 IS_CONDITIONS = sys.argv[4] == "conditions"
 IS_APPLICATION_CASE = sys.argv[4] == "application-case"
-IS_APPLICATION_CONDITION = IS_CONDITIONS or IS_APPLICATION_CASE
+IS_APPLICATION_CASE_REVERSE = sys.argv[4] == "application-case-reverse"
+IS_APPLICATION_CONDITION = IS_CONDITIONS or IS_APPLICATION_CASE or IS_APPLICATION_CASE_REVERSE
 # Must match the unique rl_readline_name set before rl_initialize in the C probe.
-APPLICATION_NAME = b"sushline-inputrc-conditions-probe"
+APPLICATION_NAME = (b"SUSHLINE-INPUTRC-CONDITIONS-PROBE" if IS_APPLICATION_CASE_REVERSE
+                    else b"sushline-inputrc-conditions-probe")
 if IS_CONDITIONS:
     CASES = (
         ("version_ge_8_0", b"version >= 8.0"),
@@ -175,6 +183,9 @@ if IS_CONDITIONS:
 elif IS_APPLICATION_CASE:
     # No expected branch yet: record one uppercase condition verbatim.
     CASES = (("application_uppercase", b"SUSHLINE-INPUTRC-CONDITIONS-PROBE"),)
+elif IS_APPLICATION_CASE_REVERSE:
+    # Measurement only: record the lowercase condition, without predicting its branch.
+    CASES = (("application_lowercase", b"sushline-inputrc-conditions-probe"),)
 elif IS_TERM:
     CASES = (("term_xterm", b"xterm"), ("term_xterm_256", b"xterm-256"))
 else:
@@ -187,7 +198,7 @@ else:
     )
 print(f"report={sys.argv[3]}")
 if IS_APPLICATION_CONDITION:
-    measurement = "application-case" if IS_APPLICATION_CASE else "conditions"
+    measurement = sys.argv[4]
     print(f"measurement=raw-direct-readline-inputrc-{measurement}")
     print(f"application_name_requested={APPLICATION_NAME.decode('ascii')}")
 elif IS_TERM:
@@ -324,7 +335,7 @@ def run_case(label, *args):
                 rb"stored_comment_begin_hex=(?:[0-9a-f]{2}){0,128}\n"
                 rb"accepted_is_null=[01]\naccepted_hex=(?:[0-9a-f]{2}){0,128}\n"
             )
-        if IS_APPLICATION_CASE:
+        if IS_APPLICATION_CASE or IS_APPLICATION_CASE_REVERSE:
             # Parsing must succeed; accepted_hex remains an observation, not a golden.
             pattern = pattern.replace(rb"read_status=-?[0-9]+", rb"read_status=0")
         # Validate transport/protocol before any semantic projection below;
@@ -360,6 +371,11 @@ def run_case(label, *args):
 results = [run_case(*case) for case in CASES]
 sys.exit(0 if all(results) else 1)
 PYPROBE
+
+# The reverse fixture has no reviewed branch outcome yet. Keep its raw report only.
+if [ "$mode" = application-case-reverse ]; then
+  exit 0
+fi
 
 # Assert only the measured uppercase-condition/lowercase-application fixture.
 if [ "$mode" = application-case ]; then

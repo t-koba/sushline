@@ -4,7 +4,7 @@
 # application-case asserts one exact uppercase-condition/lowercase-name fixture.
 # application-case-reverse asserts the exact reciprocal casing fixture.
 # application-prefix asserts only the exact measured strict-prefix fixture.
-# application-name-prefix observes only the exact shorter-name/longer-condition fixture.
+# application-name-prefix asserts only the exact shorter-name/longer-condition fixture.
 # All modes retain the raw PTY/protocol reports.
 set -euo pipefail
 ulimit -c 0
@@ -203,7 +203,7 @@ elif IS_APPLICATION_PREFIX:
     # Keep this exact measured strict prefix of the application name.
     CASES = (("application_prefix", b"sushline-inputrc-conditions"),)
 elif IS_APPLICATION_NAME_PREFIX:
-    # Observe only this exact strict prefix in the opposite containment direction.
+    # Keep this exact measured strict prefix in the opposite containment direction.
     CASES = (("application_name_prefix", b"sushline-inputrc-conditions-probe"),)
 elif IS_TERM:
     CASES = (("term_xterm", b"xterm"), ("term_xterm_256", b"xterm-256"))
@@ -391,13 +391,8 @@ results = [run_case(*case) for case in CASES]
 sys.exit(0 if all(results) else 1)
 PYPROBE
 
-# Observation only: retain the full report without asserting a branch or read status.
-if [ "$mode" = application-name-prefix ]; then
-  exit 0
-fi
-
 # Assert only the measured application-name casing and strict-prefix fixtures.
-if [ "$mode" = application-case ] || [ "$mode" = application-case-reverse ] || [ "$mode" = application-prefix ]; then
+if [ "$mode" = application-case ] || [ "$mode" = application-case-reverse ] || [ "$mode" = application-prefix ] || [ "$mode" = application-name-prefix ]; then
   grep -E '^(measurement|application_name_requested|locale_requested|terminal|initial_inputrc|true_marker_hex|false_marker_hex|case|inputrc_contents_hex|input_keys_hex|prompt_hex|header_version|runtime_version|pinned_libraries|loaded_library_path_check|editing_mode|read_status|runtime_version_text_hex|locale_hex|loaded_library_relative_path_hex|application_name_hex|accepted_is_null|accepted_hex|diagnostics_hex|child_returncode|timeout|output_limit_exceeded|input_sent|terminal_restored|transport_integrity|child_reaped|fixture_cleanup)=' "$report" > "$report.semantic"
   diff -u ".github/scripts/readline-inputrc-$mode.expected" "$report.semantic"
   exit 0

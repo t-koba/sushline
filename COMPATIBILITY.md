@@ -163,8 +163,10 @@ Both rows are retained in `history_expand.out`; the matching
 [`custom_history_word_delimiters_preserve_punctuation_fields`](history/tests/history.rs)
 regression asserts the same selected bytes and Rust `Expanded` status with
 default and custom `HistoryExpansionPolicy::word_delimiters`. Local GNU
-History 8.2 produced those rows directionally; that is not pinned 8.3
-evidence, and the new pinned CI assertions still require a confirming run.
+History 8.2 produced those rows directionally; the pinned GNU History 8.3
+assertion for this fixture is included in publication
+`57e37946b39ddab09c55f6cc14194ae95a7f68780d85c5453b49f154e30bc8e1`.
+All three CI checks on this publication passed.
 This fixture makes no claim about other delimiter lists or shell parsing.
 
 ### Search-delimiter expansion fixture
@@ -185,11 +187,14 @@ exact output bytes in `history_expand.out`:
 
 [`history_expansion_consults_search_delimiters_for_string_prefixes`](history/tests/history.rs)
 asserts these four outputs and Rust `Expanded` status with empty/default and
-custom-dot `HistoryExpansionPolicy::search_delimiters`. Local GNU History 8.2
-produced these pairs directionally with successful positioning; this is not
-pinned 8.3 evidence, and pinned confirmation is pending. Only these prefix
-and unaffected substring-control cases are covered, not arbitrary delimiter
-sets. This policy is explicit Rust API configuration, not inputrc-configurable.
+custom-dot `HistoryExpansionPolicy::search_delimiters`. Local GNU History
+8.2 produced these pairs directionally with successful positioning; the
+pinned GNU History 8.3 assertion for this fixture is included in publication
+`e237322894798d87ae14355c1e54720420a79bfd919289a205a44bba5ffa522a`.
+All three CI checks on this publication passed.
+Only these prefix and unaffected substring-control cases are covered, not
+arbitrary delimiter sets. This policy is explicit Rust API configuration,
+not inputrc-configurable.
 
 ### Current-line event expansion fixture
 
@@ -209,10 +214,12 @@ exact output bytes (including trailing spaces) are retained as hex in
 
 [`history_expansion_current_line_event_supports_shared_suffixes`](history/tests/history.rs)
 asserts the same seed, output bytes, and Rust `Expanded` status. Local GNU
-History 8.2 produced these five status/output pairs directionally; it is not
-pinned 8.3 evidence, and these new CI assertions still require a confirming
-pinned run. This comparison covers only these five inputs, not general
-current-line event or modifier compatibility.
+History 8.2 produced these five status/output pairs directionally; the
+pinned GNU History 8.3 assertion for this fixture is included in publication
+`7488d7fbab6c937f77184b0c5e88ee6f547100739d3fc41ae14bb283cf9d6b2f`.
+All three CI checks on this publication passed.
+This comparison covers only these five inputs, not general current-line
+event or modifier compatibility.
 
 ## User-Facing Readline Commands
 

@@ -3076,6 +3076,17 @@ jobs:
                       raise SystemExit(f"{name}: observation timed out or required cleanup kill")
                   if any(count != len(data) for _, data, count in writes):
                       raise SystemExit(f"{name}: PTY input write was incomplete")
+                  if true_eof:
+                      expected_checkpoint = {
+                          "redisplay_seen": 1,
+                          "child_alive": 1,
+                          "done_before_followup": 0,
+                          "followup_sent": 1,
+                      }
+                      for field, expected_value in expected_checkpoint.items():
+                          if eof_checkpoint.get(field) != expected_value:
+                              raise SystemExit(
+                                  f"{name}: unexpected EOF checkpoint {field}")
                   if fields["result_is_null"] != "0":
                       raise SystemExit(f"{name}: Readline returned no line")
                   expected_len, expected_hex = expected_results[name]

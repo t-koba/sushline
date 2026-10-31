@@ -1410,6 +1410,37 @@ fn pinned_version_mode_and_application_condition_branches() {
 }
 
 #[test]
+fn pinned_vi_mode_condition_selects_true_branch() {
+    // Exact pinned GNU 8.3 primary/fresh-replica mode-vi-true fixture;
+    // no general mode grammar rule is implied.
+    let config = Config {
+        application_name: "sushline-inputrc-conditions-probe".into(),
+        ..Config::default()
+    };
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::default_for_config(&config);
+    let inputrc = concat!(
+        "set editing-mode vi\nset enable-bracketed-paste off\n",
+        "$if mode=vi\n",
+        "\"\\C-o\": \"IF_TRUE\"\n",
+        "$else\n",
+        "\"\\C-o\": \"IF_FALSE\"\n",
+        "$endif\n",
+    );
+    let diagnostics = InputrcParser::new()
+        .parse_str(inputrc, &config, &mut keymap, &mut variables)
+        .unwrap();
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    assert_eq!(variables["editing-mode"], "vi");
+    assert_eq!(variables["keymap"], "vi-insert");
+    assert_eq!(keymap.current(), KeyMapName::ViInsert);
+    assert_eq!(
+        keymap.lookup(KeyMapName::ViInsert, &[0x0f]),
+        Some(&KeyBinding::Macro(b"IF_TRUE".to_vec())),
+    );
+}
+
+#[test]
 fn pinned_application_condition_case_mismatch_matches_sushline() {
     // The pinned GNU 8.3 primary and fresh-replica reports agree for this exact
     // uppercase-condition/lowercase-application fixture; no broader case-folding

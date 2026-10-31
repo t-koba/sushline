@@ -8,7 +8,7 @@
 # version-inequality asserts only the exact measured version != 8.3 fixture.
 # version-equality asserts only the exact measured version = 8.3 fixture.
 # version-double-equality asserts only the exact measured version == 8.3 fixture.
-# mode-vi-true validates transport/protocol only pending review.
+# mode-vi-true asserts only the exact measured vi-mode true-branch fixture.
 # All modes retain the raw PTY/protocol reports.
 set -euo pipefail
 ulimit -c 0
@@ -381,7 +381,7 @@ def run_case(label, *args):
                 rb"accepted_is_null=[01]\naccepted_hex=(?:[0-9a-f]{2}){0,128}\n"
             )
         if IS_MODE_VI_TRUE:
-            # Record the library value without asserting the requested mode took effect.
+            # Preserve the effective mode for the exact projection assertion below.
             pattern = pattern.replace(rb"editing_mode=emacs", rb"editing_mode=(?:emacs|vi)")
         if IS_APPLICATION_CASE or IS_APPLICATION_CASE_REVERSE:
             # Parsing must succeed; accepted_hex remains an observation, not a golden.
@@ -420,8 +420,11 @@ results = [run_case(*case) for case in CASES]
 sys.exit(0 if all(results) else 1)
 PYPROBE
 
-# The vi-mode true-branch result remains observation-only pending review.
+# Assert the exact measured vi-mode fixture after transport/protocol checks.
 if [ "$mode" = mode-vi-true ]; then
+  grep -E '^(measurement|application_name_requested|locale_requested|terminal|initial_inputrc|true_marker_hex|case|inputrc_contents_hex|editing_mode|read_status|accepted_is_null|accepted_hex)=' \
+    "$report" > "$work/semantic"
+  diff -u "$(dirname "$0")/readline-inputrc-mode-vi-true.expected" "$work/semantic"
   exit 0
 fi
 

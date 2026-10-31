@@ -3658,7 +3658,7 @@ jobs:
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary version-equality
       - name: Assert the exact inputrc version double-equality fixture against the pinned release (primary)
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary version-double-equality
-      - name: Observe raw inputrc vi-mode true-branch fixture against the pinned release (primary)
+      - name: Assert exact inputrc vi-mode true-branch fixture against the pinned release (primary)
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary mode-vi-true
       # Assert only this exact case-mismatch fixture; do not generalize the rule.
       - name: Assert pinned inputrc application-name case-mismatch fixture
@@ -3871,7 +3871,7 @@ jobs:
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh replica version-equality
       - name: Assert the exact inputrc version double-equality fixture against the pinned release (replica)
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh replica version-double-equality
-      - name: Observe raw inputrc vi-mode true-branch fixture against the pinned release (replica)
+      - name: Assert exact inputrc vi-mode true-branch fixture against the pinned release (replica)
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh replica mode-vi-true
       # Assert only this exact case-mismatch fixture; do not generalize the rule.
       - name: Assert pinned inputrc application-name case-mismatch fixture

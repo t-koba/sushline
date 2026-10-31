@@ -7,14 +7,14 @@
 # application-name-prefix asserts only the exact shorter-name/longer-condition fixture.
 # version-inequality asserts only the exact measured version != 8.3 fixture.
 # version-equality asserts only the exact measured version = 8.3 fixture.
-# mode-vi-true validates transport/protocol only pending review.
+# version-double-equality and mode-vi-true validate transport/protocol only pending review.
 # All modes retain the raw PTY/protocol reports.
 set -euo pipefail
 ulimit -c 0
 report_kind=${1:?report kind must be primary or replica}
 case "$report_kind" in primary|replica) ;; *) echo "invalid report kind" >&2; exit 2 ;; esac
 mode=${2:-variable-rhs}
-case "$mode" in variable-rhs|term|conditions|application-case|application-case-reverse|application-prefix|application-name-prefix|version-inequality|version-equality|mode-vi-true) ;; *) echo "invalid inputrc mode" >&2; exit 2 ;; esac
+case "$mode" in variable-rhs|term|conditions|application-case|application-case-reverse|application-prefix|application-name-prefix|version-inequality|version-equality|version-double-equality|mode-vi-true) ;; *) echo "invalid inputrc mode" >&2; exit 2 ;; esac
 case "$mode" in
   variable-rhs) report=/tmp/readline_inputrc_variable_rhs.out ;;
   term) report=/tmp/readline_inputrc_term.out ;;
@@ -25,6 +25,7 @@ case "$mode" in
   application-name-prefix) report=/tmp/readline_inputrc_application_name_prefix.out ;;
   version-inequality) report=/tmp/readline_inputrc_version_inequality.out ;;
   version-equality) report=/tmp/readline_inputrc_version_equality.out ;;
+  version-double-equality) report=/tmp/readline_inputrc_version_double_equality.out ;;
   mode-vi-true) report=/tmp/readline_inputrc_mode_vi_true.out ;;
 esac
 readline="$HOME/.cache/sushline/readline-oracle"
@@ -34,7 +35,7 @@ if [ "$READLINE_ORACLE_VERSION" != 8.3 ] || \
   [ "$(cat "$readline/build-configuration" 2>/dev/null)" != "configure-accepted-v1 ${configure_flags[*]}" ]; then
   case "$mode" in
     term) echo "term condition probe requires the exact pinned Readline cache" >&2 ;;
-    conditions|application-case|application-case-reverse|application-prefix|application-name-prefix|version-inequality|version-equality|mode-vi-true) echo "conditions probe requires the exact pinned Readline cache" >&2 ;;
+    conditions|application-case|application-case-reverse|application-prefix|application-name-prefix|version-inequality|version-equality|version-double-equality|mode-vi-true) echo "conditions probe requires the exact pinned Readline cache" >&2 ;;
     *) echo "variable RHS probe requires the exact pinned Readline cache" >&2 ;;
   esac
   exit 1
@@ -153,7 +154,7 @@ elif [ "$mode" = application-case-reverse ]; then
   defines=(-DCONDITIONS_MODE -DAPPLICATION_CASE_REVERSE_MODE)
 elif [ "$mode" = application-name-prefix ]; then
   defines=(-DCONDITIONS_MODE -DAPPLICATION_NAME_PREFIX_MODE)
-elif [ "$mode" = conditions ] || [ "$mode" = application-case ] || [ "$mode" = application-prefix ] || [ "$mode" = version-inequality ] || [ "$mode" = version-equality ]; then
+elif [ "$mode" = conditions ] || [ "$mode" = application-case ] || [ "$mode" = application-prefix ] || [ "$mode" = version-inequality ] || [ "$mode" = version-equality ] || [ "$mode" = version-double-equality ]; then
   defines=(-DCONDITIONS_MODE)
 fi
 cc -Wall -Wextra -Werror -o "$work/probe" "$work/probe.c" \
@@ -177,12 +178,13 @@ import time
 LIMIT = 16384
 KEYS = b"\x0f\n"
 if len(sys.argv) != 5 or sys.argv[3] not in ("primary", "replica") or \
-        sys.argv[4] not in ("variable-rhs", "term", "conditions", "application-case", "application-case-reverse", "application-prefix", "application-name-prefix", "version-inequality", "version-equality", "mode-vi-true"):
+        sys.argv[4] not in ("variable-rhs", "term", "conditions", "application-case", "application-case-reverse", "application-prefix", "application-name-prefix", "version-inequality", "version-equality", "version-double-equality", "mode-vi-true"):
     raise SystemExit("invalid report kind or mode")
 IS_TERM = sys.argv[4] == "term"
 IS_CONDITIONS = sys.argv[4] == "conditions"
 IS_VERSION_INEQUALITY = sys.argv[4] == "version-inequality"
 IS_VERSION_EQUALITY = sys.argv[4] == "version-equality"
+IS_VERSION_DOUBLE_EQUALITY = sys.argv[4] == "version-double-equality"
 IS_MODE_VI_TRUE = sys.argv[4] == "mode-vi-true"
 EDITING_MODE = b"vi" if IS_MODE_VI_TRUE else b"emacs"
 IS_APPLICATION_CASE = sys.argv[4] == "application-case"
@@ -192,7 +194,7 @@ IS_APPLICATION_NAME_PREFIX = sys.argv[4] == "application-name-prefix"
 IS_APPLICATION_CONDITION = (IS_CONDITIONS or IS_APPLICATION_CASE or
                             IS_APPLICATION_CASE_REVERSE or IS_APPLICATION_PREFIX or
                             IS_APPLICATION_NAME_PREFIX or IS_VERSION_INEQUALITY or
-                            IS_VERSION_EQUALITY or IS_MODE_VI_TRUE)
+                            IS_VERSION_EQUALITY or IS_VERSION_DOUBLE_EQUALITY or IS_MODE_VI_TRUE)
 # Must match the unique rl_readline_name set before rl_initialize in the C probe.
 APPLICATION_NAME = (b"SUSHLINE-INPUTRC-CONDITIONS-PROBE" if IS_APPLICATION_CASE_REVERSE
                     else b"sushline-inputrc-conditions" if IS_APPLICATION_NAME_PREFIX
@@ -214,6 +216,8 @@ elif IS_VERSION_INEQUALITY:
     CASES = (("version_ne_8_3", b"version != 8.3"),)
 elif IS_VERSION_EQUALITY:
     CASES = (("version_eq_8_3", b"version = 8.3"),)
+elif IS_VERSION_DOUBLE_EQUALITY:
+    CASES = (("version_double_eq_8_3", b"version == 8.3"),)
 elif IS_APPLICATION_CASE:
     # Keep the measured uppercase condition verbatim.
     CASES = (("application_uppercase", b"SUSHLINE-INPUTRC-CONDITIONS-PROBE"),)
@@ -416,7 +420,7 @@ sys.exit(0 if all(results) else 1)
 PYPROBE
 
 # No semantic expectations until these exact observations are reviewed.
-if [ "$mode" = mode-vi-true ]; then
+if [ "$mode" = mode-vi-true ] || [ "$mode" = version-double-equality ]; then
   exit 0
 fi
 

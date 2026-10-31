@@ -782,9 +782,9 @@ mod builtin_sigint_policy {
             );
         }
         // The built-in terminal catches the real SIGINT while it is raw; the
-        // explicit Interrupted policy then ends the read without terminating.
+        // nonfatal opt-out lets Interrupted end the read without terminating.
         let mut terminal = Terminal::new();
-        terminal.set_catch_signals(true);
+        terminal.set_reraise_sigint_default(false);
         let mut line = Editor::new(Config::default(), terminal, History::new());
         assert_eq!(line.sigint_policy(), SigintPolicy::Continue);
         line.set_sigint_policy(SigintPolicy::Interrupted);
@@ -880,8 +880,9 @@ mod builtin_sigint_policy {
             );
         }
         let mut terminal = Terminal::new();
-        if mode != "default-off" {
-            terminal.set_reraise_sigint_default(true);
+        // Exercise the fatal default without a setter; only opt out explicitly.
+        if mode == "default-off" {
+            terminal.set_reraise_sigint_default(false);
         }
         let mut line = Editor::new(Config::default(), terminal, History::new());
         let interrupted = std::env::var("SUSHLINE_SIGINT_INTERRUPTED").unwrap() == "true";
@@ -923,12 +924,12 @@ mod builtin_sigint_policy {
     }
 
     #[test]
-    fn default_disposition_redelivery_is_opt_in_and_restores_termios() {
+    fn default_disposition_redelivery_defaults_on_and_restores_termios() {
         use std::os::fd::AsRawFd;
         use std::os::unix::process::ExitStatusExt;
         for mode in [
             "default-off",
-            "os",
+            "default-on",
             "early",
             "hook",
             "bytes",
@@ -979,7 +980,7 @@ mod builtin_sigint_policy {
                     "mode={mode}, interrupted={interrupted}: {:?}\n{stdout}\n{stderr}",
                     output.status
                 );
-                if matches!(mode, "os" | "early") {
+                if matches!(mode, "default-on" | "early") {
                     assert_eq!(output.status.signal(), Some(libc::SIGINT), "{context}");
                     assert!(!stdout.contains(ACCEPTED_MARKER), "{context}");
                 } else {

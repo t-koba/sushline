@@ -71,7 +71,11 @@ fn main() -> ExitCode {
     history.reset_cursor();
 
     let mut hooks = HarnessApplication;
-    let mut line = Editor::new(Config::default(), Terminal::new(), history);
+    let mut terminal = Terminal::new();
+    if std::env::var("SUSHLINE_RERAISE_SIGINT_DEFAULT").as_deref() == Ok("false") {
+        terminal.set_reraise_sigint_default(false);
+    }
+    let mut line = Editor::new(Config::default(), terminal, history);
     if std::env::var("SUSHLINE_SIGINT_POLICY").as_deref() == Ok("interrupted") {
         line.set_sigint_policy(SigintPolicy::Interrupted);
     }

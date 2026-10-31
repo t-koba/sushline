@@ -1405,6 +1405,33 @@ fn pinned_version_mode_and_application_condition_branches() {
 }
 
 #[test]
+fn application_condition_is_ascii_case_insensitive_in_sushline() {
+    // Record Sushline's local behavior only; the pinned GNU 8.3 case-mismatch
+    // measurement is separate and does not yet establish compatibility.
+    let config = Config {
+        application_name: "sushline-inputrc-conditions-probe".into(),
+        ..Config::default()
+    };
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::default_for_config(&config);
+    let inputrc = concat!(
+        "$if SUSHLINE-INPUTRC-CONDITIONS-PROBE\n",
+        "\"\\C-o\": \"IF_TRUE\"\n",
+        "$else\n",
+        "\"\\C-o\": \"IF_FALSE\"\n",
+        "$endif\n",
+    );
+    let diagnostics = InputrcParser::new()
+        .parse_str(inputrc, &config, &mut keymap, &mut variables)
+        .unwrap();
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
+        Some(&KeyBinding::Macro(b"IF_TRUE".to_vec())),
+    );
+}
+
+#[test]
 fn legacy_mode_and_term_conditions_use_compact_assignment_syntax() {
     let config = Config::default();
     let keymap = KeyMap::emacs_default();

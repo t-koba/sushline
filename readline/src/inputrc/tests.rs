@@ -525,6 +525,54 @@ fn include_paths_accept_quotes_without_environment_expansion() {
 }
 
 #[test]
+fn quoted_cwd_relative_include_with_space() {
+    const CHILD_MARKER: &str = "SUSHLINE_TEST_QUOTED_CWD_INCLUDE_CHILD";
+    if std::env::var_os(CHILD_MARKER).as_deref() == Some(std::ffi::OsStr::new("child")) {
+        let mut keymap = KeyMap::emacs_default();
+        let mut variables = Variables::new();
+        InputrcParser::new()
+            .parse_str(
+                "set completion-ignore-case off\n$include \"included file.inputrc\"\nset editing-mode vi",
+                &Config::default(),
+                &mut keymap,
+                &mut variables,
+            )
+            .unwrap();
+        assert_eq!(variables["completion-ignore-case"], "on");
+        assert_eq!(keymap.current(), KeyMapName::ViInsert);
+        println!("quoted_cwd_relative_include_child=completed");
+        return;
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("included file.inputrc"),
+        "set completion-ignore-case on\n",
+    )
+    .unwrap();
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "inputrc::tests::quoted_cwd_relative_include_with_space",
+            "--nocapture",
+        ])
+        .current_dir(dir.path())
+        .env(CHILD_MARKER, "child")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "child test failed: stdout={stdout:?}, stderr={stderr:?}"
+    );
+    assert!(
+        stdout.contains("quoted_cwd_relative_include_child=completed"),
+        "child test did not run: stdout={stdout:?}, stderr={stderr:?}"
+    );
+}
+
+#[test]
 fn include_paths_leave_dollar_vars_unexpanded() {
     // GNU does not expand $VAR in $include: even when the var points at a
     // valid dir, the literal `$...` path misses and is skipped.

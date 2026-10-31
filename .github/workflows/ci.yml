@@ -4166,7 +4166,7 @@ jobs:
           test -f "$replica"
           grep -qx 'report=primary' "$primary"
           grep -qx 'report=replica' "$replica"
-          # Compare every byte except the report-role line; no expected branch result.
+          # Compare every byte except the report-role line; the mode also asserts the exact branch.
           diff -u <(sed '/^report=primary$/d' "$primary") <(sed '/^report=replica$/d' "$replica")
       - name: Require primary and fresh-replica reverse inputrc application-name casing agreement
         run: |

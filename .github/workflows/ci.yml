@@ -1992,6 +1992,8 @@ jobs:
         run: bash .github/scripts/history-expand-reuse.sh primary
       - name: Measure History search occurrence offsets against the pinned release
         run: bash .github/scripts/history-search-offset.sh primary
+      - name: Measure raw History NUL query against the pinned release
+        run: bash .github/scripts/history-search-offset.sh primary nul-query
       - name: Measure direct-library SIGINT handling against the pinned release
         run: |
           set -euo pipefail
@@ -3741,6 +3743,7 @@ jobs:
             /tmp/history_joined_eof_primary.out \
             /tmp/history_expand_reuse_primary.out \
             /tmp/history_search_offset_primary.out \
+            /tmp/history_search_nul_primary.out \
             /tmp/history_range_per_line.out \
             /tmp/history_range_joined.out \
             /tmp/history_range_plain_joined.out \
@@ -3877,6 +3880,8 @@ jobs:
         run: bash .github/scripts/history-expand-reuse.sh replica
       - name: Measure History search occurrence offsets against the pinned release
         run: bash .github/scripts/history-search-offset.sh replica
+      - name: Measure raw History NUL query against the pinned release
+        run: bash .github/scripts/history-search-offset.sh replica nul-query
       - name: Upload independent pinned include-depth reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -4063,6 +4068,14 @@ jobs:
           path: /tmp/history_search_offset_replica.out
           if-no-files-found: warn
           retention-days: 14
+      - name: Upload independent pinned history-search-nul report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-history-search-nul-replica
+          path: /tmp/history_search_nul_replica.out
+          if-no-files-found: error
+          retention-days: 14
       - name: Upload independent pinned inputrc conditions report
         if: always()
         uses: actions/upload-artifact@v4
@@ -4092,6 +4105,17 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-measurements
           path: ${{ runner.temp }}/sushline-primary-measurements/
+      - name: Require primary and fresh-replica History NUL query agreement
+        run: |
+          set -euo pipefail
+          primary="$RUNNER_TEMP/sushline-primary-measurements/history_search_nul_primary.out"
+          replica=/tmp/history_search_nul_replica.out
+          test -f "$primary"
+          test -f "$replica"
+          grep -qx 'report=primary' "$primary"
+          grep -qx 'report=replica' "$replica"
+          # Compare every byte except the report-role line, without a golden result.
+          diff -u <(sed '/^report=primary$/d' "$primary") <(sed '/^report=replica$/d' "$replica")
       - name: Require primary and fresh-replica inputrc conditions agreement
         run: |
           set -euo pipefail

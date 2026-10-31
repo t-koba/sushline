@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
-# Assert only the pinned GNU 8.3 search-offset fixtures; retain the raw report.
+# Assert the pinned GNU 8.3 search-offset fixtures, or measure a raw NUL query.
 set -euo pipefail
-if [ $# -ne 1 ] || { [ "$1" != primary ] && [ "$1" != replica ]; }; then
-  echo 'usage: history-search-offset.sh <primary|replica>' >&2; exit 2
+if [ $# -lt 1 ] || [ $# -gt 2 ] || \
+  { [ "$1" != primary ] && [ "$1" != replica ]; } || \
+  { [ $# -eq 2 ] && [ "$2" != nul-query ]; }; then
+  echo 'usage: history-search-offset.sh <primary|replica> [nul-query]' >&2; exit 2
 fi
+mode=${2:-}
 out="/tmp/history_search_offset_$1.out"
+if [ "$mode" = nul-query ]; then
+  out="/tmp/history_search_nul_$1.out"
+fi
 rm -f -- "$out"
 {
   printf 'report=%s\n' "$1"
@@ -18,7 +24,12 @@ rm -f -- "$out"
     echo 'history search offset probe requires the exact pinned Readline cache' >&2; exit 1
   fi
   printf 'readline_release=%s source_sha256=%s\n' "$READLINE_ORACLE_VERSION" "$READLINE_ORACLE_SHA256"
-  printf 'readline_configuration=%s\n' "configure-accepted-v1 ${configure_flags[*]}"
+  if [ "$mode" = nul-query ]; then
+    printf 'readline_configuration=configure-accepted-v1 --prefix=<pinned-cache> %s\n' \
+      "${READLINE_ORACLE_CONFIGURE_FLAGS:-}"
+  else
+    printf 'readline_configuration=%s\n' "configure-accepted-v1 ${configure_flags[*]}"
+  fi
   work=$(mktemp -d /tmp/sushline-history-search-offset-XXXXXXXX)
   trap 'rm -rf -- "$work"' EXIT
   cat > "$work/probe.c" <<'PROBE'
@@ -36,7 +47,7 @@ static void print_hex(const char *s) {
         printf("%02x", (unsigned int)*p);
 }
 
-int main(void) {
+int main(int argc, char **argv) {
     printf("header_version=0x%04x runtime_version=0x%04x\n",
            RL_READLINE_VERSION, rl_readline_version);
     if (RL_READLINE_VERSION != 0x0803 || rl_readline_version != 0x0803)
@@ -47,6 +58,31 @@ int main(void) {
     printf("seed[0]_bytes=%zu seed[0]_hex=", strlen(seed));
     print_hex(seed);
     putchar('\n');
+    if (argc == 2 && strcmp(argv[1], "nul-query") == 0) {
+        /* Include both NUL bytes in the length-aware transport report. */
+        char needle[] = "alpha\0suffix";
+        printf("needle_bytes=%zu needle_hex=", sizeof(needle));
+        for (size_t i = 0; i < sizeof(needle); i++)
+            printf("%02x", (unsigned int)(unsigned char)needle[i]);
+        putchar('\n');
+        for (int direction = -1; direction <= 1; direction += 2) {
+            int positioned = history_set_pos(0);
+            int position = where_history();
+            printf("operation=history_set_pos_nul_query direction=%+d requested_position=0 return=%d final_position=%d\n",
+                   direction, positioned, position);
+            fflush(stdout);
+            if (!positioned || position != 0) return 3;
+            int offset = history_search(needle, direction);
+            HIST_ENTRY *entry = current_history();
+            printf("operation=history_search_nul_query direction=%+d return_offset=%d final_position=%d current_entry_bytes=%zu current_entry_hex=",
+                   direction, offset, where_history(), entry ? strlen(entry->line) : 0);
+            print_hex(entry ? entry->line : NULL);
+            putchar('\n');
+            fflush(stdout);
+        }
+        clear_history();
+        return 0;
+    }
     const char *needles[] = {"alpha", "", "missing", "ALPHA"};
     for (size_t query = 0; query < sizeof(needles) / sizeof(needles[0]); query++) {
         const char *needle = needles[query];
@@ -191,7 +227,10 @@ PROBE
     -I"$readline/include" -L"$readline/lib" -Wl,--no-as-needed \
     -Wl,--disable-new-dtags -Wl,-rpath,"$readline/lib" -lhistory -lreadline
   loader_report=$(env -u SHELLOPTS timeout 5 ldd "$work/probe")
-  echo "$loader_report"
+  # Loader addresses vary between runners; retain the legacy report unchanged.
+  if [ "$mode" != nul-query ]; then
+    echo "$loader_report"
+  fi
   loaded=$(printf '%s\n' "$loader_report" | grep -E 'lib(readline|history)' || true)
   if [ -z "$loaded" ] || printf '%s\n' "$loaded" | grep -v -F "=> $readline/lib/" || \
     ! printf '%s\n' "$loaded" | grep -q libreadline || \
@@ -199,9 +238,22 @@ PROBE
     echo 'history search offset probe did not load both pinned libraries' >&2; exit 1
   fi
   echo 'pinned_library_paths=validated'
-  sha256sum "$readline/lib/libhistory.so" "$readline/lib/libreadline.so"
-  LC_ALL=C timeout 5 "$work/probe"
+  if [ "$mode" = nul-query ]; then
+    printf 'libhistory_sha256=%s\n' "$(sha256sum "$readline/lib/libhistory.so" | cut -d' ' -f1)"
+    printf 'libreadline_sha256=%s\n' "$(sha256sum "$readline/lib/libreadline.so" | cut -d' ' -f1)"
+  else
+    sha256sum "$readline/lib/libhistory.so" "$readline/lib/libreadline.so"
+  fi
+  probe_args=()
+  if [ "$mode" = nul-query ]; then
+    probe_args=(nul-query)
+  fi
+  LC_ALL=C timeout 5 "$work/probe" "${probe_args[@]}"
 } 2>&1 | tee "$out"
+# This mode records observations only, without asserting GNU search results.
+if [ "$mode" = nul-query ]; then
+  exit 0
+fi
 # Assert the reviewed rows, including the two failed multi-entry searches.
 grep -E '^(header_version=|seed\[|utf8_seed_bytes=|multientry_seed\[|current_match_seed\[|invalidbyte_seed_bytes=|operation=(history_set_pos|history_search)(_(empty|missing|uppercase|utf8|multientry(_missing)?|current_match|invalidbyte_needle))? )' "$out" > "$out.semantic"
 diff -u .github/scripts/history-search-offset.expected "$out.semantic"

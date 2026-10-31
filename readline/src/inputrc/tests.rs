@@ -1371,8 +1371,8 @@ $endif
 #[test]
 fn pinned_version_mode_and_application_condition_branches() {
     // Exact direct GNU Readline 8.3 primary/fresh-replica fixtures in
-    // readline-inputrc-conditions.expected and readline-inputrc-version-inequality.expected;
-    // no broader grammar/casing claim.
+    // readline-inputrc-conditions.expected, readline-inputrc-version-inequality.expected,
+    // and readline-inputrc-version-equality.expected; no broader grammar/casing claim.
     let config = Config {
         application_name: "sushline-inputrc-conditions-probe".into(),
         ..Config::default()
@@ -1383,6 +1383,7 @@ fn pinned_version_mode_and_application_condition_branches() {
         ("version > 8.3", "IF_FALSE"),
         ("version <= 8.3", "IF_TRUE"),
         ("version != 8.3", "IF_FALSE"),
+        ("version = 8.3", "IF_TRUE"),
         ("mode=emacs", "IF_TRUE"),
         ("mode=vi", "IF_FALSE"),
         ("sushline-inputrc-conditions-probe", "IF_TRUE"),

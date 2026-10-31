@@ -1369,6 +1369,42 @@ $endif
 }
 
 #[test]
+fn pinned_version_mode_and_application_condition_branches() {
+    // Exact eight direct GNU Readline 8.3 primary/fresh-replica fixtures in
+    // readline-inputrc-conditions.expected; no broader grammar/casing claim.
+    let config = Config {
+        application_name: "sushline-inputrc-conditions-probe".into(),
+        ..Config::default()
+    };
+    for (condition, expected) in [
+        ("version >= 8.0", "IF_TRUE"),
+        ("version < 8.0", "IF_FALSE"),
+        ("version > 8.3", "IF_FALSE"),
+        ("version <= 8.3", "IF_TRUE"),
+        ("mode=emacs", "IF_TRUE"),
+        ("mode=vi", "IF_FALSE"),
+        ("sushline-inputrc-conditions-probe", "IF_TRUE"),
+        ("unrelated-application", "IF_FALSE"),
+    ] {
+        let mut keymap = KeyMap::emacs_default();
+        let mut variables = Variables::default_for_config(&config);
+        let inputrc = format!(
+            "set editing-mode emacs\nset enable-bracketed-paste off\n\
+             $if {condition}\n\"\\C-o\": \"IF_TRUE\"\n$else\n\"\\C-o\": \"IF_FALSE\"\n$endif\n"
+        );
+        let diagnostics = InputrcParser::new()
+            .parse_str(&inputrc, &config, &mut keymap, &mut variables)
+            .unwrap();
+        assert!(diagnostics.is_empty(), "{condition}: {diagnostics:?}");
+        assert_eq!(
+            keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
+            Some(&KeyBinding::Macro(expected.as_bytes().to_vec())),
+            "{condition}",
+        );
+    }
+}
+
+#[test]
 fn legacy_mode_and_term_conditions_use_compact_assignment_syntax() {
     let config = Config::default();
     let keymap = KeyMap::emacs_default();

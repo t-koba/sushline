@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fixture-scoped inputrc observations, shared by the pinned primary and fresh runner.
 # Golden modes assert reviewed, fixture-scoped Readline 8.3 branch outcomes.
-# application-case is measurement-only: no golden accepted-marker outcome.
+# application-case asserts one exact uppercase-condition/lowercase-name fixture.
 # All modes retain the raw PTY/protocol reports.
 set -euo pipefail
 ulimit -c 0
@@ -361,9 +361,10 @@ results = [run_case(*case) for case in CASES]
 sys.exit(0 if all(results) else 1)
 PYPROBE
 
-# No golden for application-case until the primary/replica artifacts are reviewed.
-# The protocol check above requires read_status=0 but leaves the marker unasserted.
+# Assert only the measured uppercase-condition/lowercase-application fixture.
 if [ "$mode" = application-case ]; then
+  grep -E '^(measurement|application_name_requested|locale_requested|terminal|initial_inputrc|true_marker_hex|false_marker_hex|case|inputrc_contents_hex|input_keys_hex|prompt_hex|header_version|runtime_version|pinned_libraries|loaded_library_path_check|editing_mode|read_status|runtime_version_text_hex|locale_hex|loaded_library_relative_path_hex|application_name_hex|accepted_is_null|accepted_hex|diagnostics_hex|child_returncode|timeout|output_limit_exceeded|input_sent|terminal_restored|transport_integrity|child_reaped|fixture_cleanup)=' "$report" > "$report.semantic"
+  diff -u .github/scripts/readline-inputrc-application-case.expected "$report.semantic"
   exit 0
 fi
 

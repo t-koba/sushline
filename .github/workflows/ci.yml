@@ -3652,8 +3652,8 @@ jobs:
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary term
       - name: Measure raw inputrc version, mode, and application conditions against the pinned release
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary conditions
-      # Measurement only: no golden branch claim until both artifacts are reviewed.
-      - name: Measure raw inputrc application-name casing against the pinned release
+      # Assert only this exact case-mismatch fixture; do not generalize the rule.
+      - name: Assert pinned inputrc application-name case-mismatch fixture
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary application-case
       - name: Measure raw invalid-UTF-8 history search against the pinned release
         run: bash .github/scripts/readline-invalid-history-search.sh primary
@@ -3844,8 +3844,8 @@ jobs:
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh replica term
       - name: Measure raw inputrc version, mode, and application conditions against the pinned release
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh replica conditions
-      # Measurement only: no golden branch claim until both artifacts are reviewed.
-      - name: Measure raw inputrc application-name casing against the pinned release
+      # Assert only this exact case-mismatch fixture; do not generalize the rule.
+      - name: Assert pinned inputrc application-name case-mismatch fixture
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh replica application-case
       - name: Measure raw invalid-UTF-8 history search against the pinned release
         run: bash .github/scripts/readline-invalid-history-search.sh replica
@@ -4140,7 +4140,7 @@ jobs:
           test -f "$replica"
           grep -qx 'report=primary' "$primary"
           grep -qx 'report=replica' "$replica"
-          # No golden branch outcome: compare all raw observations except report role.
+          # The exact fixture is asserted above; compare all raw observations except report role.
           diff -u <(sed '/^report=/d' "$primary") <(sed '/^report=/d' "$replica")
       - name: Require primary and fresh-replica inputrc conditions agreement
         run: |

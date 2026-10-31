@@ -1405,9 +1405,10 @@ fn pinned_version_mode_and_application_condition_branches() {
 }
 
 #[test]
-fn application_condition_is_ascii_case_insensitive_in_sushline() {
-    // Record Sushline's local behavior only; the pinned GNU 8.3 case-mismatch
-    // measurement is separate and does not yet establish compatibility.
+fn pinned_application_condition_case_mismatch_matches_sushline() {
+    // The pinned GNU 8.3 primary and fresh-replica reports agree for this exact
+    // uppercase-condition/lowercase-application fixture; no broader case-folding
+    // rule is implied.
     let config = Config {
         application_name: "sushline-inputrc-conditions-probe".into(),
         ..Config::default()

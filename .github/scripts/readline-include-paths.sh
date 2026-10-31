@@ -367,9 +367,26 @@ try:
     ok = run_case("tilde_home", setup_tilde) and ok
     ok = run_case("dollar_home_literal", setup_dollar_home) and ok
     ok = run_case("missing_continues", setup_missing) and ok
-    ok = run_case("unknown_user_cwd_marker", setup_unknown_user_cwd_marker) and ok
-    ok = run_case("lookup_error_cwd_marker", setup_lookup_error_cwd_marker,
-                  lookup_error=True) and ok
+    ok = run_case(
+        "unknown_user_cwd_marker",
+        setup_unknown_user_cwd_marker,
+        expected_fields={
+            "read_status": "0",
+            "completion_ignore_case_on": "1",
+            "editing_mode_vi": "1",
+        },
+    ) and ok
+    ok = run_case(
+        "lookup_error_cwd_marker",
+        setup_lookup_error_cwd_marker,
+        expected_fields={
+            "read_status": "0",
+            "lookup_error_hits": "1",
+            "completion_ignore_case_on": "1",
+            "editing_mode_vi": "1",
+        },
+        lookup_error=True,
+    ) and ok
     if not ok:
         raise ValueError()
 except Exception:

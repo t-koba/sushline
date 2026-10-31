@@ -355,7 +355,16 @@ def setup_missing(base):
 
 try:
     ok = True
-    ok = run_case("cwd_relative", setup_cwd_relative) and ok
+    ok = run_case(
+        "cwd_relative",
+        setup_cwd_relative,
+        expected_fields={
+            "read_status": "0",
+            "lookup_error_hits": "0",
+            "completion_ignore_case_on": "1",
+            "editing_mode_vi": "0",
+        },
+    ) and ok
     ok = run_case(
         "quoted_cwd_relative",
         setup_quoted_cwd_relative,
@@ -364,9 +373,36 @@ try:
             "editing_mode_vi": "1",
         },
     ) and ok
-    ok = run_case("tilde_home", setup_tilde) and ok
-    ok = run_case("dollar_home_literal", setup_dollar_home) and ok
-    ok = run_case("missing_continues", setup_missing) and ok
+    ok = run_case(
+        "tilde_home",
+        setup_tilde,
+        expected_fields={
+            "read_status": "0",
+            "lookup_error_hits": "0",
+            "completion_ignore_case_on": "1",
+            "editing_mode_vi": "0",
+        },
+    ) and ok
+    ok = run_case(
+        "dollar_home_literal",
+        setup_dollar_home,
+        expected_fields={
+            "read_status": "0",
+            "lookup_error_hits": "0",
+            "completion_ignore_case_on": "1",
+            "editing_mode_vi": "0",
+        },
+    ) and ok
+    ok = run_case(
+        "missing_continues",
+        setup_missing,
+        expected_fields={
+            "read_status": "0",
+            "lookup_error_hits": "0",
+            "completion_ignore_case_on": "0",
+            "editing_mode_vi": "1",
+        },
+    ) and ok
     ok = run_case(
         "unknown_user_cwd_marker",
         setup_unknown_user_cwd_marker,

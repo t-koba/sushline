@@ -218,7 +218,7 @@ def run_child(label, outer_path, cwd, home, lookup_error=False):
                 if stream is not None:
                     stream.close()
 
-def run_case(case, setup, lookup_error=False):
+def run_case(case, setup, expected_fields=None, lookup_error=False):
     records = []
     base = None
     try:
@@ -239,7 +239,16 @@ def run_case(case, setup, lookup_error=False):
                 return False
             records.append((fields, returncode, stderr_flag))
         first, second = records
-        # Repeatability across the two fresh trials; no outcome is asserted.
+        if expected_fields is not None:
+            for trial, (fields, _, _) in enumerate(records, 1):
+                matches = all(
+                    fields.get(name) == value
+                    for name, value in expected_fields.items()
+                )
+                print(f"{case}_trial{trial}_expected_outcome_matches={int(matches)}")
+                if not matches:
+                    return False
+        # Repeatability across the two fresh trials.
         if first != second:
             print(f"{case}_trials_agree=0")
             return False
@@ -347,7 +356,14 @@ def setup_missing(base):
 try:
     ok = True
     ok = run_case("cwd_relative", setup_cwd_relative) and ok
-    ok = run_case("quoted_cwd_relative", setup_quoted_cwd_relative) and ok
+    ok = run_case(
+        "quoted_cwd_relative",
+        setup_quoted_cwd_relative,
+        expected_fields={
+            "completion_ignore_case_on": "0",
+            "editing_mode_vi": "1",
+        },
+    ) and ok
     ok = run_case("tilde_home", setup_tilde) and ok
     ok = run_case("dollar_home_literal", setup_dollar_home) and ok
     ok = run_case("missing_continues", setup_missing) and ok

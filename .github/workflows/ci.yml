@@ -3652,6 +3652,9 @@ jobs:
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary term
       - name: Measure raw inputrc version, mode, and application conditions against the pinned release
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary conditions
+      # Measurement only: no golden branch claim until both artifacts are reviewed.
+      - name: Measure raw inputrc application-name casing against the pinned release
+        run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary application-case
       - name: Measure raw invalid-UTF-8 history search against the pinned release
         run: bash .github/scripts/readline-invalid-history-search.sh primary
       - name: Measure raw invalid-UTF-8 history prefix search against the pinned release
@@ -3718,6 +3721,7 @@ jobs:
             /tmp/readline_inputrc_variable_rhs.out \
             /tmp/readline_inputrc_term.out \
             /tmp/readline_inputrc_conditions.out \
+            /tmp/readline_inputrc_application_case.out \
             /tmp/readline_include_cycle.out \
             /tmp/readline_include_depth.out \
             /tmp/readline_include_depth_32.out \
@@ -3840,6 +3844,9 @@ jobs:
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh replica term
       - name: Measure raw inputrc version, mode, and application conditions against the pinned release
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh replica conditions
+      # Measurement only: no golden branch claim until both artifacts are reviewed.
+      - name: Measure raw inputrc application-name casing against the pinned release
+        run: bash .github/scripts/readline-inputrc-variable-rhs.sh replica application-case
       - name: Measure raw invalid-UTF-8 history search against the pinned release
         run: bash .github/scripts/readline-invalid-history-search.sh replica
       - name: Measure raw invalid-UTF-8 history prefix search against the pinned release
@@ -4076,6 +4083,14 @@ jobs:
           path: /tmp/history_search_nul_replica.out
           if-no-files-found: error
           retention-days: 14
+      - name: Upload independent pinned inputrc application-name casing report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-inputrc-application-case-replica
+          path: /tmp/readline_inputrc_application_case.out
+          if-no-files-found: error
+          retention-days: 14
       - name: Upload independent pinned inputrc conditions report
         if: always()
         uses: actions/upload-artifact@v4
@@ -4116,6 +4131,17 @@ jobs:
           grep -qx 'report=replica' "$replica"
           # Compare every byte except the report-role line, without a golden result.
           diff -u <(sed '/^report=primary$/d' "$primary") <(sed '/^report=replica$/d' "$replica")
+      - name: Require primary and fresh-replica inputrc application-name casing agreement
+        run: |
+          set -euo pipefail
+          primary="$RUNNER_TEMP/sushline-primary-measurements/readline_inputrc_application_case.out"
+          replica=/tmp/readline_inputrc_application_case.out
+          test -f "$primary"
+          test -f "$replica"
+          grep -qx 'report=primary' "$primary"
+          grep -qx 'report=replica' "$replica"
+          # No golden branch outcome: compare all raw observations except report role.
+          diff -u <(sed '/^report=/d' "$primary") <(sed '/^report=/d' "$replica")
       - name: Require primary and fresh-replica inputrc conditions agreement
         run: |
           set -euo pipefail

@@ -708,7 +708,9 @@ impl History {
             .map(|(offset, entry)| (start + offset, entry.line_bytes.clone()))
     }
 
-    /// History search bytes.
+    /// Search history using the complete byte-slice needle.
+    ///
+    /// Embedded NUL bytes are ordinary needle bytes, not string terminators.
     pub fn history_search_bytes(
         &mut self,
         needle: &[u8],
@@ -717,7 +719,9 @@ impl History {
         self.history_search_bytes_with_case(needle, direction, false)
     }
 
-    /// History search bytes with optional ASCII-only case-insensitive matching.
+    /// Search history using the complete byte-slice needle, optionally matching
+    /// ASCII case-insensitively. Embedded NUL bytes are ordinary needle bytes,
+    /// not string terminators.
     ///
     /// Like GNU `history_search`, the positioned entry is included in both
     /// directions; repeat commands express their step-past policy at their

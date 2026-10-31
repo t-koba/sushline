@@ -25,13 +25,14 @@ pub enum ReadlineResult {
     Line(Vec<u8>),
     /// The active read was interrupted before accepting a line, such as by Ctrl-C.
     ///
-    /// Selected by [`SigintPolicy::Interrupted`]; the built-in terminal instead
-    /// continues the read by default. The built-in terminal restores terminal
-    /// and signal state before applying this policy. If it caught SIGINT with a
-    /// saved non-default caller handler, it re-delivers the signal to that handler
-    /// after restoration; with `SIG_DFL`, the configured policy handles the read
-    /// without re-raising the signal. The embedder decides whether to retry an
-    /// interrupted result.
+    /// Selected by [`SigintPolicy::Interrupted`]; the built-in terminal's read
+    /// policy is instead `Continue` by default. Before applying either policy,
+    /// it restores terminal and signal state and re-delivers a genuinely caught
+    /// SIGINT once to the saved caller handler or, by default, `SIG_DFL`. Fatal
+    /// redelivery prevents either policy result. Use
+    /// `Terminal::set_reraise_sigint_default(false)` to opt out for `SIG_DFL`;
+    /// hook-only reports and literal Ctrl-C bytes never trigger redelivery.
+    /// The embedder decides whether to retry an interrupted result.
     Interrupted,
     /// End-of-file was reached before a line was accepted.
     Eof,

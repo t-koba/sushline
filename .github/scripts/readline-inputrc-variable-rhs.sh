@@ -2,15 +2,17 @@
 # Fixture-scoped inputrc observations, shared by the pinned primary and fresh runner.
 # The variable-rhs and term modes assert their reviewed, fixture-scoped
 # Readline 8.3 branch outcomes while retaining the raw PTY/protocol reports.
+# conditions is measurement-only: transport checks, no golden branch expectations.
 set -euo pipefail
 ulimit -c 0
 report_kind=${1:?report kind must be primary or replica}
 case "$report_kind" in primary|replica) ;; *) echo "invalid report kind" >&2; exit 2 ;; esac
 mode=${2:-variable-rhs}
-case "$mode" in variable-rhs|term) ;; *) echo "invalid inputrc mode" >&2; exit 2 ;; esac
+case "$mode" in variable-rhs|term|conditions) ;; *) echo "invalid inputrc mode" >&2; exit 2 ;; esac
 case "$mode" in
   variable-rhs) report=/tmp/readline_inputrc_variable_rhs.out ;;
   term) report=/tmp/readline_inputrc_term.out ;;
+  conditions) report=/tmp/readline_inputrc_conditions.out ;;
 esac
 readline="$HOME/.cache/sushline/readline-oracle"
 configure_flags=(--prefix="$readline" "$READLINE_ORACLE_CONFIGURE_FLAGS")
@@ -19,6 +21,7 @@ if [ "$READLINE_ORACLE_VERSION" != 8.3 ] || \
   [ "$(cat "$readline/build-configuration" 2>/dev/null)" != "configure-accepted-v1 ${configure_flags[*]}" ]; then
   case "$mode" in
     term) echo "term condition probe requires the exact pinned Readline cache" >&2 ;;
+    conditions) echo "conditions probe requires the exact pinned Readline cache" >&2 ;;
     *) echo "variable RHS probe requires the exact pinned Readline cache" >&2 ;;
   esac
   exit 1
@@ -78,7 +81,10 @@ int main(int argc, char **argv) {
         strcmp(rl_library_version, "8.3") != 0) return 2;
     dl_iterate_phdr(check_library, NULL);
     if (libraries != 1) return 3;
-#ifdef TERM_MODE
+#ifdef CONDITIONS_MODE
+    /* Unique application name for these eight single-branch fixtures. */
+    rl_readline_name = "sushline-inputrc-conditions-probe";
+#elif defined(TERM_MODE)
     rl_readline_name = "sushline-term-probe";
 #else
     rl_readline_name = "sushline-tokenization-probe";
@@ -86,7 +92,9 @@ int main(int argc, char **argv) {
     if (rl_initialize() != 0) return 5;
     int status = rl_read_init_file("case.inputrc");
     const char *mode = rl_variable_value("editing-mode");
-#ifdef TERM_MODE
+#ifdef CONDITIONS_MODE
+    if (!mode || strcmp(mode, "emacs") != 0) return 5;
+#elif defined(TERM_MODE)
     const char *term = getenv("TERM");
     if (!mode || strcmp(mode, "emacs") != 0 || !term ||
         strcmp(term, "xterm-256-color") != 0) return 5;
@@ -101,7 +109,9 @@ int main(int argc, char **argv) {
     hex(fd, "runtime_version_text_hex", rl_library_version, strlen(rl_library_version));
     hex(fd, "locale_hex", locale, strlen(locale));
     hex(fd, "loaded_library_relative_path_hex", loaded, strlen(loaded));
-#ifdef TERM_MODE
+#ifdef CONDITIONS_MODE
+    hex(fd, "application_name_hex", rl_readline_name, strlen(rl_readline_name));
+#elif defined(TERM_MODE)
     hex(fd, "term_hex", term, strlen(term));
 #else
     hex(fd, "stored_comment_begin_hex", stored, strlen(stored));
@@ -118,6 +128,8 @@ PROBE
 defines=()
 if [ "$mode" = term ]; then
   defines=(-DTERM_MODE)
+elif [ "$mode" = conditions ]; then
+  defines=(-DCONDITIONS_MODE)
 fi
 cc -Wall -Wextra -Werror -o "$work/probe" "$work/probe.c" \
   "${defines[@]}" \
@@ -140,10 +152,24 @@ import time
 LIMIT = 16384
 KEYS = b"\x0f\n"
 if len(sys.argv) != 5 or sys.argv[3] not in ("primary", "replica") or \
-        sys.argv[4] not in ("variable-rhs", "term"):
+        sys.argv[4] not in ("variable-rhs", "term", "conditions"):
     raise SystemExit("invalid report kind or mode")
 IS_TERM = sys.argv[4] == "term"
-if IS_TERM:
+IS_CONDITIONS = sys.argv[4] == "conditions"
+# Must match the unique rl_readline_name set before rl_initialize in the C probe.
+APPLICATION_NAME = b"sushline-inputrc-conditions-probe"
+if IS_CONDITIONS:
+    CASES = (
+        ("version_ge_8_0", b"version >= 8.0"),
+        ("version_lt_8_0", b"version < 8.0"),
+        ("version_gt_8_3", b"version > 8.3"),
+        ("version_le_8_3", b"version <= 8.3"),
+        ("mode_emacs", b"mode=emacs"),
+        ("mode_vi", b"mode=vi"),
+        ("application_exact", APPLICATION_NAME),
+        ("application_nonmatching", b"unrelated-application"),
+    )
+elif IS_TERM:
     CASES = (("term_xterm", b"xterm"), ("term_xterm_256", b"xterm-256"))
 else:
     CASES = (
@@ -154,7 +180,10 @@ else:
         ("a_b_vs_quoted_a_b", b'"a b"', b'"a b"'),
     )
 print(f"report={sys.argv[3]}")
-if IS_TERM:
+if IS_CONDITIONS:
+    print("measurement=raw-direct-readline-inputrc-conditions")
+    print(f"application_name_requested={APPLICATION_NAME.decode('ascii')}")
+elif IS_TERM:
     print("measurement=raw-direct-readline-inputrc-term")
 else:
     print("measurement=raw-direct-readline-inputrc-variable-rhs")
@@ -164,14 +193,21 @@ if IS_TERM:
 else:
     print("terminal=xterm-256color rows=24 columns=80")
 print("initial_inputrc=dev-null isolated_home=1 core_disabled=1")
-if IS_TERM:
+if IS_CONDITIONS:
+    print("true_marker_hex=49465f54525545 false_marker_hex=49465f46414c5345")
+elif IS_TERM:
     print("condition_prefix_hex=7465726d3d true_marker_hex=49465f54525545 false_marker_hex=49465f46414c5345")
 else:
     print("condition_operator_hex=3d3d true_marker_hex=49465f54525545 false_marker_hex=49465f46414c5345")
 
 
 def run_case(label, *args):
-    if IS_TERM:
+    if IS_CONDITIONS:
+        condition, = args
+        contents = (b"set editing-mode emacs\nset enable-bracketed-paste off\n"
+                    b"$if " + condition +
+                    b'\n"\\C-o": "IF_TRUE"\n$else\n"\\C-o": "IF_FALSE"\n$endif\n')
+    elif IS_TERM:
         term, = args
         contents = (b"set editing-mode emacs\nset enable-bracketed-paste off\n"
                     b"$if term=" + term +
@@ -185,7 +221,9 @@ def run_case(label, *args):
     print(f"inputrc_contents_hex={contents.hex()}")
     print(f"input_keys_hex={KEYS.hex()}")
     print("prompt_hex=503e")
-    if IS_TERM:
+    if IS_CONDITIONS:
+        directory = tempfile.mkdtemp(prefix="sushline-conditions-fixture-")
+    elif IS_TERM:
         directory = tempfile.mkdtemp(prefix="sushline-term-fixture-")
     else:
         directory = tempfile.mkdtemp(prefix="sushline-variable-rhs-fixture-")
@@ -252,7 +290,16 @@ def run_case(label, *args):
             if child.poll() is not None and not ready:
                 break
         restored = termios.tcgetattr(slave) == before
-        if IS_TERM:
+        if IS_CONDITIONS:
+            pattern = (
+                rb"header_version=0803\nruntime_version=0803\npinned_libraries=1\n"
+                rb"loaded_library_path_check=exact-cache-realpath\nediting_mode=emacs\n"
+                rb"read_status=-?[0-9]+\nruntime_version_text_hex=382e33\nlocale_hex=43\n"
+                rb"loaded_library_relative_path_hex=(?:[0-9a-f]{2}){1,128}\n"
+                rb"application_name_hex=" + APPLICATION_NAME.hex().encode("ascii") + rb"\n"
+                rb"accepted_is_null=[01]\naccepted_hex=(?:[0-9a-f]{2}){0,128}\n"
+            )
+        elif IS_TERM:
             pattern = (
                 rb"header_version=0803\nruntime_version=0803\npinned_libraries=1\n"
                 rb"loaded_library_path_check=exact-cache-realpath\nediting_mode=emacs\n"
@@ -303,6 +350,11 @@ def run_case(label, *args):
 results = [run_case(*case) for case in CASES]
 sys.exit(0 if all(results) else 1)
 PYPROBE
+
+# Do not freeze semantic outcomes until primary and fresh-replica evidence is reviewed.
+if [ "$mode" = conditions ]; then
+  exit 0
+fi
 
 # Keep raw observations and the runner label in each report, but compare all
 # semantic fields, transport integrity, and cleanup for primary and replica.

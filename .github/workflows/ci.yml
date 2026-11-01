@@ -736,7 +736,7 @@ jobs:
             echo "the input-window probe did not load Readline exclusively from the pinned prefix" >&2
             exit 1
           fi
-          timeout --signal=KILL "${READLINE_INPUT_WINDOW_TIMEOUT}s" python3 -u - <<'PYPROBE'
+          timeout --signal=KILL "${READLINE_INPUT_WINDOW_TIMEOUT}s" python3 -u - <<'PYPROBE' | tee /tmp/readline_input_window_probe.out
           import math
           import os
           import pty
@@ -4136,6 +4136,7 @@ jobs:
           mkdir -p "$report_dir"
           for report in \
             /tmp/readline_termios.out \
+            /tmp/readline_input_window_probe.out \
             /tmp/readline_sigint.out \
             /tmp/readline_sigwinch.out \
             /tmp/readline_sigquit.out \

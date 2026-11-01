@@ -643,12 +643,43 @@ jobs:
           #include <stdio.h>
           #include <stdlib.h>
           #include <termios.h>
+          #include <unistd.h>
           #include <readline/readline.h>
 
+          static int control_fd;
+          static int window_started;
+          static int window_ended;
           static unsigned false_calls;
           static unsigned ready_calls;
 
+          static void observe_window_control(void) {
+              while (!window_ended) {
+                  struct pollfd control = { .fd = control_fd, .events = POLLIN };
+                  int status = poll(&control, 1, 0);
+                  if (status < 0) {
+                      exit(4);
+                  }
+                  if (status == 0) {
+                      return;
+                  }
+                  char marker;
+                  if (read(control_fd, &marker, 1) != 1) {
+                      exit(4);
+                  }
+                  if (marker == 'S') {
+                      window_started = 1;
+                  } else if (marker == 'E' && window_started) {
+                      window_ended = 1;
+                      close(control_fd);
+                  } else {
+                      exit(4);
+                  }
+              }
+          }
+
           static int on_available(void) {
+              /* Each invocation observes start/end markers before it is classified. */
+              observe_window_control();
               /* Stay installed through the no-input window: count without per-call output. */
               struct pollfd input = { .fd = fileno(rl_instream), .events = POLLIN };
               int ready = poll(&input, 1, 0) == 1 && (input.revents & POLLIN) != 0;
@@ -658,7 +689,7 @@ jobs:
                   }
                   /* Input is present: unregister once so the line is consumed once. */
                   rl_input_available_hook = NULL;
-              } else if (false_calls != UINT_MAX) {
+              } else if (window_started && !window_ended && false_calls != UINT_MAX) {
                   ++false_calls;
               }
               return ready;
@@ -676,13 +707,18 @@ jobs:
               return 0;
           }
 
-          int main(void) {
+          int main(int argc, char **argv) {
+              if (argc != 2) {
+                  return 2;
+              }
+              control_fd = atoi(argv[1]);
               setvbuf(stderr, NULL, _IONBF, 0);
               fprintf(stderr, "readline_release=%d.%d\n", rl_readline_version >> 8,
                       rl_readline_version & 0xff);
               rl_pre_input_hook = prepare_input;
               char *line = readline("window> ");
-              fprintf(stderr, "returned=%s\nfalse_calls=%u\nready_calls=%u\n", line ? line : "<EOF>", false_calls, ready_calls);
+              observe_window_control();
+              fprintf(stderr, "returned=%s\nwindow_started=%d\nwindow_ended=%d\nfalse_calls=%u\nready_calls=%u\n", line ? line : "<EOF>", window_started, window_ended, false_calls, ready_calls);
               int status = line ? 0 : 1;
               free(line);
               return status;
@@ -717,12 +753,16 @@ jobs:
           release = f"readline_release={env['READLINE_ORACLE_VERSION']}\n".encode()
           handshake = release + b"terminal_prepared=1 hook_installed=1\n"
           master, slave = pty.openpty()
+          control_read, control_write = os.pipe()
           child = None
           try:
               child = subprocess.Popen(
-                  ["/tmp/readline_input_window_probe"], stdin=slave,
+                  ["/tmp/readline_input_window_probe", str(control_read)], stdin=slave,
                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
+                  pass_fds=(control_read,),
               )
+              os.close(control_read)
+              control_read = None
               os.close(slave)
               slave = None
               prepared = b""
@@ -736,7 +776,9 @@ jobs:
                   prepared += chunk
               assert prepared == handshake, prepared
               # No PTY input is written until after this entire observation window.
-              window_end = time.monotonic() + window
+              window_start = time.monotonic()
+              assert os.write(control_write, b"S") == 1
+              window_end = window_start + window
               assert window_end < deadline, "no budget left for observation window"
               before_input = b""
               while time.monotonic() < window_end:
@@ -746,11 +788,15 @@ jobs:
                   if not chunk:
                       raise RuntimeError(f"probe exited during no-input window: {before_input!r}")
                   before_input += chunk
-              print(f"input_window: seconds={window} prepared={prepared!r} no_input_stderr={before_input!r}")
+              # This separate pipe defines the counting boundary: once observed by
+              # the hook, false callbacks no longer belong to the no-input window.
+              assert os.write(control_write, b"E") == 1
+              observed_seconds = time.monotonic() - window_start
               # The hook stays installed and silent through the window, so per-call
               # output would be unbounded: the window itself must stay quiet.
               assert before_input == b"", before_input
               assert os.write(master, b"probe\n") == len(b"probe\n")
+              print(f"input_window: requested_seconds={window} marker_sent_seconds={observed_seconds:.6f} prepared={prepared!r} no_input_stderr={before_input!r}")
               out, err = child.communicate(timeout=max(0, deadline - time.monotonic()))
               print(f"input_window: returncode={child.returncode} stdout={out!r} after_input_stderr={err!r}")
               assert child.returncode == 0, child.returncode
@@ -759,7 +805,7 @@ jobs:
               # records the observed counts without inferring cadence, false-return
               # semantics, or general event-loop equivalence.
               summary = err.decode("ascii")
-              match = re.fullmatch(r"returned=probe\nfalse_calls=(\d+)\nready_calls=(\d+)\n", summary)
+              match = re.fullmatch(r"returned=probe\nwindow_started=1\nwindow_ended=1\nfalse_calls=(\d+)\nready_calls=(\d+)\n", summary)
               assert match is not None, err
               false_calls = int(match.group(1))
               ready_calls = int(match.group(2))
@@ -772,6 +818,9 @@ jobs:
                   if child.poll() is None:
                       child.kill()
                   child.wait()
+              os.close(control_write)
+              if control_read is not None:
+                  os.close(control_read)
               os.close(master)
               if slave is not None:
                   os.close(slave)

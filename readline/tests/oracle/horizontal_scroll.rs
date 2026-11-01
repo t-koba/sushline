@@ -616,18 +616,11 @@ fn bash_and_sushline_horizontal_scroll_split_wide_edge_and_restore() {
         let restored = std::str::from_utf8(&frames[1][restored_start..])
             .expect("complete UTF-8 in the restored render");
         assert!(restored.contains('中'), "bash={bash}: {restored:?}");
-        // Preserve the existing restoration: Sushline repaints one more
-        // trailing digit than Bash in this fixture, independently of the split.
+        // The restored wide-edge row has the same 23 trailing digits in
+        // both editors; keep this separate from the partial-byte insertion.
         assert_eq!(
             screen(&String::from_utf8_lossy(&frames[1]), 80),
-            (
-                format!(
-                    "P>{}中{}>",
-                    "0".repeat(50),
-                    "1".repeat(if bash { 23 } else { 24 })
-                ),
-                2
-            ),
+            (format!("P>{}中{}>", "0".repeat(50), "1".repeat(23)), 2),
             "bash={bash} restoration"
         );
     }

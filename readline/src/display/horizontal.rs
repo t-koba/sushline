@@ -185,6 +185,7 @@ impl HorizontalViewport {
         // screen; a large jump (or batch) differs from repeated small steps.
         let scroll = (2 * third).min(capacity);
         let margin = self.margin;
+        let restoring_prompt = margin > 0 && line.point <= margin + third && line.point < edge;
         if line.width <= columns.saturating_sub(4) {
             self.set_margin(line, 0);
         } else if line.point <= margin + third {
@@ -212,6 +213,13 @@ impl HorizontalViewport {
         let mut right = usize::from(line.width > self.margin + capacity && capacity > left);
         let start = self.margin + left;
         let mut end = self.margin + capacity - right;
+        if restoring_prompt && left == 0 && self.offset == 0 && right > 0 {
+            // The pinned wide-edge restoration is bounded by buffer bytes,
+            // not display cells. Keep this correction on the reset-to-prompt
+            // path so the separately measured scrolled/split window stays put.
+            let byte_budget = end.saturating_sub(start).saturating_sub(line.prompt_bytes);
+            end = Self::prefix_end_at_byte_budget(line, end, byte_budget);
+        }
         let mut out = line.prefix.clone();
         if left > 0 {
             out.push('<');
@@ -279,6 +287,24 @@ impl HorizontalViewport {
                 .saturating_add(self.split_columns)
                 .min(capacity),
         )
+    }
+
+    /// End of the complete buffer prefix that fits the restored byte budget.
+    fn prefix_end_at_byte_budget(line: &DisplayLine, cell_end: usize, byte_budget: usize) -> usize {
+        let mut cell = 0;
+        let mut bytes = 0;
+        for unit in &line.units {
+            let next = cell + unit.width;
+            if next > cell_end {
+                break;
+            }
+            bytes += unit.bytes;
+            if bytes > byte_budget {
+                return cell;
+            }
+            cell = next;
+        }
+        cell_end
     }
 
     /// Set the cell margin and the byte offset that matches it.
@@ -589,6 +615,20 @@ mod tests {
             viewport.layout(&line("P>", &text, 0), 80);
             assert_eq!(viewport.visible_column(2), Some(2));
         }
+    }
+
+    #[test]
+    fn horizontal_scroll_restores_wide_utf8_prefix_with_byte_budget() {
+        let text = format!("{}中{}", "0".repeat(50), "1".repeat(49));
+        let mut viewport = HorizontalViewport::default();
+
+        viewport.layout(&line("P>", &text, text.len()), 80);
+        assert_eq!((viewport.offset, viewport.margin), (51, 53));
+
+        assert_eq!(
+            viewport.layout(&line("P>", &text, 0), 80),
+            (format!("P>{}中{}>", "0".repeat(50), "1".repeat(23)), 2)
+        );
     }
 
     #[test]

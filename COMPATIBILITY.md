@@ -19,10 +19,11 @@ and stops on a release the claims below do not cover, so the oracle evidence
 is scoped to a Readline release and not to Bash alone. The number is read
 from the host's own image when the host links Readline statically, in either
 the symbols it exports or the symbols it was built with, and from the
-library the host loads otherwise. A host whose release cannot be read, a
-host whose programs are not ELF images, is named by the suite and the suite
-continues there; the evidence of such a host is not scoped to a release. The
-host the claims were measured on links Readline statically and exports the
+library the host loads otherwise. If the Readline release cannot be read (for
+example, because the host executable is not an ELF image), the suite names
+that limitation and continues without a release scope; the resulting
+evidence is not scoped to a release. The host the claims were measured on
+links Readline statically and exports the
 release number 0x0803, the 8.3 release this document targets. Its library's
 own version label reads 8.1, so the image states the release two ways and
 the two disagree. The release identity rests on the release number: the

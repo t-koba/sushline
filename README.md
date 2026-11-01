@@ -74,6 +74,33 @@ The Bash-hosted test targets are behind the `oracle` feature of the `readline`
 crate, which is on by default. `cargo test --workspace --no-default-features`
 skips them and runs the remaining tests on any host.
 
+CI runs the following checks by event:
+
+| Event | Checks and evidence |
+| --- | --- |
+| Push or pull request | `ci / check` and `ci / oracle`; required full-file late-timestamp comparison artifact. Upstream-only measurements and the replica job are skipped. |
+| Manual dispatch with `refresh_upstream_measurements: false` (default) | Same checks and artifact as push/PR. |
+| Manual dispatch with `refresh_upstream_measurements: true` | `ci / check`, `ci / oracle` (including upstream primary measurements), and `ci / oracle-measurements-replica`; required comparison, primary measurement, and replica report artifacts, plus primary/replica agreement checks. |
+
+On every push/PR and dispatch, `ci / check` runs formatting, Clippy, and the
+non-oracle workspace tests. `ci / oracle` builds or restores and validates the
+same digest-pinned Readline 8.3 and Bash 5.3, runs `Run the oracle suite`, and
+runs the mixed full-file late-timestamp Rust/GNU comparison. Its required
+`pinned-readline-8.3-full-file-comparison` artifact contains
+`history_full_late_record.out`, `history_rust_full_late_record.out`, and
+`history_full_file_comparison.out`.
+
+The regular oracle check does not run all upstream measurements. Request the
+manual refresh to run the 55 upstream-only primary measurement/report steps
+and the raw full-file GNU probes, then the 35 fresh-runner replica measurement
+steps and existing agreement checks. The refresh requires every listed primary
+report in `pinned-readline-8.3-measurements` (excluding the three mixed comparison
+files) and the replica report artifacts. Missing required reports or failed
+assertions fail the refresh. Both runners check out `github.sha`; the replica
+needs the primary oracle job, restores only its exact digest/configuration-pinned
+Readline cache (a miss fails), and downloads the primary artifact from the same
+workflow run. A skipped replica check is not evidence of a measurement refresh.
+
 ## License
 
 Licensed under either of Apache License, Version 2.0 or MIT license at your

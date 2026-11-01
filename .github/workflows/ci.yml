@@ -1,6 +1,14 @@
 name: ci
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      refresh_upstream_measurements:
+        description: Run upstream-only measurements and fresh-replica agreement
+        type: boolean
+        default: false
 
 env:
   # The oracle host is the unpatched Bash 5.3 release (patchlevel 0): CI
@@ -243,6 +251,7 @@ jobs:
             "$prefix/bin/bash" --norc -c 'bind -l' | tr ' ' '\n' | grep -qx "$command"
           done
       - name: Report the installed Readline default
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: |
           set -euo pipefail
           # The compatibility row's output-stream claim rests on a Readline
@@ -322,6 +331,7 @@ jobs:
               ;;
           esac
       - name: Check the output-stream claim on the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: |
           set -euo pipefail
           readline="$HOME/.cache/sushline/readline-oracle"
@@ -339,6 +349,7 @@ jobs:
           grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/readline_probe_pinned.report
           grep -qx 'prompt_in_stdout=1' /tmp/readline_probe_pinned.report
       - name: Measure literal prompt handling against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: |
           set -euo pipefail
           readline="$HOME/.cache/sushline/readline-oracle"
@@ -416,6 +427,7 @@ jobs:
                   raise SystemExit(f"{label}: expected prompt bytes {expected.hex()}, got {result.stdout.hex()}")
           PYPROBE
       - name: Measure an idle event hook against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         env:
           # Total budget for the hook handshake and returned line, in seconds.
           READLINE_EVENT_PROBE_TIMEOUT: "10"
@@ -509,6 +521,7 @@ jobs:
                   os.close(slave)
           PYPROBE
       - name: Measure one input-available hook against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         env:
           # Hard budget for the PTY handshake and returned line, in seconds.
           READLINE_INPUT_AVAILABLE_PROBE_TIMEOUT: "10"
@@ -629,6 +642,7 @@ jobs:
                   os.close(slave)
           PYPROBE
       - name: Observe input-available hook before supplying input to the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         env:
           # Observation window and hard outer budget, in seconds. This fixture
           # reports timing observations, not cadence or event-loop equivalence.
@@ -826,6 +840,7 @@ jobs:
                   os.close(slave)
           PYPROBE
       - name: Measure synthetic CS7 termios preparation against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: |
           set -euo pipefail
           readline="$HOME/.cache/sushline/readline-oracle"
@@ -967,6 +982,7 @@ jobs:
           phase=prepare tcsetattr_action=1 requested iflag=0x400 oflag=0x5 cflag=0xa0 lflag=0x8001 CSIZE=0x20 ISTRIP=0 INPCK=0
           EXPECTED
       - name: Measure the pinned release's history range bounds
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: |
           set -euo pipefail
           readline="$HOME/.cache/sushline/readline-oracle"
@@ -1293,121 +1309,123 @@ jobs:
           grep -qx 'entry_0=A0' /tmp/history_full_late_record.out
           grep -qx 'entry_1=#1700000000' /tmp/history_full_late_record.out
           grep -qx 'entry_2=B0' /tmp/history_full_late_record.out
-          # Keep binary input as bytes: these fixtures pin the observed GNU
-          # History 8.3 treatment of embedded NULs and later physical lines.
-          printf 'one\000hidden\nnext\000tail\nfinal\n' > /tmp/history_full_nul_plain
-          /tmp/history_full_probe /tmp/history_full_nul_plain | tee /tmp/history_full_nul_plain.out
-          grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/history_full_nul_plain.out
-          grep -qx 'read_history_status=ok' /tmp/history_full_nul_plain.out
-          grep -qx 'entry_count=3' /tmp/history_full_nul_plain.out
-          grep -qx 'entry_0=one' /tmp/history_full_nul_plain.out
-          grep -qx 'entry_1=next' /tmp/history_full_nul_plain.out
-          grep -qx 'entry_2=final' /tmp/history_full_nul_plain.out
-          printf '\000hidden\nnext\n' > /tmp/history_full_nul_leading
-          /tmp/history_full_probe /tmp/history_full_nul_leading | tee /tmp/history_full_nul_leading.out
-          grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/history_full_nul_leading.out
-          grep -qx 'read_history_status=ok' /tmp/history_full_nul_leading.out
-          grep -qx 'entry_count=1' /tmp/history_full_nul_leading.out
-          grep -qx 'entry_0=next' /tmp/history_full_nul_leading.out
-          # Pin full-file blank-line outputs in both History multiline modes.
-          printf '#1700000000\n\nA\n#1700000001\n\n\n#1700000002\nB\n\n' > /tmp/history_full_blank_timestamped
-          printf '\nA\n\n\nB\n\n\nC\n\n' > /tmp/history_full_blank_plain
-          /tmp/history_full_probe /tmp/history_full_blank_timestamped --mode 0 | tee /tmp/history_full_blank_timestamped_mode0.out
-          /tmp/history_full_probe /tmp/history_full_blank_timestamped --mode 1 | tee /tmp/history_full_blank_timestamped_mode1.out
-          /tmp/history_full_probe /tmp/history_full_blank_plain --mode 0 | tee /tmp/history_full_blank_plain_mode0.out
-          /tmp/history_full_probe /tmp/history_full_blank_plain --mode 1 | tee /tmp/history_full_blank_plain_mode1.out
-          for report in /tmp/history_full_blank_*.out; do
-            grep -qx "readline_release=$READLINE_ORACLE_VERSION" "$report"
-            grep -qx 'read_history_status=ok' "$report"
-          done
-          grep -qx 'history_multiline_entries=0' /tmp/history_full_blank_timestamped_mode0.out
-          grep -qx 'entry_count=2' /tmp/history_full_blank_timestamped_mode0.out
-          grep -qx 'entry_0=A' /tmp/history_full_blank_timestamped_mode0.out
-          grep -qx 'entry_1=B' /tmp/history_full_blank_timestamped_mode0.out
-          grep -qx 'history_multiline_entries=1' /tmp/history_full_blank_timestamped_mode1.out
-          grep -qx 'entry_count=2' /tmp/history_full_blank_timestamped_mode1.out
-          grep -qx 'entry_0=A' /tmp/history_full_blank_timestamped_mode1.out
-          grep -Fqx 'entry_1=B\n' /tmp/history_full_blank_timestamped_mode1.out
-          grep -qx 'history_multiline_entries=0' /tmp/history_full_blank_plain_mode0.out
-          grep -qx 'entry_count=3' /tmp/history_full_blank_plain_mode0.out
-          grep -qx 'entry_0=A' /tmp/history_full_blank_plain_mode0.out
-          grep -qx 'entry_1=B' /tmp/history_full_blank_plain_mode0.out
-          grep -qx 'entry_2=C' /tmp/history_full_blank_plain_mode0.out
-          grep -qx 'history_multiline_entries=1' /tmp/history_full_blank_plain_mode1.out
-          grep -qx 'entry_count=1' /tmp/history_full_blank_plain_mode1.out
-          grep -Fqx 'entry_0=\nA\n\n\nB\n\n\nC\n' /tmp/history_full_blank_plain_mode1.out
-          # CRLF bytes: compare every deterministic entry line, while leaving
-          # GNU's generated timestamps unpinned. Explicit timestamps are hex.
-          printf 'A0\r\nA1\r\nB0\r\n' > /tmp/history_full_crlf_plain
-          printf '#1700000000\r\nA0\r\nA1\r\n#1700000001\r\nB0\r\nB1\r\n' > /tmp/history_full_crlf_timestamped
-          : > /tmp/history_full_crlf_entries.out
-          for kind in plain timestamped; do
-            for mode in 0 1; do
-              report="/tmp/history_full_crlf_${kind}_mode${mode}.out"
-              /tmp/history_full_probe "/tmp/history_full_crlf_${kind}" --mode "$mode" --timestamp --comment | tee "$report"
+          if [ "${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}" = true ]; then
+            # Keep binary input as bytes: these fixtures pin the observed GNU
+            # History 8.3 treatment of embedded NULs and later physical lines.
+            printf 'one\000hidden\nnext\000tail\nfinal\n' > /tmp/history_full_nul_plain
+            /tmp/history_full_probe /tmp/history_full_nul_plain | tee /tmp/history_full_nul_plain.out
+            grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/history_full_nul_plain.out
+            grep -qx 'read_history_status=ok' /tmp/history_full_nul_plain.out
+            grep -qx 'entry_count=3' /tmp/history_full_nul_plain.out
+            grep -qx 'entry_0=one' /tmp/history_full_nul_plain.out
+            grep -qx 'entry_1=next' /tmp/history_full_nul_plain.out
+            grep -qx 'entry_2=final' /tmp/history_full_nul_plain.out
+            printf '\000hidden\nnext\n' > /tmp/history_full_nul_leading
+            /tmp/history_full_probe /tmp/history_full_nul_leading | tee /tmp/history_full_nul_leading.out
+            grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/history_full_nul_leading.out
+            grep -qx 'read_history_status=ok' /tmp/history_full_nul_leading.out
+            grep -qx 'entry_count=1' /tmp/history_full_nul_leading.out
+            grep -qx 'entry_0=next' /tmp/history_full_nul_leading.out
+            # Pin full-file blank-line outputs in both History multiline modes.
+            printf '#1700000000\n\nA\n#1700000001\n\n\n#1700000002\nB\n\n' > /tmp/history_full_blank_timestamped
+            printf '\nA\n\n\nB\n\n\nC\n\n' > /tmp/history_full_blank_plain
+            /tmp/history_full_probe /tmp/history_full_blank_timestamped --mode 0 | tee /tmp/history_full_blank_timestamped_mode0.out
+            /tmp/history_full_probe /tmp/history_full_blank_timestamped --mode 1 | tee /tmp/history_full_blank_timestamped_mode1.out
+            /tmp/history_full_probe /tmp/history_full_blank_plain --mode 0 | tee /tmp/history_full_blank_plain_mode0.out
+            /tmp/history_full_probe /tmp/history_full_blank_plain --mode 1 | tee /tmp/history_full_blank_plain_mode1.out
+            for report in /tmp/history_full_blank_*.out; do
               grep -qx "readline_release=$READLINE_ORACLE_VERSION" "$report"
-              grep -qx "history_multiline_entries=$mode" "$report"
               grep -qx 'read_history_status=ok' "$report"
-              grep -qx 'history_comment_char=35' "$report"
-              printf '[%s mode%s]\n' "$kind" "$mode" >> /tmp/history_full_crlf_entries.out
-              grep '^entry_' "$report" >> /tmp/history_full_crlf_entries.out
             done
-          done
-          diff -u .github/scripts/history-full-crlf.expected /tmp/history_full_crlf_entries.out
-          grep -qx 'timestamp_0_hex=2331373030303030303030' /tmp/history_full_crlf_timestamped_mode0.out
-          grep -qx 'timestamp_2_hex=2331373030303030303031' /tmp/history_full_crlf_timestamped_mode0.out
-          grep -qx 'timestamp_0_hex=2331373030303030303030' /tmp/history_full_crlf_timestamped_mode1.out
-          grep -qx 'timestamp_1_hex=2331373030303030303031' /tmp/history_full_crlf_timestamped_mode1.out
-          printf '#1700000000\none\000hidden\n#1700000001\nnext\000tail\nfinal\n' > /tmp/history_full_nul_timestamped
-          /tmp/history_full_probe /tmp/history_full_nul_timestamped | tee /tmp/history_full_nul_timestamped.out
-          grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/history_full_nul_timestamped.out
-          grep -qx 'read_history_status=ok' /tmp/history_full_nul_timestamped.out
-          grep -qx 'entry_count=3' /tmp/history_full_nul_timestamped.out
-          grep -qx 'entry_0=one' /tmp/history_full_nul_timestamped.out
-          grep -qx 'entry_1=next' /tmp/history_full_nul_timestamped.out
-          grep -qx 'entry_2=final' /tmp/history_full_nul_timestamped.out
-          # Compare a NUL-bearing final command with and without its LF.
-          printf 'one\nignored\000tail' > /tmp/history_full_nul_eof_unterminated
-          /tmp/history_full_probe /tmp/history_full_nul_eof_unterminated | tee /tmp/history_full_nul_eof_unterminated.out
-          grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/history_full_nul_eof_unterminated.out
-          grep -qx 'read_history_status=ok' /tmp/history_full_nul_eof_unterminated.out
-          printf 'one\nignored\000tail\n' > /tmp/history_full_nul_eof_terminated
-          /tmp/history_full_probe /tmp/history_full_nul_eof_terminated | tee /tmp/history_full_nul_eof_terminated.out
-          grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/history_full_nul_eof_terminated.out
-          grep -qx 'read_history_status=ok' /tmp/history_full_nul_eof_terminated.out
-          {
-            printf '[unterminated-final-line]\n'
-            cat /tmp/history_full_nul_eof_unterminated.out
-            printf '[final-LF-control]\n'
-            cat /tmp/history_full_nul_eof_terminated.out
-          } > /tmp/history_full_nul_eof.out
-          diff -u .github/scripts/history-full-nul-eof.expected /tmp/history_full_nul_eof.out
-          # Also record these cases in GNU's joined multiline mode.
-          printf 'one\nignored\000tail' > /tmp/history_full_nul_eof_joined_unterminated
-          /tmp/history_full_probe /tmp/history_full_nul_eof_joined_unterminated --mode 1 | tee /tmp/history_full_nul_eof_joined_unterminated.out
-          printf 'one\nignored\000tail\n' > /tmp/history_full_nul_eof_joined_terminated
-          /tmp/history_full_probe /tmp/history_full_nul_eof_joined_terminated --mode 1 | tee /tmp/history_full_nul_eof_joined_terminated.out
-          {
-            printf '[unterminated-final-line]\n'
-            cat /tmp/history_full_nul_eof_joined_unterminated.out
-            printf '[final-LF-control]\n'
-            cat /tmp/history_full_nul_eof_joined_terminated.out
-          } > /tmp/history_full_nul_eof_joined.out
-          diff -u .github/scripts/history-full-nul-eof-joined.expected /tmp/history_full_nul_eof_joined.out
-          # A NUL inside the timestamp metadata line is measured separately:
-          # retain each entry's raw/parsed timestamp and the command list.
-          printf '#1700000000\000suffix\nalpha\nbeta\n' > /tmp/history_timestamp_nul
-          /tmp/history_full_probe /tmp/history_timestamp_nul --timestamp | tee /tmp/history_timestamp_nul.out
-          grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/history_timestamp_nul.out
-          grep -qx 'read_history_status=ok' /tmp/history_timestamp_nul.out
-          grep -qx 'entry_count=2' /tmp/history_timestamp_nul.out
-          grep -qx 'history_comment_char=0' /tmp/history_timestamp_nul.out
-          grep -qx 'timestamp_0_hex=2331373030303030303030' /tmp/history_timestamp_nul.out
-          grep -qx 'parsed_time_0=0' /tmp/history_timestamp_nul.out
-          grep -Eq '^timestamp_1_hex=23(3[0-9])+$' /tmp/history_timestamp_nul.out
-          grep -qx 'parsed_time_1=0' /tmp/history_timestamp_nul.out
-          grep -qx 'entry_0=alpha' /tmp/history_timestamp_nul.out
-          grep -qx 'entry_1=beta' /tmp/history_timestamp_nul.out
+            grep -qx 'history_multiline_entries=0' /tmp/history_full_blank_timestamped_mode0.out
+            grep -qx 'entry_count=2' /tmp/history_full_blank_timestamped_mode0.out
+            grep -qx 'entry_0=A' /tmp/history_full_blank_timestamped_mode0.out
+            grep -qx 'entry_1=B' /tmp/history_full_blank_timestamped_mode0.out
+            grep -qx 'history_multiline_entries=1' /tmp/history_full_blank_timestamped_mode1.out
+            grep -qx 'entry_count=2' /tmp/history_full_blank_timestamped_mode1.out
+            grep -qx 'entry_0=A' /tmp/history_full_blank_timestamped_mode1.out
+            grep -Fqx 'entry_1=B\n' /tmp/history_full_blank_timestamped_mode1.out
+            grep -qx 'history_multiline_entries=0' /tmp/history_full_blank_plain_mode0.out
+            grep -qx 'entry_count=3' /tmp/history_full_blank_plain_mode0.out
+            grep -qx 'entry_0=A' /tmp/history_full_blank_plain_mode0.out
+            grep -qx 'entry_1=B' /tmp/history_full_blank_plain_mode0.out
+            grep -qx 'entry_2=C' /tmp/history_full_blank_plain_mode0.out
+            grep -qx 'history_multiline_entries=1' /tmp/history_full_blank_plain_mode1.out
+            grep -qx 'entry_count=1' /tmp/history_full_blank_plain_mode1.out
+            grep -Fqx 'entry_0=\nA\n\n\nB\n\n\nC\n' /tmp/history_full_blank_plain_mode1.out
+            # CRLF bytes: compare every deterministic entry line, while leaving
+            # GNU's generated timestamps unpinned. Explicit timestamps are hex.
+            printf 'A0\r\nA1\r\nB0\r\n' > /tmp/history_full_crlf_plain
+            printf '#1700000000\r\nA0\r\nA1\r\n#1700000001\r\nB0\r\nB1\r\n' > /tmp/history_full_crlf_timestamped
+            : > /tmp/history_full_crlf_entries.out
+            for kind in plain timestamped; do
+              for mode in 0 1; do
+                report="/tmp/history_full_crlf_${kind}_mode${mode}.out"
+                /tmp/history_full_probe "/tmp/history_full_crlf_${kind}" --mode "$mode" --timestamp --comment | tee "$report"
+                grep -qx "readline_release=$READLINE_ORACLE_VERSION" "$report"
+                grep -qx "history_multiline_entries=$mode" "$report"
+                grep -qx 'read_history_status=ok' "$report"
+                grep -qx 'history_comment_char=35' "$report"
+                printf '[%s mode%s]\n' "$kind" "$mode" >> /tmp/history_full_crlf_entries.out
+                grep '^entry_' "$report" >> /tmp/history_full_crlf_entries.out
+              done
+            done
+            diff -u .github/scripts/history-full-crlf.expected /tmp/history_full_crlf_entries.out
+            grep -qx 'timestamp_0_hex=2331373030303030303030' /tmp/history_full_crlf_timestamped_mode0.out
+            grep -qx 'timestamp_2_hex=2331373030303030303031' /tmp/history_full_crlf_timestamped_mode0.out
+            grep -qx 'timestamp_0_hex=2331373030303030303030' /tmp/history_full_crlf_timestamped_mode1.out
+            grep -qx 'timestamp_1_hex=2331373030303030303031' /tmp/history_full_crlf_timestamped_mode1.out
+            printf '#1700000000\none\000hidden\n#1700000001\nnext\000tail\nfinal\n' > /tmp/history_full_nul_timestamped
+            /tmp/history_full_probe /tmp/history_full_nul_timestamped | tee /tmp/history_full_nul_timestamped.out
+            grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/history_full_nul_timestamped.out
+            grep -qx 'read_history_status=ok' /tmp/history_full_nul_timestamped.out
+            grep -qx 'entry_count=3' /tmp/history_full_nul_timestamped.out
+            grep -qx 'entry_0=one' /tmp/history_full_nul_timestamped.out
+            grep -qx 'entry_1=next' /tmp/history_full_nul_timestamped.out
+            grep -qx 'entry_2=final' /tmp/history_full_nul_timestamped.out
+            # Compare a NUL-bearing final command with and without its LF.
+            printf 'one\nignored\000tail' > /tmp/history_full_nul_eof_unterminated
+            /tmp/history_full_probe /tmp/history_full_nul_eof_unterminated | tee /tmp/history_full_nul_eof_unterminated.out
+            grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/history_full_nul_eof_unterminated.out
+            grep -qx 'read_history_status=ok' /tmp/history_full_nul_eof_unterminated.out
+            printf 'one\nignored\000tail\n' > /tmp/history_full_nul_eof_terminated
+            /tmp/history_full_probe /tmp/history_full_nul_eof_terminated | tee /tmp/history_full_nul_eof_terminated.out
+            grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/history_full_nul_eof_terminated.out
+            grep -qx 'read_history_status=ok' /tmp/history_full_nul_eof_terminated.out
+            {
+              printf '[unterminated-final-line]\n'
+              cat /tmp/history_full_nul_eof_unterminated.out
+              printf '[final-LF-control]\n'
+              cat /tmp/history_full_nul_eof_terminated.out
+            } > /tmp/history_full_nul_eof.out
+            diff -u .github/scripts/history-full-nul-eof.expected /tmp/history_full_nul_eof.out
+            # Also record these cases in GNU's joined multiline mode.
+            printf 'one\nignored\000tail' > /tmp/history_full_nul_eof_joined_unterminated
+            /tmp/history_full_probe /tmp/history_full_nul_eof_joined_unterminated --mode 1 | tee /tmp/history_full_nul_eof_joined_unterminated.out
+            printf 'one\nignored\000tail\n' > /tmp/history_full_nul_eof_joined_terminated
+            /tmp/history_full_probe /tmp/history_full_nul_eof_joined_terminated --mode 1 | tee /tmp/history_full_nul_eof_joined_terminated.out
+            {
+              printf '[unterminated-final-line]\n'
+              cat /tmp/history_full_nul_eof_joined_unterminated.out
+              printf '[final-LF-control]\n'
+              cat /tmp/history_full_nul_eof_joined_terminated.out
+            } > /tmp/history_full_nul_eof_joined.out
+            diff -u .github/scripts/history-full-nul-eof-joined.expected /tmp/history_full_nul_eof_joined.out
+            # A NUL inside the timestamp metadata line is measured separately:
+            # retain each entry's raw/parsed timestamp and the command list.
+            printf '#1700000000\000suffix\nalpha\nbeta\n' > /tmp/history_timestamp_nul
+            /tmp/history_full_probe /tmp/history_timestamp_nul --timestamp | tee /tmp/history_timestamp_nul.out
+            grep -qx "readline_release=$READLINE_ORACLE_VERSION" /tmp/history_timestamp_nul.out
+            grep -qx 'read_history_status=ok' /tmp/history_timestamp_nul.out
+            grep -qx 'entry_count=2' /tmp/history_timestamp_nul.out
+            grep -qx 'history_comment_char=0' /tmp/history_timestamp_nul.out
+            grep -qx 'timestamp_0_hex=2331373030303030303030' /tmp/history_timestamp_nul.out
+            grep -qx 'parsed_time_0=0' /tmp/history_timestamp_nul.out
+            grep -Eq '^timestamp_1_hex=23(3[0-9])+$' /tmp/history_timestamp_nul.out
+            grep -qx 'parsed_time_1=0' /tmp/history_timestamp_nul.out
+            grep -qx 'entry_0=alpha' /tmp/history_timestamp_nul.out
+            grep -qx 'entry_1=beta' /tmp/history_timestamp_nul.out
+          fi
           # Run the Rust fixture verbatim so the measured GNU result is
           # compared with the current library baseline, not a second copy of
           # expected Rust behavior embedded in this workflow.
@@ -1454,6 +1472,7 @@ jobs:
           }, separators=(",", ":")))
           PYCOMPARE
       - name: Measure the pinned release's history timestamp rule
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: |
           set -euo pipefail
           readline="$HOME/.cache/sushline/readline-oracle"
@@ -1539,14 +1558,19 @@ jobs:
           grep -qx 'vertical_tab: 1700000000' /tmp/history_time.out
           grep -qx 'does_not_fit: 0' /tmp/history_time.out
       - name: Measure pinned history total bytes
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/history-total-bytes.sh
       - name: Measure pinned History multiline imports under a limit
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/history-multiline-limit.sh primary
       - name: Measure pinned History joined imports at EOF
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/history-joined-eof.sh primary
       - name: Measure pinned history file-import cursors
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/history-import-cursor.sh
       - name: Measure the pinned release's history positions and search arguments
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: |
           set -euo pipefail
           readline="$HOME/.cache/sushline/readline-oracle"
@@ -2044,6 +2068,7 @@ jobs:
           /tmp/history_position_probe search-pos | tee /tmp/history_position_search_pos.out
           diff -u .github/scripts/history-position-search-pos.expected /tmp/history_position_search_pos.out
       - name: Measure and assert pinned History expansion fixtures
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: |
           set -euo pipefail
           readline="$HOME/.cache/sushline/readline-oracle"
@@ -2399,12 +2424,16 @@ jobs:
           lex_arith_expand11: status=1 output_hex=24282831202b20322929
           EXPECTED
       - name: Measure History expansion search reuse against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/history-expand-reuse.sh primary
       - name: Measure History search occurrence offsets against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/history-search-offset.sh primary
       - name: Measure raw History NUL query against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/history-search-offset.sh primary nul-query
       - name: Measure direct-library SIGINT handling against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: |
           set -euo pipefail
           readline="$HOME/.cache/sushline/readline-oracle"
@@ -2606,6 +2635,7 @@ jobs:
           grep -Fqx 'readline_expected=8.3 returncode=-2 transcript_len=63 transcript_hex=736967696e745f646973706f736974696f6e3d64656661756c740d0a726561646c696e655f72656c656173653d382e330d0a736967696e743e206162635e43' /tmp/readline_sigint.out
           grep -Fqx 'readline_expected=8.3 returncode=0 transcript_len=165 transcript_hex=7072655f736967696e745f69676e6f7265643d310d0a736967696e745f646973706f736974696f6e3d69676e6f7265640d0a726561646c696e655f72656c656173653d382e330d0a736967696e743e20616263580d0a726573756c745f6c656e3d34207369676e616c5f636f756e743d300d0a726573756c745f6865783d36313632363335380d0a706f73745f736967696e745f69676e6f7265643d310d0a646f6e650d0a' /tmp/readline_sigint.out
       - name: Measure direct-library SIGWINCH chaining against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: |
           set -euo pipefail
           readline="$HOME/.cache/sushline/readline-oracle"
@@ -2853,6 +2883,7 @@ jobs:
           grep -Fqx 'child_post_winch_application_handler=1' /tmp/readline_sigwinch.out
           grep -Fq 'readline_expected=8.3 returncode=0 transcript_len=' /tmp/readline_sigwinch.out
       - name: Measure direct-library SIGQUIT handling against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: |
           set -euo pipefail
           ulimit -c 0
@@ -3239,6 +3270,7 @@ jobs:
           # checks only the independently measured pinned-8.3 outcomes.
           grep -Fqx "child_readline_release=$READLINE_ORACLE_VERSION" /tmp/readline_sigquit.out
       - name: Measure direct-library bracketed paste against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: |
           set -euo pipefail
           ulimit -c 0
@@ -3535,6 +3567,7 @@ jobs:
                       print(f"repeatability_case={case} trials=2 repeatable=1", flush=True)
           PYPROBE
       - name: Measure named, unknown-user, and empty-home inputrc includes against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: |
           set -euo pipefail
           ulimit -c 0
@@ -3901,8 +3934,10 @@ jobs:
           run_empty_home_trial()
           PYPROBE
       - name: Measure inputrc include path rules against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-include-paths.sh
       - name: Measure recursive inputrc include against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: |
           set -euo pipefail
           ulimit -c 0
@@ -4051,65 +4086,95 @@ jobs:
               sys.exit("cycle probe measurement failed")
           PYPROBE
       - name: Measure acyclic inputrc include depth against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-include-depth.sh
       - name: Measure horizontal-scroll rendering against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-horizontal-render.sh
       - name: Measure Unicode cell widths against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-unicode-width.sh
       - name: Measure inputrc variable RHS tokenization against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary
       - name: Measure raw inputrc term conditions against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary term
       - name: Measure raw inputrc version, mode, and application conditions against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary conditions
       - name: Observe raw inputrc version inequality against the pinned release (primary)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary version-inequality
       - name: Observe raw inputrc version equality against the pinned release (primary)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary version-equality
       - name: Assert the exact inputrc version double-equality fixture against the pinned release (primary)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary version-double-equality
       - name: Assert exact inputrc vi-mode true-branch fixture against the pinned release (primary)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary mode-vi-true
       # Assert only this exact case-mismatch fixture; do not generalize the rule.
       - name: Assert pinned inputrc application-name case-mismatch fixture
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary application-case
       - name: Assert pinned reverse inputrc application-name case-mismatch fixture
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary application-case-reverse
       - name: Measure raw inputrc application-name strict-prefix fixture (primary)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary application-prefix
       - name: Assert pinned inputrc shorter application-name prefix fixture (primary)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-inputrc-variable-rhs.sh primary application-name-prefix
       - name: Measure raw invalid-UTF-8 history search against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-invalid-history-search.sh primary
       - name: Measure raw invalid-UTF-8 history prefix search against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-invalid-history-search.sh primary prefix
       - name: Measure raw Unicode history prefix search against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-invalid-history-search.sh primary unicode-prefix
       - name: Measure raw Unicode history incremental search against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-invalid-history-search.sh primary unicode-incremental
       - name: Measure raw C-locale history reverse incremental search against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-invalid-history-search.sh primary c-locale-incremental
       - name: Measure raw C-locale input-meta reverse incremental search against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-invalid-history-search.sh primary c-locale-input-meta-incremental
       - name: Measure raw C-locale input-meta reverse incremental search after an ASCII prefix against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-invalid-history-search.sh primary c-locale-input-meta-ascii-prefix
       - name: Measure raw Unicode history expansion incremental search against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-invalid-history-search.sh primary unicode-expansion-incremental
       - name: Measure raw Unicode history forward incremental search against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-invalid-history-search.sh primary unicode-forward-incremental
       - name: Measure raw Unicode history forward expansion incremental search against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-invalid-history-search.sh primary unicode-forward-expansion-incremental
       - name: Measure raw Unicode query expansion reverse incremental search against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-invalid-history-search.sh primary unicode-query-expansion-incremental
       - name: Measure raw Unicode query expansion forward incremental search against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-invalid-history-search.sh primary unicode-forward-query-expansion-incremental
       - name: Measure finite input-stream EOF against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-stream-eof.sh primary
       - name: Measure plain and timestamped History truncation against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-history-truncate.sh primary
       - name: Measure History append fixtures against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/history-append.sh primary
       - name: Measure History write modes against the pinned release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/history-write-mode.sh primary
       - name: Run the oracle suite
         run: |
@@ -4128,8 +4193,25 @@ jobs:
           # The host must carry the release the claims name, or the cases
           # scoped to that release would report nothing.
           grep -q "carrying Readline $READLINE_ORACLE_VERSION" /tmp/oracle.log
-      - name: Collect pinned oracle measurement reports
+      - name: Collect full-file late-timestamp comparison reports
         if: always()
+        run: |
+          set -euo pipefail
+          report_dir="$RUNNER_TEMP/sushline-history-full-file-comparison"
+          mkdir -p "$report_dir"
+          cp -- /tmp/history_full_late_record.out \
+            /tmp/history_rust_full_late_record.out \
+            /tmp/history_full_file_comparison.out "$report_dir/"
+      - name: Upload full-file late-timestamp comparison reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-full-file-comparison
+          path: ${{ runner.temp }}/sushline-history-full-file-comparison/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Collect pinned oracle measurement reports
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: |
           set -euo pipefail
           report_dir="$RUNNER_TEMP/sushline-oracle-measurements"
@@ -4196,7 +4278,6 @@ jobs:
             /tmp/history_range_edge_plain.out \
             /tmp/history_range_oob_timestamped.out \
             /tmp/history_range_oob_plain.out \
-            /tmp/history_full_late_record.out \
             /tmp/history_full_blank_timestamped_mode0.out \
             /tmp/history_full_blank_timestamped_mode1.out \
             /tmp/history_full_blank_plain_mode0.out \
@@ -4216,8 +4297,6 @@ jobs:
             /tmp/history_full_nul_eof_joined_terminated.out \
             /tmp/history_full_nul_eof_joined.out \
             /tmp/history_timestamp_nul.out \
-            /tmp/history_rust_full_late_record.out \
-            /tmp/history_full_file_comparison.out \
             /tmp/history_time.out \
             /tmp/history_position.out \
             /tmp/history_position_append.out \
@@ -4230,23 +4309,22 @@ jobs:
             /tmp/history_position_search_pos.out \
             /tmp/history_import_cursor.out \
             /tmp/history_expand.out; do
-            if [ -f "$report" ]; then
-              cp -- "$report" "$report_dir/"
-            fi
+            cp -- "$report" "$report_dir/"
           done
       - name: Upload pinned oracle measurement reports
-        if: always()
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         uses: actions/upload-artifact@v4
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-measurements
           path: ${{ runner.temp }}/sushline-oracle-measurements/
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
 
   # Independent report 2: a fresh runner, not another trial in report 1.
   # Restore only the exact library built/validated by oracle; do not rebuild
   # or run the Rust, Bash, or full oracle suites here.
-  include-depth-replica:
+  oracle-measurements-replica:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
     needs: oracle
     runs-on: ubuntu-latest
     steps:
@@ -4335,6 +4413,11 @@ jobs:
         run: bash .github/scripts/history-search-offset.sh replica
       - name: Measure raw History NUL query against the pinned release
         run: bash .github/scripts/history-search-offset.sh replica nul-query
+      - name: Require both independent pinned include-depth reports
+        if: always()
+        run: |
+          test -f /tmp/readline_include_depth.out
+          test -f /tmp/readline_include_depth_32.out
       - name: Upload independent pinned include-depth reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -4343,7 +4426,7 @@ jobs:
           path: |
             /tmp/readline_include_depth.out
             /tmp/readline_include_depth_32.out
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
       - name: Upload independent pinned horizontal-scroll report
         if: always()
@@ -4351,7 +4434,7 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-horizontal-render-replica
           path: /tmp/readline_horizontal_render.out
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
       - name: Upload independent pinned stream-EOF report
         if: always()
@@ -4359,7 +4442,7 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-stream-eof-replica
           path: /tmp/readline_stream_eof_replica.out
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
       - name: Upload independent pinned invalid-history-search report
         if: always()
@@ -4367,7 +4450,7 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-invalid-history-search-replica
           path: /tmp/readline_invalid_history_search.out
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
       - name: Upload independent pinned invalid-history-prefix-search report
         if: always()
@@ -4375,7 +4458,7 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-invalid-history-prefix-search-replica
           path: /tmp/readline_invalid_history_prefix_search.out
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
       - name: Upload independent pinned Unicode-history-prefix-search report
         if: always()
@@ -4383,7 +4466,7 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-unicode-history-prefix-search-replica
           path: /tmp/readline_unicode_history_prefix_search.out
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
       - name: Upload independent pinned Unicode-history-incremental-search report
         if: always()
@@ -4391,7 +4474,7 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-unicode-history-incremental-search-replica
           path: /tmp/readline_unicode_history_incremental_search.out
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
       - name: Upload independent pinned C-locale history incremental search report
         if: always()
@@ -4399,7 +4482,7 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-c-locale-history-incremental-search-replica
           path: /tmp/readline_c_locale_history_incremental_search.out
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
       - name: Upload independent pinned C-locale input-meta history incremental search report
         if: always()
@@ -4407,7 +4490,7 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-c-locale-input-meta-history-incremental-search-replica
           path: /tmp/readline_c_locale_input_meta_history_incremental_search.out
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
       - name: Upload independent pinned C-locale input-meta history ASCII-prefix search report
         if: always()
@@ -4415,7 +4498,7 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-c-locale-input-meta-history-ascii-prefix-search-replica
           path: /tmp/readline_c_locale_input_meta_history_ascii_prefix_search.out
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
       - name: Upload independent pinned Unicode-history-expansion-incremental-search report
         if: always()
@@ -4423,7 +4506,7 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-unicode-history-expansion-incremental-search-replica
           path: /tmp/readline_unicode_history_expansion_incremental_search.out
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
       - name: Upload independent pinned Unicode-history-forward-incremental-search report
         if: always()
@@ -4431,7 +4514,7 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-unicode-history-forward-incremental-search-replica
           path: /tmp/readline_unicode_history_forward_incremental_search.out
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
       - name: Upload independent pinned Unicode-history-forward-expansion-incremental-search report
         if: always()
@@ -4439,7 +4522,7 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-unicode-history-forward-expansion-incremental-search-replica
           path: /tmp/readline_unicode_history_forward_expansion_incremental_search.out
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
       - name: Upload raw Unicode query expansion reverse incremental search report
         if: always()
@@ -4463,7 +4546,7 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-unicode-width-replica
           path: /tmp/readline_unicode_width.out
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
       - name: Upload independent pinned history-truncate report
         if: always()
@@ -4471,7 +4554,7 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-history-truncate-replica
           path: /tmp/history_truncate_replica.out
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
       - name: Upload independent pinned history-append report
         if: always()
@@ -4479,7 +4562,7 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-history-append-replica
           path: /tmp/history_append_replica.out
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
       - name: Upload independent pinned history-write-mode report
         if: always()
@@ -4487,7 +4570,7 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-history-write-mode-replica
           path: /tmp/history_write_mode_replica.out
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
       - name: Upload independent pinned history-multiline-limit report
         if: always()
@@ -4495,7 +4578,7 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-history-multiline-limit-replica
           path: /tmp/history_multiline_limit_replica.out
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
       - name: Upload independent pinned history-joined-eof report
         if: always()
@@ -4503,7 +4586,7 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-history-joined-eof-replica
           path: /tmp/history_joined_eof_replica.out
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
       - name: Upload independent pinned history-expand-reuse report
         if: always()
@@ -4511,7 +4594,7 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-history-expand-reuse-replica
           path: /tmp/history_expand_reuse_replica.out
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
       - name: Upload independent pinned history-search-offset report
         if: always()
@@ -4519,7 +4602,7 @@ jobs:
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-history-search-offset-replica
           path: /tmp/history_search_offset_replica.out
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
       - name: Upload independent pinned history-search-nul report
         if: always()

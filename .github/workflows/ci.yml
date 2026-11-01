@@ -492,7 +492,7 @@ jobs:
                   before_input += chunk
               assert before_input == release + b"hook=1\n", before_input
               # No input is queued until the library has invoked the hook.
-              os.write(master, b"probe\n")
+              assert os.write(master, b"probe\n") == len(b"probe\n")
               out, err = child.communicate(timeout=max(0, deadline - time.monotonic()))
               report = before_input + err
               print(f"event_hook: returncode={child.returncode} stdout={out!r} stderr={report!r}")
@@ -618,6 +618,138 @@ jobs:
               assert out == b"available> probe\n", out
               assert report == (
                   handshake + b"input_ready=1\nhook=1 available=1 return=1\nreturned=probe\nhooks=1\n"
+              ), report
+          finally:
+              if child is not None:
+                  if child.poll() is None:
+                      child.kill()
+                  child.wait()
+              os.close(master)
+              if slave is not None:
+                  os.close(slave)
+          PYPROBE
+      - name: Observe input-available hook before supplying input to the pinned release
+        env:
+          # Observation window and hard outer budget, in seconds. This fixture
+          # reports timing observations, not cadence or event-loop equivalence.
+          READLINE_INPUT_WINDOW_SECONDS: "0.2"
+          READLINE_INPUT_WINDOW_TIMEOUT: "10"
+        run: |
+          set -euo pipefail
+          readline="$HOME/.cache/sushline/readline-oracle"
+          cat > /tmp/readline_input_window_probe.c <<'PROBE'
+          #include <poll.h>
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <termios.h>
+          #include <readline/readline.h>
+
+          static unsigned hooks;
+
+          static int on_available(void) {
+              /* One observation only, even if the readiness result is false. */
+              rl_input_available_hook = NULL;
+              struct pollfd input = { .fd = fileno(rl_instream), .events = POLLIN };
+              int ready = poll(&input, 1, 0) == 1 && (input.revents & POLLIN) != 0;
+              fprintf(stderr, "hook=%u available=%d return=%d\n", ++hooks, ready, ready);
+              return ready;
+          }
+
+          static int prepare_input(void) {
+              rl_pre_input_hook = NULL;
+              struct termios terminal;
+              if (tcgetattr(fileno(rl_instream), &terminal) != 0 ||
+                  (terminal.c_lflag & (ICANON | ECHO)) != 0) {
+                  exit(3);
+              }
+              rl_input_available_hook = on_available;
+              fprintf(stderr, "terminal_prepared=1 hook_installed=1\n");
+              return 0;
+          }
+
+          int main(void) {
+              setvbuf(stderr, NULL, _IONBF, 0);
+              fprintf(stderr, "readline_release=%d.%d\n", rl_readline_version >> 8,
+                      rl_readline_version & 0xff);
+              rl_pre_input_hook = prepare_input;
+              char *line = readline("window> ");
+              fprintf(stderr, "returned=%s\nhooks=%u\n", line ? line : "<EOF>", hooks);
+              int status = line ? 0 : 1;
+              free(line);
+              return status;
+          }
+          PROBE
+          cc -Wall -Wextra -Werror -o /tmp/readline_input_window_probe \
+            /tmp/readline_input_window_probe.c \
+            -I"$readline/include" -L"$readline/lib" \
+            -Wl,-rpath,"$readline/lib" -lreadline
+          loader_report=$(env -u SHELLOPTS ldd /tmp/readline_input_window_probe)
+          echo "$loader_report"
+          readline_libraries=$(printf '%s\n' "$loader_report" | grep 'libreadline' || true)
+          if [ -z "$readline_libraries" ] || \
+            printf '%s\n' "$readline_libraries" | grep -v -F "$readline/lib/" > /dev/null; then
+            echo "the input-window probe did not load Readline exclusively from the pinned prefix" >&2
+            exit 1
+          fi
+          timeout --signal=KILL "${READLINE_INPUT_WINDOW_TIMEOUT}s" python3 -u - <<'PYPROBE'
+          import math
+          import os
+          import pty
+          import select
+          import subprocess
+          import time
+
+          env = dict(os.environ, INPUTRC="/dev/null", LC_ALL="C", TERM="dumb")
+          budget = float(env["READLINE_INPUT_WINDOW_TIMEOUT"])
+          window = float(env["READLINE_INPUT_WINDOW_SECONDS"])
+          assert math.isfinite(budget) and math.isfinite(window) and 0 < window < budget
+          deadline = time.monotonic() + budget
+          release = f"readline_release={env['READLINE_ORACLE_VERSION']}\n".encode()
+          handshake = release + b"terminal_prepared=1 hook_installed=1\n"
+          master, slave = pty.openpty()
+          child = None
+          try:
+              child = subprocess.Popen(
+                  ["/tmp/readline_input_window_probe"], stdin=slave,
+                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
+              )
+              os.close(slave)
+              slave = None
+              prepared = b""
+              while len(prepared) < len(handshake):
+                  remaining = deadline - time.monotonic()
+                  if remaining <= 0 or not select.select([child.stderr], [], [], remaining)[0]:
+                      raise RuntimeError(f"terminal preparation timed out: {prepared!r}")
+                  chunk = os.read(child.stderr.fileno(), len(handshake) - len(prepared))
+                  if not chunk:
+                      raise RuntimeError(f"probe exited before preparation: {prepared!r}")
+                  prepared += chunk
+              assert prepared == handshake, prepared
+              # No PTY input is written until after this entire observation window.
+              window_end = time.monotonic() + window
+              assert window_end < deadline, "no budget left for observation window"
+              before_input = b""
+              while time.monotonic() < window_end:
+                  if not select.select([child.stderr], [], [], max(0, window_end - time.monotonic()))[0]:
+                      break
+                  chunk = os.read(child.stderr.fileno(), 4096)
+                  if not chunk:
+                      raise RuntimeError(f"probe exited during no-input window: {before_input!r}")
+                  before_input += chunk
+              print(f"input_window: seconds={window} prepared={prepared!r} no_input_stderr={before_input!r}")
+              os.write(master, b"probe\n")
+              out, err = child.communicate(timeout=max(0, deadline - time.monotonic()))
+              report = before_input + err
+              print(f"input_window: returncode={child.returncode} stdout={out!r} after_input_stderr={err!r}")
+              assert child.returncode == 0, child.returncode
+              assert out == b"window> probe\n", out
+              # First pinned-8.3 observation: accept only the finite fixture's
+              # possible transcripts, without assuming when (or if) it calls
+              # the hook. A false poll result is recorded, not generalized.
+              assert report in (
+                  b"returned=probe\nhooks=0\n",
+                  b"hook=1 available=0 return=0\nreturned=probe\nhooks=1\n",
+                  b"hook=1 available=1 return=1\nreturned=probe\nhooks=1\n",
               ), report
           finally:
               if child is not None:

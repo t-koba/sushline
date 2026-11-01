@@ -2390,10 +2390,11 @@ fn preserves_timestamped_history_file_records() {
 fn full_write_preserves_symlinked_history_path() {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::symlink;
+        use std::os::unix::fs::{PermissionsExt, symlink};
         let dir = tempfile::tempdir().unwrap();
         let target = dir.path().join("target-history");
         fs::write(&target, "target-v1\n").unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o644)).unwrap();
         let link = dir.path().join("link-history");
         symlink("target-history", &link).unwrap();
 
@@ -2414,6 +2415,11 @@ fn full_write_preserves_symlinked_history_path() {
         );
         assert_eq!(fs::read_to_string(&target).unwrap(), "target-v2\n");
         assert_eq!(fs::read_to_string(&link).unwrap(), "target-v2\n");
+        assert_eq!(
+            fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o600,
+            "full rewrite through symlink keeps the target owner-only"
+        );
     }
 }
 

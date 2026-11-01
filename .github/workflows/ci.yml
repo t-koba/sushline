@@ -638,20 +638,29 @@ jobs:
           set -euo pipefail
           readline="$HOME/.cache/sushline/readline-oracle"
           cat > /tmp/readline_input_window_probe.c <<'PROBE'
+          #include <limits.h>
           #include <poll.h>
           #include <stdio.h>
           #include <stdlib.h>
           #include <termios.h>
           #include <readline/readline.h>
 
-          static unsigned hooks;
+          static unsigned false_calls;
+          static unsigned ready_calls;
 
           static int on_available(void) {
-              /* One observation only, even if the readiness result is false. */
-              rl_input_available_hook = NULL;
+              /* Stay installed through the no-input window: count without per-call output. */
               struct pollfd input = { .fd = fileno(rl_instream), .events = POLLIN };
               int ready = poll(&input, 1, 0) == 1 && (input.revents & POLLIN) != 0;
-              fprintf(stderr, "hook=%u available=%d return=%d\n", ++hooks, ready, ready);
+              if (ready) {
+                  if (ready_calls != UINT_MAX) {
+                      ++ready_calls;
+                  }
+                  /* Input is present: unregister once so the line is consumed once. */
+                  rl_input_available_hook = NULL;
+              } else if (false_calls != UINT_MAX) {
+                  ++false_calls;
+              }
               return ready;
           }
 
@@ -673,7 +682,7 @@ jobs:
                       rl_readline_version & 0xff);
               rl_pre_input_hook = prepare_input;
               char *line = readline("window> ");
-              fprintf(stderr, "returned=%s\nhooks=%u\n", line ? line : "<EOF>", hooks);
+              fprintf(stderr, "returned=%s\nfalse_calls=%u\nready_calls=%u\n", line ? line : "<EOF>", false_calls, ready_calls);
               int status = line ? 0 : 1;
               free(line);
               return status;
@@ -695,6 +704,7 @@ jobs:
           import math
           import os
           import pty
+          import re
           import select
           import subprocess
           import time
@@ -737,20 +747,26 @@ jobs:
                       raise RuntimeError(f"probe exited during no-input window: {before_input!r}")
                   before_input += chunk
               print(f"input_window: seconds={window} prepared={prepared!r} no_input_stderr={before_input!r}")
-              os.write(master, b"probe\n")
+              # The hook stays installed and silent through the window, so per-call
+              # output would be unbounded: the window itself must stay quiet.
+              assert before_input == b"", before_input
+              assert os.write(master, b"probe\n") == len(b"probe\n")
               out, err = child.communicate(timeout=max(0, deadline - time.monotonic()))
-              report = before_input + err
               print(f"input_window: returncode={child.returncode} stdout={out!r} after_input_stderr={err!r}")
               assert child.returncode == 0, child.returncode
               assert out == b"window> probe\n", out
-              # First pinned-8.3 observation: accept only the finite fixture's
-              # possible transcripts, without assuming when (or if) it calls
-              # the hook. A false poll result is recorded, not generalized.
-              assert report in (
-                  b"returned=probe\nhooks=0\n",
-                  b"hook=1 available=0 return=0\nreturned=probe\nhooks=1\n",
-                  b"hook=1 available=1 return=1\nreturned=probe\nhooks=1\n",
-              ), report
+              # Bounded post-call summary only, without per-call lines. This fixture
+              # records the observed counts without inferring cadence, false-return
+              # semantics, or general event-loop equivalence.
+              summary = err.decode("ascii")
+              match = re.fullmatch(r"returned=probe\nfalse_calls=(\d+)\nready_calls=(\d+)\n", summary)
+              assert match is not None, err
+              false_calls = int(match.group(1))
+              ready_calls = int(match.group(2))
+              assert false_calls >= 0 and ready_calls >= 0, err
+              # A ready callback unregisters itself; record its actual count rather
+              # than assuming this input ordering invokes it exactly once.
+              assert ready_calls <= 1, err
           finally:
               if child is not None:
                   if child.poll() is None:

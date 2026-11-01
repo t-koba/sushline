@@ -213,10 +213,10 @@ impl HorizontalViewport {
         let mut right = usize::from(line.width > self.margin + capacity && capacity > left);
         let start = self.margin + left;
         let mut end = self.margin + capacity - right;
-        if restoring_prompt && left == 0 && self.offset == 0 && right > 0 {
+        if restoring_prompt && line.point_bytes == 0 && left == 0 && self.offset == 0 && right > 0 {
             // The pinned wide-edge restoration is bounded by buffer bytes,
-            // not display cells. Keep this correction on the reset-to-prompt
-            // path so the separately measured scrolled/split window stays put.
+            // not display cells. Apply it only at the actual prompt point;
+            // nonzero restored points must remain visible in rendered text.
             let byte_budget = end.saturating_sub(start).saturating_sub(line.prompt_bytes);
             end = Self::prefix_end_at_byte_budget(line, end, byte_budget);
         }
@@ -629,6 +629,20 @@ mod tests {
             viewport.layout(&line("P>", &text, 0), 80),
             (format!("P>{}中{}>", "0".repeat(50), "1".repeat(23)), 2)
         );
+    }
+
+    #[test]
+    fn horizontal_scroll_restored_nonzero_multibyte_point_remains_visible() {
+        let text = "é".repeat(100);
+        let mut viewport = HorizontalViewport::default();
+
+        viewport.layout(&line("P>", &text, text.len()), 80);
+        let layout = line("P>", &text, 140); // byte offset after 70 characters
+        let (out, cursor) = viewport.layout(&layout, 80);
+
+        assert_eq!(out, format!("P>{}>", "é".repeat(76)));
+        assert_eq!(cursor, 72);
+        assert_eq!(viewport.visible_column(layout.point), Some(cursor));
     }
 
     #[test]

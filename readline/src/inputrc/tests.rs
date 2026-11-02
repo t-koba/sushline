@@ -528,6 +528,7 @@ fn include_path_spellings_follow_the_measured_gnu_rule_and_extend_it() {
         ("leading whitespace", format!("$include    {plain}")),
         ("unquoted space", format!("$include {spaced}")),
         ("double quotes", format!("$include \"{plain}\"")),
+        ("quoted space", format!("$include \"{spaced}\"")),
         ("single quotes", format!("$include '{plain}'")),
         ("trailing space", format!("$include {plain} ")),
         ("trailing tab", format!("$include {plain}\t")),

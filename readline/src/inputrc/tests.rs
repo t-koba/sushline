@@ -506,26 +506,53 @@ fn ignores_active_include_read_errors() {
 }
 
 #[test]
-fn include_paths_accept_quotes_without_environment_expansion() {
+fn include_path_spellings_follow_the_measured_gnu_rule_and_extend_it() {
+    // Pinned GNU Readline 8.3 takes the rest of the line after leading
+    // whitespace as the filename: an unquoted path may contain spaces, while
+    // quotes or trailing whitespace become part of the name and make the
+    // include fail. Sushline loads every GNU-accepted spelling here and, as a
+    // documented extension, also trims surrounding whitespace and one pair of
+    // matching quotes. Measured on the pinned host for both editors.
     let dir = tempfile::tempdir().unwrap();
-    let include = dir.path().join("included file.inputrc");
-    fs::write(&include, "set completion-ignore-case on").unwrap();
-    let mut keymap = KeyMap::emacs_default();
-    let mut variables = Variables::new();
-    // Quoted paths with spaces resolve literally.
-    InputrcParser::new()
-        .parse_str(
-            &format!("$include \"{}\"", include.display()),
-            &Config::default(),
-            &mut keymap,
-            &mut variables,
-        )
-        .unwrap();
-    assert_eq!(variables["completion-ignore-case"], "on");
+    let plain = dir.path().join("plain.inputrc").display().to_string();
+    let spaced = dir
+        .path()
+        .join("included file.inputrc")
+        .display()
+        .to_string();
+    for path in [&plain, &spaced] {
+        fs::write(path, "set completion-ignore-case on").unwrap();
+    }
+    for (label, spelling) in [
+        ("plain", format!("$include {plain}")),
+        ("leading whitespace", format!("$include    {plain}")),
+        ("unquoted space", format!("$include {spaced}")),
+        ("double quotes", format!("$include \"{plain}\"")),
+        ("single quotes", format!("$include '{plain}'")),
+        ("trailing space", format!("$include {plain} ")),
+        ("trailing tab", format!("$include {plain}\t")),
+    ] {
+        let mut keymap = KeyMap::emacs_default();
+        let mut variables = Variables::new();
+        InputrcParser::new()
+            .parse_str(
+                &format!("set completion-ignore-case off\n{spelling}"),
+                &Config::default(),
+                &mut keymap,
+                &mut variables,
+            )
+            .unwrap();
+        assert_eq!(
+            variables["completion-ignore-case"], "on",
+            "spelling {label:?}"
+        );
+    }
 }
 
 #[test]
 fn quoted_cwd_relative_include_with_space() {
+    // The documented extension case: pinned 8.3 keeps the quotes in the
+    // filename and skips this include, while Sushline strips them and loads it.
     const CHILD_MARKER: &str = "SUSHLINE_TEST_QUOTED_CWD_INCLUDE_CHILD";
     if std::env::var_os(CHILD_MARKER).as_deref() == Some(std::ffi::OsStr::new("child")) {
         let mut keymap = KeyMap::emacs_default();

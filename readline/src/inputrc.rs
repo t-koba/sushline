@@ -51,7 +51,6 @@ impl InputrcError {
 #[derive(Debug)]
 /// InputrcParser.
 pub struct InputrcParser {
-    max_include_depth: usize,
     readline_version: String,
 }
 
@@ -65,7 +64,6 @@ impl InputrcParser {
     /// New.
     pub fn new() -> Self {
         Self {
-            max_include_depth: 32,
             readline_version: "8.3".to_string(),
         }
     }
@@ -149,7 +147,7 @@ impl InputrcParser {
         path: Option<&Path>,
         diagnostics: &mut Vec<InputrcDiagnostic>,
     ) -> Result<(), InputrcError> {
-        if include_depth > self.max_include_depth {
+        if include_depth > ctx.config.inputrc_max_include_depth {
             return Err(InputrcError::new(0, "inputrc include depth exceeded"));
         }
 

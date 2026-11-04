@@ -860,18 +860,40 @@ fn acyclic_include_chain_at_depth_32_applies_leaf_setting() {
 }
 
 #[test]
-fn acyclic_include_chain_beyond_accepted_depth_hits_depth_protection() {
+fn acyclic_include_chain_respects_configured_depth_boundary() {
     let dir = tempfile::tempdir().unwrap();
     let main = write_acyclic_include_chain(dir.path(), 33);
-    let mut keymap = KeyMap::emacs_default();
-    let mut variables = Variables::new();
-    let err = InputrcParser::new()
-        .parse_file(&main, &Config::default(), &mut keymap, &mut variables)
-        .expect_err("33-deep acyclic $include chain must hit depth protection");
-    assert!(
-        err.message.contains("include depth exceeded"),
-        "unexpected error: {err:?}"
-    );
+    let source = fs::read_to_string(&main).unwrap();
+    let parser = InputrcParser::new();
+    assert_eq!(Config::default().inputrc_max_include_depth, 32);
+    for config in [
+        Config::default(),
+        Config {
+            inputrc_max_include_depth: 33,
+            ..Config::default()
+        },
+    ] {
+        for entry in ["file", "str", "bytes"] {
+            let mut keymap = KeyMap::emacs_default();
+            let mut variables = Variables::new();
+            let result = match entry {
+                "file" => parser.parse_file(&main, &config, &mut keymap, &mut variables),
+                "str" => parser.parse_str(&source, &config, &mut keymap, &mut variables),
+                "bytes" => {
+                    parser.parse_bytes(source.as_bytes(), &config, &mut keymap, &mut variables)
+                }
+                _ => unreachable!(),
+            };
+            if config.inputrc_max_include_depth == 33 {
+                result.expect("configured 33-deep acyclic $include chain is accepted");
+                assert!(variables.is_on("completion-ignore-case"));
+            } else {
+                let err = result.expect_err("default budget rejects a 33-deep $include chain");
+                assert_eq!(err.message, "inputrc include depth exceeded");
+                assert!(!variables.is_on("completion-ignore-case"));
+            }
+        }
+    }
 }
 
 #[test]

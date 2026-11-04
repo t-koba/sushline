@@ -431,11 +431,25 @@ fn expand_tilde_at_point(buffer: &mut LineBuffer) {
 }
 
 fn expand_tilde_word(word: &[u8]) -> Option<Vec<u8>> {
+    expand_tilde_word_with_home(
+        word,
+        std::env::var_os("HOME").as_deref(),
+        crate::home::passwd_home_dir,
+    )
+}
+
+fn expand_tilde_word_with_home(
+    word: &[u8],
+    home: Option<&std::ffi::OsStr>,
+    lookup_home: impl FnOnce(Option<&[u8]>) -> Option<std::ffi::OsString>,
+) -> Option<Vec<u8>> {
     if word == b"~" {
-        return std::env::var_os("HOME").map(|home| os_string_to_bytes(home.as_os_str()));
+        return crate::home::resolve(home, None, lookup_home)
+            .map(|home| os_string_to_bytes(home.as_os_str()));
     }
     if let Some(rest) = word.strip_prefix(b"~/") {
-        let mut home = std::env::var_os("HOME").map(|home| os_string_to_bytes(home.as_os_str()))?;
+        let mut home = crate::home::resolve(home, None, lookup_home)
+            .map(|home| os_string_to_bytes(home.as_os_str()))?;
         home.push(b'/');
         home.extend_from_slice(rest);
         return Some(home);
@@ -469,7 +483,8 @@ fn expand_tilde_word(word: &[u8]) -> Option<Vec<u8>> {
     if user.is_empty() {
         return None;
     }
-    let mut home = user_home_dir(user)?;
+    let mut home = crate::home::resolve(home, Some(user.as_bytes()), lookup_home)
+        .map(|home| os_string_to_bytes(home.as_os_str()))?;
     if slash.is_some() {
         home.push(b'/');
         home.extend_from_slice(suffix);
@@ -491,31 +506,6 @@ fn oldpwd_bytes() -> Option<Vec<u8>> {
     std::env::var_os("OLDPWD").map(|oldpwd| os_string_to_bytes(oldpwd.as_os_str()))
 }
 
-fn user_home_dir(user: &str) -> Option<Vec<u8>> {
-    if let Ok(passwd) = std::fs::read("/etc/passwd") {
-        for line in passwd.split(|byte| *byte == b'\n') {
-            let mut fields = line.split(|byte| *byte == b':');
-            if fields.next() == Some(user.as_bytes()) {
-                return fields.nth(4).map(|field| field.to_vec());
-            }
-        }
-    }
-    let output = std::process::Command::new("getent")
-        .arg("passwd")
-        .arg(user)
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    output
-        .stdout
-        .split(|byte| *byte == b'\n')
-        .next()
-        .and_then(|line| line.split(|byte| *byte == b':').nth(5))
-        .map(|field| field.to_vec())
-}
-
 #[cfg(unix)]
 fn os_string_to_bytes(value: &std::ffi::OsStr) -> Vec<u8> {
     use std::os::unix::ffi::OsStrExt;
@@ -525,4 +515,45 @@ fn os_string_to_bytes(value: &std::ffi::OsStr) -> Vec<u8> {
 #[cfg(not(unix))]
 fn os_string_to_bytes(value: &std::ffi::OsStr) -> Vec<u8> {
     value.to_string_lossy().as_bytes().to_vec()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tilde_word_uses_current_uid_when_home_is_unset() {
+        for (word, expected) in [
+            (b"~".as_slice(), b"/synthetic-home/".as_slice()),
+            (b"~/", b"/synthetic-home//"),
+            (b"~/child/", b"/synthetic-home//child/"),
+        ] {
+            assert_eq!(
+                expand_tilde_word_with_home(word, None, |user| {
+                    assert_eq!(user, None);
+                    Some(std::ffi::OsString::from("/synthetic-home/"))
+                }),
+                Some(expected.to_vec()),
+            );
+            assert_eq!(expand_tilde_word_with_home(word, None, |_| None), None);
+        }
+    }
+
+    #[test]
+    fn tilde_word_named_lookup_preserves_suffix_and_trailing_slash() {
+        for (word, expected) in [
+            (b"~synthetic-user".as_slice(), b"/nss-home".as_slice()),
+            (b"~synthetic-user/", b"/nss-home/"),
+            (b"~synthetic-user/child/", b"/nss-home/child/"),
+        ] {
+            assert_eq!(
+                expand_tilde_word_with_home(word, Some(std::ffi::OsStr::new("/ignored")), |user| {
+                    assert_eq!(user, Some(b"synthetic-user".as_slice()));
+                    Some(std::ffi::OsString::from("/nss-home"))
+                }),
+                Some(expected.to_vec()),
+            );
+            assert_eq!(expand_tilde_word_with_home(word, None, |_| None), None);
+        }
+    }
 }

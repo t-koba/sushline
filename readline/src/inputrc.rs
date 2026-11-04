@@ -718,23 +718,29 @@ fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
 }
 
 fn expand_include_path(path: &str) -> Option<PathBuf> {
-    expand_include_path_with_home(path, std::env::var_os("HOME").as_deref(), user_home_dir)
+    expand_include_path_with_home(
+        path,
+        std::env::var_os("HOME").as_deref(),
+        crate::home::passwd_home_dir,
+    )
 }
 
 fn expand_include_path_with_home(
     path: &str,
     home: Option<&std::ffi::OsStr>,
-    user_home: impl FnOnce(&str) -> Option<PathBuf>,
+    lookup_home: impl FnOnce(Option<&[u8]>) -> Option<std::ffi::OsString>,
 ) -> Option<PathBuf> {
-    if let Some(rest) = path.strip_prefix("~/")
-        && let Some(home) = home
-    {
-        return Some(PathBuf::from(home).join(rest));
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Some(home) = crate::home::resolve(home, None, lookup_home).map(PathBuf::from) {
+            return Some(home.join(rest));
+        }
+        return Some(PathBuf::from(path));
     }
     if let Some(rest) = path.strip_prefix('~') {
         let (user, suffix) = rest.split_once('/').unwrap_or((rest, ""));
         if !user.is_empty()
-            && let Some(home) = user_home(user)
+            && let Some(home) =
+                crate::home::resolve(home, Some(user.as_bytes()), lookup_home).map(PathBuf::from)
         {
             if home.as_os_str().is_empty() {
                 return None;
@@ -747,20 +753,6 @@ fn expand_include_path_with_home(
         }
     }
     Some(PathBuf::from(path))
-}
-
-fn user_home_dir(user: &str) -> Option<PathBuf> {
-    let passwd = fs::read_to_string("/etc/passwd").ok()?;
-    home_from_passwd(&passwd, user)
-}
-
-fn home_from_passwd(passwd: &str, user: &str) -> Option<PathBuf> {
-    passwd.lines().find_map(|line| {
-        let mut fields = line.split(':');
-        (fields.next() == Some(user))
-            .then(|| fields.nth(4).map(PathBuf::from))
-            .flatten()
-    })
 }
 
 fn find_unquoted_colon(line: &str) -> Option<usize> {

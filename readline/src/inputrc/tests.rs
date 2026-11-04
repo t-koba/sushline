@@ -659,27 +659,42 @@ fn unknown_tilde_user_include_is_silently_skipped() {
 #[test]
 fn tilde_include_path_distinguishes_absent_empty_and_set_home() {
     for (home, expected) in [
-        (None, "~/marker.inputrc"),
+        (None, "/synthetic-passwd-home/marker.inputrc"),
         (Some(""), "marker.inputrc"),
         (Some("/synthetic-home"), "/synthetic-home/marker.inputrc"),
     ] {
+        let mut lookups = 0;
         let path = expand_include_path_with_home(
             "~/marker.inputrc",
             home.map(std::ffi::OsStr::new),
-            |_| panic!("bare tilde must not consult the named-user lookup"),
+            |user| {
+                assert_eq!(user, None, "fallback must look up the current UID");
+                lookups += 1;
+                Some(std::ffi::OsString::from("/synthetic-passwd-home"))
+            },
         );
         assert_eq!(path, Some(PathBuf::from(expected)));
+        assert_eq!(lookups, usize::from(home.is_none()));
     }
 }
 
 #[test]
-fn tilde_user_include_uses_synthetic_passwd_home_not_home_variable() {
-    let passwd = "sushline-inputrc:x:12345:12345::/synthetic-passwd-home:/bin/false\n";
+fn absent_home_with_unavailable_account_preserves_relative_include() {
+    let path = expand_include_path_with_home("~/marker.inputrc", None, |user| {
+        assert_eq!(user, None);
+        None
+    });
+    assert_eq!(path, Some(PathBuf::from("~/marker.inputrc")));
+}
+
+#[test]
+fn tilde_user_include_uses_synthetic_nss_home_not_home_variable() {
+    // This synthetic NSS account need not exist in the host's /etc/passwd.
     for (spelling, expected) in [
-        ("~sushline-inputrc", "/synthetic-passwd-home"),
+        ("~sushline-inputrc", "/synthetic-nss-home"),
         (
             "~sushline-inputrc/marker.inputrc",
-            "/synthetic-passwd-home/marker.inputrc",
+            "/synthetic-nss-home/marker.inputrc",
         ),
         ("~missing/marker.inputrc", "~missing/marker.inputrc"),
     ] {
@@ -687,7 +702,11 @@ fn tilde_user_include_uses_synthetic_passwd_home_not_home_variable() {
             expand_include_path_with_home(
                 spelling,
                 Some(std::ffi::OsStr::new("/unrelated-home")),
-                |name| home_from_passwd(passwd, name),
+                |user| match user.expect("must use named-account lookup") {
+                    b"sushline-inputrc" => Some(std::ffi::OsString::from("/synthetic-nss-home")),
+                    b"missing" => None,
+                    other => panic!("unexpected account: {other:?}"),
+                },
             ),
             Some(PathBuf::from(expected)),
         );
@@ -698,7 +717,7 @@ fn tilde_user_include_uses_synthetic_passwd_home_not_home_variable() {
 fn unknown_tilde_user_include_preserves_relative_cwd_marker_path() {
     let spelling = "~sushline-no-such-user/marker.inputrc";
     let path = expand_include_path_with_home(spelling, None, |user| {
-        assert_eq!(user, "sushline-no-such-user");
+        assert_eq!(user, Some(b"sushline-no-such-user".as_slice()));
         None // Synthetic lookup failure, independent of the host's accounts.
     })
     .unwrap();
@@ -722,10 +741,10 @@ fn failed_tilde_user_lookup_preserves_relative_cwd_marker_path() {
     let spelling = "~sushline-lookup-error-inputrc/marker.inputrc";
     let lookup_error = std::io::Error::from(std::io::ErrorKind::Other);
     let path = expand_include_path_with_home(spelling, None, |user| {
-        assert_eq!(user, "sushline-lookup-error-inputrc");
+        assert_eq!(user, Some(b"sushline-lookup-error-inputrc".as_slice()));
         // The resolver receives None for unavailable account data, regardless
         // of whether lookup failed or the account was simply absent.
-        Err::<PathBuf, _>(lookup_error).ok()
+        Err::<std::ffi::OsString, _>(lookup_error).ok()
     })
     .unwrap();
     assert_eq!(path, PathBuf::from(spelling));
@@ -745,18 +764,16 @@ fn failed_tilde_user_lookup_preserves_relative_cwd_marker_path() {
 
 #[test]
 fn empty_home_tilde_user_include_is_skipped() {
-    // Synthetic passwd data: lookup succeeds, but the home field is empty.
-    // Pinned GNU Readline 8.3 skips this include rather than reading from CWD.
-    let passwd = "sushline-empty-home-inputrc:x:12345:12345:::/bin/false\n";
-    let user = "sushline-empty-home-inputrc";
-    assert_eq!(home_from_passwd(passwd, user), Some(PathBuf::new()));
+    // Pinned GNU Readline 8.3 skips an empty named home rather than using CWD.
     let path = expand_include_path_with_home(
         "~sushline-empty-home-inputrc/marker.inputrc",
         None,
-        |name| home_from_passwd(passwd, name),
+        |user| {
+            assert_eq!(user, Some(b"sushline-empty-home-inputrc".as_slice()));
+            Some(std::ffi::OsString::new())
+        },
     );
     assert_eq!(path, None);
-    assert_eq!(home_from_passwd(passwd, "unknown"), None);
 }
 
 #[cfg(unix)]

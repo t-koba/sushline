@@ -8,6 +8,7 @@ mod completion;
 mod config;
 mod display;
 mod editor;
+mod home;
 mod hooks;
 mod input;
 mod inputrc;

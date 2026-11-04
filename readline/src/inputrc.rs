@@ -718,15 +718,16 @@ fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
 }
 
 fn expand_include_path(path: &str) -> Option<PathBuf> {
-    expand_include_path_with_home(path, user_home_dir)
+    expand_include_path_with_home(path, std::env::var_os("HOME").as_deref(), user_home_dir)
 }
 
 fn expand_include_path_with_home(
     path: &str,
+    home: Option<&std::ffi::OsStr>,
     user_home: impl FnOnce(&str) -> Option<PathBuf>,
 ) -> Option<PathBuf> {
     if let Some(rest) = path.strip_prefix("~/")
-        && let Some(home) = std::env::var_os("HOME")
+        && let Some(home) = home
     {
         return Some(PathBuf::from(home).join(rest));
     }

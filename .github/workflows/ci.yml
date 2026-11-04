@@ -4176,6 +4176,10 @@ jobs:
       - name: Measure History write modes against the pinned release
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/history-write-mode.sh primary
+      # This single HOME-absent case is needed before deciding the product's
+      # fallback policy; it must not wait for the operator-only broad refresh.
+      - name: Measure inputrc tilde include with HOME absent against the pinned release
+        run: bash .github/scripts/readline-include-paths.sh --home-unset-only
       - name: Run the oracle suite
         run: |
           set -euo pipefail

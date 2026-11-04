@@ -3,11 +3,25 @@
 # quoted CWD-relative paths with spaces, `~/` via controlled HOME, literal `$HOME`,
 # and missing-include continuation, including a controlled named-account
 # lookup error.
+# --home-unset-only measures just `~/` with HOME absent (not HOME=""), using
+# a child-only synthetic current-UID passwd home. It does not assert a fallback
+# outcome before the pinned result is observed. No arguments retains the refresh.
 # Measurement only against the pinned release.
 set -euo pipefail
 ulimit -c 0
+mode=refresh
+case "$#:$*" in
+  0:) ;;
+  1:--home-unset-only) mode=home-unset ;;
+  *) echo "usage: readline-include-paths.sh [--home-unset-only]" >&2; exit 2 ;;
+esac
 lookup_error_dir=$(mktemp -d /tmp/sushline-lookup-error-XXXXXX)
-trap 'rm -f /tmp/readline_include_paths_probe.c /tmp/readline_include_paths_probe; rm -rf "$lookup_error_dir"' EXIT
+trap 'rm -rf "$lookup_error_dir"' EXIT
+probe="$lookup_error_dir/probe"
+report=/tmp/readline_include_paths.out
+if [ "$mode" = home-unset ]; then
+  report=/tmp/readline_include_home_unset.out
+fi
 readline="$HOME/.cache/sushline/readline-oracle"
 # Fail closed on a missing or differently configured cache.
 marker="$readline/build-configuration"
@@ -21,7 +35,7 @@ fi
 # Direct-library probe: initialize with no user configuration, read one
 # test-owned outer file, and report release, library identity, lookup hits,
 # read status, and boolean sentinel states. No input is read.
-cat > /tmp/readline_include_paths_probe.c <<'PROBE'
+cat > "$probe.c" <<'PROBE'
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <stdio.h>
@@ -39,6 +53,9 @@ int main(int argc, char **argv) {
     }
     printf("readline_release=%d.%d\n", rl_readline_version >> 8,
            rl_readline_version & 0xff);
+    const char *initial_home = getenv("HOME");
+    int initial_home_present = initial_home != NULL;
+    int initial_home_empty = initial_home_present && initial_home[0] == '\0';
     fflush(stdout);
     Dl_info library;
     char *loaded = NULL;
@@ -55,6 +72,16 @@ int main(int argc, char **argv) {
     }
     int status = rl_read_init_file(argv[1]);
     printf("read_status=%d\n", status);
+    if (getenv("SUSHLINE_PASSWD_HOME") != NULL) {
+        unsigned int (*home_hits)(void) = dlsym(RTLD_DEFAULT, "sushline_passwd_home_hits");
+        if (home_hits == NULL) {
+            return 2;
+        }
+        printf("home_present=%d\n", initial_home_present);
+        printf("home_empty=%d\n", initial_home_empty);
+        /* Includes initialization, which also runs with HOME absent. */
+        printf("passwd_home_lookup_hits=%u\n", home_hits());
+    }
     unsigned int (*lookup_hits)(void) = dlsym(RTLD_DEFAULT, "sushline_lookup_error_hits");
     printf("lookup_error_hits=%u\n", lookup_hits != NULL ? lookup_hits() : 0);
     const char *ignore_case = rl_variable_value("completion-ignore-case");
@@ -67,32 +94,91 @@ int main(int argc, char **argv) {
     return 0;
 }
 PROBE
-if ! cc -Wall -Wextra -Werror -o /tmp/readline_include_paths_probe \
-  /tmp/readline_include_paths_probe.c \
+if ! cc -Wall -Wextra -Werror -o "$probe" \
+  "$probe.c" \
   -I"$readline/include" -L"$readline/lib" \
   -Wl,-rpath,"$readline/lib" -lreadline -ldl 2>/dev/null; then
   echo "paths probe compilation failed" >&2
   exit 1
 fi
-loader_report=$(env -u SHELLOPTS ldd /tmp/readline_include_paths_probe 2>/dev/null)
+loader_report=$(env -u SHELLOPTS ldd "$probe" 2>/dev/null)
 readline_libraries=$(printf '%s\n' "$loader_report" | grep 'libreadline' || true)
 if [ -z "$readline_libraries" ] || \
   printf '%s\n' "$readline_libraries" | grep -v -F "=> $readline/lib/" > /dev/null; then
   echo "paths probe did not load the pinned Readline library" >&2
   exit 1
 fi
-# The interposer is used only in the lookup-error child's environment. Other
-# account names go to libc; the exact fixture name fails with EIO, not absence.
+# The interposer is child-only: it returns EIO for the one named-account
+# failure fixture, and supplies a test-owned current-UID home only for the
+# focused HOME-unset measurement. All other lookups forward to libc; neither
+# Python nor unrelated probes inherit LD_PRELOAD.
 cat > "$lookup_error_dir/interposer.c" <<'INTERPOSER'
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <errno.h>
 #include <pwd.h>
 #include <stddef.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 static unsigned int hits;
 unsigned int sushline_lookup_error_hits(void) { return hits; }
+
+static unsigned int home_hits;
+unsigned int sushline_passwd_home_hits(void) { return home_hits; }
+
+static struct passwd *synthetic_passwd(uid_t uid) {
+    const char *home = getenv("SUSHLINE_PASSWD_HOME");
+    if (home == NULL || uid != getuid()) {
+        return NULL;
+    }
+    static struct passwd entry;
+    entry = (struct passwd){
+        .pw_name = "sushline-synthetic-home", .pw_passwd = "x",
+        .pw_uid = uid, .pw_gid = getgid(), .pw_gecos = "",
+        .pw_dir = (char *)home, .pw_shell = "/bin/false",
+    };
+    ++home_hits;
+    return &entry;
+}
+
+struct passwd *getpwuid(uid_t uid) {
+    struct passwd *entry = synthetic_passwd(uid);
+    if (entry != NULL) {
+        return entry;
+    }
+    struct passwd *(*next)(uid_t) = dlsym(RTLD_NEXT, "getpwuid");
+    if (next != NULL) {
+        return next(uid);
+    }
+    errno = ENOSYS;
+    return NULL;
+}
+
+int getpwuid_r(uid_t uid, struct passwd *pwd, char *buffer,
+              size_t size, struct passwd **result) {
+    struct passwd *entry = synthetic_passwd(uid);
+    if (entry != NULL) {
+        *result = NULL;
+        size_t needed = strlen(entry->pw_dir) + 1;
+        if (size < needed) {
+            return ERANGE;
+        }
+        *pwd = *entry;
+        memcpy(buffer, entry->pw_dir, needed);
+        pwd->pw_dir = buffer;
+        *result = pwd;
+        return 0;
+    }
+    int (*next)(uid_t, struct passwd *, char *, size_t, struct passwd **) =
+        dlsym(RTLD_NEXT, "getpwuid_r");
+    if (next != NULL) {
+        return next(uid, pwd, buffer, size, result);
+    }
+    *result = NULL;
+    return ENOSYS;
+}
 
 struct passwd *getpwnam(const char *name) {
     if (strcmp(name, "sushline-lookup-error-inputrc") == 0) {
@@ -133,7 +219,8 @@ if ! cc -Wall -Wextra -Werror -shared -fPIC -o "$lookup_error_dir/interposer.so"
 fi
 SUSHLINE_LOOKUP_ERROR_PRELOAD="$lookup_error_dir/interposer.so" \
 SUSHLINE_PINNED_READLINE="$readline/lib/libreadline.so" \
-python3 - <<'PYPROBE' | tee /tmp/readline_include_paths.out
+SUSHLINE_INCLUDE_PATHS_PROBE="$probe" SUSHLINE_INCLUDE_PATHS_MODE="$mode" \
+python3 - <<'PYPROBE' | tee "$report"
 import os
 import pwd
 import re
@@ -143,20 +230,27 @@ import subprocess
 import sys
 import tempfile
 
-probe = "/tmp/readline_include_paths_probe"
+probe = os.environ["SUSHLINE_INCLUDE_PATHS_PROBE"]
 expected = os.environ["READLINE_ORACLE_VERSION"]
+home_unset_only = os.environ["SUSHLINE_INCLUDE_PATHS_MODE"] == "home-unset"
 resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
-def run_child(label, outer_path, cwd, home, lookup_error=False):
+def run_child(label, outer_path, cwd, home, lookup_error=False, home_unset=False):
     child = None
     try:
         env = os.environ.copy()
         # Do not inherit unrelated loader overrides into the measurement.
         env.pop("LD_PRELOAD", None)
         env.pop("LD_LIBRARY_PATH", None)
-        if lookup_error:
+        env.pop("SUSHLINE_PASSWD_HOME", None)
+        if lookup_error or home_unset:
             env["LD_PRELOAD"] = os.environ["SUSHLINE_LOOKUP_ERROR_PRELOAD"]
-        env.update(INPUTRC="/dev/null", LC_ALL="C", TERM="dumb", HOME=home)
+        env.update(INPUTRC="/dev/null", LC_ALL="C", TERM="dumb")
+        if home_unset:
+            env.pop("HOME", None)  # Absence, not an empty HOME string.
+            env["SUSHLINE_PASSWD_HOME"] = home
+        else:
+            env["HOME"] = home
         child = subprocess.Popen(
             [probe, outer_path, os.environ["SUSHLINE_PINNED_READLINE"]],
             stdin=subprocess.DEVNULL,
@@ -183,6 +277,9 @@ def run_child(label, outer_path, cwd, home, lookup_error=False):
                 "lookup_error_hits",
                 "completion_ignore_case_on",
                 "editing_mode_vi",
+                "home_present",
+                "home_empty",
+                "passwd_home_lookup_hits",
             }:
                 fields[key] = value
         valid = (
@@ -193,7 +290,17 @@ def run_child(label, outer_path, cwd, home, lookup_error=False):
             and fields.get("completion_ignore_case_on") in {"0", "1"}
             and fields.get("editing_mode_vi") in {"0", "1"}
         )
+        if home_unset:
+            valid = (
+                valid
+                and fields.get("home_present") == "0"
+                and fields.get("home_empty") == "0"
+                and re.fullmatch(r"[0-9]{1,10}", fields.get("passwd_home_lookup_hits", "")) is not None
+            )
         if valid:
+            if home_unset:
+                for key in ("home_present", "home_empty", "passwd_home_lookup_hits"):
+                    print(f"{label}_{key}={fields[key]}")
             print(f"{label}_readline_release={fields['readline_release']}")
             print(f"{label}_read_status={fields['read_status']}")
             print(f"{label}_pinned_library_loaded={fields['pinned_library_loaded']}")
@@ -218,7 +325,7 @@ def run_child(label, outer_path, cwd, home, lookup_error=False):
                 if stream is not None:
                     stream.close()
 
-def run_case(case, setup, expected_fields=None, lookup_error=False):
+def run_case(case, setup, expected_fields=None, lookup_error=False, home_unset=False):
     records = []
     base = None
     try:
@@ -227,7 +334,7 @@ def run_case(case, setup, expected_fields=None, lookup_error=False):
             outer_path, cwd, home = setup(base)
             label = f"{case}_trial{trial}"
             valid, completed, fields, returncode, stderr_flag, timed_out = run_child(
-                label, outer_path, cwd, home, lookup_error
+                label, outer_path, cwd, home, lookup_error, home_unset
             )
             try:
                 shutil.rmtree(base, ignore_errors=True)
@@ -300,6 +407,30 @@ def setup_tilde(base):
         handle.write("$include ~/included.inputrc\n")
     return outer_path, base, home
 
+def setup_home_set_control(base):
+    home = os.path.join(base, "controlled-home")
+    os.makedirs(home)
+    with open(os.path.join(home, "control.inputrc"), "w", encoding="utf-8") as handle:
+        handle.write("set editing-mode vi\n")
+    outer_path = os.path.join(base, "outer.inputrc")
+    with open(outer_path, "w", encoding="utf-8") as handle:
+        handle.write("set editing-mode emacs\n")
+        handle.write("$include ~/control.inputrc\n")
+    return outer_path, base, home
+
+def setup_home_unset(base):
+    passwd_home = os.path.join(base, "synthetic-passwd-home")
+    os.makedirs(passwd_home)
+    with open(os.path.join(passwd_home, "included.inputrc"), "w", encoding="utf-8") as handle:
+        handle.write("set completion-ignore-case on\n")
+    outer_path = os.path.join(base, "outer.inputrc")
+    with open(outer_path, "w", encoding="utf-8") as handle:
+        handle.write("set completion-ignore-case off\n")
+        handle.write("set editing-mode emacs\n")
+        handle.write("$include ~/included.inputrc\n")
+        handle.write("set editing-mode vi\n")
+    return outer_path, base, passwd_home
+
 def setup_dollar_home(base):
     cwd_dir = os.path.join(base, "cwd")
     os.makedirs(cwd_dir)
@@ -354,6 +485,25 @@ def setup_missing(base):
     return outer_path, base, base
 
 try:
+    if home_unset_only:
+        ok = run_case(
+            "tilde_home_set_control",
+            setup_home_set_control,
+            expected_fields={
+                "read_status": "0",
+                "completion_ignore_case_on": "0",
+                "editing_mode_vi": "1",
+            },
+        )
+        ok = run_case(
+            "tilde_home_unset",
+            setup_home_unset,
+            expected_fields={"read_status": "0", "editing_mode_vi": "1"},
+            home_unset=True,
+        ) and ok
+        if not ok:
+            raise ValueError()
+        sys.exit(0)
     ok = True
     ok = run_case(
         "cwd_relative",

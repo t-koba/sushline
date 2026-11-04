@@ -657,9 +657,47 @@ fn unknown_tilde_user_include_is_silently_skipped() {
 }
 
 #[test]
+fn tilde_include_path_distinguishes_absent_empty_and_set_home() {
+    for (home, expected) in [
+        (None, "~/marker.inputrc"),
+        (Some(""), "marker.inputrc"),
+        (Some("/synthetic-home"), "/synthetic-home/marker.inputrc"),
+    ] {
+        let path = expand_include_path_with_home(
+            "~/marker.inputrc",
+            home.map(std::ffi::OsStr::new),
+            |_| panic!("bare tilde must not consult the named-user lookup"),
+        );
+        assert_eq!(path, Some(PathBuf::from(expected)));
+    }
+}
+
+#[test]
+fn tilde_user_include_uses_synthetic_passwd_home_not_home_variable() {
+    let passwd = "sushline-inputrc:x:12345:12345::/synthetic-passwd-home:/bin/false\n";
+    for (spelling, expected) in [
+        ("~sushline-inputrc", "/synthetic-passwd-home"),
+        (
+            "~sushline-inputrc/marker.inputrc",
+            "/synthetic-passwd-home/marker.inputrc",
+        ),
+        ("~missing/marker.inputrc", "~missing/marker.inputrc"),
+    ] {
+        assert_eq!(
+            expand_include_path_with_home(
+                spelling,
+                Some(std::ffi::OsStr::new("/unrelated-home")),
+                |name| home_from_passwd(passwd, name),
+            ),
+            Some(PathBuf::from(expected)),
+        );
+    }
+}
+
+#[test]
 fn unknown_tilde_user_include_preserves_relative_cwd_marker_path() {
     let spelling = "~sushline-no-such-user/marker.inputrc";
-    let path = expand_include_path_with_home(spelling, |user| {
+    let path = expand_include_path_with_home(spelling, None, |user| {
         assert_eq!(user, "sushline-no-such-user");
         None // Synthetic lookup failure, independent of the host's accounts.
     })
@@ -683,7 +721,7 @@ fn unknown_tilde_user_include_preserves_relative_cwd_marker_path() {
 fn failed_tilde_user_lookup_preserves_relative_cwd_marker_path() {
     let spelling = "~sushline-lookup-error-inputrc/marker.inputrc";
     let lookup_error = std::io::Error::from(std::io::ErrorKind::Other);
-    let path = expand_include_path_with_home(spelling, |user| {
+    let path = expand_include_path_with_home(spelling, None, |user| {
         assert_eq!(user, "sushline-lookup-error-inputrc");
         // The resolver receives None for unavailable account data, regardless
         // of whether lookup failed or the account was simply absent.
@@ -712,10 +750,11 @@ fn empty_home_tilde_user_include_is_skipped() {
     let passwd = "sushline-empty-home-inputrc:x:12345:12345:::/bin/false\n";
     let user = "sushline-empty-home-inputrc";
     assert_eq!(home_from_passwd(passwd, user), Some(PathBuf::new()));
-    let path =
-        expand_include_path_with_home("~sushline-empty-home-inputrc/marker.inputrc", |name| {
-            home_from_passwd(passwd, name)
-        });
+    let path = expand_include_path_with_home(
+        "~sushline-empty-home-inputrc/marker.inputrc",
+        None,
+        |name| home_from_passwd(passwd, name),
+    );
     assert_eq!(path, None);
     assert_eq!(home_from_passwd(passwd, "unknown"), None);
 }

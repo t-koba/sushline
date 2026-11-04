@@ -202,7 +202,7 @@ impl InputrcParser {
             if let Some(rest) = decoded.trim_start().strip_prefix('$') {
                 let mut parts = rest.split_whitespace();
                 match parts.next() {
-                    Some("if") => {
+                    Some(name) if name.eq_ignore_ascii_case("if") => {
                         // Keep the separation before a variable operator and its raw RHS.
                         let cond = rest.trim_start()["if".len()..].trim();
                         let matched = eval_condition(
@@ -218,7 +218,7 @@ impl InputrcParser {
                         condition_stack.push(matched);
                         active_stack.push(parent && matched);
                     }
-                    Some("else") => {
+                    Some(name) if name.eq_ignore_ascii_case("else") => {
                         let parent = active_stack
                             .get(active_stack.len().saturating_sub(2))
                             .copied()
@@ -231,13 +231,16 @@ impl InputrcParser {
                             *active = parent && *prev;
                         }
                     }
-                    Some("endif") => {
+                    Some(name) if name.eq_ignore_ascii_case("endif") => {
                         condition_stack
                             .pop()
                             .ok_or_else(|| InputrcError::new(line_no, "$endif without $if"))?;
                         active_stack.pop();
                     }
-                    Some("include") if *active_stack.last().unwrap_or(&true) => {
+                    Some(name)
+                        if name.eq_ignore_ascii_case("include")
+                            && *active_stack.last().unwrap_or(&true) =>
+                    {
                         let path = rest.trim_start()["include".len()..].trim_start();
                         let Some(path) = expand_include_path(path) else {
                             continue;
@@ -253,7 +256,6 @@ impl InputrcParser {
                             diagnostics,
                         )?;
                     }
-                    Some("include") => {}
                     Some(_) => {}
                     None => {}
                 }

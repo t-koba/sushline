@@ -495,6 +495,40 @@ fn bash_and_sushline_accept_nested_inputrc_depth_17() {
 }
 
 #[test]
+fn bash_readline_and_sushline_match_uppercase_inputrc_directives() {
+    let dir = tempfile::tempdir().expect("include directory");
+    let include = dir.path().join("included.inputrc");
+    fs::write(&include, "\"\\C-o\": beginning-of-line\n").expect("write include");
+    let inputrc = format!(
+        r#"
+"\C-o": "Q"
+$INCLUDE {}
+$IF version < 0.0
+"\C-o": end-of-line
+$ELSE
+"\C-p": beginning-of-line
+$ENDIF
+"\C-n": beginning-of-line
+"#,
+        include.display()
+    );
+    for keys in [
+        b"abc\x0fX\r".as_slice(),
+        b"abc\x10X\r".as_slice(),
+        b"abc\x0eX\r".as_slice(),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, &inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, &inputrc);
+        assert_eq!(accepted_line(&bash).as_deref(), Some("Xabc"), "{bash}");
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some("Xabc"),
+            "{sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_apply_same_term_condition_inputrc_branch() {
     let keys = b"abc\x0fX\r";
     let inputrc = r#"

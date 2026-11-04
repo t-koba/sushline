@@ -277,6 +277,30 @@ fn parses_variables_bindings_and_conditionals() {
 }
 
 #[test]
+fn uppercase_condition_directives_skip_false_branch() {
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    InputrcParser::new()
+        .parse_str(
+            "set completion-ignore-case off\n\
+             $IF version < 0.0\n\
+             set completion-ignore-case on\n\
+             $ELSE\n\
+             set bell-style visible\n\
+             $ENDIF\n\
+             set comment-begin after\n",
+            &Config::default(),
+            &mut keymap,
+            &mut variables,
+        )
+        .unwrap();
+
+    assert_eq!(variables["completion-ignore-case"], "off");
+    assert_eq!(variables["bell-style"], "visible");
+    assert_eq!(variables["comment-begin"], "after");
+}
+
+#[test]
 fn ignores_unknown_variables_and_treats_unknown_bool_values_as_off() {
     let mut keymap = KeyMap::emacs_default();
     let mut variables = Variables::new();
@@ -461,6 +485,25 @@ fn default_matches_new_for_includes() {
             .unwrap();
         assert!(variables.is_on("completion-ignore-case"));
     }
+}
+
+#[test]
+fn uppercase_include_loads_child() {
+    let dir = tempfile::tempdir().unwrap();
+    let include = dir.path().join("included.inputrc");
+    fs::write(&include, "set completion-ignore-case on").unwrap();
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    InputrcParser::new()
+        .parse_str(
+            &format!("$INCLUDE {}\n", include.display()),
+            &Config::default(),
+            &mut keymap,
+            &mut variables,
+        )
+        .unwrap();
+
+    assert!(variables.is_on("completion-ignore-case"));
 }
 
 #[test]

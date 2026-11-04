@@ -235,24 +235,23 @@ impl InputrcParser {
                             .ok_or_else(|| InputrcError::new(line_no, "$endif without $if"))?;
                         active_stack.pop();
                     }
-                    Some(name)
-                        if name.eq_ignore_ascii_case("include")
-                            && *active_stack.last().unwrap_or(&true) =>
-                    {
-                        let path = rest.trim_start()["include".len()..].trim_start();
-                        let Some(path) = expand_include_path(path) else {
-                            continue;
-                        };
-                        let Ok(included) = fs::read(&path) else {
-                            continue;
-                        };
-                        self.parse_bytes_inner(
-                            &included,
-                            ctx,
-                            include_depth + 1,
-                            Some(&path),
-                            diagnostics,
-                        )?;
+                    Some(name) if name.eq_ignore_ascii_case("include") => {
+                        if *active_stack.last().unwrap_or(&true) {
+                            let path = rest.trim_start()["include".len()..].trim_start();
+                            let Some(path) = expand_include_path(path) else {
+                                continue;
+                            };
+                            let Ok(included) = fs::read(&path) else {
+                                continue;
+                            };
+                            self.parse_bytes_inner(
+                                &included,
+                                ctx,
+                                include_depth + 1,
+                                Some(&path),
+                                diagnostics,
+                            )?;
+                        }
                     }
                     Some(name) => diagnostics.push(InputrcDiagnostic {
                         path: path.map(Path::to_path_buf),

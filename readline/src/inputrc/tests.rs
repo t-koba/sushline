@@ -408,6 +408,25 @@ fn reports_unknown_directives_and_ignores_unknown_function_bindings() {
 }
 
 #[test]
+fn inactive_include_is_recognized_but_not_loaded() {
+    let dir = tempfile::tempdir().unwrap();
+    let include = dir.path().join("inactive.inputrc");
+    fs::write(&include, "set completion-ignore-case on\n").unwrap();
+    let source = format!(
+        "$if version < 0.0\n$include {}\n$endif\n",
+        include.display()
+    );
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    let diagnostics = InputrcParser::new()
+        .parse_str(&source, &Config::default(), &mut keymap, &mut variables)
+        .unwrap();
+
+    assert!(diagnostics.is_empty());
+    assert!(!variables.is_on("completion-ignore-case"));
+}
+
+#[test]
 fn keymap_variable_selects_binding_target_without_changing_runtime_map() {
     let mut keymap = KeyMap::emacs_default();
     let mut variables = Variables::new();

@@ -629,6 +629,8 @@ $endif
     let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
     let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
 
+    assert!(!bash.contains("unknown parser directive"), "{bash}");
+    assert!(!sushline.contains("unknown parser directive"), "{sushline}");
     assert_eq!(
         accepted_line(&sushline),
         accepted_line(&bash),

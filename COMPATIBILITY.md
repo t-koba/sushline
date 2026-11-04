@@ -1,81 +1,72 @@
 # Readline and History Compatibility
 
-Sushline is a Rust line-editing and history foundation that aims to match GNU
-Readline and History Library observable behavior where that behavior belongs
-inside a line editor or history component.
+Sushline targets GNU Readline 8.3 patch level 0 and GNU History Library
+observable behavior within its Rust editor and history APIs. Bash language,
+shell runtime, builtin compatibility, and the C ABI are out of scope. Claims
+below are limited to the cited oracle tests and their asserted fixtures;
+test modules point to evidence, not complete feature coverage.
 
-The compatibility target is GNU Readline 8.3 patch level 0 and GNU History
-Library behavior, limited to Sushline's Rust editor and history APIs. The CI
-oracle host is GNU Bash 5.3 patch level 0, built from the pinned
-release tarball without later standalone Bash patches. The local oracle-suite
-gate checks only GNU Bash major.minor 5.3, so a later patch level on `PATH` can
-pass that gate; observations from such a local host are not patchlevel-0
-evidence. The suite rejects other major.minor versions. The Readline
-the host carries is part of that baseline: the suite reads the release
-number, the version label and the command list the host's Readline carries
+### Oracle identity
+
+The CI oracle host is GNU Bash 5.3 patch level 0, built from the pinned
+release tarball without later standalone Bash patches and linked against
+GNU Readline 8.3 built from its upstream release tarball. The local
+oracle-suite gate accepts only Bash major.minor 5.3; a later patch level on
+`PATH` can pass, but its observations are not patchlevel-0 evidence.
+
+Readline identity is checked separately from Bash. The suite reads the
+release number, version label, and host command list
 ([`oracle/host_readline.rs`](readline/tests/oracle/host_readline.rs)), names
-the release it measured ([`oracle/host.rs`](readline/tests/oracle/host.rs)),
-and stops on a release the claims below do not cover, so the oracle evidence
-is scoped to a Readline release and not to Bash alone. The number is read
-from the host's own image when the host links Readline statically, in either
-the symbols it exports or the symbols it was built with, and from the
-library the host loads otherwise. If the Readline release cannot be read (for
-example, because the host executable is not an ELF image), the suite names
-that limitation and continues without a release scope; the resulting
-evidence is not scoped to a release. The host the claims were measured on
-links Readline statically and exports the
-release number 0x0803, the 8.3 release this document targets. Its library's
-own version label reads 8.1, so the image states the release two ways and
-the two disagree. The release identity rests on the release number: the
-host's command list holds the two names the 8.3 release adds to the
-library's function table (`execute-named-command` and `export-completions`).
-The shell registers neither name, and the installed 8.2 library's own
-function dump lists neither, so the host's code is the 8.3 release and
-the 8.1 label is stale. The suite reads the number and the label from the
-image that carries them and asks the host for its command list, naming all
-three in its note so the evidence carries the release it was measured on.
-The CI job builds the Readline release this document names from the upstream
-tarball and links the pinned Bash host against it, so the same suite runs
-against that release there as well. The build is configured with the options the job names in its log and
-in the cache keys, and the job stops the build when the release's configure
-does not accept one of them; the host's Readline selection is named in the
-cache key as well, so neither a library nor a host built another way is
-reused as the pinned one. The job checks the release number the built
-library exports, that the built library links a terminal-capability library,
-and that the pinned host's command list holds the two names the 8.3 release
-adds, so a build of another release cannot pass as the pinned one; the suite
-reads the same signals from that library, so the job log names them as well.
-The job also runs the output-stream probe against that pinned release, so
-the claim the output-stream row makes is checked on the release this
-document targets and not only observed on the 8.2 release the runner image
-ships. That job has run on a tree that carries these steps and passed, so
-the pinned build of the release this document names has been exercised in
-CI: the job built it from the pinned digest, linked the pinned host
-against it, checked the output-stream claim on it, and ran the suite
-against that host, which reported the release it carries. The 8.3
-baseline of the claims below therefore rests on that run as well as on
-the observations made against the reference host. The job has run again
-on a tree that carries the history range measurement with the probe linked
-to the pinned history library and with the loader guard that names the
-library, and it passed: the loader's report named the pinned prefix for
-every readline and history library the probe loaded, so the pinned 8.3
-release's own range call is what answered the measurement. It returned the
-entries the file-range row records for the fixture the job measures, and
-it confirmed the two cases where the two read a file differently.
-The job carries the history timestamp measurement too, with the probe
-linked to the pinned history library and with the loader guard that names
-the library, so the rule the list-information row records is measured
-against the release this document names rather than only against the
-release the runner image ships.
-The job also calls `readline(prompt)` directly in a program linked to
-the pinned library and checks the output bytes for literal shell-looking
-sequences and Readline marker delimiters, while checking the library
-release number and loader path.
-The tarball's digest is pinned in the job, so the fetch is a checked one.
-Bash language, shell runtime, and builtin compatibility are not goals. The C
-ABI is out of scope. Claims below are limited to the cited oracle tests and
-their asserted fixtures; test modules are pointers to that evidence, not claims of complete
-feature coverage.
+the measured release ([`oracle/host.rs`](readline/tests/oracle/host.rs)), and
+stops on a release outside the claims below. For a statically linked host,
+it reads the number and label from the host image's exported or build-time
+symbols; otherwise it reads the loaded library. If the release cannot be
+read, for example from a non-ELF host executable, the suite reports that
+limitation and continues, but the resulting evidence has no release scope.
+Its note records the number, label, and command list so observations carry
+their measured identity.
+
+The reference host used for the claims links Readline statically and exports
+release number `0x0803` (8.3), but its library version label says 8.1. Release
+identity rests on the number, corroborated by the host command list's
+`execute-named-command` and `export-completions`, the two names added to the
+8.3 library function table. Neither is registered by the shell or present in
+the installed 8.2 library's function dump: the host carries 8.3 code with a
+stale 8.1 label.
+
+### CI reproducibility and evidence scope
+
+CI pins the tarball digests and checks fetched content. Configure options
+are recorded in the job log and cache keys; the build fails if the release's
+configure rejects an option. Cache keys also identify the host's Readline
+selection, preventing reuse of a library or host built another way as the
+pinned baseline. CI checks the built library's exported release number,
+its linkage to a terminal-capability library, and the pinned host's command
+list for both 8.3 additions. The suite reads the same identity signals from
+the pinned library and reports them in the job log, so another release
+cannot pass as the pinned one.
+
+The 8.3 baseline is supported by successful pinned CI measurements as well
+as reference-host observations. CI evidence includes:
+
+- The oracle suite against the pinned Bash/Readline host and the
+  output-stream probe against the pinned Readline release, checking the
+  output-stream row on 8.3 rather than only the runner's 8.2 library.
+- The history range measurement linked to the pinned history library. Its
+  loader guard reported the pinned prefix for every loaded Readline and
+  History library, establishing that the pinned 8.3 range call produced the
+  file-range row's fixture entries, including the two cases where GNU and
+  Sushline read the file differently.
+- The history timestamp measurement linked to the pinned history library,
+  with the same library-naming loader guard, measuring the list-information
+  row's rule against the target release rather than only the runner's
+  library.
+- A direct `readline(prompt)` call linked to the pinned library, checking
+  output bytes for literal shell-looking sequences and Readline marker
+  delimiters, with release-number and loader-path checks.
+
+These measurements establish only their asserted fixture scope; they do
+not extend the compatibility claims beyond the evidence cited below.
 
 ## Status Legend
 

@@ -166,7 +166,7 @@ impl InputrcParser {
             if trimmed_bytes.is_empty() || trimmed_bytes.starts_with(b"#") {
                 continue;
             }
-            let decoded = match std::str::from_utf8(trimmed_bytes) {
+            let decoded = match std::str::from_utf8(raw_bytes) {
                 Ok(decoded) => decoded,
                 Err(_) => {
                     // This fast path runs before directive dispatch, so it
@@ -197,7 +197,9 @@ impl InputrcParser {
                 continue;
             }
 
-            if let Some(rest) = line.strip_prefix('$') {
+            // Includes need the filename's trailing whitespace; other line types
+            // continue to use the trimmed view above.
+            if let Some(rest) = decoded.trim_start().strip_prefix('$') {
                 let mut parts = rest.split_whitespace();
                 match parts.next() {
                     Some("if") => {
@@ -236,8 +238,8 @@ impl InputrcParser {
                         active_stack.pop();
                     }
                     Some("include") if *active_stack.last().unwrap_or(&true) => {
-                        let path = parts.collect::<Vec<_>>().join(" ");
-                        let Some(path) = expand_include_path(&path) else {
+                        let path = rest.trim_start()["include".len()..].trim_start();
+                        let Some(path) = expand_include_path(path) else {
                             continue;
                         };
                         let Ok(included) = fs::read(&path) else {
@@ -723,10 +725,6 @@ fn expand_include_path_with_home(
     path: &str,
     user_home: impl FnOnce(&str) -> Option<PathBuf>,
 ) -> Option<PathBuf> {
-    let mut path = path.trim().to_string();
-    if let Ok(decoded) = decode_inputrc_string(&path) {
-        path = decoded;
-    }
     if let Some(rest) = path.strip_prefix("~/")
         && let Some(home) = std::env::var_os("HOME")
     {

@@ -451,7 +451,7 @@ fn default_matches_new_for_includes() {
     let dir = tempfile::tempdir().unwrap();
     let include = dir.path().join("included.inputrc");
     fs::write(&include, "set completion-ignore-case on").unwrap();
-    let source = format!("$include \"{}\"", include.display());
+    let source = format!("$include {}", include.display());
 
     for parser in [InputrcParser::new(), InputrcParser::default()] {
         let mut keymap = KeyMap::emacs_default();
@@ -506,98 +506,58 @@ fn ignores_active_include_read_errors() {
 }
 
 #[test]
-fn include_path_spellings_follow_the_measured_gnu_rule_and_extend_it() {
-    // Pinned GNU Readline 8.3 takes the rest of the line after leading
-    // whitespace as the filename: an unquoted path may contain spaces, while
-    // quotes or trailing whitespace become part of the name and make the
-    // include fail. Sushline loads every GNU-accepted spelling here and, as a
-    // documented extension, also trims surrounding whitespace and one pair of
-    // matching quotes. Measured on the pinned host for both editors.
+fn include_path_spellings_follow_the_measured_gnu_rule() {
+    // Only directive-leading and separating whitespace is skipped. Quotes,
+    // internal whitespace and trailing whitespace are literal filename bytes.
     let dir = tempfile::tempdir().unwrap();
-    let plain = dir.path().join("plain.inputrc").display().to_string();
-    let spaced = dir
-        .path()
-        .join("included file.inputrc")
-        .display()
-        .to_string();
-    for path in [&plain, &spaced] {
+    let paths = [
+        "plain.inputrc",
+        "included file.inputrc",
+        "repeated  spaces.inputrc",
+        "internal\ttab.inputrc",
+        "trailing.inputrc ",
+        "trailing.inputrc\t",
+        "\"quoted.inputrc\"",
+        "'quoted.inputrc'",
+    ]
+    .map(|name| dir.path().join(name).display().to_string());
+    for path in &paths {
         fs::write(path, "set completion-ignore-case on").unwrap();
     }
-    for (label, spelling) in [
-        ("plain", format!("$include {plain}")),
-        ("leading whitespace", format!("$include    {plain}")),
-        ("unquoted space", format!("$include {spaced}")),
-        ("double quotes", format!("$include \"{plain}\"")),
-        ("quoted space", format!("$include \"{spaced}\"")),
-        ("single quotes", format!("$include '{plain}'")),
-        ("trailing space", format!("$include {plain} ")),
-        ("trailing tab", format!("$include {plain}\t")),
-    ] {
-        let mut keymap = KeyMap::emacs_default();
-        let mut variables = Variables::new();
-        InputrcParser::new()
-            .parse_str(
-                &format!("set completion-ignore-case off\n{spelling}"),
-                &Config::default(),
-                &mut keymap,
-                &mut variables,
-            )
-            .unwrap();
-        assert_eq!(
-            variables["completion-ignore-case"], "on",
-            "spelling {label:?}"
-        );
-    }
-}
-
-#[test]
-fn quoted_cwd_relative_include_with_space() {
-    // The documented extension case: pinned 8.3 keeps the quotes in the
-    // filename and skips this include, while Sushline strips them and loads it.
-    const CHILD_MARKER: &str = "SUSHLINE_TEST_QUOTED_CWD_INCLUDE_CHILD";
-    if std::env::var_os(CHILD_MARKER).as_deref() == Some(std::ffi::OsStr::new("child")) {
-        let mut keymap = KeyMap::emacs_default();
-        let mut variables = Variables::new();
-        InputrcParser::new()
-            .parse_str(
-                "set completion-ignore-case off\n$include \"included file.inputrc\"\nset editing-mode vi",
-                &Config::default(),
-                &mut keymap,
-                &mut variables,
-            )
-            .unwrap();
-        assert_eq!(variables["completion-ignore-case"], "on");
-        assert_eq!(keymap.current(), KeyMapName::ViInsert);
-        println!("quoted_cwd_relative_include_child=completed");
-        return;
-    }
-
-    let dir = tempfile::tempdir().unwrap();
-    fs::write(
-        dir.path().join("included file.inputrc"),
-        "set completion-ignore-case on\n",
-    )
-    .unwrap();
-    let output = std::process::Command::new(std::env::current_exe().unwrap())
-        .args([
-            "--exact",
-            "inputrc::tests::quoted_cwd_relative_include_with_space",
-            "--nocapture",
+    let plain = &paths[0];
+    let spaced = &paths[1];
+    for (spelling, expected) in paths
+        .iter()
+        .map(|path| (format!("$include {path}"), "on"))
+        .chain([
+            (format!("$include \t  {plain}"), "on"),
+            (format!(" \t$include {plain}"), "on"),
+            (format!("$include \"{plain}\""), "off"),
+            (format!("$include \"{spaced}\""), "off"),
+            (format!("$include '{plain}'"), "off"),
+            (format!("$include {plain} "), "off"),
+            (format!("$include {plain}\t"), "off"),
         ])
-        .current_dir(dir.path())
-        .env(CHILD_MARKER, "child")
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        output.status.success(),
-        "child test failed: stdout={stdout:?}, stderr={stderr:?}"
-    );
-    assert!(
-        stdout.contains("quoted_cwd_relative_include_child=completed"),
-        "child test did not run: stdout={stdout:?}, stderr={stderr:?}"
-    );
+    {
+        // Exercise the final unterminated line as well as both existing line
+        // endings. In particular, do not change the parser's CRLF splitting.
+        for ending in ["", "\n", "\r\n"] {
+            let mut keymap = KeyMap::emacs_default();
+            let mut variables = Variables::new();
+            InputrcParser::new()
+                .parse_str(
+                    &format!("set completion-ignore-case off\n{spelling}{ending}"),
+                    &Config::default(),
+                    &mut keymap,
+                    &mut variables,
+                )
+                .unwrap();
+            assert_eq!(
+                variables["completion-ignore-case"], expected,
+                "spelling {spelling:?}, ending {ending:?}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -617,7 +577,7 @@ fn include_paths_leave_dollar_vars_unexpanded() {
     let mut variables = Variables::new();
     InputrcParser::new()
         .parse_str(
-            "$include \"$SUSHLINE_INPUTRC_INCLUDE_DIR/included.inputrc\"\n\"\\C-o\": end-of-line",
+            "$include $SUSHLINE_INPUTRC_INCLUDE_DIR/included.inputrc\n\"\\C-o\": end-of-line",
             &Config::default(),
             &mut keymap,
             &mut variables,

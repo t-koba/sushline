@@ -290,8 +290,19 @@ fn bash_readline_and_sushline_match_inputrc_include_path_rules() {
     let cwd = tempfile::tempdir().expect("cwd");
     let home = tempfile::tempdir().expect("home");
     let included = "\"\\C-o\": beginning-of-line\n";
-    fs::write(cwd.path().join("relative.inputrc"), included).expect("write CWD include");
-    fs::write(cwd.path().join("relative file.inputrc"), included).expect("write spaced include");
+    let filenames = [
+        "relative.inputrc",
+        "relative file.inputrc",
+        "repeated  spaces.inputrc",
+        "internal\ttab.inputrc",
+        "trailing.inputrc ",
+        "trailing.inputrc\t",
+        "\"quoted.inputrc\"",
+        "'quoted.inputrc'",
+    ];
+    for filename in filenames {
+        fs::write(cwd.path().join(filename), included).expect("write CWD include");
+    }
     fs::write(home.path().join("home.inputrc"), included).expect("write HOME include");
     let home_path = home.path().to_str().expect("HOME path is UTF-8");
     let keys = b"abc\x0fX\r";
@@ -315,20 +326,27 @@ fn bash_readline_and_sushline_match_inputrc_include_path_rules() {
         );
     };
 
-    check(
-        "CWD-relative include",
-        "$include relative.inputrc",
-        &[],
-        "Xabc",
-    );
-    check(
-        // Pinned 8.3 takes the rest of the line after leading whitespace as
-        // the filename, so an unquoted path may contain spaces.
-        "CWD-relative include with a space",
-        "$include relative file.inputrc",
-        &[],
-        "Xabc",
-    );
+    // GNU keeps the entire filename remainder: repeated whitespace, quotes
+    // and trailing whitespace load only when those exact filename bytes exist.
+    for filename in filenames {
+        check(filename, &format!("$include {filename}"), &[], "Xabc");
+    }
+    for directive in [
+        "$include ./relative.inputrc",
+        " \t$include relative.inputrc",
+        "$include \t  relative.inputrc",
+    ] {
+        check(directive, directive, &[], "Xabc");
+    }
+    for directive in [
+        "$include \"relative.inputrc\"",
+        "$include \"relative file.inputrc\"",
+        "$include 'relative.inputrc'",
+        "$include relative.inputrc ",
+        "$include relative.inputrc\t",
+    ] {
+        check(directive, directive, &[], "abcQX");
+    }
     check(
         "HOME tilde include",
         "$include ~/home.inputrc",

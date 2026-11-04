@@ -1474,6 +1474,42 @@ fn empty_bracketed_paste_sets_mark_at_point_for_frame_and_eof() {
 }
 
 #[test]
+fn bracketed_paste_start_is_recognized_when_fragmented_bytewise() {
+    let mut editor = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
+    let mut state = EditorState::new(Prompt::new("> "), Some(b"prefix".to_vec()));
+    let mark = state.buffer.point();
+    let start = b"\x1b[200~";
+
+    for (index, byte) in start.iter().enumerate() {
+        assert!(matches!(
+            editor.handle_bytes(&mut state, &[*byte], &mut ()).unwrap(),
+            EditorOutcome::Continue
+        ));
+        assert_eq!(state.buffer.as_bytes(), b"prefix");
+        if index + 1 < start.len() {
+            assert!(!state.paste.bracketed_paste);
+            assert!(state.paste.bracketed_paste_pending.is_empty());
+            assert_eq!(state.input.pending_key.as_slice(), &start[..=index]);
+        }
+    }
+    assert!(state.paste.bracketed_paste);
+    assert_eq!(state.paste.bracketed_paste_start, Some(mark));
+    assert!(state.input.pending_key.is_empty());
+
+    editor.handle_bytes(&mut state, b"abc", &mut ()).unwrap();
+    assert!(state.paste.bracketed_paste);
+    assert_eq!(state.paste.bracketed_paste_pending, b"abc");
+    assert_eq!(state.buffer.as_bytes(), b"prefix");
+
+    editor
+        .handle_bytes(&mut state, b"\x1b[201~", &mut ())
+        .unwrap();
+    assert!(!state.paste.bracketed_paste);
+    assert_eq!(state.buffer.as_bytes(), b"prefixabc");
+    assert_eq!(state.mark, Some(mark));
+}
+
+#[test]
 fn bracketed_paste_normalizes_cr_to_lf_in_complete_and_eof_payloads() {
     let mut editor = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
 

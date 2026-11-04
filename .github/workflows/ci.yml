@@ -4180,6 +4180,14 @@ jobs:
       # fallback policy; it must not wait for the operator-only broad refresh.
       - name: Measure inputrc tilde include with HOME absent against the pinned release
         run: bash .github/scripts/readline-include-paths.sh --home-unset-only
+      - name: Upload HOME-unset inputrc include measurement
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-home-unset-include
+          path: /tmp/readline_include_home_unset.out
+          if-no-files-found: error
+          retention-days: 14
       - name: Run the oracle suite
         run: |
           set -euo pipefail

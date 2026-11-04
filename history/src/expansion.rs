@@ -2,6 +2,9 @@ use super::History;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Characters that control history expansion parsing.
+///
+/// Matching is byte-oriented: only ASCII characters act as markers; non-ASCII
+/// values are inert.
 pub struct HistoryChars {
     /// Expansion.
     pub expansion: char,
@@ -12,7 +15,10 @@ pub struct HistoryChars {
 }
 
 impl HistoryChars {
-    /// Parse.
+    /// Read expansion, quick-substitution and optional comment characters.
+    ///
+    /// Missing expansion and substitution characters default to `!` and `^`.
+    /// Non-ASCII characters are retained but do not match input bytes.
     pub fn parse(value: &str) -> Self {
         let mut chars = value.chars();
         Self {
@@ -20,6 +26,14 @@ impl HistoryChars {
             quick_substitution: chars.next().unwrap_or('^'),
             comment: chars.next(),
         }
+    }
+}
+
+fn ascii_marker(marker: char) -> Option<u8> {
+    if marker.is_ascii() {
+        Some(marker as u8)
+    } else {
+        None
     }
 }
 
@@ -243,8 +257,9 @@ pub fn expand_history_with_status_with_state(
     state: &mut HistoryExpansionState,
     inhibit: impl Fn(usize) -> bool,
 ) -> Result<HistoryExpansion, HistoryExpansionError> {
-    let expansion = histchars.expansion as u8;
-    let quick = histchars.quick_substitution as u8;
+    let expansion = ascii_marker(histchars.expansion);
+    let quick = ascii_marker(histchars.quick_substitution);
+    let comment = histchars.comment.and_then(ascii_marker);
     let mut out = Vec::with_capacity(line.len());
     let mut idx = 0;
     let mut quote = policy.quote_state;
@@ -258,6 +273,7 @@ pub fn expand_history_with_status_with_state(
     // as a regular event instead of being dropped.
     if policy.quick_substitution
         && policy.quote_state != Some(b'\'')
+        && let Some(quick) = quick
         && line.first() == Some(&quick)
         && let Some((old, new, next_after_fields)) = parse_quick_substitution(line, quick)
         && let Some(last) = history.entries().last()
@@ -303,11 +319,11 @@ pub fn expand_history_with_status_with_state(
         } else if (byte == b'\'' || byte == b'"') && !is_escaped_history_expansion(line, idx) {
             quote = Some(byte);
         }
-        if histchars.comment == Some(byte as char) && at_word_start {
+        if comment == Some(byte) && at_word_start {
             out.extend_from_slice(&line[idx..]);
             break;
         }
-        if byte != expansion
+        if Some(byte) != expansion
             || inhibit(idx)
             || is_escaped_history_expansion(line, idx)
             || line
@@ -458,7 +474,10 @@ pub fn get_history_event(
     histchars: HistoryChars,
     policy: &HistoryExpansionPolicy,
 ) -> Result<Option<HistoryEvent>, HistoryExpansionError> {
-    let start = usize::from(line.first() == Some(&(histchars.expansion as u8)));
+    let start = usize::from(
+        line.first()
+            .is_some_and(|byte| Some(*byte) == ascii_marker(histchars.expansion)),
+    );
     let mut scratch = HistoryExpansionState::new();
     parse_history_event(line, start, history, histchars, policy, &mut scratch)
 }
@@ -472,7 +491,7 @@ fn parse_history_event(
     state: &mut HistoryExpansionState,
 ) -> Result<Option<HistoryEvent>, HistoryExpansionError> {
     match line.get(idx).copied() {
-        Some(byte) if byte == histchars.expansion as u8 => {
+        Some(byte) if Some(byte) == ascii_marker(histchars.expansion) => {
             idx += 1;
             history
                 .entries()

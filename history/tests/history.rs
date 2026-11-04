@@ -3497,6 +3497,91 @@ fn append_new_can_suppress_timestamp_writes() {
 }
 
 #[test]
+fn history_expansion_marker_matches_only_ascii() {
+    let mut history = History::new();
+    history.push("echo old");
+    for (markers, input, expected) in [
+        ("!^#", "!!", "echo old"),
+        ("@^#", "@@", "echo old"),
+        ("ġ^#", "!!", "!!"),
+        ("ġ^#", "ġġ", "ġġ"),
+    ] {
+        assert_eq!(
+            expand_history(
+                input.as_bytes(),
+                &history,
+                HistoryChars::parse(markers),
+                &HistoryExpansionPolicy::default(),
+                |_| false,
+            )
+            .unwrap(),
+            expected.as_bytes(),
+            "markers {markers:?}, input {input:?}"
+        );
+    }
+    assert!(
+        get_history_event(
+            b"!!",
+            &history,
+            HistoryChars::parse("ġ^#"),
+            &HistoryExpansionPolicy::default(),
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn history_quick_substitution_marker_matches_only_ascii() {
+    let mut history = History::new();
+    history.push("echo old");
+    for (markers, input, expected) in [
+        ("!^#", "^old^new^", "echo new"),
+        ("!#", "#old#new#", "echo new"),
+        ("!ģ", "#old#new#", "#old#new#"),
+        ("!ģ", "ģoldģnewģ", "ģoldģnewģ"),
+    ] {
+        assert_eq!(
+            expand_history(
+                input.as_bytes(),
+                &history,
+                HistoryChars::parse(markers),
+                &HistoryExpansionPolicy::default(),
+                |_| false,
+            )
+            .unwrap(),
+            expected.as_bytes(),
+            "markers {markers:?}, input {input:?}"
+        );
+    }
+}
+
+#[test]
+fn history_comment_marker_matches_only_ascii() {
+    let mut history = History::new();
+    history.push("echo old");
+    for (markers, input, expected) in [
+        ("!^#", b"# !!".as_slice(), b"# !!".as_slice()),
+        ("!^ģ", b"# !!", b"# echo old"),
+        // A Latin-1 character must not match the same-valued raw input byte.
+        ("!^£", b"\xa3 !!", b"\xa3 echo old"),
+        ("!^£", "£ !!".as_bytes(), "£ echo old".as_bytes()),
+    ] {
+        assert_eq!(
+            expand_history(
+                input,
+                &history,
+                HistoryChars::parse(markers),
+                &HistoryExpansionPolicy::default(),
+                |_| false,
+            )
+            .unwrap(),
+            expected,
+            "markers {markers:?}, input {input:?}"
+        );
+    }
+}
+
+#[test]
 fn history_expansion_supports_line_so_far_status_and_policy() {
     let mut history = History::new();
     history.push("echo alpha beta");

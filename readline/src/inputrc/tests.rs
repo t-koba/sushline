@@ -379,10 +379,10 @@ fn ignores_invalid_editing_mode_and_keymap_values() {
 }
 
 #[test]
-fn ignores_unknown_directives_and_function_bindings() {
+fn reports_unknown_directives_and_ignores_unknown_function_bindings() {
     let mut keymap = KeyMap::emacs_default();
     let mut variables = Variables::new();
-    InputrcParser::new()
+    let diagnostics = InputrcParser::new()
         .parse_str(
             "$unknown directive\n\"\\C-x\\C-a\": not-a-real-function\n\"\\C-o\": end-of-line",
             &Config::default(),
@@ -391,6 +391,11 @@ fn ignores_unknown_directives_and_function_bindings() {
         )
         .unwrap();
 
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].path, None);
+    assert_eq!(diagnostics[0].line, 1);
+    assert_eq!(diagnostics[0].variable, "unknown");
+    assert_eq!(diagnostics[0].message, "unknown parser directive");
     assert!(
         keymap
             .lookup(KeyMapName::EmacsStandard, &[0x18, 0x01])

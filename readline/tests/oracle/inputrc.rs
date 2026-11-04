@@ -63,6 +63,36 @@ fn bash_readline_and_sushline_report_invalid_set_directives() {
 }
 
 #[test]
+fn bash_readline_and_sushline_report_unknown_inputrc_directives_and_continue() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    fs::write(
+        &path,
+        r#""\C-o": "Q"
+$unknown-directive
+"\C-o": beginning-of-line
+"#,
+    )
+    .expect("write inputrc");
+    let keys = b"abc\x0fX\r";
+    let bash = run_bash_readline_with_inputrc_path(keys, &path);
+    let sushline = run_sushline_harness_with_inputrc_path(keys, &path);
+
+    let diagnostic = format!(
+        "readline: {}: line 2: unknown-directive: unknown parser directive",
+        path.display()
+    );
+    assert!(bash.contains(&diagnostic), "{bash}");
+    assert!(sushline.contains(&diagnostic), "{sushline}");
+    assert_eq!(accepted_line(&bash).as_deref(), Some("Xabc"), "{bash}");
+    assert_eq!(
+        accepted_line(&sushline).as_deref(),
+        Some("Xabc"),
+        "{sushline}"
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_report_the_same_set_value_diagnostics() {
     // The variables whose values GNU Readline validates, each with the
     // values GNU accepts and rejects, plus the directive spellings and the

@@ -26,7 +26,7 @@ pub struct InputrcDiagnostic {
     pub path: Option<PathBuf>,
     /// Line number in that file.
     pub line: usize,
-    /// Variable name as written in the directive.
+    /// Variable or directive name as written in the inputrc line.
     pub variable: String,
     /// Message text, like GNU Readline's diagnostic.
     pub message: String,
@@ -254,7 +254,12 @@ impl InputrcParser {
                             diagnostics,
                         )?;
                     }
-                    Some(_) => {}
+                    Some(name) => diagnostics.push(InputrcDiagnostic {
+                        path: path.map(Path::to_path_buf),
+                        line: line_no,
+                        variable: name.to_string(),
+                        message: "unknown parser directive".to_string(),
+                    }),
                     None => {}
                 }
                 continue;

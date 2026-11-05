@@ -1199,10 +1199,14 @@ fn raw_non_utf8_key_does_not_salvage_invalid_binding_values() {
 }
 
 #[test]
-fn parses_measured_raw_0xfe_and_0xff_binding_values() {
+fn parses_measured_raw_0x80_0xfe_and_0xff_binding_values() {
     for (value, expected) in [
         (
             b"beginning-of-line".as_slice(),
+            KeyBinding::Command(EditCommand::BeginningOfLine),
+        ),
+        (
+            b"beginning-\x80of-line".as_slice(),
             KeyBinding::Command(EditCommand::BeginningOfLine),
         ),
         (
@@ -1216,6 +1220,10 @@ fn parses_measured_raw_0xfe_and_0xff_binding_values() {
         (
             b"\"hello\"".as_slice(),
             KeyBinding::Macro(b"hello".to_vec()),
+        ),
+        (
+            b"\"he\x80llo\"".as_slice(),
+            KeyBinding::Macro(b"he\x80llo".to_vec()),
         ),
         (
             b"\"he\xfello\"".as_slice(),

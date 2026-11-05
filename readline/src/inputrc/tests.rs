@@ -53,6 +53,39 @@ fn accepts_the_set_values_gnu_readline_accepts() {
 }
 
 #[test]
+fn final_bare_cr_is_preserved_in_unterminated_binding() {
+    let mut cr_keymap = KeyMap::emacs_default();
+    let mut cr_variables = Variables::new();
+    InputrcParser::new()
+        .parse_bytes(
+            b"\"\\C-o\": backward-char\r",
+            &Config::default(),
+            &mut cr_keymap,
+            &mut cr_variables,
+        )
+        .unwrap();
+    assert!(!matches!(
+        cr_keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
+        Some(KeyBinding::Command(EditCommand::BackwardChar))
+    ));
+
+    let mut control_keymap = KeyMap::emacs_default();
+    let mut control_variables = Variables::new();
+    InputrcParser::new()
+        .parse_bytes(
+            b"\"\\C-o\": backward-char",
+            &Config::default(),
+            &mut control_keymap,
+            &mut control_variables,
+        )
+        .unwrap();
+    assert_eq!(
+        control_keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
+        Some(&KeyBinding::Command(EditCommand::BackwardChar))
+    );
+}
+
+#[test]
 fn numeric_set_values_store_canonical_strings() {
     // Eighteen spellings per setting: the earlier four controls plus the
     // finite Bash-hosted Readline bind -v matrix. Expected columns are display

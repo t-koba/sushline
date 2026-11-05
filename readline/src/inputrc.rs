@@ -322,17 +322,10 @@ impl InputrcParser {
 }
 
 fn split_inputrc_lines(source: &[u8]) -> impl Iterator<Item = &[u8]> {
-    // No trailing empty after a final `\n`; preserve CR on CRLF-terminated
-    // lines for binding parsing. Keep the previous `str::lines` behavior for
-    // the final unterminated line, including its trailing CR. Empty input has
-    // no lines.
+    // Split only on LF, retaining other bytes including a final bare CR for
+    // binding parsing. Drop the trailing empty piece after a final LF; empty
+    // input has no lines.
     let mut parts: Vec<&[u8]> = source.split(|byte| *byte == b'\n').collect();
-    if !source.ends_with(b"\n")
-        && let Some(last) = parts.last_mut()
-    {
-        let line = *last;
-        *last = line.strip_suffix(b"\r").unwrap_or(line);
-    }
     if !source.is_empty()
         && source.ends_with(b"\n")
         && parts.last().is_some_and(|last| last.is_empty())

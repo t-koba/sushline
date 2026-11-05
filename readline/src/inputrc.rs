@@ -157,7 +157,7 @@ impl InputrcParser {
         let mut condition_stack = Vec::new();
         let mut line_count = 0;
 
-        for (idx, (raw_bytes, line_terminated_by_lf)) in split_inputrc_lines(source).enumerate() {
+        for (idx, raw_bytes) in split_inputrc_lines(source).enumerate() {
             let line_no = idx + 1;
             line_count = line_no;
             // Byte-level fast path: blank lines and `#` comments survive
@@ -175,7 +175,7 @@ impl InputrcParser {
                     // inside a double-quoted key binds as that byte (measured
                     // for `0xFF`); value normalization below is separate.
                     if *active_stack.last().unwrap_or(&true)
-                        && try_bind_raw_quoted_key(trimmed_bytes, ctx, line_terminated_by_lf)
+                        && try_bind_raw_quoted_key(trimmed_bytes, ctx)
                     {
                         continue;
                     }
@@ -305,13 +305,9 @@ impl InputrcParser {
                 continue;
             }
 
-            if let Err(message) = parse_binding_line_in_map_with_lf(
-                line,
-                ctx.keymap,
-                *ctx.binding_map,
-                ctx.variables,
-                line_terminated_by_lf,
-            ) && !message.starts_with("unknown readline command:")
+            if let Err(message) =
+                parse_binding_line_in_map(line, ctx.keymap, *ctx.binding_map, ctx.variables)
+                && !message.starts_with("unknown readline command:")
             {
                 return Err(InputrcError::new(line_no, message));
             }
@@ -325,7 +321,7 @@ impl InputrcParser {
     }
 }
 
-fn split_inputrc_lines(source: &[u8]) -> impl Iterator<Item = (&[u8], bool)> {
+fn split_inputrc_lines(source: &[u8]) -> impl Iterator<Item = &[u8]> {
     // Split only on LF, retaining other bytes including a final bare CR for
     // binding parsing. Drop the trailing empty piece after a final LF; empty
     // input has no lines.
@@ -339,12 +335,7 @@ fn split_inputrc_lines(source: &[u8]) -> impl Iterator<Item = (&[u8], bool)> {
     if source.is_empty() {
         parts.clear();
     }
-    let final_index = parts.len().saturating_sub(1);
-    let trailing_lf = source.ends_with(b"\n");
-    parts
-        .into_iter()
-        .enumerate()
-        .map(move |(index, line)| (line, index < final_index || trailing_lf))
+    parts.into_iter()
 }
 
 /// Bind a double-quoted key containing raw non-UTF-8 bytes.
@@ -352,11 +343,7 @@ fn split_inputrc_lines(source: &[u8]) -> impl Iterator<Item = (&[u8], bool)> {
 /// Normalize non-UTF-8 bytes in a bare double-quoted key to octal escapes and
 /// reuse the regular binding parser for command and macro semantics. Keys
 /// containing backslash syntax stay on the old skip path.
-fn try_bind_raw_quoted_key(
-    line: &[u8],
-    ctx: &mut ParseContext<'_>,
-    line_terminated_by_lf: bool,
-) -> bool {
+fn try_bind_raw_quoted_key(line: &[u8], ctx: &mut ParseContext<'_>) -> bool {
     let Some((colon, prefix_end)) = binding_value_prefix_bounds(line) else {
         return false;
     };
@@ -389,14 +376,7 @@ fn try_bind_raw_quoted_key(
     }
     normalized.push('"');
     normalized.push_str(value);
-    parse_binding_line_in_map_with_lf(
-        &normalized,
-        ctx.keymap,
-        *ctx.binding_map,
-        ctx.variables,
-        line_terminated_by_lf,
-    )
-    .is_ok()
+    parse_binding_line_in_map(&normalized, ctx.keymap, *ctx.binding_map, ctx.variables).is_ok()
 }
 
 fn binding_value_prefix_bounds(line: &[u8]) -> Option<(usize, usize)> {
@@ -531,16 +511,6 @@ pub fn parse_binding_line_in_map(
     map: KeyMapName,
     variables: &Variables,
 ) -> Result<(), String> {
-    parse_binding_line_in_map_with_lf(line, keymap, map, variables, true)
-}
-
-fn parse_binding_line_in_map_with_lf(
-    line: &str,
-    keymap: &mut KeyMap,
-    map: KeyMapName,
-    variables: &Variables,
-    line_terminated_by_lf: bool,
-) -> Result<(), String> {
     let Some(pos) = find_unquoted_colon(line) else {
         return Err("missing ':' in binding".to_string());
     };
@@ -558,11 +528,9 @@ fn parse_binding_line_in_map_with_lf(
     let seq = KeySequence::parse_with_meta(key, meta_prefix)?;
     let binding = if let Some(end) = quoted_value_end(value.as_bytes()) {
         let mut bytes = decode_inputrc_bytes(&value[..end], meta_prefix)?;
-        // In the measured double-quoted CRLF form the closing quote and CR
-        // enter the macro (`bind -s` shows `"\\C-o": "TRUE\"\\C-m"`), so
-        // Ctrl-O alone accepts the line. A final bare CR is not that CRLF
-        // form; retain the older quoted-macro behavior there.
-        if line_terminated_by_lf && value.starts_with('"') && &raw_value[end..] == "\r" {
+        // The measured double-quoted CRLF and final-bare-CR forms include
+        // the closing quote and CR in the macro; the LF control does not.
+        if value.starts_with('"') && &raw_value[end..] == "\r" {
             bytes.extend_from_slice(b"\"\r");
         }
         KeyBinding::Macro(bytes)

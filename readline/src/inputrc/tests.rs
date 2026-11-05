@@ -1109,11 +1109,11 @@ fn crlf_backward_char_binding_unbinds_unlike_lf() {
 }
 
 #[test]
-fn crlf_quoted_macro_includes_quote_and_cr_unlike_lf() {
+fn crlf_and_final_bare_cr_quoted_macros_include_quote_and_cr_unlike_lf() {
     for (inputrc, expected) in [
         ("\"\\C-o\": \"TRUE\"\r\n", b"TRUE\"\r".as_slice()),
         ("\"\\C-o\": \"TRUE\"\n", b"TRUE".as_slice()),
-        ("\"\\C-o\": \"TRUE\"\r", b"TRUE".as_slice()),
+        ("\"\\C-o\": \"TRUE\"\r", b"TRUE\"\r".as_slice()),
     ] {
         let mut keymap = KeyMap::emacs_default();
         let mut variables = Variables::new();

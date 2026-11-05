@@ -535,11 +535,13 @@ pub fn parse_binding_line_in_map(
     let seq = KeySequence::parse_with_meta(key, meta_prefix)?;
     let binding = if let Some(end) = quoted_value_end(value.as_bytes()) {
         let mut bytes = decode_inputrc_bytes(&value[..end], meta_prefix)?;
-        // In the measured double-quoted CRLF form the closing quote enters
-        // the macro. Do not erase that distinction by trimming CR first.
-        // Other suffixes still follow the complete-quoted-value rule.
+        // In the measured double-quoted CRLF form the closing quote and CR
+        // enter the macro (`bind -s` shows `"\\C-o": "TRUE\"\\C-m"`), so
+        // Ctrl-O alone accepts the line. Do not erase that distinction by
+        // trimming CR first. Other suffixes still follow the
+        // complete-quoted-value rule.
         if value.starts_with('"') && &raw_value[end..] == "\r" {
-            bytes.push(b'"');
+            bytes.extend_from_slice(b"\"\r");
         }
         KeyBinding::Macro(bytes)
     } else if let Some(command) = EditCommand::parse(command) {

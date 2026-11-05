@@ -1076,9 +1076,9 @@ fn crlf_backward_char_binding_unbinds_unlike_lf() {
 }
 
 #[test]
-fn crlf_quoted_macro_retains_the_closing_quote_unlike_lf() {
+fn crlf_quoted_macro_includes_quote_and_cr_unlike_lf() {
     for (inputrc, expected) in [
-        ("\"\\C-o\": \"TRUE\"\r\n", b"TRUE\"".as_slice()),
+        ("\"\\C-o\": \"TRUE\"\r\n", b"TRUE\"\r".as_slice()),
         ("\"\\C-o\": \"TRUE\"\n", b"TRUE".as_slice()),
         ("\"\\C-o\": \"TRUE\"\r", b"TRUE".as_slice()),
     ] {

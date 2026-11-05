@@ -38,17 +38,21 @@ fn bash_readline_and_sushline_match_crlf_backward_char_and_lf_control() {
 #[test]
 fn bash_readline_and_sushline_match_crlf_quoted_macro_and_lf_control() {
     // Only these exact bytes were measured on Bash 5.3 / Readline 8.3.
+    // CRLF macro is TRUE quote plus CR, so Ctrl-O alone accepts; LF macro needs Enter.
     assert_eq!(
         super::host_readline::host_readline_identity()
             .expect("Readline identity")
             .release,
         super::host_readline::MEASURED_RELEASE
     );
-    for (inputrc, expected) in [
-        ("\"\\C-o\": \"TRUE\"\r\n", "abcTRUE\""),
-        ("\"\\C-o\": \"TRUE\"\n", "abcTRUE"),
+    for (inputrc, keys, expected) in [
+        (
+            "\"\\C-o\": \"TRUE\"\r\n",
+            b"abc\x0f".as_slice(),
+            "abcTRUE\"",
+        ),
+        ("\"\\C-o\": \"TRUE\"\n", b"abc\x0f\r".as_slice(), "abcTRUE"),
     ] {
-        let keys = b"abc\x0f\r";
         let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
         let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
         assert_eq!(

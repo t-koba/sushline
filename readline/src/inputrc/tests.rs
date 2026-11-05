@@ -1052,6 +1052,28 @@ fn does_not_strip_non_utf8_comments_from_set_directives() {
 }
 
 #[test]
+fn crlf_quoted_macro_retains_the_closing_quote_unlike_lf() {
+    for (inputrc, expected) in [
+        ("\"\\C-o\": \"TRUE\"\r\n", b"TRUE\"".as_slice()),
+        ("\"\\C-o\": \"TRUE\"\n", b"TRUE".as_slice()),
+        ("\"\\C-o\": \"TRUE\"\r", b"TRUE".as_slice()),
+    ] {
+        let mut keymap = KeyMap::emacs_default();
+        let mut variables = Variables::new();
+        let diagnostics = InputrcParser::new()
+            .parse_str(inputrc, &Config::default(), &mut keymap, &mut variables)
+            .unwrap();
+
+        assert!(diagnostics.is_empty(), "{inputrc:?}: {diagnostics:?}");
+        assert_eq!(
+            keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
+            Some(&KeyBinding::Macro(expected.to_vec())),
+            "{inputrc:?}"
+        );
+    }
+}
+
+#[test]
 fn parses_quoted_macros_before_valid_trailing_text() {
     let inputrc = r#"
 "\C-o": "hello" trailing

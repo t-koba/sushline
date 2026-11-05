@@ -198,14 +198,15 @@ impl InputrcParser {
                     }
                 }
             };
-            let line = decoded.trim();
+            let line = decoded.trim_start();
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
 
-            // Includes need the filename's trailing whitespace; other line types
-            // continue to use the trimmed view above.
+            // Directives retain their existing CRLF handling; includes need
+            // the filename's other trailing whitespace.
             if let Some(rest) = decoded.trim_start().strip_prefix('$') {
+                let rest = rest.strip_suffix('\r').unwrap_or(rest);
                 let mut parts = rest.split_whitespace();
                 match parts.next() {
                     Some(name) if name.eq_ignore_ascii_case("if") => {
@@ -321,12 +322,17 @@ impl InputrcParser {
 }
 
 fn split_inputrc_lines(source: &[u8]) -> impl Iterator<Item = &[u8]> {
-    // Mirror `str::lines` semantics: no trailing empty after a final `\n`,
-    // interior blank lines preserved, empty input yields zero lines.
-    let mut parts: Vec<&[u8]> = source
-        .split(|byte| *byte == b'\n')
-        .map(|line| line.strip_suffix(b"\r".as_slice()).unwrap_or(line))
-        .collect();
+    // No trailing empty after a final `\n`; preserve CR on CRLF-terminated
+    // lines for binding parsing. Keep the previous `str::lines` behavior for
+    // the final unterminated line, including its trailing CR. Empty input has
+    // no lines.
+    let mut parts: Vec<&[u8]> = source.split(|byte| *byte == b'\n').collect();
+    if !source.ends_with(b"\n")
+        && let Some(last) = parts.last_mut()
+    {
+        let line = *last;
+        *last = line.strip_suffix(b"\r").unwrap_or(line);
+    }
     if !source.is_empty()
         && source.ends_with(b"\n")
         && parts.last().is_some_and(|last| last.is_empty())
@@ -516,13 +522,20 @@ pub fn parse_binding_line_in_map(
         return Err("missing ':' in binding".to_string());
     };
     let key = line[..pos].trim();
-    let value = line[pos + 1..].trim();
+    let raw_value = line[pos + 1..].trim_start();
+    let value = raw_value.trim_end();
     let meta_prefix =
         variable_is_on(variables, "force-meta-prefix") || variable_is_on(variables, "convert-meta");
     let seq = KeySequence::parse_with_meta(key, meta_prefix)?;
-    // GNU consumes one complete quoted macro value and ignores any suffix.
     let binding = if let Some(end) = quoted_value_end(value.as_bytes()) {
-        KeyBinding::Macro(decode_inputrc_bytes(&value[..end], meta_prefix)?)
+        let mut bytes = decode_inputrc_bytes(&value[..end], meta_prefix)?;
+        // In the measured double-quoted CRLF form the closing quote enters
+        // the macro. Do not erase that distinction by trimming CR first.
+        // Other suffixes still follow the complete-quoted-value rule.
+        if value.starts_with('"') && &raw_value[end..] == "\r" {
+            bytes.push(b'"');
+        }
+        KeyBinding::Macro(bytes)
     } else if let Some(command) = value.split_whitespace().next().and_then(EditCommand::parse) {
         KeyBinding::Command(command)
     } else if let Some(command) = value.split_whitespace().next().filter(|command| {

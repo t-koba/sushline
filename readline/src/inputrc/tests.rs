@@ -1199,22 +1199,49 @@ fn raw_non_utf8_key_does_not_salvage_invalid_binding_values() {
 }
 
 #[test]
-fn does_not_salvage_invalid_bytes_inside_a_quoted_macro() {
-    let mut bytes = br##""\C-q": "before "##.to_vec();
-    bytes.push(0xff);
-    bytes.extend_from_slice(b" after\"\n");
-    let mut keymap = KeyMap::emacs_default();
-    let mut variables = Variables::new();
-
-    InputrcParser::new()
-        .parse_bytes(&bytes, &Config::default(), &mut keymap, &mut variables)
-        .unwrap();
-
-    assert!(
-        keymap
-            .lookup(KeyMapName::EmacsStandard, &[0x11])
-            .is_some_and(|binding| !matches!(binding, KeyBinding::Macro(_)))
-    );
+fn parses_measured_raw_0xff_binding_values() {
+    for (value, expected) in [
+        (
+            b"beginning-of-line".as_slice(),
+            KeyBinding::Command(EditCommand::BeginningOfLine),
+        ),
+        (
+            b"beginning-\xffof-line".as_slice(),
+            KeyBinding::Command(EditCommand::BeginningOfLine),
+        ),
+        (
+            b"\"he\xffllo\"".as_slice(),
+            KeyBinding::Macro(b"he\xffllo".to_vec()),
+        ),
+    ] {
+        // Both the normal binding dispatch and its conditional guard apply.
+        for active in [true, false] {
+            let mut bytes = if active {
+                Vec::new()
+            } else {
+                b"$if version < 0.0\n".to_vec()
+            };
+            bytes.extend_from_slice(b"\"\\C-f\": ");
+            bytes.extend_from_slice(value);
+            if !active {
+                bytes.extend_from_slice(b"\n$endif");
+            }
+            let mut keymap = KeyMap::emacs_default();
+            let mut variables = Variables::new();
+            InputrcParser::new()
+                .parse_bytes(&bytes, &Config::default(), &mut keymap, &mut variables)
+                .unwrap();
+            let expected = if active {
+                expected.clone()
+            } else {
+                KeyBinding::Command(EditCommand::ForwardChar)
+            };
+            assert_eq!(
+                keymap.lookup(KeyMapName::EmacsStandard, &[0x06]),
+                Some(&expected)
+            );
+        }
+    }
 }
 
 #[test]

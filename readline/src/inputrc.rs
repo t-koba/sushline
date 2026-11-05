@@ -95,9 +95,10 @@ impl InputrcParser {
     /// so valid lines survive invalid bytes elsewhere. `\\nnn`/`\\xHH`
     /// escapes remain the portable form; the measured raw-byte path accepts a
     /// bare `0xFF` inside a double-quoted binding key. Complete UTF-8
-    /// binding keys and command/macro values survive invalid trailing bytes;
-    /// invalid bytes in set directives, command names, quoted
-    /// macro/value bodies, and other line types are skipped.
+    /// binding keys and command/macro values survive invalid trailing bytes.
+    /// Pinned binding-value cases ignore `0xFF` in `beginning-\xffof-line`
+    /// and preserve it as a byte in the double-quoted macro `he\xffllo`.
+    /// Other invalid-byte forms are not established by those fixtures.
     pub fn parse_bytes(
         &self,
         source: &[u8],
@@ -164,30 +165,36 @@ impl InputrcParser {
             if trimmed_bytes.is_empty() || trimmed_bytes.starts_with(b"#") {
                 continue;
             }
+            let normalized;
             let decoded = match std::str::from_utf8(raw_bytes) {
                 Ok(decoded) => decoded,
                 Err(_) => {
                     // This fast path runs before directive dispatch, so it
                     // must respect the active conditional itself. A raw byte
                     // inside a double-quoted key binds as that byte (measured
-                    // for `0xFF`); other invalid bytes stay on the rejection
-                    // path below.
+                    // for `0xFF`); value normalization below is separate.
                     if *active_stack.last().unwrap_or(&true)
                         && try_bind_raw_quoted_key(trimmed_bytes, ctx)
                     {
                         continue;
                     }
-                    // GNU accepts a complete binding command or quoted
-                    // macro and ignores trailing text. Keep invalid bytes
-                    // out of key/value syntax; do not apply this rule to set
-                    // directives or other inputrc lines.
-                    let Some((_, prefix_end)) = binding_value_prefix_bounds(trimmed_bytes) else {
+                    // GNU accepts a complete binding value and ignores trailing
+                    // text. Only binding values take the measured raw-0xFF path;
+                    // directives and invalid keys retain their existing handling.
+                    let Some((colon, prefix_end)) = binding_value_prefix_bounds(trimmed_bytes)
+                    else {
                         continue;
                     };
-                    let Ok(decoded) = std::str::from_utf8(&trimmed_bytes[..prefix_end]) else {
-                        continue;
-                    };
-                    decoded
+                    let prefix = &trimmed_bytes[..prefix_end];
+                    if let Ok(decoded) = std::str::from_utf8(prefix) {
+                        decoded
+                    } else {
+                        let Some(value) = normalize_raw_binding_value(prefix, colon) else {
+                            continue;
+                        };
+                        normalized = value;
+                        &normalized
+                    }
                 }
             };
             let line = decoded.trim();
@@ -425,8 +432,31 @@ fn binding_value_prefix_bounds(line: &[u8]) -> Option<(usize, usize)> {
     if command_len == 0 {
         return None;
     }
-    std::str::from_utf8(&value[..command_len]).ok()?;
     Some((colon, command_start + command_len))
+}
+
+// Keep raw 0xFF out of function-name lookup, but retain its byte in a
+// double-quoted macro via the existing octal decoder. Do not decode invalid
+// keys, single-quoted values, or other invalid bytes through this path.
+fn normalize_raw_binding_value(prefix: &[u8], colon: usize) -> Option<String> {
+    std::str::from_utf8(&prefix[..=colon]).ok()?;
+    let value = &prefix[colon + 1..];
+    let trimmed = trim_ascii(value);
+    if trimmed.starts_with(b"'") {
+        return None;
+    }
+    let quoted = trimmed.starts_with(b"\"");
+    let mut normalized = prefix[..=colon].to_vec();
+    for byte in value {
+        if *byte == 0xff {
+            if quoted {
+                normalized.extend_from_slice(b"\\377");
+            }
+        } else {
+            normalized.push(*byte);
+        }
+    }
+    String::from_utf8(normalized).ok()
 }
 
 fn quoted_value_end(value: &[u8]) -> Option<usize> {

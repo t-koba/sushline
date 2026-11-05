@@ -1058,6 +1058,46 @@ fn bash_readline_and_sushline_match_raw_0xff_inputrc_key_and_escape() {
 }
 
 #[test]
+fn bash_readline_and_sushline_match_raw_0xff_inputrc_function_name() {
+    assert_raw_inputrc_binding_value(b"beginning-of-line", "Xabc");
+    assert_raw_inputrc_binding_value(b"beginning-\xffof-line", "Xabc");
+}
+
+#[test]
+fn bash_readline_and_sushline_match_raw_0xff_inputrc_macro_body() {
+    assert_raw_inputrc_binding_value(b"\"he\xffllo\"", "he\u{fffd}lloXabc");
+}
+
+fn assert_raw_inputrc_binding_value(value: &[u8], expected: &str) {
+    // These byte placements were measured on Bash 5.3 / Readline 8.3.
+    assert_eq!(
+        super::host_readline::host_readline_identity()
+            .expect("Readline identity")
+            .release,
+        super::host_readline::MEASURED_RELEASE
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    let keys = b"abc\x01\x06X\r";
+    let mut inputrc = b"set editing-mode emacs\n\"\\C-f\": ".to_vec();
+    inputrc.extend_from_slice(value);
+    inputrc.push(b'\n');
+    fs::write(&path, inputrc).expect("write inputrc");
+    let bash = run_bash_readline_with_inputrc_path(keys, &path);
+    let sushline = run_sushline_harness_with_inputrc_path(keys, &path);
+    assert_eq!(
+        accepted_line(&bash).as_deref(),
+        Some(expected),
+        "{value:?}: {bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline).as_deref(),
+        Some(expected),
+        "{value:?}: {sushline}"
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_do_not_strip_invalid_comments_from_set_directives() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("inputrc");

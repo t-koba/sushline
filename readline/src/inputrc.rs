@@ -96,8 +96,9 @@ impl InputrcParser {
     /// escapes remain the portable form; the measured raw-byte path accepts a
     /// bare `0xFF` inside a double-quoted binding key. Complete UTF-8
     /// binding keys and command/macro values survive invalid trailing bytes.
-    /// Pinned binding-value cases ignore `0xFF` in `beginning-\xffof-line`
-    /// and preserve it as a byte in the double-quoted macro `he\xffllo`.
+    /// Pinned binding-value cases ignore raw `0xFE` or `0xFF` between
+    /// `beginning-` and `of-line` and preserve either byte between `he` and
+    /// `llo` in a double-quoted macro.
     /// Other invalid-byte forms are not established by those fixtures.
     pub fn parse_bytes(
         &self,
@@ -435,7 +436,7 @@ fn binding_value_prefix_bounds(line: &[u8]) -> Option<(usize, usize)> {
     Some((colon, command_start + command_len))
 }
 
-// Keep raw 0xFF out of function-name lookup, but retain its byte in a
+// Keep measured raw 0xFE/0xFF out of function-name lookup, but retain each in a
 // double-quoted macro via the existing octal decoder. Do not decode invalid
 // keys, single-quoted values, or other invalid bytes through this path.
 fn normalize_raw_binding_value(prefix: &[u8], colon: usize) -> Option<String> {
@@ -448,9 +449,9 @@ fn normalize_raw_binding_value(prefix: &[u8], colon: usize) -> Option<String> {
     let quoted = trimmed.starts_with(b"\"");
     let mut normalized = prefix[..=colon].to_vec();
     for byte in value {
-        if *byte == 0xff {
+        if matches!(*byte, 0xfe | 0xff) {
             if quoted {
-                normalized.extend_from_slice(b"\\377");
+                normalized.extend_from_slice(if *byte == 0xfe { b"\\376" } else { b"\\377" });
             }
         } else {
             normalized.push(*byte);

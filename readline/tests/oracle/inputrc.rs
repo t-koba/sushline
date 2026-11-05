@@ -1058,6 +1058,18 @@ fn bash_readline_and_sushline_match_raw_0xff_inputrc_key_and_escape() {
 }
 
 #[test]
+fn bash_readline_and_sushline_match_raw_0xfe_inputrc_function_name() {
+    assert_raw_inputrc_binding_value(b"beginning-of-line", "Xabc");
+    assert_raw_inputrc_binding_value(b"beginning-\xfeof-line", "Xabc");
+}
+
+#[test]
+fn bash_readline_and_sushline_match_raw_0xfe_inputrc_macro_body() {
+    assert_raw_inputrc_binding_value(b"\"hello\"", "helloXabc");
+    assert_raw_inputrc_binding_value(b"\"he\xfello\"", "he\u{fffd}lloXabc");
+}
+
+#[test]
 fn bash_readline_and_sushline_match_raw_0xff_inputrc_function_name() {
     assert_raw_inputrc_binding_value(b"beginning-of-line", "Xabc");
     assert_raw_inputrc_binding_value(b"beginning-\xffof-line", "Xabc");

@@ -783,6 +783,36 @@ fn bash_readline_and_sushline_differ_on_crlf_condition_directives() {
 }
 
 #[test]
+fn bash_readline_and_sushline_differ_on_crlf_set_value_and_match_lf_control() {
+    assert_eq!(
+        super::host_readline::host_readline_identity()
+            .expect("Readline identity")
+            .release,
+        super::host_readline::MEASURED_RELEASE
+    );
+    let keys = b"abc\x0fX\r";
+    for (ending, expected_bash, expected_sushline) in
+        [("\r\n", "abc", "abcMX"), ("\n", "abcMX", "abcMX")]
+    {
+        let inputrc = format!(
+            "set completion-ignore-case on{ending}$if completion-ignore-case = on\n\"\\C-o\": \"M\"\n$endif\n"
+        );
+        let bash = run_bash_readline_with_inputrc_file(keys, &inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, &inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected_bash),
+            "ending={ending:?}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected_sushline),
+            "ending={ending:?}: {sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_apply_same_version_mode_and_variable_conditions() {
     let inputrc = r#"
 $if version >= 8.0

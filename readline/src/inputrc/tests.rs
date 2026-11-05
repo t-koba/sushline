@@ -1233,6 +1233,11 @@ fn parses_measured_raw_0x80_0xfe_and_0xff_binding_values() {
             b"\"he\xffllo\"".as_slice(),
             KeyBinding::Macro(b"he\xffllo".to_vec()),
         ),
+        // A measured invalid byte must not split a valid UTF-8 sequence.
+        (
+            b"\"\xc4\x80\xff\"".as_slice(),
+            KeyBinding::Macro(vec![0xc4, 0x80, 0xff]),
+        ),
     ] {
         // Both the normal binding dispatch and its conditional guard apply.
         for active in [true, false] {

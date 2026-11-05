@@ -448,8 +448,13 @@ fn normalize_raw_binding_value(prefix: &[u8], colon: usize) -> Option<String> {
     }
     let quoted = trimmed.starts_with(b"\"");
     let mut normalized = prefix[..=colon].to_vec();
-    for byte in value {
-        if matches!(*byte, 0x80 | 0xfe | 0xff) {
+    for chunk in value.utf8_chunks() {
+        // Continuation bytes in valid sequences are not raw invalid bytes.
+        normalized.extend_from_slice(chunk.valid().as_bytes());
+        for byte in chunk.invalid() {
+            if !matches!(*byte, 0x80 | 0xfe | 0xff) {
+                return None;
+            }
             if quoted {
                 normalized.extend_from_slice(match *byte {
                     0x80 => b"\\200",
@@ -457,8 +462,6 @@ fn normalize_raw_binding_value(prefix: &[u8], colon: usize) -> Option<String> {
                     _ => b"\\377",
                 });
             }
-        } else {
-            normalized.push(*byte);
         }
     }
     String::from_utf8(normalized).ok()

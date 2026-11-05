@@ -755,6 +755,34 @@ $endif
 }
 
 #[test]
+fn bash_readline_and_sushline_differ_on_crlf_condition_directives() {
+    assert_eq!(
+        super::host_readline::host_readline_identity()
+            .expect("Readline identity")
+            .release,
+        super::host_readline::MEASURED_RELEASE
+    );
+    let keys = b"abc\x0fX\r";
+    let inputrc = "$if version >= 8.0\r\n\"\\C-o\": beginning-of-line\n$else\r\n\"\\C-o\": end-of-line\n$endif\r\n";
+    let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+    assert_eq!(accepted_line(&bash).as_deref(), Some("abc"), "{bash}");
+    assert_eq!(
+        accepted_line(&sushline).as_deref(),
+        Some("Xabc"),
+        "{sushline}"
+    );
+    assert!(bash.contains("trailing garbage on line"), "{bash}");
+    assert_eq!(
+        bash.matches("unknown parser directive").count(),
+        2,
+        "{bash}"
+    );
+    assert!(!sushline.contains("unknown parser directive"), "{sushline}");
+}
+
+#[test]
 fn bash_readline_and_sushline_apply_same_version_mode_and_variable_conditions() {
     let inputrc = r#"
 $if version >= 8.0

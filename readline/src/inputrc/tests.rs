@@ -639,9 +639,10 @@ fn include_path_spellings_follow_the_measured_gnu_rule() {
             (format!("$include {plain}\t"), "off"),
         ])
     {
-        // Exercise the final unterminated line as well as both existing line
-        // endings. In particular, do not change the parser's CRLF splitting.
-        for ending in ["", "\n", "\r\n"] {
+        // Exercise the final unterminated line and the LF ending. A CRLF
+        // ending leaves its CR in the filename; that measured rule has its
+        // own test below.
+        for ending in ["", "\n"] {
             let mut keymap = KeyMap::emacs_default();
             let mut variables = Variables::new();
             InputrcParser::new()
@@ -657,6 +658,37 @@ fn include_path_spellings_follow_the_measured_gnu_rule() {
                 "spelling {spelling:?}, ending {ending:?}"
             );
         }
+    }
+}
+
+#[test]
+fn crlf_include_path_keeps_terminal_cr() {
+    // Measured on the pinned 8.3 host: the CR of a CRLF ending is the
+    // include filename's final byte, so only a CR-named file loads.
+    for (file_name, ending, expected) in [
+        ("included.inputrc\r", "\r\n", true),
+        ("included.inputrc", "\r\n", false),
+        ("included.inputrc", "\n", true),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let include = dir.path().join(file_name);
+        fs::write(&include, "set completion-ignore-case on").unwrap();
+        let base = dir.path().join("included.inputrc");
+        let mut keymap = KeyMap::emacs_default();
+        let mut variables = Variables::new();
+        InputrcParser::new()
+            .parse_str(
+                &format!("$include {}{ending}", base.display()),
+                &Config::default(),
+                &mut keymap,
+                &mut variables,
+            )
+            .unwrap();
+        assert_eq!(
+            variables.is_on("completion-ignore-case"),
+            expected,
+            "file {file_name:?}, ending {ending:?}"
+        );
     }
 }
 

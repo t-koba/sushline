@@ -509,6 +509,70 @@ fn bash_readline_and_sushline_match_inputrc_include_path_rules() {
 }
 
 #[test]
+fn bash_readline_and_sushline_keep_crlf_include_path_cr() {
+    // Only these exact bytes were measured on Bash 5.3 / Readline 8.3.
+    assert_eq!(
+        super::host_readline::host_readline_identity()
+            .expect("Readline identity")
+            .release,
+        super::host_readline::MEASURED_RELEASE
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let base = dir.path().join("included.inputrc");
+    fs::write(
+        dir.path().join("included.inputrc\r"),
+        "\"\\C-o\": \"CHILD\"\n",
+    )
+    .expect("write CR-named include");
+    let keys = b"abc\x0f\r";
+    for (ending, expected) in [("\r\n", "abcCHILD"), ("\n", "abc")] {
+        let inputrc = format!("$include {}{ending}", base.display());
+        let bash = run_bash_readline_with_inputrc_file(keys, &inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, &inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "ending {ending:?}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "ending {ending:?}: {sushline}"
+        );
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_skip_crlf_include_plain_filename() {
+    // Only these exact bytes were measured on Bash 5.3 / Readline 8.3.
+    assert_eq!(
+        super::host_readline::host_readline_identity()
+            .expect("Readline identity")
+            .release,
+        super::host_readline::MEASURED_RELEASE
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let base = dir.path().join("included.inputrc");
+    fs::write(&base, "\"\\C-o\": \"CHILD\"\n").expect("write include");
+    let keys = b"abc\x0f\r";
+    for (ending, expected) in [("\r\n", "abc"), ("\n", "abcCHILD")] {
+        let inputrc = format!("$include {}{ending}", base.display());
+        let bash = run_bash_readline_with_inputrc_file(keys, &inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, &inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "ending {ending:?}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "ending {ending:?}: {sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_continue_after_missing_inputrc_include() {
     let cwd = tempfile::tempdir().expect("cwd");
     let inputrc = "\"\\C-o\": \"Q\"\n$include missing.inputrc\n\"\\C-o\": beginning-of-line\n";

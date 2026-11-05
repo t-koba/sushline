@@ -203,10 +203,10 @@ impl InputrcParser {
                 continue;
             }
 
-            // Directives retain their existing CRLF handling; includes need
-            // the filename's other trailing whitespace.
+            // A CRLF line ending leaves its CR as the include filename's
+            // final byte, measured on the pinned host; names split on
+            // whitespace, so the CR is otherwise inert here.
             if let Some(rest) = decoded.trim_start().strip_prefix('$') {
-                let rest = rest.strip_suffix('\r').unwrap_or(rest);
                 let mut parts = rest.split_whitespace();
                 match parts.next() {
                     Some(name) if name.eq_ignore_ascii_case("if") => {

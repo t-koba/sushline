@@ -524,6 +524,12 @@ pub fn parse_binding_line_in_map(
     let key = line[..pos].trim();
     let raw_value = line[pos + 1..].trim_start();
     let value = raw_value.trim_end();
+    // Keep CR in the function token: the measured CRLF backward-char
+    // binding names an unknown function rather than backward-char.
+    let command = raw_value
+        .split(|c: char| c.is_whitespace() && c != '\r')
+        .next()
+        .unwrap_or("");
     let meta_prefix =
         variable_is_on(variables, "force-meta-prefix") || variable_is_on(variables, "convert-meta");
     let seq = KeySequence::parse_with_meta(key, meta_prefix)?;
@@ -536,13 +542,19 @@ pub fn parse_binding_line_in_map(
             bytes.push(b'"');
         }
         KeyBinding::Macro(bytes)
-    } else if let Some(command) = value.split_whitespace().next().and_then(EditCommand::parse) {
+    } else if let Some(command) = EditCommand::parse(command) {
         KeyBinding::Command(command)
-    } else if let Some(command) = value.split_whitespace().next().filter(|command| {
-        is_bindable_function_name_with_registers(command, variables.is_on("sushline-vi-registers"))
-    }) {
+    } else if is_bindable_function_name_with_registers(
+        command,
+        variables.is_on("sushline-vi-registers"),
+    ) {
         KeyBinding::NamedCommand(command.to_string())
     } else {
+        // The measured CRLF function binding clears the default binding;
+        // merely ignoring it would leave Ctrl-O accepting the line.
+        if command.ends_with('\r') {
+            keymap.unbind_key(map, &seq);
+        }
         return Err(format!("unknown readline command: {value}"));
     };
     keymap.bind_user(map, seq, binding);

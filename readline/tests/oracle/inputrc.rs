@@ -8,6 +8,34 @@ use std::fs;
 use std::path::Path;
 
 #[test]
+fn bash_readline_and_sushline_match_crlf_backward_char_and_lf_control() {
+    assert_eq!(
+        super::host_readline::host_readline_identity()
+            .expect("Readline identity")
+            .release,
+        super::host_readline::MEASURED_RELEASE
+    );
+    for (inputrc, expected) in [
+        ("\"\\C-o\": backward-char\r\n", "abcX"),
+        ("\"\\C-o\": backward-char\n", "abXc"),
+    ] {
+        let keys = b"abc\x0fX\r";
+        let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "{inputrc:?}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "{inputrc:?}: {sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_match_crlf_quoted_macro_and_lf_control() {
     // Only these exact bytes were measured on Bash 5.3 / Readline 8.3.
     assert_eq!(

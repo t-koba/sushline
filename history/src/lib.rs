@@ -200,6 +200,26 @@ pub struct HistoryReadOptions {
     pub nul_policy: HistoryNulPolicy,
 }
 
+/// Policy for non-atomic history-file appends, with no fsync or crash-durability
+/// guarantee. Defaults to creating missing destinations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HistoryAppendOptions {
+    /// Create a missing destination, even when no entries are selected (default:
+    /// `true`). If `false`, opening a missing destination returns
+    /// [`std::io::ErrorKind::NotFound`] without creating it. This opt-out matches
+    /// only the pinned GNU History 8.3 missing-path count-0 and count-1 fixtures,
+    /// not a general GNU compatibility guarantee.
+    pub create_missing: bool,
+}
+
+impl Default for HistoryAppendOptions {
+    fn default() -> Self {
+        Self {
+            create_missing: true,
+        }
+    }
+}
+
 /// Policy for full history-file writes and truncation, not appends.
 ///
 /// Regular files are replaced using an exclusively created temporary file.

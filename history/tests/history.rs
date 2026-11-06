@@ -7,8 +7,8 @@ use history::expansion::{
     history_tokenize,
 };
 use history::{
-    History, HistoryDirection, HistoryEntry, HistoryMultiline, HistoryNulPolicy,
-    HistoryReadOptions, HistoryUndoEntry,
+    History, HistoryAppendOptions, HistoryDirection, HistoryEntry, HistoryMultiline,
+    HistoryNulPolicy, HistoryReadOptions, HistoryUndoEntry,
 };
 
 #[test]
@@ -1299,34 +1299,106 @@ fn failed_full_write_cleans_up_sibling_tmp() {
 }
 
 #[test]
-fn append_file_creates_missing_path_with_or_without_entries() {
+fn append_file_missing_path_policy_with_or_without_entries() {
     let dir = tempfile::tempdir().unwrap();
     let mut history = History::new();
     history.push("alpha");
+    assert!(HistoryAppendOptions::default().create_missing);
+    let options = HistoryAppendOptions {
+        create_missing: false,
+    };
     for (from, expected) in [(0, &b"alpha\n"[..]), (1, &b""[..])] {
         let path = dir.path().join(format!("history-{from}"));
+        // These selections correspond to GNU's pinned count-1/count-0 cases.
+        let error = history
+            .append_file_with_options(&path, from, options)
+            .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
         assert!(!path.exists());
+        let error = history
+            .append_file_with_timestamps_and_options(&path, from, true, options)
+            .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+        assert!(!path.exists());
+        let error = history
+            .append_last_to_file_with_options(&path, 1 - from, options)
+            .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+        assert!(!path.exists());
+
         history.append_file(&path, from).unwrap();
         assert_eq!(fs::read(&path).unwrap(), expected);
+        history
+            .append_file_with_options(&path, from, options)
+            .unwrap();
+        assert_eq!(fs::read(&path).unwrap(), expected.repeat(2));
     }
 }
 
 #[test]
-#[cfg(unix)]
-fn append_file_preserves_existing_wider_file_mode() {
-    use std::os::unix::fs::PermissionsExt;
+fn append_new_missing_path_failure_preserves_boundary_and_timestamp_selection() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");
+    let options = HistoryAppendOptions {
+        create_missing: false,
+    };
+    let mut history = History::new();
+    history.push("alpha");
+    history.add_time("#123");
+    for write_timestamps in [false, true] {
+        let error = history
+            .append_new_to_file_with_timestamps_and_options(&path, write_timestamps, options)
+            .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+        assert!(!path.exists());
+    }
+    let error = history
+        .append_new_to_file_with_options(&path, options)
+        .unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    assert!(!path.exists());
     fs::write(&path, b"old\n").unwrap();
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+    history
+        .append_new_to_file_with_timestamps_and_options(&path, true, options)
+        .unwrap();
+    assert_eq!(fs::read(&path).unwrap(), b"old\n#123\nalpha\n");
+    history
+        .append_new_to_file_with_options(&path, options)
+        .unwrap();
+    assert_eq!(fs::read(&path).unwrap(), b"old\n#123\nalpha\n");
+    history.push("beta");
+    history
+        .append_new_to_file_with_options(&path, options)
+        .unwrap();
+    assert_eq!(fs::read(&path).unwrap(), b"old\n#123\nalpha\nbeta\n");
+}
+
+#[test]
+#[cfg(unix)]
+fn append_file_options_preserve_existing_wider_file_mode() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
     let mut history = History::new();
     history.push("new");
-    history.append_file(&path, 0).unwrap();
-    assert_eq!(fs::read(&path).unwrap(), b"old\nnew\n");
-    assert_eq!(
-        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
-        0o644
-    );
+    for (name, options) in [
+        ("default", HistoryAppendOptions::default()),
+        (
+            "existing-only",
+            HistoryAppendOptions {
+                create_missing: false,
+            },
+        ),
+    ] {
+        let path = dir.path().join(name);
+        fs::write(&path, b"old\n").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        history.append_file_with_options(&path, 0, options).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"old\nnew\n");
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o644
+        );
+    }
 }
 
 #[test]

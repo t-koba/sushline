@@ -1,6 +1,6 @@
 use super::{
-    History, HistoryEntry, HistoryMultiline, HistoryNulPolicy, HistoryReadOptions,
-    HistoryWriteOptions,
+    History, HistoryAppendOptions, HistoryEntry, HistoryMultiline, HistoryNulPolicy,
+    HistoryReadOptions, HistoryWriteOptions,
 };
 use std::collections::VecDeque;
 use std::fs::{self, OpenOptions};
@@ -328,36 +328,94 @@ impl History {
         })
     }
 
-    /// Append default file.
+    /// Append to the default file, creating it if missing.
     pub fn append_default_file(&self, from: usize) -> io::Result<()> {
-        self.append_file(Self::default_file_path(), from)
+        self.append_default_file_with_options(from, HistoryAppendOptions::default())
+    }
+
+    /// Append to the default file with explicit missing-destination policy.
+    pub fn append_default_file_with_options(
+        &self,
+        from: usize,
+        options: HistoryAppendOptions,
+    ) -> io::Result<()> {
+        self.append_file_with_options(Self::default_file_path(), from, options)
     }
 
     /// Append file, creating a missing destination even if no entries are selected.
+    ///
+    /// Appends are non-atomic and do not provide fsync or crash-durability
+    /// guarantees. Use [`Self::append_file_with_options`] to disable creation.
     pub fn append_file(&self, path: impl AsRef<Path>, from: usize) -> io::Result<()> {
-        self.append_file_with_timestamps(path, from, false)
+        self.append_file_with_options(path, from, HistoryAppendOptions::default())
     }
 
-    /// Append last to file.
+    /// Append a file with explicit missing-destination policy.
+    ///
+    /// Selection starts at the zero-based `from` entry. Existing files retain
+    /// their mode; symlinks are followed. New files use mode `0o600` on Unix.
+    /// Appends are non-atomic; write and close errors propagate without fsync
+    /// or crash-durability guarantees. See [`HistoryAppendOptions`] for the
+    /// fixture-scoped GNU missing-path compatibility opt-out.
+    pub fn append_file_with_options(
+        &self,
+        path: impl AsRef<Path>,
+        from: usize,
+        options: HistoryAppendOptions,
+    ) -> io::Result<()> {
+        self.append_file_with_timestamps_and_options(path, from, false, options)
+    }
+
+    /// Append the last `nelements` entries, creating the file if missing.
     pub fn append_last_to_file(&self, path: impl AsRef<Path>, nelements: usize) -> io::Result<()> {
+        self.append_last_to_file_with_options(path, nelements, HistoryAppendOptions::default())
+    }
+
+    /// Append the last `nelements` entries with explicit missing-destination policy.
+    pub fn append_last_to_file_with_options(
+        &self,
+        path: impl AsRef<Path>,
+        nelements: usize,
+        options: HistoryAppendOptions,
+    ) -> io::Result<()> {
         let from = self.entries.len().saturating_sub(nelements);
-        self.append_file(path, from)
+        self.append_file_with_options(path, from, options)
     }
 
     /// Append file with timestamps, creating a missing destination even if no
     /// entries are selected.
     ///
     /// When enabled, writes stored timestamp text including any NUL suffix.
+    /// Appends are non-atomic with no fsync or crash-durability guarantee.
     pub fn append_file_with_timestamps(
         &self,
         path: impl AsRef<Path>,
         from: usize,
         write_timestamps: bool,
     ) -> io::Result<()> {
+        self.append_file_with_timestamps_and_options(
+            path,
+            from,
+            write_timestamps,
+            HistoryAppendOptions::default(),
+        )
+    }
+
+    /// Append with timestamp selection and explicit missing-destination policy.
+    ///
+    /// Timestamp semantics follow [`Self::append_file_with_timestamps`]; file
+    /// semantics follow [`Self::append_file_with_options`].
+    pub fn append_file_with_timestamps_and_options(
+        &self,
+        path: impl AsRef<Path>,
+        from: usize,
+        write_timestamps: bool,
+        options: HistoryAppendOptions,
+    ) -> io::Result<()> {
         let path = path.as_ref();
         let existed = fs::metadata(path).is_ok();
         let mut append_opts = OpenOptions::new();
-        append_opts.create(true).append(true);
+        append_opts.create(options.create_missing).append(true);
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
@@ -365,7 +423,7 @@ impl History {
         }
         let mut file = append_opts.open(path)?;
         #[cfg(unix)]
-        if !existed {
+        if options.create_missing && !existed {
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
         }
@@ -376,31 +434,91 @@ impl History {
         close_file(file)
     }
 
-    /// Append new to default file.
+    /// Append new entries to the default file, creating it if missing.
     pub fn append_new_to_default_file(&mut self) -> io::Result<()> {
-        self.append_new_to_file(Self::default_file_path())
+        self.append_new_to_default_file_with_options(HistoryAppendOptions::default())
     }
 
-    /// Append new to default file with timestamps.
+    /// Append new entries to the default file with explicit missing-destination policy.
+    pub fn append_new_to_default_file_with_options(
+        &mut self,
+        options: HistoryAppendOptions,
+    ) -> io::Result<()> {
+        self.append_new_to_file_with_options(Self::default_file_path(), options)
+    }
+
+    /// Append new entries to the default file with timestamps, creating it if missing.
     pub fn append_new_to_default_file_with_timestamps(
         &mut self,
         write_timestamps: bool,
     ) -> io::Result<()> {
-        self.append_new_to_file_with_timestamps(Self::default_file_path(), write_timestamps)
+        self.append_new_to_default_file_with_timestamps_and_options(
+            write_timestamps,
+            HistoryAppendOptions::default(),
+        )
     }
 
-    /// Append new to file.
+    /// Append new entries to the default file with timestamp selection and
+    /// explicit missing-destination policy.
+    pub fn append_new_to_default_file_with_timestamps_and_options(
+        &mut self,
+        write_timestamps: bool,
+        options: HistoryAppendOptions,
+    ) -> io::Result<()> {
+        self.append_new_to_file_with_timestamps_and_options(
+            Self::default_file_path(),
+            write_timestamps,
+            options,
+        )
+    }
+
+    /// Append new entries to a file, creating it if missing.
     pub fn append_new_to_file(&mut self, path: impl AsRef<Path>) -> io::Result<()> {
-        self.append_new_to_file_with_timestamps(path, false)
+        self.append_new_to_file_with_options(path, HistoryAppendOptions::default())
     }
 
-    /// Append new to file with timestamps.
+    /// Append new entries with explicit missing-destination policy.
+    ///
+    /// The loaded-entry boundary advances only after a successful append,
+    /// including close. File semantics follow [`Self::append_file_with_options`].
+    pub fn append_new_to_file_with_options(
+        &mut self,
+        path: impl AsRef<Path>,
+        options: HistoryAppendOptions,
+    ) -> io::Result<()> {
+        self.append_new_to_file_with_timestamps_and_options(path, false, options)
+    }
+
+    /// Append new entries with timestamps, creating the file if missing.
     pub fn append_new_to_file_with_timestamps(
         &mut self,
         path: impl AsRef<Path>,
         write_timestamps: bool,
     ) -> io::Result<()> {
-        self.append_file_with_timestamps(path, self.file_loaded_len, write_timestamps)?;
+        self.append_new_to_file_with_timestamps_and_options(
+            path,
+            write_timestamps,
+            HistoryAppendOptions::default(),
+        )
+    }
+
+    /// Append new entries with timestamp selection and explicit missing-destination
+    /// policy. The loaded-entry boundary advances only after success, including close.
+    ///
+    /// Timestamp and file semantics follow
+    /// [`Self::append_file_with_timestamps_and_options`].
+    pub fn append_new_to_file_with_timestamps_and_options(
+        &mut self,
+        path: impl AsRef<Path>,
+        write_timestamps: bool,
+        options: HistoryAppendOptions,
+    ) -> io::Result<()> {
+        self.append_file_with_timestamps_and_options(
+            path,
+            self.file_loaded_len,
+            write_timestamps,
+            options,
+        )?;
         self.file_loaded_len = self.entries.len();
         Ok(())
     }

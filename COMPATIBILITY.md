@@ -480,7 +480,9 @@ none implies general Unicode folding, locale or search equivalence.
   [incremental](.github/scripts/readline-invalid-history-search.expected),
   [prefix](.github/scripts/readline-invalid-history-prefix-search.expected);
   [probe](.github/scripts/readline-invalid-history-search.sh). These establish
-  only the two invalid-byte cases, not general search equivalence.
+  only the two invalid-byte cases, not general search equivalence; matching
+  Rust byte-seeded editor regressions are in
+  [`editor/tests/history.rs`](readline/src/editor/tests/history.rs).
 
 ## History Expansion API
 

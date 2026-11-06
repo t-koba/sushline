@@ -1836,6 +1836,24 @@ fn history_files_group_physical_lines_by_multiline_policy() {
 }
 
 #[test]
+fn joined_file_import_stifles_timestamped_blocks_like_pinned_gnu() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(&path, "#1700000000\nA0\nA1\n#1700000001\nB0\nB1\n").unwrap();
+
+    let mut history = History::new();
+    history.stifle(1);
+    history
+        .load_file_with_multiline(&path, None, HistoryMultiline::Joined)
+        .unwrap();
+
+    assert!(history.is_stifled());
+    assert_eq!(history.max_entries(), Some(1));
+    assert_eq!(history.entries().len(), 1);
+    assert_eq!(history.entries()[0].line_bytes, b"B0\nB1");
+}
+
+#[test]
 fn history_multiline_joined_joins_plain_range_file() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");

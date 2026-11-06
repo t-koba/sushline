@@ -415,6 +415,132 @@ fn append_clears_current_edit_and_preserves_import_cursor() {
 }
 
 #[test]
+fn history_import_cursor_matches_pinned_gnu_cases() {
+    const OLD: &[&str] = &["old-a", "old-b", "old-c"];
+    const FILE: &[&str] = &["file-alpha", "file-beta", "file-gamma"];
+    const FULL: &[&str] = &[
+        "old-a",
+        "old-b",
+        "old-c",
+        "file-alpha",
+        "file-beta",
+        "file-gamma",
+    ];
+    const STIFLED: &[&str] = &["file-beta", "file-gamma"];
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    fs::write(&path, "file-alpha\nfile-beta\nfile-gamma\n").unwrap();
+
+    // Mirror the full-read and range-read rows in the pinned GNU fixture.
+    let cases = [
+        (
+            "full empty pos0 cap0",
+            false,
+            false,
+            0,
+            false,
+            FILE,
+            0,
+            Some("file-alpha"),
+        ),
+        (
+            "full old pos0 cap0",
+            false,
+            true,
+            0,
+            false,
+            FULL,
+            0,
+            Some("old-a"),
+        ),
+        (
+            "full old pos2 cap0",
+            false,
+            true,
+            2,
+            false,
+            FULL,
+            2,
+            Some("old-c"),
+        ),
+        (
+            "full old pos3 cap0",
+            false,
+            true,
+            3,
+            false,
+            FULL,
+            3,
+            Some("file-alpha"),
+        ),
+        (
+            "range old pos1 cap0",
+            true,
+            true,
+            1,
+            false,
+            FULL,
+            1,
+            Some("old-b"),
+        ),
+        (
+            "full old pos1 cap1",
+            false,
+            true,
+            1,
+            true,
+            STIFLED,
+            1,
+            Some("file-gamma"),
+        ),
+        ("full old pos3 cap1", false, true, 3, true, STIFLED, 3, None),
+        ("range old pos3 cap1", true, true, 3, true, STIFLED, 3, None),
+    ];
+
+    for (name, ranged, populated, position, stifled, expected, expected_pos, current) in cases {
+        let mut history = History::new();
+        if populated {
+            for entry in OLD {
+                history.push(*entry);
+            }
+            assert!(history.set_pos(position), "{name}");
+        }
+        if stifled {
+            history.stifle(2);
+        }
+
+        if ranged {
+            history.load_file_range(&path, 0, Some(3), None).unwrap();
+        } else {
+            history.load_file(&path, None).unwrap();
+        }
+
+        let entries: Vec<_> = history
+            .entries()
+            .iter()
+            .map(|entry| entry.line().into_owned())
+            .collect();
+        assert_eq!(
+            entries,
+            expected
+                .iter()
+                .map(|entry| (*entry).to_owned())
+                .collect::<Vec<_>>(),
+            "{name}"
+        );
+        assert_eq!(history.where_history(), expected_pos, "{name}");
+        assert_eq!(
+            history
+                .current_history()
+                .map(|entry| entry.line().into_owned()),
+            current.map(str::to_owned),
+            "{name}"
+        );
+    }
+}
+
+#[test]
 fn forward_history_search_includes_current_position() {
     // Like GNU `history_search`, the positioned entry is included in both
     // directions; repeat commands step past it at their own call sites.

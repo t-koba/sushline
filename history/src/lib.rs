@@ -234,12 +234,23 @@ pub struct HistoryWriteOptions {
     /// This budget is unused when no replacement is needed during truncation,
     /// or when a full write targets a non-regular file (written in place).
     pub temporary_file_attempts: NonZeroUsize,
+    /// On Unix, preserve the existing regular target's permission mode when
+    /// rewriting through a symlink (default: `false`). Direct paths and missing
+    /// targets still use mode `0o600`, as do all rewrites with this option off.
+    /// Temporary files remain owner-only until writing and closing succeed;
+    /// target metadata and permission-setting errors propagate.
+    ///
+    /// This opt-in matches only the pinned GNU Readline 8.3 `write_history`
+    /// symlink fixture, not a general GNU compatibility guarantee. It has no
+    /// effect on non-Unix platforms, non-regular files, or no-op truncation.
+    pub preserve_symlink_target_mode: bool,
 }
 
 impl Default for HistoryWriteOptions {
     fn default() -> Self {
         Self {
             temporary_file_attempts: NonZeroUsize::new(100).unwrap(),
+            preserve_symlink_target_mode: false,
         }
     }
 }

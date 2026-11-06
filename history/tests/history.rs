@@ -2490,6 +2490,107 @@ fn full_write_preserves_symlinked_history_path() {
 }
 
 #[test]
+#[cfg(unix)]
+fn rewrite_permission_policy_only_preserves_existing_symlink_targets() {
+    use history::HistoryWriteOptions;
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    assert!(!HistoryWriteOptions::default().preserve_symlink_target_mode);
+    for linked in [false, true] {
+        for preserve in [false, true] {
+            // Full write (with and without timestamps), emptying truncation,
+            // and suffix truncation all share the replacement policy.
+            for operation in 0..4 {
+                let dir = tempfile::tempdir().unwrap();
+                let target = dir.path().join("target");
+                fs::write(&target, b"one\ntwo\n").unwrap();
+                fs::set_permissions(&target, fs::Permissions::from_mode(0o644)).unwrap();
+                let link = dir.path().join("link");
+                let path = if linked {
+                    symlink("target", &link).unwrap();
+                    &link
+                } else {
+                    &target
+                };
+                let options = HistoryWriteOptions {
+                    preserve_symlink_target_mode: preserve,
+                    ..HistoryWriteOptions::default()
+                };
+                let expected: &[u8] = match operation {
+                    0 | 1 => {
+                        let mut history = History::new();
+                        history.push("replacement");
+                        history.add_time("#123");
+                        if operation == 0 {
+                            history.write_file_with_options(path, options).unwrap();
+                            b"replacement\n"
+                        } else {
+                            history
+                                .write_file_with_timestamps_and_options(path, true, options)
+                                .unwrap();
+                            b"#123\nreplacement\n"
+                        }
+                    }
+                    _ => {
+                        History::truncate_file_with_options(path, operation - 2, options).unwrap();
+                        if operation == 2 { b"" } else { b"two\n" }
+                    }
+                };
+                assert_eq!(fs::read(&target).unwrap(), expected);
+                let expected_mode = if linked && preserve { 0o644 } else { 0o600 };
+                assert_eq!(
+                    fs::metadata(&target).unwrap().permissions().mode() & 0o7777,
+                    expected_mode
+                );
+                if linked {
+                    assert_eq!(
+                        fs::read_link(&link).unwrap(),
+                        std::path::Path::new("target")
+                    );
+                }
+                assert_eq!(
+                    fs::read_dir(dir.path()).unwrap().count(),
+                    if linked { 2 } else { 1 }
+                );
+            }
+        }
+    }
+}
+
+#[test]
+#[cfg(unix)]
+fn write_permission_opt_in_keeps_missing_symlink_target_owner_only() {
+    use history::HistoryWriteOptions;
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("target");
+    let link = dir.path().join("link");
+    symlink("target", &link).unwrap();
+    let mut history = History::new();
+    history.push("new");
+    history
+        .write_file_with_options(
+            &link,
+            HistoryWriteOptions {
+                preserve_symlink_target_mode: true,
+                ..HistoryWriteOptions::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(fs::read(&target).unwrap(), b"new\n");
+    assert_eq!(
+        fs::metadata(&target).unwrap().permissions().mode() & 0o7777,
+        0o600
+    );
+    assert_eq!(
+        fs::read_link(&link).unwrap(),
+        std::path::Path::new("target")
+    );
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
+}
+
+#[test]
 #[cfg_attr(not(unix), ignore = "requires Unix symlinks")]
 fn full_write_preserves_relative_symlink_chain() {
     #[cfg(unix)]

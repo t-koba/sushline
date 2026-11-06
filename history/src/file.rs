@@ -260,10 +260,10 @@ impl History {
         self.write_default_file_with_options(HistoryWriteOptions::default())
     }
 
-    /// Write the default file with explicit temporary-file creation policy.
+    /// Write the default file with explicit replacement policy.
     ///
-    /// Replacement semantics follow [`Self::write_file`]; collision exhaustion
-    /// follows [`HistoryWriteOptions`].
+    /// Replacement semantics default to [`Self::write_file`]; permission policy and
+    /// collision exhaustion follow [`HistoryWriteOptions`].
     pub fn write_default_file_with_options(&self, options: HistoryWriteOptions) -> io::Result<()> {
         self.write_file_with_options(Self::default_file_path(), options)
     }
@@ -279,10 +279,10 @@ impl History {
         self.write_file_with_options(path, HistoryWriteOptions::default())
     }
 
-    /// Write a file with explicit temporary-file creation policy.
+    /// Write a file with explicit replacement policy.
     ///
-    /// Replacement semantics follow [`Self::write_file`]; collision exhaustion
-    /// follows [`HistoryWriteOptions`].
+    /// Replacement semantics default to [`Self::write_file`]; permission policy and
+    /// collision exhaustion follow [`HistoryWriteOptions`].
     pub fn write_file_with_options(
         &self,
         path: impl AsRef<Path>,
@@ -312,11 +312,11 @@ impl History {
         )
     }
 
-    /// Write a file with timestamp selection and explicit temporary-file policy.
+    /// Write a file with timestamp selection and explicit replacement policy.
     ///
     /// Timestamp and replacement semantics follow
-    /// [`Self::write_file_with_timestamps`]; collision exhaustion follows
-    /// [`HistoryWriteOptions`].
+    /// [`Self::write_file_with_timestamps`], with permission policy and collision
+    /// exhaustion controlled by [`HistoryWriteOptions`].
     pub fn write_file_with_timestamps_and_options(
         &self,
         path: impl AsRef<Path>,
@@ -538,10 +538,10 @@ impl History {
         Self::truncate_file_with_options(path, max_len, HistoryWriteOptions::default())
     }
 
-    /// Truncate a file with explicit temporary-file creation policy.
+    /// Truncate a file with explicit replacement policy.
     ///
-    /// Suffix selection and permissions follow [`Self::truncate_file`];
-    /// collision exhaustion follows [`HistoryWriteOptions`].
+    /// Suffix selection follows [`Self::truncate_file`]; permission policy and
+    /// collision exhaustion follow [`HistoryWriteOptions`].
     pub fn truncate_file_with_options(
         path: impl AsRef<Path>,
         max_len: usize,
@@ -665,6 +665,22 @@ fn write_atomic(
     write_tmp: impl FnOnce(&mut fs::File) -> io::Result<()>,
 ) -> io::Result<()> {
     let dest = effective_write_path(path)?;
+    #[cfg(unix)]
+    let preserved_permissions = if options.preserve_symlink_target_mode {
+        match fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => match fs::metadata(&dest) {
+                Ok(target) if target.is_file() => Some(target.permissions()),
+                Ok(_) => None,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+                Err(error) => return Err(error),
+            },
+            Ok(_) => None,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error),
+        }
+    } else {
+        None
+    };
     if dest_is_non_regular(&dest) {
         return write_in_place(path, write_tmp);
     }
@@ -700,6 +716,10 @@ fn write_atomic(
             write_tmp(&mut file)?;
             // Publish only after a successful close; no fsync is requested.
             close_file(file)?;
+            #[cfg(unix)]
+            if let Some(permissions) = preserved_permissions {
+                fs::set_permissions(&tmp, permissions)?;
+            }
             fs::rename(&tmp, &dest)
         })();
         if result.is_err() {
@@ -1580,6 +1600,7 @@ mod tests {
                     let result = if let Some(attempts) = attempts {
                         let options = HistoryWriteOptions {
                             temporary_file_attempts: NonZeroUsize::new(attempts).unwrap(),
+                            ..HistoryWriteOptions::default()
                         };
                         match operation {
                             0 => history.write_file_with_options(&path, options),
@@ -1698,6 +1719,48 @@ mod tests {
         assert_eq!(error.to_string(), "write failure");
         assert_eq!(fs::read(&path).unwrap(), b"sentinel\n");
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn preserved_mode_is_not_exposed_during_writing_or_after_failure() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target");
+        let link = dir.path().join("link");
+        fs::write(&target, b"sentinel\n").unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o640)).unwrap();
+        symlink("target", &link).unwrap();
+        let options = HistoryWriteOptions {
+            preserve_symlink_target_mode: true,
+            ..HistoryWriteOptions::default()
+        };
+        for fail_write in [true, false] {
+            let operation = || {
+                write_atomic(&link, options, |file| {
+                    assert_eq!(file.metadata()?.permissions().mode() & 0o7777, 0o600);
+                    file.write_all(b"partial")?;
+                    if fail_write {
+                        Err(io::Error::other("write failure"))
+                    } else {
+                        Ok(())
+                    }
+                })
+            };
+            if fail_write {
+                assert_eq!(operation().unwrap_err().to_string(), "write failure");
+            } else {
+                with_close_error(operation);
+            }
+            assert_eq!(fs::read(&target).unwrap(), b"sentinel\n");
+            assert_eq!(
+                fs::metadata(&target).unwrap().permissions().mode() & 0o7777,
+                0o640
+            );
+            assert_eq!(fs::read_link(&link).unwrap(), Path::new("target"));
+            assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
+        }
     }
 
     #[test]

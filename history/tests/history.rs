@@ -161,14 +161,22 @@ fn removal_preserves_numeric_position() {
         }
     }
 
-    for (position, index, remaining) in [(1, 0, "D"), (2, 0, "D"), (4, 0, "D"), (2, 1, "C")] {
+    for (position, index, removed, remaining) in [
+        (1, 0, "C", "D"),
+        (2, 0, "C", "D"),
+        (4, 0, "C", "D"),
+        (2, 1, "D", "C"),
+    ] {
         let mut history = History::new();
         for line in ["A", "B", "C", "D"] {
             history.push(line);
         }
         assert!(history.set_pos(position));
         history.stifle(2);
-        assert!(history.remove(index).is_some());
+        assert_eq!(
+            history.remove(index).unwrap().line_bytes,
+            removed.as_bytes()
+        );
         assert_eq!(history.where_history(), position);
         assert_eq!(history.len(), 1);
         assert_eq!(history.entries()[0].line_bytes, remaining.as_bytes());

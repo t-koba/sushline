@@ -204,8 +204,21 @@ fn compatibility_document_classifies_editor_bind_and_history_coverage() {
         .lines()
         .find(|line| line.starts_with("| File range: `read_history_range`"))
         .expect("the History file-range row must remain documented");
-    assert!(range_row.contains("equal bounds (0,0) and (2,2) match"));
-    assert!(range_row.contains("reversed (2,1) differs: GNU returns {C2}, while Sushline's TO<FROM suffix rule returns {C2} {C3}"));
+    assert!(
+        range_row.contains(
+            "`HistoryReadOptions::range_policy` defaults to `HistoryRangePolicy::Sushline`"
+        )
+    );
+    assert!(range_row.contains(
+        "Opt-in `GnuReadline83` matches the pinned GNU Readline 8.3 range matrix asserted in CI"
+    ));
+    assert!(range_row.contains(
+        "In the no-blank timestamped fixture, (0,0), (2,2) and (2,1) yield no entries; in the plain fixture they yield {C0}, {C2} and {C2}."
+    ));
+    assert!(
+        range_row
+            .contains("Forward ranges and explicit `None` suffixes are unchanged by the option")
+    );
 
     // Rows whose first column names a long list of methods are locked by
     // their status alone, so the lock does not depend on the rest of the row.
@@ -213,7 +226,7 @@ fn compatibility_document_classifies_editor_bind_and_history_coverage() {
         ("| List information: `history_list`", "Mixed"),
         ("| Search: `history_search`", "Mixed"),
         ("| Files: `read_history`", "Mixed"),
-        ("| File range: `read_history_range`", "Mixed"),
+        ("| File range: `read_history_range`", "Mixed by policy"),
     ] {
         let row = compatibility
             .lines()

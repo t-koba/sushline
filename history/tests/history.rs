@@ -390,6 +390,38 @@ fn history_expansion_absolute_numbers_follow_stifled_append_base() {
     stifled_before_add.clear();
     stifled_before_add.push("echo fresh");
     assert_eq!(expand(&stifled_before_add, b"!1").unwrap(), b"echo fresh");
+
+    // The pinned stifle-clear-reseed sequence resets the absolute event base.
+    let mut stifled_clear_reseed = History::new();
+    stifled_clear_reseed.stifle(2);
+    for line in ["echo alpha", "echo bravo", "echo charlie"] {
+        stifled_clear_reseed.push(line);
+    }
+    stifled_clear_reseed.clear();
+    assert!(stifled_clear_reseed.is_empty());
+    assert_eq!(stifled_clear_reseed.max_entries(), Some(2));
+    stifled_clear_reseed.stifle(2);
+    for line in ["echo delta", "echo echo", "echo foxtrot"] {
+        stifled_clear_reseed.push(line);
+    }
+    assert_eq!(stifled_clear_reseed.len(), 2);
+    assert_eq!(
+        stifled_clear_reseed
+            .entries()
+            .iter()
+            .map(|entry| entry.line_bytes.as_slice())
+            .collect::<Vec<_>>(),
+        [b"echo echo".as_slice(), b"echo foxtrot".as_slice()]
+    );
+    assert!(expand(&stifled_clear_reseed, b"!1").is_err());
+    for (input, expected) in [
+        (b"!2".as_slice(), b"echo echo".as_slice()),
+        (b"!3", b"echo foxtrot"),
+        (b"!-1", b"echo foxtrot"),
+        (b"!-2", b"echo echo"),
+    ] {
+        assert_eq!(expand(&stifled_clear_reseed, input).unwrap(), expected);
+    }
 }
 
 #[test]

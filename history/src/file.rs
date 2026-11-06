@@ -1,6 +1,6 @@
 use super::{
     History, HistoryAppendOptions, HistoryEntry, HistoryMultiline, HistoryNulPolicy,
-    HistoryReadOptions, HistoryWriteOptions,
+    HistoryRangePolicy, HistoryReadOptions, HistoryWriteOptions,
 };
 use std::collections::VecDeque;
 use std::fs::{self, OpenOptions};
@@ -55,7 +55,8 @@ impl History {
     /// Read a file with explicit grouping and NUL policies.
     ///
     /// Format selection follows [`Self::read_file_with_multiline`], after the
-    /// NUL policy is applied to each completed physical line.
+    /// NUL policy is applied to each completed physical line. The range policy
+    /// is ignored for full-file reads and loads.
     pub fn read_file_with_options(
         path: impl AsRef<Path>,
         options: HistoryReadOptions,
@@ -112,9 +113,10 @@ impl History {
         )
     }
 
-    /// Read a range with explicit grouping and NUL policies.
+    /// Read a range with explicit grouping, NUL and range-selection policies.
     ///
-    /// Bounds and grouping follow [`Self::read_file_range_with_multiline`].
+    /// Bounds and grouping default to [`Self::read_file_range_with_multiline`];
+    /// `options.range_policy` can opt into the pinned GNU 8.3 edge selection.
     /// Lines made blank by NUL truncation still count toward the bounds.
     pub fn read_file_range_with_options(
         path: impl AsRef<Path>,
@@ -235,7 +237,7 @@ impl History {
         )
     }
 
-    /// Load a range with explicit grouping and NUL policies, retaining at most
+    /// Load a range with explicit grouping, NUL and range policies, retaining at most
     /// `max_entries` entries after import. Bounds and grouping follow
     /// [`Self::read_file_range_with_options`]; the cap applies after grouping.
     pub fn load_file_range_with_options(
@@ -639,11 +641,13 @@ fn read_history_range_records(
     to: Option<usize>,
     options: HistoryReadOptions,
 ) -> io::Result<Vec<(Vec<u8>, Option<String>)>> {
-    let count = range_count(from, to);
+    let gnu_edge = options.range_policy == HistoryRangePolicy::GnuReadline83
+        && to.is_some_and(|to| to <= from);
+    let count = if gnu_edge { 1 } else { range_count(from, to) };
     let limit = to
-        .filter(|to| *to >= from)
+        .filter(|to| gnu_edge || *to >= from)
         .map(|_| from.saturating_add(count));
-    let blocks = read_history_blocks(file, from, limit, options.nul_policy)?;
+    let blocks = read_history_blocks(file, from, limit, options.nul_policy, gnu_edge)?;
     Ok(group_history_blocks(
         &blocks,
         options.multiline,
@@ -855,7 +859,7 @@ fn read_history_records(
     file: fs::File,
     options: HistoryReadOptions,
 ) -> io::Result<Vec<(Vec<u8>, Option<String>)>> {
-    let blocks = read_history_blocks(file, 0, None, options.nul_policy)?;
+    let blocks = read_history_blocks(file, 0, None, options.nul_policy, false)?;
     Ok(group_history_blocks(&blocks, options.multiline, None))
 }
 
@@ -940,12 +944,19 @@ fn read_history_blocks(
     command_start: usize,
     command_limit: Option<usize>,
     nul_policy: HistoryNulPolicy,
+    stop_at_start_timestamp: bool,
 ) -> io::Result<Vec<HistoryBlock>> {
     let mut blocks: Vec<HistoryBlock> = Vec::new();
     let mut command_lines = 0usize;
     scan_history_lines(file, nul_policy, |line| {
         let line = match line {
             HistoryLine::Timestamp(timestamp) => {
+                // In the pinned GNU edge fixtures, a delimiter at FROM ends
+                // selection before its command; an interior position can
+                // still select one line (including a blank).
+                if stop_at_start_timestamp && command_lines == command_start {
+                    return false;
+                }
                 if command_start > 0 && command_lines <= command_start {
                     blocks.clear();
                 }
@@ -1454,6 +1465,7 @@ mod tests {
                 let options = HistoryReadOptions {
                     multiline,
                     nul_policy,
+                    ..Default::default()
                 };
                 let full = read_history_records(fs::File::open(&path).unwrap(), options).unwrap();
                 for cap in [0, 1, 10, 100, usize::MAX] {

@@ -8,7 +8,7 @@ use history::expansion::{
 };
 use history::{
     History, HistoryAppendOptions, HistoryDirection, HistoryEntry, HistoryMultiline,
-    HistoryNulPolicy, HistoryReadOptions, HistoryUndoEntry,
+    HistoryNulPolicy, HistoryRangePolicy, HistoryReadOptions, HistoryUndoEntry,
 };
 
 #[test]
@@ -2011,6 +2011,7 @@ fn pinned_gnu_history_8_3_nul_eof_fixture_matches_sushline_policies() {
     let preserve_options = HistoryReadOptions {
         multiline: HistoryMultiline::PerLine,
         nul_policy: HistoryNulPolicy::Preserve,
+        ..Default::default()
     };
     let truncate_options = HistoryReadOptions {
         nul_policy: HistoryNulPolicy::TruncateAtNul,
@@ -2070,6 +2071,7 @@ fn joined_nul_eof_inputs_match_both_sushline_policies() {
     let preserve_options = HistoryReadOptions {
         multiline: HistoryMultiline::Joined,
         nul_policy: HistoryNulPolicy::Preserve,
+        ..Default::default()
     };
     let truncate_options = HistoryReadOptions {
         nul_policy: HistoryNulPolicy::TruncateAtNul,
@@ -2131,6 +2133,7 @@ fn nul_policies_apply_to_range_capped_and_joined_reads() {
             let options = HistoryReadOptions {
                 multiline,
                 nul_policy,
+                ..Default::default()
             };
             let full = History::read_file_with_options(&path, options).unwrap();
             if nul_policy == HistoryNulPolicy::TruncateAtNul {
@@ -3137,6 +3140,158 @@ fn suffix_plain_ranges_preserve_blanks_and_timestamp_text() {
                 assert_eq!(actual, expected, "{from}..{to:?} {mode:?}");
             }
         }
+    }
+}
+
+#[test]
+fn range_policy_matches_the_pinned_gnu_readline_8_3_matrix() {
+    // Exact entry projections asserted by the history range probe in ci.yml,
+    // not measurements against an arbitrary installed GNU version.
+    use HistoryMultiline::{Joined, PerLine};
+    use HistoryRangePolicy::{GnuReadline83, Sushline};
+    assert_eq!(HistoryReadOptions::default().range_policy, Sushline);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    let check = |multiline, from, to, current: &[&str], gnu: &[&str]| {
+        for (range_policy, expected) in [(Sushline, current), (GnuReadline83, gnu)] {
+            let options = HistoryReadOptions {
+                multiline,
+                range_policy,
+                ..Default::default()
+            };
+            let read =
+                History::read_file_range_with_options(&path, from, Some(to), options).unwrap();
+            let label = format!("{multiline:?} {range_policy:?} ({from},{to})");
+            assert_eq!(
+                read.entries().iter().map(|e| e.line()).collect::<Vec<_>>(),
+                expected,
+                "{label}"
+            );
+            if range_policy == Sushline {
+                let convenience =
+                    History::read_file_range_with_multiline(&path, from, Some(to), multiline)
+                        .unwrap();
+                assert_eq!(read.entries(), convenience.entries(), "{label}");
+            }
+            for cap in [None, Some(1)] {
+                let mut loaded = History::new();
+                loaded
+                    .load_file_range_with_options(&path, from, Some(to), cap, options)
+                    .unwrap();
+                let start = read.len().saturating_sub(cap.unwrap_or(usize::MAX));
+                assert_eq!(loaded.entries(), &read.entries()[start..], "{label}");
+            }
+        }
+    };
+
+    fs::write(&path, "#1700000000\nA0\nA1\n#1700000001\nB0\nB1\nB2\n").unwrap();
+    check(PerLine, 0, 3, &["A0", "A1", "B0"], &["A0", "A1", "B0"]);
+    check(Joined, 0, 3, &["A0\nA1", "B0"], &["A0\nA1", "B0"]);
+    check(PerLine, 0, 0, &["A0"], &[]);
+    check(PerLine, 2, 2, &["B0"], &[]);
+    check(PerLine, 2, 1, &["B0", "B1", "B2"], &[]);
+    check(PerLine, 5, 9, &[], &[]);
+    check(PerLine, 3, 9, &["B1", "B2"], &["B1", "B2"]);
+
+    fs::write(&path, "C0\nC1\nC2\nC3\n").unwrap();
+    check(Joined, 0, 3, &["C0\nC1\nC2"], &["C0\nC1\nC2"]);
+    check(PerLine, 0, 0, &["C0"], &["C0"]);
+    check(PerLine, 2, 2, &["C2"], &["C2"]);
+    check(PerLine, 2, 1, &["C2", "C3"], &["C2"]);
+    check(PerLine, 4, 9, &[], &[]);
+    check(PerLine, 2, 9, &["C2", "C3"], &["C2", "C3"]);
+
+    fs::write(&path, "A0\n#1700000000\nB0\n").unwrap();
+    check(
+        PerLine,
+        0,
+        3,
+        &["A0", "#1700000000", "B0"],
+        &["A0", "#1700000000", "B0"],
+    );
+
+    for (contents, joined_suffix, joined_from_blank) in [
+        (
+            "#1700000000\nA0\n\nA1\n#1700000001\nB0\nB1\n",
+            vec!["A1", "B0\nB1"],
+            vec!["A1", "B0\nB1"],
+        ),
+        (
+            "A0\n\nA1\nB0\nB1\n",
+            vec!["A1\nB0\nB1"],
+            vec!["\nA1\nB0\nB1"],
+        ),
+    ] {
+        fs::write(&path, contents).unwrap();
+        for multiline in [PerLine, Joined] {
+            let forward: &[&str] = if multiline == PerLine {
+                &["A0", "A1"]
+            } else {
+                &["A0\n\nA1"]
+            };
+            let blank: &[&str] = if multiline == PerLine { &[] } else { &[""] };
+            let suffix: &[&str] = if multiline == PerLine {
+                &["A1", "B0", "B1"]
+            } else {
+                &joined_suffix
+            };
+            check(multiline, 0, 3, forward, forward);
+            check(multiline, 1, 1, blank, blank);
+            check(multiline, 2, 1, suffix, &["A1"]);
+            let from_blank: &[&str] = if multiline == PerLine {
+                suffix
+            } else {
+                &joined_from_blank
+            };
+            check(multiline, 1, 0, from_blank, blank);
+            check(multiline, 1, 2, blank, blank);
+        }
+    }
+}
+
+#[test]
+fn range_policy_does_not_change_full_file_imports_or_explicit_suffixes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history");
+    for contents in [
+        "#1700000000\nA0\n\nA1\n#1700000001\nB0\nB1\n",
+        "A0\n\nA1\nB0\nB1\n",
+    ] {
+        fs::write(&path, contents).unwrap();
+        for multiline in [HistoryMultiline::PerLine, HistoryMultiline::Joined] {
+            let current = HistoryReadOptions {
+                multiline,
+                ..Default::default()
+            };
+            let gnu = HistoryReadOptions {
+                range_policy: HistoryRangePolicy::GnuReadline83,
+                ..current
+            };
+            let full = History::read_file_with_options(&path, current).unwrap();
+            assert_eq!(
+                History::read_file_with_options(&path, gnu)
+                    .unwrap()
+                    .entries(),
+                full.entries()
+            );
+            for cap in [None, Some(0), Some(1)] {
+                let mut expected = History::new();
+                expected.push("existing");
+                let mut loaded = expected.clone();
+                expected
+                    .load_file_with_options(&path, cap, current)
+                    .unwrap();
+                loaded.load_file_with_options(&path, cap, gnu).unwrap();
+                assert_eq!(loaded.entries(), expected.entries());
+            }
+            for from in [0, 1, 2, 5] {
+                let expected =
+                    History::read_file_range_with_options(&path, from, None, current).unwrap();
+                let read = History::read_file_range_with_options(&path, from, None, gnu).unwrap();
+                assert_eq!(read.entries(), expected.entries());
+            }
+        }
+        assert_eq!(fs::read_to_string(&path).unwrap(), contents);
     }
 }
 

@@ -337,7 +337,11 @@ metadata.
 `read_file`/`load_file` and their range variants take the default; the
 `read_file_with_multiline`, `load_file_with_multiline`,
 `read_file_range_with_multiline` and `load_file_range_with_multiline` entry
-points take the policy.
+points take the grouping policy. The options-taking range read/load APIs also
+accept `HistoryReadOptions::range_policy`: `Sushline` preserves equal-position
+and reversed-through-EOF defaults; opt-in `GnuReadline83` selects the pinned
+GNU 8.3 edge results documented in `COMPATIBILITY.md`. Forward ranges and
+explicit `None` suffixes are unchanged. Full-file imports ignore this option.
 The editor can add accepted lines automatically when configured, but long-term
 save timing remains controlled by the embedder.
 

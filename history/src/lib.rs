@@ -190,14 +190,32 @@ pub enum HistoryNulPolicy {
     TruncateAtNul,
 }
 
+/// Selection policy for history-file range reads and loads only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HistoryRangePolicy {
+    /// Equal bounds select one physical command position; reversed bounds
+    /// select through EOF. This is Sushline's existing default.
+    #[default]
+    Sushline,
+    /// Match the pinned GNU Readline 8.3 range-edge fixtures: equal/reversed
+    /// bounds select at most one command position, stopping at a timestamp
+    /// boundary at FROM. Forward ranges and explicit suffixes (`None`) are
+    /// unchanged. This is not a general GNU compatibility guarantee; see
+    /// `COMPATIBILITY.md` for the measured timestamped/plain and blank cases.
+    GnuReadline83,
+}
+
 /// Read-side history-file policies. Defaults preserve NUL bytes and group one
-/// entry per physical line. These options do not affect file writing.
+/// entry per physical line, with Sushline range selection. These options do not
+/// affect file writing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct HistoryReadOptions {
     /// How physical command lines are grouped into entries.
     pub multiline: HistoryMultiline,
     /// How embedded NUL bytes are handled before interpreting each line.
     pub nul_policy: HistoryNulPolicy,
+    /// How equal/reversed range bounds select lines. Ignored by full-file APIs.
+    pub range_policy: HistoryRangePolicy,
 }
 
 /// Policy for non-atomic history-file appends, with no fsync or crash-durability

@@ -1,4 +1,7 @@
-use super::{History, HistoryEntry, HistoryMultiline, HistoryNulPolicy, HistoryReadOptions};
+use super::{
+    History, HistoryEntry, HistoryMultiline, HistoryNulPolicy, HistoryReadOptions,
+    HistoryWriteOptions,
+};
 use std::collections::VecDeque;
 use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, Seek, Write};
@@ -252,12 +255,20 @@ impl History {
         Ok(())
     }
 
-    /// Write default file.
+    /// Write default file using the default [`HistoryWriteOptions`] (100 attempts).
     pub fn write_default_file(&self) -> io::Result<()> {
-        self.write_file(Self::default_file_path())
+        self.write_default_file_with_options(HistoryWriteOptions::default())
     }
 
-    /// Write file.
+    /// Write the default file with explicit temporary-file creation policy.
+    ///
+    /// Replacement semantics follow [`Self::write_file`]; collision exhaustion
+    /// follows [`HistoryWriteOptions`].
+    pub fn write_default_file_with_options(&self, options: HistoryWriteOptions) -> io::Result<()> {
+        self.write_file_with_options(Self::default_file_path(), options)
+    }
+
+    /// Write file using the default [`HistoryWriteOptions`] (100 attempts).
     ///
     /// On Unix, with umask 022, full writes create missing destinations with
     /// mode `0o600` and replace existing mode-0644 destinations with mode `0o600`.
@@ -265,10 +276,23 @@ impl History {
     /// existing regular file, the write replaces that file while leaving the
     /// symlink(s) in place.
     pub fn write_file(&self, path: impl AsRef<Path>) -> io::Result<()> {
-        self.write_file_with_timestamps(path, false)
+        self.write_file_with_options(path, HistoryWriteOptions::default())
     }
 
-    /// Write file with timestamps.
+    /// Write a file with explicit temporary-file creation policy.
+    ///
+    /// Replacement semantics follow [`Self::write_file`]; collision exhaustion
+    /// follows [`HistoryWriteOptions`].
+    pub fn write_file_with_options(
+        &self,
+        path: impl AsRef<Path>,
+        options: HistoryWriteOptions,
+    ) -> io::Result<()> {
+        self.write_file_with_timestamps_and_options(path, false, options)
+    }
+
+    /// Write file with timestamps using the default [`HistoryWriteOptions`]
+    /// (100 attempts).
     ///
     /// When enabled, writes stored timestamp text including any NUL suffix.
     /// On Unix, with umask 022, full writes create missing destinations with
@@ -281,8 +305,27 @@ impl History {
         path: impl AsRef<Path>,
         write_timestamps: bool,
     ) -> io::Result<()> {
-        let path = path.as_ref();
-        write_atomic(path, |file| self.write_entries(file, write_timestamps))
+        self.write_file_with_timestamps_and_options(
+            path,
+            write_timestamps,
+            HistoryWriteOptions::default(),
+        )
+    }
+
+    /// Write a file with timestamp selection and explicit temporary-file policy.
+    ///
+    /// Timestamp and replacement semantics follow
+    /// [`Self::write_file_with_timestamps`]; collision exhaustion follows
+    /// [`HistoryWriteOptions`].
+    pub fn write_file_with_timestamps_and_options(
+        &self,
+        path: impl AsRef<Path>,
+        write_timestamps: bool,
+        options: HistoryWriteOptions,
+    ) -> io::Result<()> {
+        write_atomic(path.as_ref(), options, |file| {
+            self.write_entries(file, write_timestamps)
+        })
     }
 
     /// Append default file.
@@ -371,7 +414,21 @@ impl History {
     /// the bytes after the first (LF count - `max_len`) LF bytes, including
     /// any unterminated tail. Timestamp records and blank lines count as
     /// physical lines. The byte results match the tested GNU History 8.3 fixtures.
+    ///
+    /// Uses the default [`HistoryWriteOptions`] (100 attempts).
     pub fn truncate_file(path: impl AsRef<Path>, max_len: usize) -> io::Result<()> {
+        Self::truncate_file_with_options(path, max_len, HistoryWriteOptions::default())
+    }
+
+    /// Truncate a file with explicit temporary-file creation policy.
+    ///
+    /// Suffix selection and permissions follow [`Self::truncate_file`];
+    /// collision exhaustion follows [`HistoryWriteOptions`].
+    pub fn truncate_file_with_options(
+        path: impl AsRef<Path>,
+        max_len: usize,
+        options: HistoryWriteOptions,
+    ) -> io::Result<()> {
         let path = path.as_ref();
         let dest = effective_write_path(path)?;
         if dest_is_non_regular(&dest) {
@@ -409,7 +466,7 @@ impl History {
             return Ok(());
         }
         if max_len == 0 {
-            return write_atomic(path, |_| Ok(()));
+            return write_atomic(path, options, |_| Ok(()));
         }
         source.rewind()?;
         let mut skip = lf_count - max_len;
@@ -437,7 +494,9 @@ impl History {
                 .map_or(buffer.len(), |index| index + 1);
             source.consume(len);
         }
-        write_atomic(path, |file| io::copy(&mut source, file).map(|_| ()))
+        write_atomic(path, options, |file| {
+            io::copy(&mut source, file).map(|_| ())
+        })
     }
 
     fn write_entries(&self, file: &mut fs::File, write_timestamps: bool) -> io::Result<()> {
@@ -489,6 +548,7 @@ fn range_count(from: usize, to: Option<usize>) -> usize {
 
 fn write_atomic(
     path: &Path,
+    options: HistoryWriteOptions,
     write_tmp: impl FnOnce(&mut fs::File) -> io::Result<()>,
 ) -> io::Result<()> {
     let dest = effective_write_path(path)?;
@@ -496,8 +556,14 @@ fn write_atomic(
         return write_in_place(path, write_tmp);
     }
     let base = history_tmp_path(&dest);
-    for _ in 0..100 {
+    for _ in 0..options.temporary_file_attempts.get() {
         let nonce = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        #[cfg(test)]
+        let nonce = tests::TMP_NONCE.with(|next| {
+            next.get()
+                .inspect(|nonce| next.set(Some(nonce.wrapping_add(1))))
+                .unwrap_or(nonce)
+        });
         let tmp = unique_tmp_path(&base, nonce);
         let mut tmp_opts = OpenOptions::new();
         tmp_opts.write(true).create_new(true);
@@ -1020,6 +1086,7 @@ mod tests {
     // cannot interfere and injected failures never leak an open file handle.
     thread_local! {
         pub(super) static FAIL_CLOSE: Cell<bool> = const { Cell::new(false) };
+        pub(super) static TMP_NONCE: Cell<Option<u64>> = const { Cell::new(None) };
         static FAIL_READ_AFTER_LINES: Cell<Option<usize>> = const { Cell::new(None) };
     }
 
@@ -1356,6 +1423,112 @@ mod tests {
         assert!(!FAIL_CLOSE.with(Cell::get), "close seam was not reached");
     }
 
+    // Override only this thread's name sequence, resetting even after a panic.
+    fn with_tmp_nonce<T>(operation: impl FnOnce() -> T) -> T {
+        struct Reset;
+        impl Drop for Reset {
+            fn drop(&mut self) {
+                TMP_NONCE.with(|next| next.set(None));
+            }
+        }
+        assert_eq!(TMP_NONCE.with(|next| next.replace(Some(0))), None);
+        let _reset = Reset;
+        operation()
+    }
+
+    #[test]
+    fn atomic_attempt_budget_controls_collision_success_and_exhaustion() {
+        use std::num::NonZeroUsize;
+
+        assert_eq!(
+            HistoryWriteOptions::default().temporary_file_attempts.get(),
+            100
+        );
+        let mut history = History::new();
+        history.push("replacement");
+        history.add_time("#123");
+        // A default write stops at 100 collisions, while a configured write
+        // can reach the free 101st name. A one-attempt policy never retries.
+        for (attempts, collisions, succeeds) in [
+            (None, 100, false),
+            (Some(1), 1, false),
+            (Some(2), 1, true),
+            (Some(101), 100, true),
+        ] {
+            for operation in 0..4 {
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join("history");
+                fs::write(&path, b"one\ntwo\ntail").unwrap();
+                let base = history_tmp_path(&path);
+                for nonce in 0..collisions {
+                    fs::write(unique_tmp_path(&base, nonce), b"collision").unwrap();
+                }
+                with_tmp_nonce(|| {
+                    let result = if let Some(attempts) = attempts {
+                        let options = HistoryWriteOptions {
+                            temporary_file_attempts: NonZeroUsize::new(attempts).unwrap(),
+                        };
+                        match operation {
+                            0 => history.write_file_with_options(&path, options),
+                            1 => {
+                                history.write_file_with_timestamps_and_options(&path, true, options)
+                            }
+                            limit => History::truncate_file_with_options(&path, limit - 2, options),
+                        }
+                    } else {
+                        match operation {
+                            0 => history.write_file(&path),
+                            1 => history.write_file_with_timestamps(&path, true),
+                            limit => History::truncate_file(&path, limit - 2),
+                        }
+                    };
+                    if succeeds {
+                        result.unwrap();
+                    } else {
+                        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::AlreadyExists);
+                    }
+                    let used = collisions + u64::from(succeeds);
+                    assert_eq!(TMP_NONCE.with(Cell::get), Some(used));
+                });
+                let expected: &[u8] = if succeeds {
+                    match operation {
+                        0 => b"replacement\n",
+                        1 => b"#123\nreplacement\n",
+                        2 => b"",
+                        _ => b"two\ntail",
+                    }
+                } else {
+                    b"one\ntwo\ntail"
+                };
+                assert_eq!(fs::read(&path).unwrap(), expected);
+                for nonce in 0..collisions {
+                    assert_eq!(
+                        fs::read(unique_tmp_path(&base, nonce)).unwrap(),
+                        b"collision"
+                    );
+                }
+                assert_eq!(
+                    fs::read_dir(dir.path()).unwrap().count(),
+                    collisions as usize + 1
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn atomic_non_collision_error_returns_without_retry() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("missing-parent/history");
+        with_tmp_nonce(|| {
+            let error = History::new()
+                .write_file_with_options(&path, HistoryWriteOptions::default())
+                .unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::NotFound);
+            assert_eq!(TMP_NONCE.with(Cell::get), Some(1));
+        });
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
     #[test]
     fn atomic_close_failure_preserves_destination_and_removes_temp() {
         for existing in [false, true] {
@@ -1404,7 +1577,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("history");
         fs::write(&path, b"sentinel\n").unwrap();
-        let error = write_atomic(&path, |file| {
+        let error = write_atomic(&path, HistoryWriteOptions::default(), |file| {
             file.write_all(b"partial")?;
             Err(io::Error::other("write failure"))
         })

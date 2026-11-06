@@ -6,6 +6,7 @@ pub mod expansion;
 mod file;
 
 use std::borrow::Cow;
+use std::num::NonZeroUsize;
 
 /// The marker that begins a timestamp record.
 const TIMESTAMP_MARKER: u8 = b'#';
@@ -197,6 +198,30 @@ pub struct HistoryReadOptions {
     pub multiline: HistoryMultiline,
     /// How embedded NUL bytes are handled before interpreting each line.
     pub nul_policy: HistoryNulPolicy,
+}
+
+/// Policy for full history-file writes and truncation, not appends.
+///
+/// Regular files are replaced using an exclusively created temporary file.
+/// This provides atomic replacement, not fsync or crash-durability guarantees.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HistoryWriteOptions {
+    /// Maximum temporary-name creation attempts, including the first attempt.
+    /// Defaults to 100. Only name collisions are retried; other errors return
+    /// immediately. Exhaustion returns [`std::io::ErrorKind::AlreadyExists`]
+    /// without changing the destination or existing colliding files.
+    ///
+    /// This budget is unused when no replacement is needed during truncation,
+    /// or when a full write targets a non-regular file (written in place).
+    pub temporary_file_attempts: NonZeroUsize,
+}
+
+impl Default for HistoryWriteOptions {
+    fn default() -> Self {
+        Self {
+            temporary_file_attempts: NonZeroUsize::new(100).unwrap(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

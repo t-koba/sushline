@@ -1440,28 +1440,22 @@ fn full_write_resets_wider_existing_file_mode_to_owner_only() {
         "full write resets wider pre-existing mode to owner-only 0600 (pinned GNU 8.3 fixture)"
     );
     assert_eq!(fs::read_to_string(&path).unwrap(), "two\n");
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
-    History::truncate_file(&path, 1).unwrap();
-    assert_eq!(
-        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
-        0o600
-    );
 }
 
 #[test]
 #[cfg(unix)]
-fn truncate_file_sets_owner_only_mode_for_measured_noop_and_rewrite() {
+fn truncate_file_preserves_mode_for_noop_and_sets_owner_only_for_rewrite() {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history");
-    for (limit, expected) in [(2, &b"A\nB\n"[..]), (1, &b"B\n"[..])] {
+    for (limit, expected, expected_mode) in [(2, &b"A\nB\n"[..], 0o644), (1, &b"B\n"[..], 0o600)] {
         fs::write(&path, b"A\nB\n").unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
         History::truncate_file(&path, limit).unwrap();
         assert_eq!(fs::read(&path).unwrap(), expected);
         assert_eq!(
             fs::metadata(&path).unwrap().permissions().mode() & 0o777,
-            0o600
+            expected_mode
         );
     }
 }

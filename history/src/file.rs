@@ -407,10 +407,10 @@ impl History {
 
     /// Truncate a file to a suffix selected by its physical LF bytes.
     ///
-    /// If the number of LF bytes is at most `max_len`, the exact bytes are
-    /// preserved; on Unix, the mode is still set to owner-only `0600` for
-    /// history privacy, unlike the tested GNU History 8.3 no-op mode fixture.
-    /// Otherwise, a zero limit empties the file, and a nonzero limit keeps
+    /// If the number of LF bytes is at most `max_len`, the exact bytes and
+    /// existing file mode are preserved. Otherwise, a rewrite uses mode
+    /// `0600` on Unix for history privacy.
+    /// A zero limit empties the file, and a nonzero limit keeps
     /// the bytes after the first (LF count - `max_len`) LF bytes, including
     /// any unterminated tail. Timestamp records and blank lines count as
     /// physical lines. The byte results match the tested GNU History 8.3 fixtures.
@@ -458,11 +458,6 @@ impl History {
         }
         let max_len = max_len as u64;
         if lf_count <= max_len {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                fs::set_permissions(&dest, fs::Permissions::from_mode(0o600))?;
-            }
             return Ok(());
         }
         if max_len == 0 {

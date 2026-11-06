@@ -785,6 +785,10 @@ impl History {
     /// Search history using the complete byte-slice needle.
     ///
     /// Embedded NUL bytes are ordinary needle bytes, not string terminators.
+    /// For the pinned GNU History 8.3 `alpha\0suffix` fixture, GNU searches
+    /// the prefix `alpha`. Callers needing that observed C-string behavior can
+    /// pass `needle.split(|byte| *byte == 0).next().unwrap_or(needle)` as the
+    /// query. This is fixture-scoped; the Rust API remains byte-slice based.
     pub fn history_search_bytes(
         &mut self,
         needle: &[u8],
@@ -795,7 +799,8 @@ impl History {
 
     /// Search history using the complete byte-slice needle, optionally matching
     /// ASCII case-insensitively. Embedded NUL bytes are ordinary needle bytes,
-    /// not string terminators.
+    /// not string terminators. See [`Self::history_search_bytes`] for the
+    /// pinned GNU C-string query fixture and its caller-side prefix workaround.
     ///
     /// Like GNU `history_search`, the positioned entry is included in both
     /// directions; repeat commands express their step-past policy at their

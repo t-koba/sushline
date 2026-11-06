@@ -12,13 +12,22 @@ static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 const MAX_SYMLINK_HOPS: usize = 40;
 const HISTORY_TRUNCATE_BUFFER_SIZE: usize = 64 * 1024;
 
+fn default_file_path_from_home(home: Option<&std::ffi::OsStr>) -> PathBuf {
+    home.map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".history")
+}
+
 impl History {
-    /// Default file path.
+    /// Return the default history file path.
+    ///
+    /// The path is `$HOME/.history` when `HOME` is set, or the relative
+    /// `./.history` in the current working directory when it is not. This is
+    /// Sushline's Rust-helper behavior; no GNU compatibility claim is made
+    /// for the unset-`HOME` case.
     pub fn default_file_path() -> PathBuf {
-        std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".history")
+        let home = std::env::var_os("HOME");
+        default_file_path_from_home(home.as_deref())
     }
 
     /// Read default file.
@@ -1248,6 +1257,18 @@ mod tests {
             }
             None => Ok(()),
         })
+    }
+
+    #[test]
+    fn default_file_path_uses_home_or_relative_fallback() {
+        assert_eq!(
+            default_file_path_from_home(Some(std::ffi::OsStr::new("/home/test"))),
+            PathBuf::from("/home/test/.history")
+        );
+        assert_eq!(
+            default_file_path_from_home(None),
+            PathBuf::from("./.history")
+        );
     }
 
     fn assert_same_history(actual: &History, expected: &History) {

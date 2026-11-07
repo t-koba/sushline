@@ -15,6 +15,7 @@
 # --tilde-home-empty-only runs that command with HOME present but empty,
 # classifying empty vs synthetic passwd-home results without assuming either.
 # --tilde-home-nonempty-only compares HOME with a distinct synthetic passwd home.
+# --tilde-named-user-only measures one fixed synthetic named-user word.
 # Measurement only against the pinned release.
 set -euo pipefail
 ulimit -c 0
@@ -25,16 +26,17 @@ case "$#:$*" in
   1:--tilde-home-unset-only) mode=tilde-home-unset ;;
   1:--tilde-home-empty-only) mode=tilde-home-empty ;;
   1:--tilde-home-nonempty-only) mode=tilde-home-nonempty ;;
+  1:--tilde-named-user-only) mode=tilde-named-user ;;
   1:--home-empty-only) mode=home-empty ;;
   1:--unreadable-only) mode=unreadable ;;
   1:--bare-cr-only) mode=bare-cr ;;
-  *) echo "usage: readline-include-paths.sh [--tilde-home-nonempty-only|--tilde-home-empty-only|--tilde-home-unset-only|--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
+  *) echo "usage: readline-include-paths.sh [--tilde-named-user-only|--tilde-home-nonempty-only|--tilde-home-empty-only|--tilde-home-unset-only|--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
 esac
 lookup_error_dir=$(mktemp -d /tmp/sushline-lookup-error-XXXXXX)
 trap 'rm -rf "$lookup_error_dir"' EXIT
 probe="$lookup_error_dir/probe"
 report=/tmp/readline_include_paths.out
-if [[ "$mode" = tilde-home-* ]]; then
+if [[ "$mode" = tilde-* ]]; then
   report="/tmp/readline_${mode//-/_}.out"
   rm -f "$report"
   [ "$READLINE_ORACLE_VERSION" = 8.3 ] || exit 1
@@ -59,7 +61,7 @@ if [ ! -f "$readline/lib/libreadline.so" ] || [ ! -f "$marker" ] || \
   echo "paths probe requires the exact pinned Readline cache" >&2
   exit 1
 fi
-if [[ "$mode" = tilde-home-* ]]; then
+if [[ "$mode" = tilde-* ]]; then
   prefix=$(realpath -e "$readline")
   library=$(realpath -e "$readline/lib/libreadline.so")
   case "$library" in
@@ -103,6 +105,8 @@ int main(int argc, char **argv) {
         int pinned = loaded && expected && strcmp(loaded, expected) == 0;
         free(loaded);
         free(expected);
+        int named = getenv("SUSHLINE_TILDE_NAMED_USER") != NULL;
+        if (named) hits = dlsym(RTLD_DEFAULT, "sushline_named_home_hits");
         int home_empty = getenv("SUSHLINE_TILDE_HOME_EMPTY") != NULL;
         int home_nonempty = getenv("SUSHLINE_TILDE_HOME_NONEMPTY") != NULL;
         const char *home = getenv("HOME");
@@ -121,18 +125,33 @@ int main(int argc, char **argv) {
             return 2;
         /* Same ~, Ctrl-O, accept-line sequence as the in-memory Rust editor.
            A pipe supplies only fixture bytes; terminal output is discarded. */
-        if (write(input[1], "~\017\n", 3) != 3 || close(input[1]) != 0)
+        const char *keys = named ? "~sushline-audit-user/\017\n" : "~\017\n";
+        size_t key_count = strlen(keys);
+        if (write(input[1], keys, key_count) != (ssize_t)key_count || close(input[1]) != 0)
             return 2;
         rl_instream = fdopen(input[0], "r");
         rl_outstream = fopen("/dev/null", "w");
         if (!rl_instream || !rl_outstream) return 2;
         char *line = readline("");
+        if (named && !line) return 2;
         int matches = line != NULL && strcmp(line, argv[1]) == 0;
+        /* Classify the synthetic home independently of the optional slash. */
+        if (named && line && strlen(line) == strlen(argv[1]) + 1 &&
+            strncmp(line, argv[1], strlen(argv[1])) == 0 &&
+            line[strlen(argv[1])] == '/') matches = 1;
         int empty = line != NULL && line[0] == '\0';
-        free(line);
+        int trailing_slash = line && line[0] && line[strlen(line) - 1] == '/';
         if (fclose(rl_instream) != 0 || fclose(rl_outstream) != 0) return 2;
         printf("readline_release=8.3\n");
         printf("pinned_library_loaded=1\n");
+        if (named) {
+            printf("named_home_lookup_hits=%u\n", hits());
+            printf("result_synthetic_home=%d\n", matches);
+            printf("result_trailing_slash=%d\n", trailing_slash);
+            printf("guards_ok=%u\n", safe());
+            free(line);
+            return 0;
+        }
         if (home_empty) printf("home_present=1\nhome_empty=1\n");
         else if (home_nonempty) printf("home_present=1\nhome_empty=0\nhome_nonempty=1\n");
         else printf("home_absent=1\n");
@@ -148,6 +167,7 @@ int main(int argc, char **argv) {
             printf("result_passwd_home=%d\n", matches_passwd_home);
         } else printf("result_match=%d\n", matches);
         printf("guards_ok=%u\n", safe());
+        free(line);
         return 0;
     }
     int unreadable_guarded = 0;
@@ -225,7 +245,8 @@ if [ -z "$readline_libraries" ] || \
 fi
 # The interposer is child-only: it returns EIO for the one named-account
 # failure fixture, and supplies a test-owned current-UID home only for the
-# focused tilde/HOME measurements. Other non-tilde lookups forward to libc; neither
+# focused tilde/HOME measurements, or the one synthetic named-user home.
+# Other non-tilde lookups forward to libc; neither
 # Python nor unrelated probes inherit LD_PRELOAD.
 cat > "$lookup_error_dir/interposer.c" <<'INTERPOSER'
 #define _GNU_SOURCE
@@ -267,6 +288,12 @@ unsigned int sushline_tilde_guard(void) {
     int stdio_denied = stream == NULL && errno == EACCES;
     if (stream) fclose(stream);
     int guarded = descriptor_denied && stdio_denied && blocked == 2;
+    if (getenv("SUSHLINE_TILDE_NAMED_USER")) {
+        fd = openat64(AT_FDCWD, getenv("SUSHLINE_PASSWD_HOME"), O_RDONLY);
+        int relative_denied = fd < 0 && errno == EACCES;
+        if (fd >= 0) close(fd);
+        guarded = guarded && relative_denied && blocked == 3;
+    }
     blocked = 0;
     return guarded;
 #else
@@ -303,6 +330,27 @@ int open(const char *path, int flags, ...) {
     if (denied(path)) return -1;
     return syscall(SYS_openat, AT_FDCWD, path, flags, mode);
 }
+int openat(int dirfd, const char *path, int flags, ...) {
+    mode_t mode = 0;
+    if (flags & O_CREAT) {
+        va_list args;
+        va_start(args, flags);
+        mode = (mode_t)va_arg(args, int);
+        va_end(args);
+    }
+    if (denied(path)) return -1;
+    return syscall(SYS_openat, dirfd, path, flags, mode);
+}
+int openat64(int dirfd, const char *path, int flags, ...) {
+    mode_t mode = 0;
+    if (flags & O_CREAT) {
+        va_list args;
+        va_start(args, flags);
+        mode = (mode_t)va_arg(args, int);
+        va_end(args);
+    }
+    return openat(dirfd, path, flags | O_LARGEFILE, mode);
+}
 int open64(const char *path, int flags, ...) {
     mode_t mode = 0;
     if (flags & O_CREAT) {
@@ -332,7 +380,8 @@ unsigned int sushline_passwd_home_hits(void) { return home_hits; }
 
 static struct passwd *synthetic_passwd(uid_t uid) {
     const char *home = getenv("SUSHLINE_PASSWD_HOME");
-    if (home == NULL || uid != getuid()) {
+    if (getenv("SUSHLINE_TILDE_NAMED_USER") != NULL ||
+        home == NULL || uid != getuid()) {
         return NULL;
     }
     static struct passwd entry;
@@ -392,7 +441,52 @@ int getpwuid_r(uid_t uid, struct passwd *pwd, char *buffer,
     return ENOSYS;
 }
 
+/* Never enumerate host accounts in a tilde probe. endpwent is harmless
+   cleanup after the synthetic entry and must not forward to libc either. */
+void setpwent(void) {
+    if (getenv("SUSHLINE_TILDE_PROBE")) { ++blocked; return; }
+    void (*next)(void) = dlsym(RTLD_NEXT, "setpwent");
+    if (next) next();
+}
+void endpwent(void) {
+    if (getenv("SUSHLINE_TILDE_PROBE")) return;
+    void (*next)(void) = dlsym(RTLD_NEXT, "endpwent");
+    if (next) next();
+}
+struct passwd *getpwent(void) {
+    if (getenv("SUSHLINE_TILDE_PROBE")) { ++blocked; errno = ENOENT; return NULL; }
+    struct passwd *(*next)(void) = dlsym(RTLD_NEXT, "getpwent");
+    return next ? next() : NULL;
+}
+int getpwent_r(struct passwd *pwd, char *buffer, size_t size, struct passwd **result) {
+    if (getenv("SUSHLINE_TILDE_PROBE")) { ++blocked; *result = NULL; return ENOENT; }
+    int (*next)(struct passwd *, char *, size_t, struct passwd **) =
+        dlsym(RTLD_NEXT, "getpwent_r");
+    if (next) return next(pwd, buffer, size, result);
+    *result = NULL;
+    return ENOSYS;
+}
+
+static unsigned int named_hits;
+unsigned int sushline_named_home_hits(void) { return named_hits; }
+static struct passwd *synthetic_named_passwd(const char *name) {
+    if (!getenv("SUSHLINE_TILDE_NAMED_USER") ||
+        strcmp(name, "sushline-audit-user") != 0) return NULL;
+    const char *home = getenv("SUSHLINE_PASSWD_HOME");
+    if (!home) return NULL;
+    static struct passwd entry;
+    entry = (struct passwd){
+        .pw_name = "sushline-audit-user", .pw_passwd = "x",
+        .pw_uid = (uid_t)42424, .pw_gid = (gid_t)42424, .pw_gecos = "",
+        .pw_dir = (char *)home, .pw_shell = "/bin/false",
+    };
+    ++named_hits;
+    return &entry;
+}
+
 struct passwd *getpwnam(const char *name) {
+    struct passwd *entry = synthetic_named_passwd(name);
+    if (entry) return entry;
     if (getenv("SUSHLINE_TILDE_PROBE") != NULL) {
         ++blocked;
         errno = ENOENT;
@@ -413,6 +507,17 @@ struct passwd *getpwnam(const char *name) {
 
 int getpwnam_r(const char *name, struct passwd *pwd, char *buffer,
               size_t size, struct passwd **result) {
+    struct passwd *entry = synthetic_named_passwd(name);
+    if (entry) {
+        *result = NULL;
+        size_t needed = strlen(entry->pw_dir) + 1;
+        if (size < needed) return ERANGE;
+        *pwd = *entry;
+        memcpy(buffer, entry->pw_dir, needed);
+        pwd->pw_dir = buffer;
+        *result = pwd;
+        return 0;
+    }
     if (getenv("SUSHLINE_TILDE_PROBE") != NULL) {
         ++blocked;
         *result = NULL;
@@ -435,7 +540,7 @@ int getpwnam_r(const char *name, struct passwd *pwd, char *buffer,
 }
 INTERPOSER
 interposer_flags=()
-if [[ "$mode" = tilde-home-* ]]; then
+if [[ "$mode" = tilde-* ]]; then
   interposer_flags=(-DSUSHLINE_TILDE_FILE_GUARD)
 fi
 if ! cc -Wall -Wextra -Werror "${interposer_flags[@]}" -shared -fPIC -o "$lookup_error_dir/interposer.so" \
@@ -464,7 +569,7 @@ home_unset_only = mode == "home-unset"
 home_empty_only = mode == "home-empty"
 resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
-def run_tilde_home(home_empty=False, home_nonempty=False):
+def run_tilde_home(home_empty=False, home_nonempty=False, named=False):
     # Build only the existing editor integration target. Capture all build and
     # child diagnostics; only a fully validated, path-free report is published.
     build = subprocess.run(
@@ -483,9 +588,9 @@ def run_tilde_home(home_empty=False, home_nonempty=False):
     for trial in (1, 2):
         with tempfile.TemporaryDirectory(prefix="sushline-tilde-home-", dir="/tmp") as base:
             home = os.path.join(base, "home")
-            passwd_home = os.path.join(base, "passwd-home") if home_nonempty else home
+            passwd_home = os.path.join(base, "passwd-home") if home_nonempty or named else home
             os.mkdir(home)
-            if home_nonempty:
+            if home_nonempty or named:
                 os.mkdir(passwd_home)
             # Empty TERM avoids consulting host terminfo; the command is
             # direct-library/in-memory, not a terminal-capability measurement.
@@ -494,12 +599,15 @@ def run_tilde_home(home_empty=False, home_nonempty=False):
                        SUSHLINE_TILDE_PROBE="1", SUSHLINE_PASSWD_HOME=passwd_home)
             if home_empty:
                 env.update(HOME="", SUSHLINE_TILDE_HOME_EMPTY="1")
-            elif home_nonempty:
+            elif home_nonempty or named:
                 env.update(HOME=home, SUSHLINE_TILDE_HOME_NONEMPTY="1",
                            SUSHLINE_TILDE_HOME=home)
+            if named:
+                env["SUSHLINE_TILDE_NAMED_USER"] = "1"
             trial_results = []
             case = "empty" if home_empty else "nonempty" if home_nonempty else "unset"
-            fixture = "tilde_expand_home_" + case + "_fixture"
+            fixture = ("tilde_expand_named_user_fixture" if named else
+                       "tilde_expand_home_" + case + "_fixture")
             gnu_expected = home if home_nonempty else passwd_home
             for implementation, command in (
                 ("gnu", [probe, gnu_expected, os.environ["SUSHLINE_PINNED_READLINE"]]),
@@ -521,7 +629,9 @@ def run_tilde_home(home_empty=False, home_nonempty=False):
                     output = match[1]
                 identity = (b"readline_release=8.3\npinned_library_loaded=1\n"
                             if implementation == "gnu" else b"")
-                fields = (rb"home_present=1\nhome_empty=1\npasswd_home_lookup_hits=([0-9]+)\n"
+                fields = (rb"named_home_lookup_hits=([0-9]{1,10})\n"
+                          rb"result_synthetic_home=([01])\nresult_trailing_slash=([01])\nguards_ok=1\n"
+                          if named else rb"home_present=1\nhome_empty=1\npasswd_home_lookup_hits=([0-9]+)\n"
                           rb"result_empty=([01])\nresult_passwd_home=([01])\nguards_ok=1\n"
                           if home_empty else
                           rb"home_present=1\nhome_empty=0\nhome_nonempty=1\n"
@@ -533,7 +643,13 @@ def run_tilde_home(home_empty=False, home_nonempty=False):
                 match = re.fullmatch(re.escape(identity) + fields, output)
                 if not match or result.stderr:
                     raise ValueError()
-                if home_empty or home_nonempty:
+                if named:
+                    # Retain valid negative rows for review, but fail the
+                    # measurement on disagreement after publishing the report.
+                    if match[2] == b"1" and int(match[1]) == 0:
+                        raise ValueError()
+                    trial_results.append((match[2], match[3]))
+                elif home_empty or home_nonempty:
                     # Keep validated rows even for a disagreement or an
                     # unclassified result, but never publish unsafe output.
                     if match[2] == match[3] == b"1":
@@ -548,13 +664,13 @@ def run_tilde_home(home_empty=False, home_nonempty=False):
                                 and match[3] == b"1") and accepted
                 records.extend(f"trial{trial}_{implementation}_{line}"
                                for line in output.decode("ascii").splitlines())
-            if home_empty or home_nonempty:
+            if home_empty or home_nonempty or named:
                 accepted = (trial_results[0] == trial_results[1]) and accepted
                 trial_classifications.append(tuple(trial_results))
         if os.path.lexists(base):
             raise ValueError()
         records.append(f"trial{trial}_cleanup=1")
-    if home_empty or home_nonempty:
+    if home_empty or home_nonempty or named:
         accepted = (trial_classifications[0] == trial_classifications[1]) and accepted
     # Temporary compiled probe/interposer cleanup is also part of acceptance.
     shutil.rmtree(os.path.dirname(probe))
@@ -917,6 +1033,9 @@ def setup_unreadable(base):
     return outer_path, base, base, include_path
 
 try:
+    if mode == "tilde-named-user":
+        run_tilde_home(named=True)
+        sys.exit(0)
     if mode in ("tilde-home-unset", "tilde-home-empty", "tilde-home-nonempty"):
         run_tilde_home(home_empty=mode == "tilde-home-empty",
                        home_nonempty=mode == "tilde-home-nonempty")

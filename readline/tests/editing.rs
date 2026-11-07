@@ -1534,6 +1534,7 @@ enum ControlledTildeHome {
     Unset,
     Empty,
     Nonempty,
+    NamedUser,
 }
 
 #[cfg(target_os = "linux")]
@@ -1558,6 +1559,13 @@ fn tilde_expand_home_nonempty_fixture() {
 }
 
 #[cfg(target_os = "linux")]
+#[test]
+#[ignore = "requires the controlled named-user measurement driver"]
+fn tilde_expand_named_user_fixture() {
+    tilde_expand_controlled_home_fixture(ControlledTildeHome::NamedUser);
+}
+
+#[cfg(target_os = "linux")]
 fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
     use std::os::unix::ffi::OsStrExt;
 
@@ -1572,6 +1580,11 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
     let expected_home = std::env::var_os("SUSHLINE_TILDE_HOME");
     let home_empty = matches!(home_mode, ControlledTildeHome::Empty);
     let home_nonempty = matches!(home_mode, ControlledTildeHome::Nonempty);
+    let named = matches!(home_mode, ControlledTildeHome::NamedUser);
+    assert_eq!(
+        std::env::var_os("SUSHLINE_TILDE_NAMED_USER").is_some(),
+        named
+    );
     match home_mode {
         ControlledTildeHome::Unset => {
             assert!(home.is_none(), "HOME must be absent");
@@ -1588,7 +1601,7 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
             assert!(std::env::var_os("SUSHLINE_TILDE_HOME_NONEMPTY").is_none());
             assert!(expected_home.is_none());
         }
-        ControlledTildeHome::Nonempty => {
+        ControlledTildeHome::Nonempty | ControlledTildeHome::NamedUser => {
             let expected = expected_home.as_ref().expect("synthetic HOME required");
             assert!(
                 home.as_ref()
@@ -1603,12 +1616,21 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
     let (arm, hits, safe) = unsafe {
         (
             probe_function(c"sushline_tilde_guard"),
-            probe_function(c"sushline_passwd_home_hits"),
+            probe_function(if named {
+                c"sushline_named_home_hits"
+            } else {
+                c"sushline_passwd_home_hits"
+            }),
             probe_function(c"sushline_tilde_safe"),
         )
     };
     assert!(arm() == 1, "file guard must be armed");
-    let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(b"~\x0f\r".to_vec())]);
+    let keys: &[u8] = if named {
+        b"~sushline-audit-user/\x0f\r"
+    } else {
+        b"~\x0f\r"
+    };
+    let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(keys.to_vec())]);
     let mut line = Editor::new(
         Config {
             inputrc_path: InputrcPath::Disabled,
@@ -1628,6 +1650,19 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
     // Never format either target, line, terminal output, or account data.
     // Leave comparison acceptance to the measurement driver so a mismatch or
     // missing lookup remains available as sanitized evidence in the artifact.
+    if named {
+        assert!(matches!(&result, ReadlineResult::Line(_)), "line required");
+        let mut expected = target.as_os_str().as_bytes().to_vec();
+        expected.push(b'/');
+        let synthetic_home = matches!(&result, ReadlineResult::Line(actual) if actual == target.as_os_str().as_bytes() || *actual == expected);
+        let trailing_slash =
+            matches!(&result, ReadlineResult::Line(actual) if actual.ends_with(b"/"));
+        println!("named_home_lookup_hits={}", hits());
+        println!("result_synthetic_home={}", u8::from(synthetic_home));
+        println!("result_trailing_slash={}", u8::from(trailing_slash));
+        println!("guards_ok={}", safe());
+        return;
+    }
     if home_empty {
         println!("home_present=1");
         println!("home_empty=1");

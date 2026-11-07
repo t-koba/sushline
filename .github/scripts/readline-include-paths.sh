@@ -3,8 +3,10 @@
 # quoted CWD-relative paths with spaces, `~/` via controlled HOME, literal `$HOME`,
 # and missing-include continuation, including a controlled named-account
 # lookup error.
-# --home-unset-only measures just `~/` with HOME absent (not HOME=""), using
-# a child-only synthetic current-UID passwd home. --unreadable-only measures one
+# --home-unset-only measures `~/` with HOME absent (not HOME=""), using a
+# child-only synthetic current-UID passwd home. --home-empty-only measures one
+# explicit empty-HOME include against test-owned resolution candidates.
+# --unreadable-only measures one
 # test-owned mode-000 include; the oracle child must confirm it cannot open the
 # child before reading the outer file. --bare-cr-only compares LF and bare-CR
 # include directives in two fresh fixtures. No arguments retains the refresh.
@@ -15,9 +17,10 @@ mode=refresh
 case "$#:$*" in
   0:) ;;
   1:--home-unset-only) mode=home-unset ;;
+  1:--home-empty-only) mode=home-empty ;;
   1:--unreadable-only) mode=unreadable ;;
   1:--bare-cr-only) mode=bare-cr ;;
-  *) echo "usage: readline-include-paths.sh [--home-unset-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
+  *) echo "usage: readline-include-paths.sh [--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
 esac
 lookup_error_dir=$(mktemp -d /tmp/sushline-lookup-error-XXXXXX)
 trap 'rm -rf "$lookup_error_dir"' EXIT
@@ -25,6 +28,9 @@ probe="$lookup_error_dir/probe"
 report=/tmp/readline_include_paths.out
 if [ "$mode" = home-unset ]; then
   report=/tmp/readline_include_home_unset.out
+elif [ "$mode" = home-empty ]; then
+  report=/tmp/readline_include_home_empty.out
+  rm -f "$report"
 elif [ "$mode" = unreadable ]; then
   report=/tmp/readline_include_unreadable.out
 elif [ "$mode" = bare-cr ]; then
@@ -264,9 +270,10 @@ probe = os.environ["SUSHLINE_INCLUDE_PATHS_PROBE"]
 expected = os.environ["READLINE_ORACLE_VERSION"]
 mode = os.environ["SUSHLINE_INCLUDE_PATHS_MODE"]
 home_unset_only = mode == "home-unset"
+home_empty_only = mode == "home-empty"
 resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
-def run_child(label, outer_path, cwd, home, lookup_error=False, home_unset=False, guard_path=None):
+def run_child(label, outer_path, cwd, home, lookup_error=False, home_unset=False, guard_path=None, home_empty=False):
     child = None
     try:
         env = os.environ.copy()
@@ -274,11 +281,14 @@ def run_child(label, outer_path, cwd, home, lookup_error=False, home_unset=False
         env.pop("LD_PRELOAD", None)
         env.pop("LD_LIBRARY_PATH", None)
         env.pop("SUSHLINE_PASSWD_HOME", None)
-        if lookup_error or home_unset:
+        if lookup_error or home_unset or home_empty:
             env["LD_PRELOAD"] = os.environ["SUSHLINE_LOOKUP_ERROR_PRELOAD"]
         env.update(INPUTRC="/dev/null", LC_ALL="C", TERM="dumb")
         if home_unset:
             env.pop("HOME", None)  # Absence, not an empty HOME string.
+            env["SUSHLINE_PASSWD_HOME"] = home
+        elif home_empty:
+            env["HOME"] = ""
             env["SUSHLINE_PASSWD_HOME"] = home
         else:
             env["HOME"] = home
@@ -334,21 +344,28 @@ def run_child(label, outer_path, cwd, home, lookup_error=False, home_unset=False
                 and fields.get("home_empty") == "0"
                 and re.fullmatch(r"[0-9]{1,10}", fields.get("passwd_home_lookup_hits", "")) is not None
             )
+        if home_empty:
+            valid = (
+                valid
+                and fields.get("home_present") == "1"
+                and fields.get("home_empty") == "1"
+                and re.fullmatch(r"[0-9]{1,10}", fields.get("passwd_home_lookup_hits", "")) is not None
+            )
         if mode == "bare-cr":
             if valid:
                 for key in ("read_status", "completion_ignore_case_on", "editing_mode_vi"):
                     print(f"{label}_{key}={fields[key]}")
         else:
             if valid:
-                if home_unset:
+                if home_unset or home_empty:
                     for key in ("home_present", "home_empty", "passwd_home_lookup_hits"):
                         print(f"{label}_{key}={fields[key]}")
                 print(f"{label}_readline_release={fields['readline_release']}")
                 print(f"{label}_read_status={fields['read_status']}")
                 print(f"{label}_pinned_library_loaded={fields['pinned_library_loaded']}")
-                if guard_path is None:
+                if guard_path is None and not home_empty:
                     print(f"{label}_lookup_error_hits={fields['lookup_error_hits']}")
-                else:
+                elif guard_path is not None:
                     print(f"{label}_unreadable_include_guarded={fields['unreadable_include_guarded']}")
                 print(f"{label}_completion_ignore_case_on={fields['completion_ignore_case_on']}")
                 print(f"{label}_editing_mode_vi={fields['editing_mode_vi']}")
@@ -371,7 +388,7 @@ def run_child(label, outer_path, cwd, home, lookup_error=False, home_unset=False
                 if stream is not None:
                     stream.close()
 
-def run_case(case, setup, expected_fields=None, lookup_error=False, home_unset=False):
+def run_case(case, setup, expected_fields=None, lookup_error=False, home_unset=False, home_empty=False):
     records = []
     base = None
     try:
@@ -382,7 +399,7 @@ def run_case(case, setup, expected_fields=None, lookup_error=False, home_unset=F
             guard_path = setup_result[3] if len(setup_result) == 4 else None
             label = f"{case}_trial{trial}"
             valid, completed, fields, returncode, stderr_flag, timed_out = run_child(
-                label, outer_path, cwd, home, lookup_error, home_unset, guard_path
+                label, outer_path, cwd, home, lookup_error, home_unset, guard_path, home_empty
             )
             try:
                 shutil.rmtree(base, ignore_errors=True)
@@ -519,6 +536,28 @@ def setup_home_unset(base):
         handle.write("$include ~/included.inputrc\n")
     return outer_path, base, passwd_home
 
+def setup_home_empty(base):
+    passwd_home = os.path.join(base, "synthetic-passwd-home")
+    os.makedirs(passwd_home)
+    token = os.path.basename(base)
+    suffix = os.path.join("tmp", token, "marker.inputrc")
+    candidates = (
+        (os.path.join(base, "marker.inputrc"), "on", "emacs"),
+        (os.path.join(base, suffix), "on", "vi"),
+        (os.path.join(passwd_home, suffix), "off", "vi"),
+    )
+    for path, ignore_case, editing_mode in candidates:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(f"set completion-ignore-case {ignore_case}\n")
+            handle.write(f"set editing-mode {editing_mode}\n")
+    outer_path = os.path.join(base, "outer.inputrc")
+    with open(outer_path, "w", encoding="utf-8") as handle:
+        handle.write("set completion-ignore-case off\n")
+        handle.write("set editing-mode emacs\n")
+        handle.write(f"$include ~/tmp/{token}/marker.inputrc\n")
+    return outer_path, base, passwd_home
+
 def setup_dollar_home(base):
     cwd_dir = os.path.join(base, "cwd")
     os.makedirs(cwd_dir)
@@ -612,6 +651,15 @@ try:
             expected_fields={"read_status": "0"},
             home_unset=True,
         ) and ok
+        if not ok:
+            raise ValueError()
+        sys.exit(0)
+    if home_empty_only:
+        ok = run_case(
+            "tilde_home_empty",
+            setup_home_empty,
+            home_empty=True,
+        )
         if not ok:
             raise ValueError()
         sys.exit(0)

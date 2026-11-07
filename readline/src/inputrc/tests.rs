@@ -605,6 +605,48 @@ fn ignores_active_include_read_errors() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn ignores_active_include_permission_denied() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let include = dir.path().join("unreadable.inputrc");
+    fs::write(&include, "set completion-ignore-case on\n").unwrap();
+    fs::set_permissions(&include, fs::Permissions::from_mode(0o0)).unwrap();
+    match fs::File::open(&include) {
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {}
+        Ok(_) => {
+            // Privileged test processes can bypass mode bits; there is no
+            // unreadable-file case to assert in this process.
+            return;
+        }
+        Err(error) => panic!("could not validate the test-owned include: {error}"),
+    }
+
+    let outer = dir.path().join("outer.inputrc");
+    fs::write(
+        &outer,
+        format!(
+            "set completion-ignore-case off\n$include {}\n\"\\C-o\": end-of-line\n",
+            include.display()
+        ),
+    )
+    .unwrap();
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    let diagnostics = InputrcParser::new()
+        .parse_file(&outer, &Config::default(), &mut keymap, &mut variables)
+        .unwrap();
+
+    assert!(diagnostics.is_empty());
+    assert!(!variables.is_on("completion-ignore-case"));
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
+        Some(&KeyBinding::Command(EditCommand::EndOfLine))
+    );
+}
+
 #[test]
 fn include_path_spellings_follow_the_measured_gnu_rule() {
     // Only directive-leading and separating whitespace is skipped. Quotes,

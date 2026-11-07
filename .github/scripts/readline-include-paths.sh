@@ -4,8 +4,9 @@
 # and missing-include continuation, including a controlled named-account
 # lookup error.
 # --home-unset-only measures just `~/` with HOME absent (not HOME=""), using
-# a child-only synthetic current-UID passwd home. It does not assert a fallback
-# outcome before the pinned result is observed. No arguments retains the refresh.
+# a child-only synthetic current-UID passwd home. --unreadable-only measures one
+# test-owned mode-000 include; the oracle child must confirm it cannot open the
+# child before reading the outer file. No arguments retains the refresh.
 # Measurement only against the pinned release.
 set -euo pipefail
 ulimit -c 0
@@ -13,7 +14,8 @@ mode=refresh
 case "$#:$*" in
   0:) ;;
   1:--home-unset-only) mode=home-unset ;;
-  *) echo "usage: readline-include-paths.sh [--home-unset-only]" >&2; exit 2 ;;
+  1:--unreadable-only) mode=unreadable ;;
+  *) echo "usage: readline-include-paths.sh [--home-unset-only|--unreadable-only]" >&2; exit 2 ;;
 esac
 lookup_error_dir=$(mktemp -d /tmp/sushline-lookup-error-XXXXXX)
 trap 'rm -rf "$lookup_error_dir"' EXIT
@@ -21,6 +23,8 @@ probe="$lookup_error_dir/probe"
 report=/tmp/readline_include_paths.out
 if [ "$mode" = home-unset ]; then
   report=/tmp/readline_include_home_unset.out
+elif [ "$mode" = unreadable ]; then
+  report=/tmp/readline_include_unreadable.out
 fi
 readline="$HOME/.cache/sushline/readline-oracle"
 # Fail closed on a missing or differently configured cache.
@@ -33,23 +37,41 @@ if [ ! -f "$readline/lib/libreadline.so" ] || [ ! -f "$marker" ] || \
   exit 1
 fi
 # Direct-library probe: initialize with no user configuration, read one
-# test-owned outer file, and report release, library identity, lookup hits,
-# read status, and boolean sentinel states. No input is read.
+# test-owned outer file, and report release, library identity, read status,
+# and boolean directive states. In guarded mode, open(2) first confirms that
+# this oracle process cannot read the test-owned include; failure is fail-closed.
+# No input is read.
 cat > "$probe.c" <<'PROBE'
 #define _GNU_SOURCE
 #include <dlfcn.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/resource.h>
+#include <unistd.h>
 #include <readline/readline.h>
 
 extern int rl_readline_version;
 
 int main(int argc, char **argv) {
     const struct rlimit no_core = {0, 0};
-    if (argc != 3 || setrlimit(RLIMIT_CORE, &no_core) != 0) {
+    if ((argc != 3 && argc != 4) || setrlimit(RLIMIT_CORE, &no_core) != 0) {
         return 2;
+    }
+    int unreadable_guarded = 0;
+    if (argc == 4) {
+        int fd = open(argv[3], O_RDONLY);
+        if (fd >= 0) {
+            close(fd);
+            return 2;
+        }
+        if (errno != EACCES && errno != EPERM) {
+            return 2;
+        }
+        unreadable_guarded = 1;
+        errno = 0;
     }
     printf("readline_release=%d.%d\n", rl_readline_version >> 8,
            rl_readline_version & 0xff);
@@ -67,6 +89,9 @@ int main(int argc, char **argv) {
     free(loaded);
     free(expected);
     printf("pinned_library_loaded=%d\n", pinned);
+    if (unreadable_guarded) {
+        printf("unreadable_include_guarded=1\n");
+    }
     if (!pinned || rl_initialize() != 0) {
         return 1;
     }
@@ -235,7 +260,7 @@ expected = os.environ["READLINE_ORACLE_VERSION"]
 home_unset_only = os.environ["SUSHLINE_INCLUDE_PATHS_MODE"] == "home-unset"
 resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
-def run_child(label, outer_path, cwd, home, lookup_error=False, home_unset=False):
+def run_child(label, outer_path, cwd, home, lookup_error=False, home_unset=False, guard_path=None):
     child = None
     try:
         env = os.environ.copy()
@@ -251,8 +276,11 @@ def run_child(label, outer_path, cwd, home, lookup_error=False, home_unset=False
             env["SUSHLINE_PASSWD_HOME"] = home
         else:
             env["HOME"] = home
+        command = [probe, outer_path, os.environ["SUSHLINE_PINNED_READLINE"]]
+        if guard_path is not None:
+            command.append(guard_path)
         child = subprocess.Popen(
-            [probe, outer_path, os.environ["SUSHLINE_PINNED_READLINE"]],
+            command,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -280,6 +308,7 @@ def run_child(label, outer_path, cwd, home, lookup_error=False, home_unset=False
                 "home_present",
                 "home_empty",
                 "passwd_home_lookup_hits",
+                "unreadable_include_guarded",
             }:
                 fields[key] = value
         valid = (
@@ -290,6 +319,8 @@ def run_child(label, outer_path, cwd, home, lookup_error=False, home_unset=False
             and fields.get("completion_ignore_case_on") in {"0", "1"}
             and fields.get("editing_mode_vi") in {"0", "1"}
         )
+        if guard_path is not None:
+            valid = valid and fields.get("unreadable_include_guarded") == "1"
         if home_unset:
             valid = (
                 valid
@@ -304,7 +335,10 @@ def run_child(label, outer_path, cwd, home, lookup_error=False, home_unset=False
             print(f"{label}_readline_release={fields['readline_release']}")
             print(f"{label}_read_status={fields['read_status']}")
             print(f"{label}_pinned_library_loaded={fields['pinned_library_loaded']}")
-            print(f"{label}_lookup_error_hits={fields['lookup_error_hits']}")
+            if guard_path is None:
+                print(f"{label}_lookup_error_hits={fields['lookup_error_hits']}")
+            else:
+                print(f"{label}_unreadable_include_guarded={fields['unreadable_include_guarded']}")
             print(f"{label}_completion_ignore_case_on={fields['completion_ignore_case_on']}")
             print(f"{label}_editing_mode_vi={fields['editing_mode_vi']}")
         print(f"{label}_probe_stderr_nonempty={int(bool(stderr_bytes))}")
@@ -331,10 +365,12 @@ def run_case(case, setup, expected_fields=None, lookup_error=False, home_unset=F
     try:
         for trial in (1, 2):
             base = tempfile.mkdtemp(prefix="sushline-include-paths-", dir="/tmp")
-            outer_path, cwd, home = setup(base)
+            setup_result = setup(base)
+            outer_path, cwd, home = setup_result[:3]
+            guard_path = setup_result[3] if len(setup_result) == 4 else None
             label = f"{case}_trial{trial}"
             valid, completed, fields, returncode, stderr_flag, timed_out = run_child(
-                label, outer_path, cwd, home, lookup_error, home_unset
+                label, outer_path, cwd, home, lookup_error, home_unset, guard_path
             )
             try:
                 shutil.rmtree(base, ignore_errors=True)
@@ -483,7 +519,24 @@ def setup_missing(base):
         handle.write("set editing-mode vi\n")
     return outer_path, base, base
 
+def setup_unreadable(base):
+    include_path = os.path.join(base, "unreadable.inputrc")
+    with open(include_path, "w", encoding="utf-8") as handle:
+        handle.write("set completion-ignore-case on\n")
+    os.chmod(include_path, 0)
+    outer_path = os.path.join(base, "outer.inputrc")
+    with open(outer_path, "w", encoding="utf-8") as handle:
+        handle.write("set completion-ignore-case off\n")
+        handle.write(f"$include {include_path}\n")
+        handle.write("set editing-mode vi\n")
+    return outer_path, base, base, include_path
+
 try:
+    if mode == "unreadable":
+        ok = run_case("unreadable_include", setup_unreadable)
+        if not ok:
+            raise ValueError()
+        sys.exit(0)
     if home_unset_only:
         ok = run_case(
             "tilde_home_set_control",

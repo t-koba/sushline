@@ -4192,6 +4192,16 @@ jobs:
           path: /tmp/readline_include_home_unset.out
           if-no-files-found: error
           retention-days: 14
+      - name: Measure unreadable inputrc include against the pinned release
+        run: bash .github/scripts/readline-include-paths.sh --unreadable-only
+      - name: Upload unreadable inputrc include measurement
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-unreadable-include
+          path: /tmp/readline_include_unreadable.out
+          if-no-files-found: error
+          retention-days: 14
       - name: Measure default history file with HOME absent against the pinned release
         run: bash .github/scripts/history-home-unset.sh
       - name: Upload HOME-unset default history measurement

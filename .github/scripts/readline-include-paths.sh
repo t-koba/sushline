@@ -257,7 +257,8 @@ import tempfile
 
 probe = os.environ["SUSHLINE_INCLUDE_PATHS_PROBE"]
 expected = os.environ["READLINE_ORACLE_VERSION"]
-home_unset_only = os.environ["SUSHLINE_INCLUDE_PATHS_MODE"] == "home-unset"
+mode = os.environ["SUSHLINE_INCLUDE_PATHS_MODE"]
+home_unset_only = mode == "home-unset"
 resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
 def run_child(label, outer_path, cwd, home, lookup_error=False, home_unset=False, guard_path=None):

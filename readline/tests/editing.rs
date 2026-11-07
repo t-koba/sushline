@@ -1537,6 +1537,7 @@ enum ControlledTildeHome {
     NamedUser,
     NamedUserVi,
     UnsetVi,
+    EmptyVi,
     NamedFilename,
     UnsetFilename,
 }
@@ -1585,6 +1586,13 @@ fn vi_tilde_expand_home_unset_fixture() {
 
 #[cfg(target_os = "linux")]
 #[test]
+#[ignore = "requires the controlled HOME-empty current-user vi measurement driver"]
+fn vi_tilde_expand_home_empty_fixture() {
+    tilde_expand_controlled_home_fixture(ControlledTildeHome::EmptyVi);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
 #[ignore = "requires the controlled named-user filename measurement driver"]
 fn complete_filename_named_user_fixture() {
     tilde_expand_controlled_home_fixture(ControlledTildeHome::NamedFilename);
@@ -1610,7 +1618,10 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
     }
     let home = std::env::var_os("HOME");
     let expected_home = std::env::var_os("SUSHLINE_TILDE_HOME");
-    let home_empty = matches!(home_mode, ControlledTildeHome::Empty);
+    let home_empty = matches!(
+        home_mode,
+        ControlledTildeHome::Empty | ControlledTildeHome::EmptyVi
+    );
     let home_nonempty = matches!(home_mode, ControlledTildeHome::Nonempty);
     let named = matches!(
         home_mode,
@@ -1628,7 +1639,9 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
     );
     let vi = matches!(
         home_mode,
-        ControlledTildeHome::NamedUserVi | ControlledTildeHome::UnsetVi
+        ControlledTildeHome::NamedUserVi
+            | ControlledTildeHome::UnsetVi
+            | ControlledTildeHome::EmptyVi
     );
     assert_eq!(std::env::var_os("SUSHLINE_TILDE_VI").is_some(), vi);
     assert_eq!(
@@ -1644,7 +1657,7 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
             assert!(std::env::var_os("SUSHLINE_TILDE_HOME_NONEMPTY").is_none());
             assert!(expected_home.is_none());
         }
-        ControlledTildeHome::Empty => {
+        ControlledTildeHome::Empty | ControlledTildeHome::EmptyVi => {
             assert!(
                 home.as_ref().is_some_and(|home| home.is_empty()),
                 "HOME must be present and empty"

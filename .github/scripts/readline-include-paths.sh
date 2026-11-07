@@ -14,6 +14,8 @@
 # with Sushline under a child-only synthetic passwd home and strict file guard.
 # --vi-tilde-home-unset-only compares exactly `vi-tilde-expand` on current-user
 # `~` with child HOME absent, in two fresh guarded synthetic passwd-home trials.
+# --vi-tilde-home-empty-only compares the same vi command with HOME present
+# but empty, classifying empty vs synthetic passwd-home results in fresh trials.
 # --tilde-home-empty-only runs `tilde-expand` with HOME present but empty,
 # classifying empty vs synthetic passwd-home results without assuming either.
 # --tilde-home-nonempty-only compares HOME with a distinct synthetic passwd home.
@@ -31,6 +33,7 @@ case "$#:$*" in
   1:--home-unset-only) mode=home-unset ;;
   1:--tilde-home-unset-only) mode=tilde-home-unset ;;
   1:--vi-tilde-home-unset-only) mode=tilde-home-unset-vi ;;
+  1:--vi-tilde-home-empty-only) mode=tilde-home-empty-vi ;;
   1:--tilde-home-empty-only) mode=tilde-home-empty ;;
   1:--tilde-home-nonempty-only) mode=tilde-home-nonempty ;;
   1:--tilde-named-user-only) mode=tilde-named-user ;;
@@ -40,7 +43,7 @@ case "$#:$*" in
   1:--home-empty-only) mode=home-empty ;;
   1:--unreadable-only) mode=unreadable ;;
   1:--bare-cr-only) mode=bare-cr ;;
-  *) echo "usage: readline-include-paths.sh [--vi-tilde-home-unset-only|--filename-home-unset-only|--filename-named-user-only|--vi-tilde-named-user-only|--tilde-named-user-only|--tilde-home-nonempty-only|--tilde-home-empty-only|--tilde-home-unset-only|--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
+  *) echo "usage: readline-include-paths.sh [--vi-tilde-home-empty-only|--vi-tilde-home-unset-only|--filename-home-unset-only|--filename-named-user-only|--vi-tilde-named-user-only|--tilde-named-user-only|--tilde-home-nonempty-only|--tilde-home-empty-only|--tilde-home-unset-only|--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
 esac
 lookup_error_dir=$(mktemp -d /tmp/sushline-lookup-error-XXXXXX)
 trap 'rm -rf "$lookup_error_dir"' EXIT
@@ -142,7 +145,7 @@ int main(int argc, char **argv) {
             return 2;
         int filename = getenv("SUSHLINE_FILENAME_PROBE") != NULL;
         int vi = getenv("SUSHLINE_TILDE_VI") != NULL;
-        if ((vi && !named && (home_empty || home_nonempty)) ||
+        if ((vi && !named && home_nonempty) ||
             (filename && (vi || home_empty || (!named && home_nonempty)))) return 2;
         if (filename && rl_variable_bind("expand-tilde", "on") != 0) return 2;
         rl_command_func_t *command = filename ? complete_filename :
@@ -755,7 +758,7 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                            "complete_filename_home_unset_fixture")
             elif vi:
                 fixture = ("vi_tilde_expand_named_user_fixture" if named else
-                           "vi_tilde_expand_home_unset_fixture")
+                           "vi_tilde_expand_home_" + case + "_fixture")
             elif named:
                 fixture = "tilde_expand_named_user_fixture"
             else:
@@ -801,7 +804,7 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                     raise ValueError()
                 if filename or current_vi:
                     trial_rows.append(match.groups())
-                if current_vi:
+                if current_vi and not home_empty:
                     # Keep each implementation's lookup count for repeatability,
                     # but compare only resolved-home classifications between them.
                     lookup_hits = int(match[1])
@@ -836,7 +839,13 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
         records.append(f"trial{trial}_cleanup=1")
     if home_empty or home_nonempty or named or filename or current_vi:
         accepted = (trial_classifications[0] == trial_classifications[1]) and accepted
-    if (filename or current_vi) and trial_rows[:2] != trial_rows[2:]:
+    if current_vi and home_empty:
+        # Retain both sanitized rows even when counts or classifications vary.
+        stable = trial_rows[:2] == trial_rows[2:]
+        comparison = all(gnu == sushline for gnu, sushline in trial_classifications)
+        accepted = stable and comparison and accepted
+        records.extend((f"trials_stable={int(stable)}", f"comparison_match={int(comparison)}"))
+    elif (filename or current_vi) and trial_rows[:2] != trial_rows[2:]:
         raise ValueError()
     # Temporary compiled probe/interposer cleanup is also part of acceptance.
     shutil.rmtree(os.path.dirname(probe))
@@ -1205,8 +1214,8 @@ try:
     if mode in ("tilde-named-user", "tilde-named-user-vi"):
         run_tilde_home(named=True, vi=mode == "tilde-named-user-vi")
         sys.exit(0)
-    if mode == "tilde-home-unset-vi":
-        run_tilde_home(vi=True)
+    if mode in ("tilde-home-unset-vi", "tilde-home-empty-vi"):
+        run_tilde_home(vi=True, home_empty=mode == "tilde-home-empty-vi")
         sys.exit(0)
     if mode in ("tilde-home-unset", "tilde-home-empty", "tilde-home-nonempty"):
         run_tilde_home(home_empty=mode == "tilde-home-empty",

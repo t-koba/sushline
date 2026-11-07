@@ -1526,6 +1526,55 @@ fn current_account_name_and_home() -> Option<(String, Vec<u8>)> {
     })
 }
 
+// Run only via readline-include-paths.sh --tilde-home-unset-only: that
+// driver supplies a child-only interposer, a fresh synthetic home and no HOME.
+// The helper unit test does not exercise NSS wiring or command dispatch.
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "requires the controlled HOME-unset measurement driver"]
+fn tilde_expand_home_unset_fixture() {
+    use std::os::unix::ffi::OsStrExt;
+
+    // SAFETY: the driver loads these no-argument C functions from its own
+    // interposer. Check every symbol before converting its function pointer.
+    unsafe fn probe_function(name: &std::ffi::CStr) -> extern "C" fn() -> u32 {
+        let symbol = unsafe { libc::dlsym(libc::RTLD_DEFAULT, name.as_ptr()) };
+        assert!(!symbol.is_null(), "controlled interposer missing");
+        unsafe { std::mem::transmute(symbol) }
+    }
+    assert!(std::env::var_os("HOME").is_none(), "HOME must be absent");
+    let target = std::env::var_os("SUSHLINE_PASSWD_HOME").expect("fixture home required");
+    let (arm, hits, safe) = unsafe {
+        (
+            probe_function(c"sushline_tilde_guard"),
+            probe_function(c"sushline_passwd_home_hits"),
+            probe_function(c"sushline_tilde_safe"),
+        )
+    };
+    assert!(arm() == 1, "file guard must be armed");
+    let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(b"~\x0f\r".to_vec())]);
+    let mut line = Editor::new(
+        Config {
+            inputrc_path: InputrcPath::Disabled,
+            ..Config::default()
+        },
+        terminal,
+        History::new(),
+    );
+    line.load_inputrc_str(r#""\C-o": tilde-expand"#).unwrap();
+    let result = line.read_line(Prompt::new(""), &mut ()).unwrap();
+    let matches = matches!(result, ReadlineResult::Line(actual) if actual == target.as_bytes());
+    // Never format the target, line, terminal output, or account data.
+    println!("home_absent=1");
+    println!("passwd_home_lookup_hits={}", hits());
+    println!("result_match={}", u8::from(matches));
+    println!("guards_ok={}", safe());
+    assert!(
+        matches && hits() > 0 && safe() == 1,
+        "fixture guards failed"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn tilde_expand_preserves_named_user_trailing_slash() {

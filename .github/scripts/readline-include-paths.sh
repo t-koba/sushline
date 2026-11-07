@@ -10,6 +10,8 @@
 # test-owned mode-000 include; the oracle child must confirm it cannot open the
 # child before reading the outer file. --bare-cr-only compares LF and bare-CR
 # include directives in two fresh fixtures. No arguments retains the refresh.
+# --tilde-home-unset-only compares the current-word `tilde-expand` command
+# with Sushline under a child-only synthetic passwd home and strict file guard.
 # Measurement only against the pinned release.
 set -euo pipefail
 ulimit -c 0
@@ -17,16 +19,21 @@ mode=refresh
 case "$#:$*" in
   0:) ;;
   1:--home-unset-only) mode=home-unset ;;
+  1:--tilde-home-unset-only) mode=tilde-home-unset ;;
   1:--home-empty-only) mode=home-empty ;;
   1:--unreadable-only) mode=unreadable ;;
   1:--bare-cr-only) mode=bare-cr ;;
-  *) echo "usage: readline-include-paths.sh [--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
+  *) echo "usage: readline-include-paths.sh [--tilde-home-unset-only|--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
 esac
 lookup_error_dir=$(mktemp -d /tmp/sushline-lookup-error-XXXXXX)
 trap 'rm -rf "$lookup_error_dir"' EXIT
 probe="$lookup_error_dir/probe"
 report=/tmp/readline_include_paths.out
-if [ "$mode" = home-unset ]; then
+if [ "$mode" = tilde-home-unset ]; then
+  report=/tmp/readline_tilde_home_unset.out
+  rm -f "$report"
+  [ "$READLINE_ORACLE_VERSION" = 8.3 ] || exit 1
+elif [ "$mode" = home-unset ]; then
   report=/tmp/readline_include_home_unset.out
 elif [ "$mode" = home-empty ]; then
   report=/tmp/readline_include_home_empty.out
@@ -46,6 +53,14 @@ if [ ! -f "$readline/lib/libreadline.so" ] || [ ! -f "$marker" ] || \
   [ "$(cat "$marker" 2>/dev/null)" != "$configure_identity" ]; then
   echo "paths probe requires the exact pinned Readline cache" >&2
   exit 1
+fi
+if [ "$mode" = tilde-home-unset ]; then
+  prefix=$(realpath -e "$readline")
+  library=$(realpath -e "$readline/lib/libreadline.so")
+  case "$library" in
+    "$prefix/lib/"*) ;;
+    *) echo "tilde probe library escapes the pinned prefix" >&2; exit 1 ;;
+  esac
 fi
 # Direct-library probe: initialize with no user configuration, read one
 # test-owned outer file, and report release, library identity, read status,
@@ -70,6 +85,44 @@ int main(int argc, char **argv) {
     const struct rlimit no_core = {0, 0};
     if ((argc != 3 && argc != 4) || setrlimit(RLIMIT_CORE, &no_core) != 0) {
         return 2;
+    }
+    if (getenv("SUSHLINE_TILDE_PROBE") != NULL) {
+        unsigned int (*arm)(void) = dlsym(RTLD_DEFAULT, "sushline_tilde_guard");
+        unsigned int (*hits)(void) = dlsym(RTLD_DEFAULT, "sushline_passwd_home_hits");
+        unsigned int (*safe)(void) = dlsym(RTLD_DEFAULT, "sushline_tilde_safe");
+        Dl_info library;
+        char *loaded = NULL;
+        char *expected = realpath(argv[2], NULL);
+        if (dladdr((void *)rl_initialize, &library) != 0)
+            loaded = realpath(library.dli_fname, NULL);
+        int pinned = loaded && expected && strcmp(loaded, expected) == 0;
+        free(loaded);
+        free(expected);
+        if (!pinned || rl_readline_version != 0x0803 || getenv("HOME") != NULL ||
+            !arm || !hits || !safe || !arm() || rl_initialize() != 0)
+            return 2;
+        rl_command_func_t *command = rl_named_function("tilde-expand");
+        int input[2];
+        if (!command || rl_bind_key(15, command) != 0 || pipe(input) != 0)
+            return 2;
+        /* Same ~, Ctrl-O, accept-line sequence as the in-memory Rust editor.
+           A pipe supplies only fixture bytes; terminal output is discarded. */
+        if (write(input[1], "~\017\n", 3) != 3 || close(input[1]) != 0)
+            return 2;
+        rl_instream = fdopen(input[0], "r");
+        rl_outstream = fopen("/dev/null", "w");
+        if (!rl_instream || !rl_outstream) return 2;
+        char *line = readline("");
+        int matches = line != NULL && strcmp(line, argv[1]) == 0;
+        free(line);
+        if (fclose(rl_instream) != 0 || fclose(rl_outstream) != 0) return 2;
+        printf("readline_release=8.3\n");
+        printf("pinned_library_loaded=1\n");
+        printf("home_absent=1\n");
+        printf("passwd_home_lookup_hits=%u\n", hits());
+        printf("result_match=%d\n", matches);
+        printf("guards_ok=%u\n", safe());
+        return 0;
     }
     int unreadable_guarded = 0;
     if (argc == 4) {
@@ -154,10 +207,88 @@ cat > "$lookup_error_dir/interposer.c" <<'INTERPOSER'
 #include <errno.h>
 #include <pwd.h>
 #include <stddef.h>
+#include <fcntl.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <sys/syscall.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
+/* Strict mode is armed by each probe after loader/runtime initialization.
+   Only /dev/null is permitted for inputrc; never consult real account data. */
+static unsigned int armed, blocked;
+unsigned int sushline_tilde_guard(void) {
+    armed = getenv("SUSHLINE_TILDE_PROBE") != NULL &&
+            getenv("HOME") == NULL && getenv("SUSHLINE_PASSWD_HOME") != NULL;
+#ifdef SUSHLINE_TILDE_FILE_GUARD
+    if (!armed || blocked != 0) return 0;
+    /* Prove both descriptor and stdio guards deny a test-owned directory.
+       Even a broken guard can touch only the fresh, empty fixture here. */
+    int fd = open64(getenv("SUSHLINE_PASSWD_HOME"), O_RDONLY);
+    int descriptor_denied = fd < 0 && errno == EACCES;
+    if (fd >= 0) close(fd);
+    FILE *stream = fopen64(getenv("SUSHLINE_PASSWD_HOME"), "r");
+    int stdio_denied = stream == NULL && errno == EACCES;
+    if (stream) fclose(stream);
+    int guarded = descriptor_denied && stdio_denied && blocked == 2;
+    blocked = 0;
+    return guarded;
+#else
+    return 0;
+#endif
+}
+unsigned int sushline_tilde_safe(void) { return armed && blocked == 0; }
+#ifdef SUSHLINE_TILDE_FILE_GUARD
+static int denied(const char *path) {
+    if (path == NULL) {
+        if (armed) {
+            ++blocked;
+            errno = EACCES;
+        } else {
+            errno = EINVAL;
+        }
+        return 1;
+    }
+    if (armed && strcmp(path, "/dev/null") != 0) {
+        ++blocked;
+        errno = EACCES;
+        return 1;
+    }
+    return 0;
+}
+int open(const char *path, int flags, ...) {
+    mode_t mode = 0;
+    if (flags & O_CREAT) {
+        va_list args;
+        va_start(args, flags);
+        mode = (mode_t)va_arg(args, int);
+        va_end(args);
+    }
+    if (denied(path)) return -1;
+    return syscall(SYS_openat, AT_FDCWD, path, flags, mode);
+}
+int open64(const char *path, int flags, ...) {
+    mode_t mode = 0;
+    if (flags & O_CREAT) {
+        va_list args;
+        va_start(args, flags);
+        mode = (mode_t)va_arg(args, int);
+        va_end(args);
+    }
+    return open(path, flags | O_LARGEFILE, mode);
+}
+FILE *fopen(const char *path, const char *mode) {
+    if (denied(path)) return NULL;
+    FILE *(*next)(const char *, const char *) = dlsym(RTLD_NEXT, "fopen");
+    return next ? next(path, mode) : NULL;
+}
+FILE *fopen64(const char *path, const char *mode) {
+    if (denied(path)) return NULL;
+    FILE *(*next)(const char *, const char *) = dlsym(RTLD_NEXT, "fopen64");
+    return next ? next(path, mode) : NULL;
+}
+#endif
 static unsigned int hits;
 unsigned int sushline_lookup_error_hits(void) { return hits; }
 
@@ -184,6 +315,11 @@ struct passwd *getpwuid(uid_t uid) {
     if (entry != NULL) {
         return entry;
     }
+    if (getenv("SUSHLINE_TILDE_PROBE") != NULL) {
+        ++blocked;
+        errno = ENOENT;
+        return NULL;
+    }
     struct passwd *(*next)(uid_t) = dlsym(RTLD_NEXT, "getpwuid");
     if (next != NULL) {
         return next(uid);
@@ -207,6 +343,11 @@ int getpwuid_r(uid_t uid, struct passwd *pwd, char *buffer,
         *result = pwd;
         return 0;
     }
+    if (getenv("SUSHLINE_TILDE_PROBE") != NULL) {
+        ++blocked;
+        *result = NULL;
+        return ENOENT;
+    }
     int (*next)(uid_t, struct passwd *, char *, size_t, struct passwd **) =
         dlsym(RTLD_NEXT, "getpwuid_r");
     if (next != NULL) {
@@ -217,6 +358,11 @@ int getpwuid_r(uid_t uid, struct passwd *pwd, char *buffer,
 }
 
 struct passwd *getpwnam(const char *name) {
+    if (getenv("SUSHLINE_TILDE_PROBE") != NULL) {
+        ++blocked;
+        errno = ENOENT;
+        return NULL;
+    }
     if (strcmp(name, "sushline-lookup-error-inputrc") == 0) {
         ++hits;
         errno = EIO;
@@ -232,6 +378,11 @@ struct passwd *getpwnam(const char *name) {
 
 int getpwnam_r(const char *name, struct passwd *pwd, char *buffer,
               size_t size, struct passwd **result) {
+    if (getenv("SUSHLINE_TILDE_PROBE") != NULL) {
+        ++blocked;
+        *result = NULL;
+        return ENOENT;
+    }
     if (strcmp(name, "sushline-lookup-error-inputrc") == 0) {
         ++hits;
         *result = NULL;
@@ -248,7 +399,11 @@ int getpwnam_r(const char *name, struct passwd *pwd, char *buffer,
     return ENOSYS;
 }
 INTERPOSER
-if ! cc -Wall -Wextra -Werror -shared -fPIC -o "$lookup_error_dir/interposer.so" \
+interposer_flags=()
+if [ "$mode" = tilde-home-unset ]; then
+  interposer_flags=(-DSUSHLINE_TILDE_FILE_GUARD)
+fi
+if ! cc -Wall -Wextra -Werror "${interposer_flags[@]}" -shared -fPIC -o "$lookup_error_dir/interposer.so" \
   "$lookup_error_dir/interposer.c" -ldl 2>/dev/null; then
   echo "paths probe interposer compilation failed" >&2
   exit 1
@@ -257,6 +412,7 @@ SUSHLINE_LOOKUP_ERROR_PRELOAD="$lookup_error_dir/interposer.so" \
 SUSHLINE_PINNED_READLINE="$readline/lib/libreadline.so" \
 SUSHLINE_INCLUDE_PATHS_PROBE="$probe" SUSHLINE_INCLUDE_PATHS_MODE="$mode" \
 python3 - <<'PYPROBE' | tee "$report"
+import json
 import os
 import pwd
 import re
@@ -273,6 +429,74 @@ home_unset_only = mode == "home-unset"
 home_empty_only = mode == "home-empty"
 resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
+def run_tilde_home_unset():
+    # Build only the existing editor integration target. Capture all build and
+    # child diagnostics; only a fully validated, path-free report is published.
+    build = subprocess.run(
+        ["cargo", "test", "--locked", "-p", "sushline-readline",
+         "--no-default-features", "--test", "editing", "--no-run", "--message-format=json"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120, check=True,
+    )
+    executables = [row["executable"] for line in build.stdout.splitlines()
+                   if (row := json.loads(line)).get("reason") == "compiler-artifact"
+                   and row["target"]["name"] == "editing" and row.get("executable")]
+    if len(executables) != 1:
+        raise ValueError()
+    records = []
+    accepted = True
+    for trial in (1, 2):
+        with tempfile.TemporaryDirectory(prefix="sushline-tilde-home-", dir="/tmp") as base:
+            home = os.path.join(base, "home")
+            os.mkdir(home)
+            # Empty TERM avoids consulting host terminfo; the command is
+            # direct-library/in-memory, not a terminal-capability measurement.
+            env = dict(LC_ALL="C", TERM="", INPUTRC="/dev/null",
+                       LD_PRELOAD=os.environ["SUSHLINE_LOOKUP_ERROR_PRELOAD"],
+                       SUSHLINE_TILDE_PROBE="1", SUSHLINE_PASSWD_HOME=home)
+            for implementation, command in (
+                ("gnu", [probe, home, os.environ["SUSHLINE_PINNED_READLINE"]]),
+                ("sushline", [executables[0], "--exact", "tilde_expand_home_unset_fixture",
+                              "--ignored", "--nocapture", "--quiet"]),
+            ):
+                result = subprocess.run(command, cwd=base, env=env, stdin=subprocess.DEVNULL,
+                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                        timeout=5, check=True)
+                output = result.stdout
+                if implementation == "sushline":
+                    match = re.fullmatch(
+                        rb"\nrunning 1 test\n(.*)\.\ntest result: ok\. 1 passed; 0 failed; "
+                        rb"0 ignored; 0 measured; [0-9]+ filtered out; finished in [0-9.]+s\n\n",
+                        output, re.DOTALL,
+                    )
+                    if not match:
+                        raise ValueError()
+                    output = match[1]
+                identity = (b"readline_release=8.3\npinned_library_loaded=1\n"
+                            if implementation == "gnu" else b"")
+                match = re.fullmatch(
+                    re.escape(identity) + rb"home_absent=1\npasswd_home_lookup_hits=([0-9]+)\n"
+                    rb"result_match=([01])\nguards_ok=([01])\n", output,
+                )
+                if not match or result.stderr:
+                    raise ValueError()
+                # Preserve a sanitized negative measurement too; incorrect
+                # expansion or missing lookup still fails the CI step below.
+                accepted = (int(match[1]) > 0 and match[2] == b"1"
+                            and match[3] == b"1") and accepted
+                records.extend(f"trial{trial}_{implementation}_{line}"
+                               for line in output.decode("ascii").splitlines())
+        if os.path.lexists(base):
+            raise ValueError()
+        records.append(f"trial{trial}_cleanup=1")
+    # Temporary compiled probe/interposer cleanup is also part of acceptance.
+    shutil.rmtree(os.path.dirname(probe))
+    if os.path.lexists(os.path.dirname(probe)):
+        raise ValueError()
+    print("\n".join(records))
+    print("probe_cleanup=1")
+    if not accepted:
+        raise ValueError()
+
 def run_child(label, outer_path, cwd, home, lookup_error=False, home_unset=False, guard_path=None, home_empty=False):
     child = None
     try:
@@ -281,6 +505,7 @@ def run_child(label, outer_path, cwd, home, lookup_error=False, home_unset=False
         env.pop("LD_PRELOAD", None)
         env.pop("LD_LIBRARY_PATH", None)
         env.pop("SUSHLINE_PASSWD_HOME", None)
+        env.pop("SUSHLINE_TILDE_PROBE", None)
         if lookup_error or home_unset or home_empty:
             env["LD_PRELOAD"] = os.environ["SUSHLINE_LOOKUP_ERROR_PRELOAD"]
         env.update(INPUTRC="/dev/null", LC_ALL="C", TERM="dumb")
@@ -624,6 +849,9 @@ def setup_unreadable(base):
     return outer_path, base, base, include_path
 
 try:
+    if mode == "tilde-home-unset":
+        run_tilde_home_unset()
+        sys.exit(0)
     if mode == "bare-cr":
         if not run_bare_cr():
             raise ValueError()

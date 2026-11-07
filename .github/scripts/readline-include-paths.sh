@@ -1554,7 +1554,7 @@ def setup_unreadable(base):
 try:
     if mode == "tilde-home-nonempty-filename-bare":
         run_tilde_home(home_nonempty=True, filename=True, bare=True)
-        return
+        sys.exit(0)
     if mode in ("tilde-named-user-filename", "tilde-home-unset-filename", "tilde-home-nonempty-filename"):
         run_tilde_home(named=mode == "tilde-named-user-filename", filename=True,
                        home_nonempty=mode == "tilde-home-nonempty-filename")

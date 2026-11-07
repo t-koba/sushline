@@ -28,6 +28,8 @@
 # --filename-home-unset-only uses a current-UID ~/ prefix with child HOME absent.
 # --filename-home-nonempty-only uses a distinct test-owned HOME candidate and
 # an empty synthetic current-UID passwd home, without assuming the resolution.
+# --filename-bare-tilde-home-nonempty-only measures bare `~` (no slash)
+# separately, with the same controlled homes and no assumed resolution.
 # Measurement only against the pinned release.
 set -euo pipefail
 ulimit -c 0
@@ -44,12 +46,13 @@ case "$#:$*" in
   1:--tilde-named-user-only) mode=tilde-named-user ;;
   1:--filename-named-user-only) mode=tilde-named-user-filename ;;
   1:--filename-home-unset-only) mode=tilde-home-unset-filename ;;
+  1:--filename-bare-tilde-home-nonempty-only) mode=tilde-home-nonempty-filename-bare ;;
   1:--filename-home-nonempty-only) mode=tilde-home-nonempty-filename ;;
   1:--vi-tilde-named-user-only) mode=tilde-named-user-vi ;;
   1:--home-empty-only) mode=home-empty ;;
   1:--unreadable-only) mode=unreadable ;;
   1:--bare-cr-only) mode=bare-cr ;;
-  *) echo "usage: readline-include-paths.sh [--vi-tilde-home-nonempty-only|--filename-home-nonempty-only|--vi-tilde-home-empty-only|--vi-tilde-home-unset-only|--filename-home-unset-only|--filename-named-user-only|--vi-tilde-named-user-only|--tilde-named-user-only|--tilde-home-nonempty-only|--tilde-home-empty-only|--tilde-home-unset-only|--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
+  *) echo "usage: readline-include-paths.sh [--filename-bare-tilde-home-nonempty-only|--vi-tilde-home-nonempty-only|--filename-home-nonempty-only|--vi-tilde-home-empty-only|--vi-tilde-home-unset-only|--filename-home-unset-only|--filename-named-user-only|--vi-tilde-named-user-only|--tilde-named-user-only|--tilde-home-nonempty-only|--tilde-home-empty-only|--tilde-home-unset-only|--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
 esac
 lookup_error_dir=$(mktemp -d /tmp/sushline-lookup-error-XXXXXX)
 trap 'rm -rf "$lookup_error_dir"' EXIT
@@ -150,7 +153,9 @@ int main(int argc, char **argv) {
             !arm || !hits || !safe || !arm() || rl_initialize() != 0)
             return 2;
         int filename = getenv("SUSHLINE_FILENAME_PROBE") != NULL;
+        int bare = getenv("SUSHLINE_FILENAME_BARE_TILDE") != NULL;
         int vi = getenv("SUSHLINE_TILDE_VI") != NULL;
+        if (bare && (!filename || !home_nonempty || named)) return 2;
         if (filename && (vi || home_empty)) return 2;
         if (filename && rl_variable_bind("expand-tilde", "on") != 0) return 2;
         rl_command_func_t *command = filename ? complete_filename :
@@ -160,7 +165,7 @@ int main(int argc, char **argv) {
             return 2;
         /* Same ~, Ctrl-O, accept-line sequence as the in-memory Rust editor.
            A pipe supplies only fixture bytes; terminal output is discarded. */
-        const char *keys = filename ? (named ? "~sushline-audit-user/audit-c\017\n" :
+        const char *keys = bare ? "~\017\n" : filename ? (named ? "~sushline-audit-user/audit-c\017\n" :
                                              "~/audit-c\017\n") :
                            named ? "~sushline-audit-user/\017\n" : "~\017\n";
         size_t key_count = strlen(keys);
@@ -185,19 +190,21 @@ int main(int argc, char **argv) {
             const char *passwd_home = getenv("SUSHLINE_PASSWD_HOME");
             size_t length = strlen(line);
             if (length && line[length - 1] == ' ') line[--length] = '\0';
+            int bare_slash = bare && length && line[length - 1] == '/';
+            if (bare_slash) line[--length] = '\0';
             int result_home = 0, result_passwd = 0, candidate = 0;
             const char *homes[] = {home, passwd_home};
             for (int i = 0; i < 2; ++i) {
                 size_t size = strlen(homes[i]);
-                if (length > size && strncmp(line, homes[i], size) == 0) {
+                if (length >= size && strncmp(line, homes[i], size) == 0) {
                     int completed = strcmp(line + size, "/audit-candidate") == 0;
-                    int prefix = strcmp(line + size, "/audit-c") == 0;
+                    int prefix = bare ? length == size : strcmp(line + size, "/audit-c") == 0;
                     if (i == 0) result_home = completed || prefix;
                     else result_passwd = completed || prefix;
                     candidate |= completed;
                 }
             }
-            int literal_prefix = strcmp(line, "~/audit-c") == 0;
+            int literal_prefix = strcmp(line, bare ? "~" : "~/audit-c") == 0;
             int result_empty = length == 0;
             int result_other = !(result_home || result_passwd || literal_prefix || result_empty);
             printf("home_present=1\nhome_nonempty=1\n");
@@ -205,6 +212,7 @@ int main(int argc, char **argv) {
             printf("result_home=%d\nresult_passwd_home=%d\n", result_home, result_passwd);
             printf("result_candidate=%d\nresult_literal_prefix=%d\n", candidate, literal_prefix);
             printf("result_empty=%d\nresult_other=%d\n", result_empty, result_other);
+            if (bare) printf("result_trailing_slash=%d\n", bare_slash);
             printf("guards_ok=%u\n", safe());
             free(line);
             return 0;
@@ -428,12 +436,32 @@ unsigned int sushline_tilde_guard(void) {
         guarded = guarded && directory_denied && metadata_denied && account_denied &&
                   blocked == before + 3;
     }
-    if (getenv("SUSHLINE_TILDE_VI") && !getenv("SUSHLINE_TILDE_NAMED_USER")) {
+    if ((getenv("SUSHLINE_TILDE_VI") || getenv("SUSHLINE_FILENAME_BARE_TILDE")) &&
+        !getenv("SUSHLINE_TILDE_NAMED_USER")) {
         unsigned int before = blocked;
         int uid_denied = getpwuid(getuid() == 0 ? 1 : 0) == NULL && errno == ENOENT;
         int name_denied = getpwnam("sushline-audit-denied") == NULL && errno == ENOENT;
         int enumeration_denied = getpwent() == NULL && errno == ENOENT;
         guarded = guarded && uid_denied && name_denied && enumeration_denied &&
+                  blocked == before + 3;
+    }
+    if (getenv("SUSHLINE_FILENAME_BARE_TILDE") &&
+        !getenv("SUSHLINE_TILDE_NAMED_USER")) {
+        /* Descriptor-relative "." must stay denied: only AT_FDCWD shares the
+           proven CWD identity. Use an invalid descriptor so even a broken
+           guard cannot reach any directory. */
+        unsigned int before = blocked;
+        struct stat descriptor_stat;
+        int descriptor_metadata_denied =
+            fstatat(-1, ".", &descriptor_stat, 0) < 0 && errno == EACCES;
+        int descriptor_access_denied =
+            faccessat(-1, ".", F_OK, 0) < 0 && errno == EACCES;
+        struct statx descriptor_statx;
+        int descriptor_statx_denied =
+            statx(-1, ".", 0, STATX_BASIC_STATS, &descriptor_statx) < 0 &&
+            errno == EACCES;
+        guarded = guarded && descriptor_metadata_denied &&
+                  descriptor_access_denied && descriptor_statx_denied &&
                   blocked == before + 3;
     }
     if (nonempty_current_vi()) {
@@ -530,7 +558,7 @@ FILE *fopen64(const char *path, const char *mode) {
 /* Filename completion may enumerate only test-owned fixture homes and inspect
    only the configured candidate. The nonempty current-user vi probe denies all
    metadata/enumeration. No links, traversal, or host paths are permitted. */
-static int completion_path_denied(const char *path, int metadata) {
+static int completion_path_denied_at(int dirfd, const char *path, int metadata) {
     /* The nonempty current-user vi command needs no filesystem inspection. */
     if (armed && nonempty_current_vi()) {
         ++blocked;
@@ -539,6 +567,19 @@ static int completion_path_denied(const char *path, int metadata) {
         return 1;
     }
     if (!armed || !getenv("SUSHLINE_FILENAME_PROBE")) return 0;
+    /* Slashless completion can scan CWD. Only this fixture runs inside HOME;
+       prove that identity before allowing the relative directory itself.
+       Descriptor-relative lookups must use AT_FDCWD to share that identity;
+       any other dirfd stays denied even for ".". */
+    if (path && strcmp(path, ".") == 0 && getenv("SUSHLINE_FILENAME_BARE_TILDE")) {
+        if (dirfd == AT_FDCWD) {
+            char *cwd = getcwd(NULL, 0);
+            const char *home = getenv("SUSHLINE_TILDE_HOME");
+            int controlled = cwd && home && strcmp(cwd, home) == 0;
+            free(cwd);
+            if (controlled) return 0;
+        }
+    }
     int nonempty = getenv("SUSHLINE_TILDE_HOME_NONEMPTY") &&
                    !getenv("SUSHLINE_TILDE_NAMED_USER");
     const char *homes[] = {getenv("SUSHLINE_PASSWD_HOME"),
@@ -558,6 +599,9 @@ static int completion_path_denied(const char *path, int metadata) {
     errno = EACCES;
     return 1;
 }
+static int completion_path_denied(const char *path, int metadata) {
+    return completion_path_denied_at(AT_FDCWD, path, metadata);
+}
 DIR *opendir(const char *path) {
     if (completion_path_denied(path, 0)) return NULL;
     DIR *(*next)(const char *) = dlsym(RTLD_NEXT, "opendir");
@@ -575,7 +619,7 @@ METADATA_GUARD(stat64, stat64)
 METADATA_GUARD(lstat64, stat64)
 #define AT_METADATA_GUARD(function, type) \
 int function(int dirfd, const char *path, struct type *output, int flags) { \
-    if (completion_path_denied(path, 1)) return -1; \
+    if (completion_path_denied_at(dirfd, path, 1)) return -1; \
     int (*next)(int, const char *, struct type *, int) = dlsym(RTLD_NEXT, #function); \
     return next ? next(dirfd, path, output, flags) : -1; \
 }
@@ -586,12 +630,12 @@ int access(const char *path, int mode) {
     return syscall(SYS_faccessat, AT_FDCWD, path, mode);
 }
 int faccessat(int dirfd, const char *path, int mode, int flags) {
-    if (completion_path_denied(path, 1)) return -1;
+    if (completion_path_denied_at(dirfd, path, 1)) return -1;
     int (*next)(int, const char *, int, int) = dlsym(RTLD_NEXT, "faccessat");
     return next ? next(dirfd, path, mode, flags) : -1;
 }
 int statx(int dirfd, const char *path, int flags, unsigned int mask, struct statx *output) {
-    if (completion_path_denied(path, 1)) return -1;
+    if (completion_path_denied_at(dirfd, path, 1)) return -1;
     return syscall(SYS_statx, dirfd, path, flags, mask, output);
 }
 #endif
@@ -838,6 +882,49 @@ def test_nonempty_filename_parser():
                    valid.replace(b"result_home=1", b"result_home=2"), valid + b"unexpected\n"):
         assert re.fullmatch(NONEMPTY_FILENAME_FIELDS, unsafe) is None
 
+BARE_FILENAME_FIELDS = NONEMPTY_FILENAME_FIELDS.replace(
+    rb"guards_ok=1\n", rb"result_trailing_slash=([01])\nguards_ok=1\n")
+
+def bare_filename_comparison(rows):
+    stable, comparison, classified = filename_comparison(rows)
+    # Only a resolved directory or literal tilde may carry a slash, never a
+    # regular candidate or empty result. Lookup counts may differ across libs.
+    classified = classified and all(
+        row[7] == b"0" or (row[3] == b"0" and any(row[i] == b"1" for i in (1, 2, 4)))
+        for row in rows)
+    return stable, comparison, classified
+
+def test_bare_filename_parser():
+    home = (b"0", b"1", b"0", b"0", b"0", b"0", b"0", b"1")
+    passwd = (b"2", b"0", b"1", b"0", b"0", b"0", b"0", b"1")
+    literal = (b"0", b"0", b"0", b"0", b"1", b"0", b"0", b"0")
+    empty = (b"0", b"0", b"0", b"0", b"0", b"1", b"0", b"0")
+    candidate = (b"0", b"1", b"0", b"1", b"0", b"0", b"0", b"0")
+    for row in (home, passwd, literal, empty, candidate, (*home[:-1], b"0")):
+        assert bare_filename_comparison([row] * 4) == (True, True, True)
+    count = (b"3", *home[1:])
+    assert bare_filename_comparison([home, count] * 2) == (True, True, True)
+    for different in (passwd, (*home[:-1], b"0"), candidate):
+        assert bare_filename_comparison([home, different] * 2) == (True, False, True)
+    assert bare_filename_comparison([home, home, count, home]) == (False, True, True)
+    for row in ((b"0",) * 8, (b"0", b"0", b"0", b"0", b"0", b"0", b"1", b"0"),
+                (b"0", b"1", b"1", b"0", b"0", b"0", b"0", b"0"),
+                (*empty[:-1], b"1"), (*candidate[:-1], b"1"),
+                (b"0", b"0", b"0", b"1", b"0", b"0", b"0", b"0")):
+        assert bare_filename_comparison([row] * 4) == (True, True, False)
+    valid = (b"home_present=1\nhome_nonempty=1\npasswd_home_lookup_hits=0\n"
+             b"result_home=1\nresult_passwd_home=0\nresult_candidate=0\n"
+             b"result_literal_prefix=0\nresult_empty=0\nresult_other=0\n"
+             b"result_trailing_slash=1\nguards_ok=1\n")
+    assert re.fullmatch(BARE_FILENAME_FIELDS, valid).groups() == home
+    for unsafe in (valid.replace(b"guards_ok=1", b"guards_ok=0"),
+                   valid.replace(b"result_home=1", b"result_home=2"),
+                   valid.replace(b"home_nonempty=1", b"home_nonempty=0"),
+                   valid.replace(b"lookup_hits=0", b"lookup_hits=-1"),
+                   valid.replace(b"lookup_hits=0", b"lookup_hits=12345678901"),
+                   valid.replace(b"result_trailing_slash=1\n", b""), valid + b"unexpected\n"):
+        assert re.fullmatch(BARE_FILENAME_FIELDS, unsafe) is None
+
 NONEMPTY_VI_FIELDS = (
     rb"home_present=1\nhome_nonempty=1\npasswd_home_lookup_hits=([0-9]{1,10})\n"
     rb"result_home=([01])\nresult_passwd_home=([01])\n"
@@ -875,13 +962,16 @@ def test_nonempty_vi_parser():
                    valid.replace(b"result_home=1", b"result_home=2"), valid + b"unexpected\n"):
         assert re.fullmatch(NONEMPTY_VI_FIELDS, unsafe) is None
 
-def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False, filename=False):
+def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False, filename=False, bare=False):
     # Build only the existing editor integration target. Capture all build and
     # child diagnostics; only a fully validated, path-free report is published.
     current_vi = vi and not named
     nonempty_filename = filename and home_nonempty and not named
     nonempty_vi = current_vi and home_nonempty
     retained_report = nonempty_filename or nonempty_vi
+    if bare:
+        assert nonempty_filename and not vi
+        test_bare_filename_parser()
     if nonempty_vi:
         test_nonempty_vi_parser()
     if nonempty_filename:
@@ -957,6 +1047,8 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                     env["SUSHLINE_TILDE_NAMED_USER"] = "1"
                 if vi:
                     env["SUSHLINE_TILDE_VI"] = "1"
+                if bare:
+                    env["SUSHLINE_FILENAME_BARE_TILDE"] = "1"
                 if filename:
                     env["SUSHLINE_FILENAME_PROBE"] = "1"
                     env["SUSHLINE_FILENAME_DENIED_HOME"] = (
@@ -964,7 +1056,8 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                 trial_results = []
                 case = "empty" if home_empty else "nonempty" if home_nonempty else "unset"
                 if filename:
-                    fixture = ("complete_filename_named_user_fixture" if named else
+                    fixture = ("complete_filename_bare_tilde_home_nonempty_fixture" if bare else
+                               "complete_filename_named_user_fixture" if named else
                                "complete_filename_home_nonempty_fixture" if nonempty_filename else
                                "complete_filename_home_unset_fixture")
                 elif vi:
@@ -980,7 +1073,7 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                     ("sushline", [executables[0], "--exact", fixture, "--ignored", "--nocapture", "--quiet"]),
                 ):
                     try:
-                        result = subprocess.run(command, cwd=base, env=env, stdin=subprocess.DEVNULL,
+                        result = subprocess.run(command, cwd=home if bare else base, env=env, stdin=subprocess.DEVNULL,
                                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                                 timeout=5, check=False)
                     finally:
@@ -1011,7 +1104,8 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                     identity = (b"readline_release=8.3\npinned_library_loaded=1\n"
                                 if implementation == "gnu" else b"")
                     lookup_field = b"named" if named else b"passwd"
-                    fields = (NONEMPTY_VI_FIELDS if nonempty_vi else
+                    fields = (BARE_FILENAME_FIELDS if bare else
+                              NONEMPTY_VI_FIELDS if nonempty_vi else
                               NONEMPTY_FILENAME_FIELDS if nonempty_filename else
                               lookup_field + rb"_home_lookup_hits=([0-9]{1,10})\n"
                               rb"result_synthetic_home=([01])\nresult_synthetic_candidate=([01])\nguards_ok=1\n"
@@ -1069,7 +1163,8 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
         if home_empty or home_nonempty or named or filename or current_vi:
             accepted = (trial_classifications[0] == trial_classifications[1]) and accepted
         if retained_report:
-            stable, comparison, classified = (vi_nonempty_comparison(trial_rows) if nonempty_vi else
+            stable, comparison, classified = (bare_filename_comparison(trial_rows) if bare else
+                                              vi_nonempty_comparison(trial_rows) if nonempty_vi else
                                               filename_comparison(trial_rows))
             accepted = stable and comparison and classified and accepted
             records.extend((f"trials_stable={int(stable)}", f"comparison_match={int(comparison)}",
@@ -1457,6 +1552,9 @@ def setup_unreadable(base):
     return outer_path, base, base, include_path
 
 try:
+    if mode == "tilde-home-nonempty-filename-bare":
+        run_tilde_home(home_nonempty=True, filename=True, bare=True)
+        return
     if mode in ("tilde-named-user-filename", "tilde-home-unset-filename", "tilde-home-nonempty-filename"):
         run_tilde_home(named=mode == "tilde-named-user-filename", filename=True,
                        home_nonempty=mode == "tilde-home-nonempty-filename")

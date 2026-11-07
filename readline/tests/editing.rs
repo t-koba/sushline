@@ -1542,6 +1542,7 @@ enum ControlledTildeHome {
     NamedFilename,
     UnsetFilename,
     NonemptyFilename,
+    NonemptyBareFilename,
 }
 
 #[cfg(target_os = "linux")]
@@ -1622,6 +1623,13 @@ fn complete_filename_home_nonempty_fixture() {
 }
 
 #[cfg(target_os = "linux")]
+#[test]
+#[ignore = "requires the controlled HOME-nonempty bare-tilde filename measurement driver"]
+fn complete_filename_bare_tilde_home_nonempty_fixture() {
+    tilde_expand_controlled_home_fixture(ControlledTildeHome::NonemptyBareFilename);
+}
+
+#[cfg(target_os = "linux")]
 fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
     use std::os::unix::ffi::OsStrExt;
 
@@ -1642,6 +1650,7 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         home_mode,
         ControlledTildeHome::Nonempty
             | ControlledTildeHome::NonemptyFilename
+            | ControlledTildeHome::NonemptyBareFilename
             | ControlledTildeHome::NonemptyVi
     );
     let named = matches!(
@@ -1655,10 +1664,16 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         ControlledTildeHome::NamedFilename
             | ControlledTildeHome::UnsetFilename
             | ControlledTildeHome::NonemptyFilename
+            | ControlledTildeHome::NonemptyBareFilename
     );
     assert_eq!(
         std::env::var_os("SUSHLINE_FILENAME_PROBE").is_some(),
         filename
+    );
+    let bare = matches!(home_mode, ControlledTildeHome::NonemptyBareFilename);
+    assert_eq!(
+        std::env::var_os("SUSHLINE_FILENAME_BARE_TILDE").is_some(),
+        bare
     );
     let vi = matches!(
         home_mode,
@@ -1693,6 +1708,7 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         ControlledTildeHome::Nonempty
         | ControlledTildeHome::NonemptyVi
         | ControlledTildeHome::NonemptyFilename
+        | ControlledTildeHome::NonemptyBareFilename
         | ControlledTildeHome::NamedUser
         | ControlledTildeHome::NamedUserVi
         | ControlledTildeHome::NamedFilename => {
@@ -1719,7 +1735,9 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         )
     };
     assert!(arm() == 1, "file guard must be armed");
-    let keys: &[u8] = if filename {
+    let keys: &[u8] = if bare {
+        b"~\x0f\r"
+    } else if filename {
         if named {
             b"~sushline-audit-user/audit-c\x0f\r"
         } else {
@@ -1765,6 +1783,10 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
             actual.pop();
         }
         if home_nonempty {
+            let trailing_slash = bare && actual.ends_with(b"/");
+            if trailing_slash {
+                actual.pop();
+            }
             let mut classifications = [false; 2];
             let mut candidate = false;
             for (index, home) in [expected_home.as_ref().unwrap(), &target]
@@ -1774,7 +1796,12 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
                 let bytes = home.as_os_str().as_bytes();
                 if let Some(suffix) = actual.strip_prefix(bytes) {
                     let completed = suffix == b"/audit-candidate";
-                    classifications[index] = completed || suffix == b"/audit-c";
+                    classifications[index] = completed
+                        || if bare {
+                            suffix.is_empty()
+                        } else {
+                            suffix == b"/audit-c"
+                        };
                     candidate |= completed;
                 }
             }
@@ -1782,13 +1809,21 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
             println!("passwd_home_lookup_hits={}", hits());
             println!("result_home={}", u8::from(classifications[0]));
             println!("result_passwd_home={}", u8::from(classifications[1]));
-            let literal_prefix = actual == b"~/audit-c";
+            let literal_prefix = actual
+                == if bare {
+                    b"~".as_slice()
+                } else {
+                    b"~/audit-c".as_slice()
+                };
             let empty = actual.is_empty();
             let other = !(classifications[0] || classifications[1] || literal_prefix || empty);
             println!("result_candidate={}", u8::from(candidate));
             println!("result_literal_prefix={}", u8::from(literal_prefix));
             println!("result_empty={}", u8::from(empty));
             println!("result_other={}", u8::from(other));
+            if bare {
+                println!("result_trailing_slash={}", u8::from(trailing_slash));
+            }
             println!("guards_ok={}", safe());
             return;
         }

@@ -6,7 +6,8 @@
 # --home-unset-only measures just `~/` with HOME absent (not HOME=""), using
 # a child-only synthetic current-UID passwd home. --unreadable-only measures one
 # test-owned mode-000 include; the oracle child must confirm it cannot open the
-# child before reading the outer file. No arguments retains the refresh.
+# child before reading the outer file. --bare-cr-only compares LF and bare-CR
+# include directives in two fresh fixtures. No arguments retains the refresh.
 # Measurement only against the pinned release.
 set -euo pipefail
 ulimit -c 0
@@ -15,7 +16,8 @@ case "$#:$*" in
   0:) ;;
   1:--home-unset-only) mode=home-unset ;;
   1:--unreadable-only) mode=unreadable ;;
-  *) echo "usage: readline-include-paths.sh [--home-unset-only|--unreadable-only]" >&2; exit 2 ;;
+  1:--bare-cr-only) mode=bare-cr ;;
+  *) echo "usage: readline-include-paths.sh [--home-unset-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
 esac
 lookup_error_dir=$(mktemp -d /tmp/sushline-lookup-error-XXXXXX)
 trap 'rm -rf "$lookup_error_dir"' EXIT
@@ -25,6 +27,9 @@ if [ "$mode" = home-unset ]; then
   report=/tmp/readline_include_home_unset.out
 elif [ "$mode" = unreadable ]; then
   report=/tmp/readline_include_unreadable.out
+elif [ "$mode" = bare-cr ]; then
+  report=/tmp/readline_include_bare_cr.out
+  rm -f "$report"
 fi
 readline="$HOME/.cache/sushline/readline-oracle"
 # Fail closed on a missing or differently configured cache.
@@ -329,27 +334,33 @@ def run_child(label, outer_path, cwd, home, lookup_error=False, home_unset=False
                 and fields.get("home_empty") == "0"
                 and re.fullmatch(r"[0-9]{1,10}", fields.get("passwd_home_lookup_hits", "")) is not None
             )
-        if valid:
-            if home_unset:
-                for key in ("home_present", "home_empty", "passwd_home_lookup_hits"):
+        if mode == "bare-cr":
+            if valid:
+                for key in ("read_status", "completion_ignore_case_on", "editing_mode_vi"):
                     print(f"{label}_{key}={fields[key]}")
-            print(f"{label}_readline_release={fields['readline_release']}")
-            print(f"{label}_read_status={fields['read_status']}")
-            print(f"{label}_pinned_library_loaded={fields['pinned_library_loaded']}")
-            if guard_path is None:
-                print(f"{label}_lookup_error_hits={fields['lookup_error_hits']}")
-            else:
-                print(f"{label}_unreadable_include_guarded={fields['unreadable_include_guarded']}")
-            print(f"{label}_completion_ignore_case_on={fields['completion_ignore_case_on']}")
-            print(f"{label}_editing_mode_vi={fields['editing_mode_vi']}")
-        print(f"{label}_probe_stderr_nonempty={int(bool(stderr_bytes))}")
-        print(f"{label}_probe_timeout={int(timed_out)}")
-        print(f"{label}_probe_returncode={child.returncode}")
+        else:
+            if valid:
+                if home_unset:
+                    for key in ("home_present", "home_empty", "passwd_home_lookup_hits"):
+                        print(f"{label}_{key}={fields[key]}")
+                print(f"{label}_readline_release={fields['readline_release']}")
+                print(f"{label}_read_status={fields['read_status']}")
+                print(f"{label}_pinned_library_loaded={fields['pinned_library_loaded']}")
+                if guard_path is None:
+                    print(f"{label}_lookup_error_hits={fields['lookup_error_hits']}")
+                else:
+                    print(f"{label}_unreadable_include_guarded={fields['unreadable_include_guarded']}")
+                print(f"{label}_completion_ignore_case_on={fields['completion_ignore_case_on']}")
+                print(f"{label}_editing_mode_vi={fields['editing_mode_vi']}")
+            print(f"{label}_probe_stderr_nonempty={int(bool(stderr_bytes))}")
+            print(f"{label}_probe_timeout={int(timed_out)}")
+            print(f"{label}_probe_returncode={child.returncode}")
         completed = (
             valid and not timed_out and child.returncode == 0
             and (not lookup_error or int(fields["lookup_error_hits"]) > 0)
         )
-        print(f"{label}_fixture_completed={int(completed)}")
+        if mode != "bare-cr":
+            print(f"{label}_fixture_completed={int(completed)}")
         return valid, completed, dict(fields), child.returncode, bool(stderr_bytes), timed_out
     finally:
         if child is not None:
@@ -401,6 +412,47 @@ def run_case(case, setup, expected_fields=None, lookup_error=False, home_unset=F
     finally:
         if base is not None and os.path.exists(base):
             shutil.rmtree(base, ignore_errors=True)
+
+def run_bare_cr():
+    records = []
+    for trial in (1, 2):
+        with tempfile.TemporaryDirectory(prefix="sushline-include-bare-cr-", dir="/tmp") as base:
+            home = os.path.join(base, "home")
+            os.mkdir(home)
+            # Both candidate names exist. The completion boolean distinguishes
+            # them; vi additionally distinguishes loading either from no include.
+            for suffix, value in (("", "on"), ("\r", "off")):
+                with open(os.path.join(base, "included.inputrc" + suffix), "wb") as handle:
+                    handle.write(f"set completion-ignore-case {value}\nset editing-mode vi\n".encode("ascii"))
+            outcomes = []
+            for case, ending in (("lf_control", b"\n"), ("bare_cr", b"\r")):
+                outer = os.path.join(base, "outer.inputrc")
+                with open(outer, "wb") as handle:
+                    handle.write(b"set completion-ignore-case off\nset editing-mode emacs\n")
+                    handle.write(b"$include included.inputrc" + ending)
+                valid, completed, fields, returncode, stderr_flag, timed_out = run_child(
+                    f"{case}_trial{trial}", outer, base, home
+                )
+                if not valid or not completed or timed_out:
+                    return False
+                if case == "lf_control" and any(
+                    fields[key] != value for key, value in {
+                        "read_status": "0",
+                        "completion_ignore_case_on": "1",
+                        "editing_mode_vi": "1",
+                    }.items()
+                ):
+                    return False
+                # No expected bare-CR state: measure it, then require the same
+                # outcome in a second independently created directory.
+                outcomes.append((fields, returncode, stderr_flag))
+            records.append(outcomes)
+        if os.path.exists(base):
+            return False
+    if records[0] != records[1]:
+        return False
+    print("bare_cr_trials_agree=1")
+    return True
 
 def setup_cwd_relative(base):
     cwd_dir = os.path.join(base, "cwd")
@@ -533,6 +585,10 @@ def setup_unreadable(base):
     return outer_path, base, base, include_path
 
 try:
+    if mode == "bare-cr":
+        if not run_bare_cr():
+            raise ValueError()
+        sys.exit(0)
     if mode == "unreadable":
         ok = run_case("unreadable_include", setup_unreadable)
         if not ok:

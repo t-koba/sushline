@@ -4202,6 +4202,16 @@ jobs:
           path: /tmp/readline_include_unreadable.out
           if-no-files-found: error
           retention-days: 14
+      - name: Measure bare-CR inputrc include against the pinned release
+        run: bash .github/scripts/readline-include-paths.sh --bare-cr-only
+      - name: Upload bare-CR inputrc include measurement
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-bare-cr-include
+          path: /tmp/readline_include_bare_cr.out
+          if-no-files-found: error
+          retention-days: 14
       - name: Measure default history file with HOME absent against the pinned release
         run: bash .github/scripts/history-home-unset.sh
       - name: Upload HOME-unset default history measurement

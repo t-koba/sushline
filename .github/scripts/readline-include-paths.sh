@@ -659,9 +659,9 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False):
                     accepted = (match[2] != match[3]
                                 and (match[3] != b"1" or lookup_hits > 0)) and accepted
                 else:
-                    # Preserve the HOME-unset audit's existing acceptance.
-                    accepted = (int(match[1]) > 0 and match[2] == b"1"
-                                and match[3] == b"1") and accepted
+                    # The report regex requires guards_ok=1 literally; these
+                    # are the only two captured fields in the HOME-unset row.
+                    accepted = (int(match[1]) > 0 and match[2] == b"1") and accepted
                 records.extend(f"trial{trial}_{implementation}_{line}"
                                for line in output.decode("ascii").splitlines())
             if home_empty or home_nonempty or named:

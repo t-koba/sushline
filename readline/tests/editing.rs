@@ -1536,6 +1536,7 @@ enum ControlledTildeHome {
     Nonempty,
     NamedUser,
     NamedUserVi,
+    NamedFilename,
 }
 
 #[cfg(target_os = "linux")]
@@ -1574,6 +1575,13 @@ fn vi_tilde_expand_named_user_fixture() {
 }
 
 #[cfg(target_os = "linux")]
+#[test]
+#[ignore = "requires the controlled named-user filename measurement driver"]
+fn complete_filename_named_user_fixture() {
+    tilde_expand_controlled_home_fixture(ControlledTildeHome::NamedFilename);
+}
+
+#[cfg(target_os = "linux")]
 fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
     use std::os::unix::ffi::OsStrExt;
 
@@ -1590,7 +1598,14 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
     let home_nonempty = matches!(home_mode, ControlledTildeHome::Nonempty);
     let named = matches!(
         home_mode,
-        ControlledTildeHome::NamedUser | ControlledTildeHome::NamedUserVi
+        ControlledTildeHome::NamedUser
+            | ControlledTildeHome::NamedUserVi
+            | ControlledTildeHome::NamedFilename
+    );
+    let filename = matches!(home_mode, ControlledTildeHome::NamedFilename);
+    assert_eq!(
+        std::env::var_os("SUSHLINE_FILENAME_PROBE").is_some(),
+        filename
     );
     let vi = matches!(home_mode, ControlledTildeHome::NamedUserVi);
     assert_eq!(std::env::var_os("SUSHLINE_TILDE_VI").is_some(), vi);
@@ -1616,7 +1631,8 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         }
         ControlledTildeHome::Nonempty
         | ControlledTildeHome::NamedUser
-        | ControlledTildeHome::NamedUserVi => {
+        | ControlledTildeHome::NamedUserVi
+        | ControlledTildeHome::NamedFilename => {
             let expected = expected_home.as_ref().expect("synthetic HOME required");
             assert!(
                 home.as_ref()
@@ -1640,7 +1656,9 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         )
     };
     assert!(arm() == 1, "file guard must be armed");
-    let keys: &[u8] = if named {
+    let keys: &[u8] = if filename {
+        b"~sushline-audit-user/audit-c\x0f\r"
+    } else if named {
         b"~sushline-audit-user/\x0f\r"
     } else {
         b"~\x0f\r"
@@ -1654,7 +1672,9 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         terminal,
         History::new(),
     );
-    line.load_inputrc_str(if vi {
+    line.load_inputrc_str(if filename {
+        "set expand-tilde on\n\"\\C-o\": complete-filename"
+    } else if vi {
         r#""\C-o": vi-tilde-expand"#
     } else {
         r#""\C-o": tilde-expand"#
@@ -1670,6 +1690,27 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
     // Never format either target, line, terminal output, or account data.
     // Leave comparison acceptance to the measurement driver so a mismatch or
     // missing lookup remains available as sanitized evidence in the artifact.
+    if filename {
+        let ReadlineResult::Line(mut actual) = result else {
+            panic!("line required");
+        };
+        if actual.last() == Some(&b' ') {
+            actual.pop();
+        }
+        let mut prefix = target.as_os_str().as_bytes().to_vec();
+        prefix.push(b'/');
+        println!("named_home_lookup_hits={}", hits());
+        println!(
+            "result_synthetic_home={}",
+            u8::from(actual.starts_with(&prefix))
+        );
+        println!(
+            "result_synthetic_candidate={}",
+            u8::from(actual.ends_with(b"/audit-candidate"))
+        );
+        println!("guards_ok={}", safe());
+        return;
+    }
     if named {
         assert!(matches!(&result, ReadlineResult::Line(_)), "line required");
         let mut expected = target.as_os_str().as_bytes().to_vec();

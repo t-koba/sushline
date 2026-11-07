@@ -12,6 +12,8 @@
 # include directives in two fresh fixtures. No arguments retains the refresh.
 # --tilde-home-unset-only compares the current-word `tilde-expand` command
 # with Sushline under a child-only synthetic passwd home and strict file guard.
+# --tilde-home-empty-only runs that command with HOME present but empty,
+# classifying empty vs synthetic passwd-home results without assuming either.
 # Measurement only against the pinned release.
 set -euo pipefail
 ulimit -c 0
@@ -20,17 +22,18 @@ case "$#:$*" in
   0:) ;;
   1:--home-unset-only) mode=home-unset ;;
   1:--tilde-home-unset-only) mode=tilde-home-unset ;;
+  1:--tilde-home-empty-only) mode=tilde-home-empty ;;
   1:--home-empty-only) mode=home-empty ;;
   1:--unreadable-only) mode=unreadable ;;
   1:--bare-cr-only) mode=bare-cr ;;
-  *) echo "usage: readline-include-paths.sh [--tilde-home-unset-only|--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
+  *) echo "usage: readline-include-paths.sh [--tilde-home-empty-only|--tilde-home-unset-only|--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
 esac
 lookup_error_dir=$(mktemp -d /tmp/sushline-lookup-error-XXXXXX)
 trap 'rm -rf "$lookup_error_dir"' EXIT
 probe="$lookup_error_dir/probe"
 report=/tmp/readline_include_paths.out
-if [ "$mode" = tilde-home-unset ]; then
-  report=/tmp/readline_tilde_home_unset.out
+if [[ "$mode" = tilde-home-* ]]; then
+  report="/tmp/readline_${mode//-/_}.out"
   rm -f "$report"
   [ "$READLINE_ORACLE_VERSION" = 8.3 ] || exit 1
 elif [ "$mode" = home-unset ]; then
@@ -54,7 +57,7 @@ if [ ! -f "$readline/lib/libreadline.so" ] || [ ! -f "$marker" ] || \
   echo "paths probe requires the exact pinned Readline cache" >&2
   exit 1
 fi
-if [ "$mode" = tilde-home-unset ]; then
+if [[ "$mode" = tilde-home-* ]]; then
   prefix=$(realpath -e "$readline")
   library=$(realpath -e "$readline/lib/libreadline.so")
   case "$library" in
@@ -98,7 +101,10 @@ int main(int argc, char **argv) {
         int pinned = loaded && expected && strcmp(loaded, expected) == 0;
         free(loaded);
         free(expected);
-        if (!pinned || rl_readline_version != 0x0803 || getenv("HOME") != NULL ||
+        int home_empty = getenv("SUSHLINE_TILDE_HOME_EMPTY") != NULL;
+        const char *home = getenv("HOME");
+        int home_ok = home_empty ? home && home[0] == '\0' : home == NULL;
+        if (!pinned || rl_readline_version != 0x0803 || !home_ok ||
             !arm || !hits || !safe || !arm() || rl_initialize() != 0)
             return 2;
         rl_command_func_t *command = rl_named_function("tilde-expand");
@@ -114,13 +120,18 @@ int main(int argc, char **argv) {
         if (!rl_instream || !rl_outstream) return 2;
         char *line = readline("");
         int matches = line != NULL && strcmp(line, argv[1]) == 0;
+        int empty = line != NULL && line[0] == '\0';
         free(line);
         if (fclose(rl_instream) != 0 || fclose(rl_outstream) != 0) return 2;
         printf("readline_release=8.3\n");
         printf("pinned_library_loaded=1\n");
-        printf("home_absent=1\n");
+        if (home_empty) printf("home_present=1\nhome_empty=1\n");
+        else printf("home_absent=1\n");
         printf("passwd_home_lookup_hits=%u\n", hits());
-        printf("result_match=%d\n", matches);
+        if (home_empty) {
+            printf("result_empty=%d\n", empty);
+            printf("result_passwd_home=%d\n", matches);
+        } else printf("result_match=%d\n", matches);
         printf("guards_ok=%u\n", safe());
         return 0;
     }
@@ -199,7 +210,7 @@ if [ -z "$readline_libraries" ] || \
 fi
 # The interposer is child-only: it returns EIO for the one named-account
 # failure fixture, and supplies a test-owned current-UID home only for the
-# focused HOME-unset measurement. All other lookups forward to libc; neither
+# focused tilde/HOME measurements. Other non-tilde lookups forward to libc; neither
 # Python nor unrelated probes inherit LD_PRELOAD.
 cat > "$lookup_error_dir/interposer.c" <<'INTERPOSER'
 #define _GNU_SOURCE
@@ -219,8 +230,11 @@ cat > "$lookup_error_dir/interposer.c" <<'INTERPOSER'
    Only /dev/null is permitted for inputrc; never consult real account data. */
 static unsigned int armed, blocked;
 unsigned int sushline_tilde_guard(void) {
-    armed = getenv("SUSHLINE_TILDE_PROBE") != NULL &&
-            getenv("HOME") == NULL && getenv("SUSHLINE_PASSWD_HOME") != NULL;
+    const char *home = getenv("HOME");
+    int home_ok = getenv("SUSHLINE_TILDE_HOME_EMPTY") != NULL ?
+                  home && home[0] == '\0' : home == NULL;
+    armed = getenv("SUSHLINE_TILDE_PROBE") != NULL && home_ok &&
+            getenv("SUSHLINE_PASSWD_HOME") != NULL;
 #ifdef SUSHLINE_TILDE_FILE_GUARD
     if (!armed || blocked != 0) return 0;
     /* Prove both descriptor and stdio guards deny a test-owned directory.
@@ -400,7 +414,7 @@ int getpwnam_r(const char *name, struct passwd *pwd, char *buffer,
 }
 INTERPOSER
 interposer_flags=()
-if [ "$mode" = tilde-home-unset ]; then
+if [[ "$mode" = tilde-home-* ]]; then
   interposer_flags=(-DSUSHLINE_TILDE_FILE_GUARD)
 fi
 if ! cc -Wall -Wextra -Werror "${interposer_flags[@]}" -shared -fPIC -o "$lookup_error_dir/interposer.so" \
@@ -429,7 +443,7 @@ home_unset_only = mode == "home-unset"
 home_empty_only = mode == "home-empty"
 resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
-def run_tilde_home_unset():
+def run_tilde_home(home_empty=False):
     # Build only the existing editor integration target. Capture all build and
     # child diagnostics; only a fully validated, path-free report is published.
     build = subprocess.run(
@@ -444,6 +458,7 @@ def run_tilde_home_unset():
         raise ValueError()
     records = []
     accepted = True
+    trial_classifications = []
     for trial in (1, 2):
         with tempfile.TemporaryDirectory(prefix="sushline-tilde-home-", dir="/tmp") as base:
             home = os.path.join(base, "home")
@@ -453,9 +468,13 @@ def run_tilde_home_unset():
             env = dict(LC_ALL="C", TERM="", INPUTRC="/dev/null",
                        LD_PRELOAD=os.environ["SUSHLINE_LOOKUP_ERROR_PRELOAD"],
                        SUSHLINE_TILDE_PROBE="1", SUSHLINE_PASSWD_HOME=home)
+            if home_empty:
+                env.update(HOME="", SUSHLINE_TILDE_HOME_EMPTY="1")
+            trial_results = []
+            fixture = "tilde_expand_home_" + ("empty" if home_empty else "unset") + "_fixture"
             for implementation, command in (
                 ("gnu", [probe, home, os.environ["SUSHLINE_PINNED_READLINE"]]),
-                ("sushline", [executables[0], "--exact", "tilde_expand_home_unset_fixture",
+                ("sushline", [executables[0], "--exact", fixture,
                               "--ignored", "--nocapture", "--quiet"]),
             ):
                 result = subprocess.run(command, cwd=base, env=env, stdin=subprocess.DEVNULL,
@@ -473,21 +492,37 @@ def run_tilde_home_unset():
                     output = match[1]
                 identity = (b"readline_release=8.3\npinned_library_loaded=1\n"
                             if implementation == "gnu" else b"")
-                match = re.fullmatch(
-                    re.escape(identity) + rb"home_absent=1\npasswd_home_lookup_hits=([0-9]+)\n"
-                    rb"result_match=([01])\nguards_ok=([01])\n", output,
-                )
+                fields = (rb"home_present=1\nhome_empty=1\npasswd_home_lookup_hits=([0-9]+)\n"
+                          rb"result_empty=([01])\nresult_passwd_home=([01])\nguards_ok=1\n"
+                          if home_empty else
+                          rb"home_absent=1\npasswd_home_lookup_hits=([0-9]+)\n"
+                          rb"result_match=([01])\nguards_ok=([01])\n")
+                match = re.fullmatch(re.escape(identity) + fields, output)
                 if not match or result.stderr:
                     raise ValueError()
-                # Preserve a sanitized negative measurement too; incorrect
-                # expansion or missing lookup still fails the CI step below.
-                accepted = (int(match[1]) > 0 and match[2] == b"1"
-                            and match[3] == b"1") and accepted
+                if home_empty:
+                    # Keep validated rows even for a disagreement or an
+                    # unclassified result, but never publish unsafe output.
+                    if match[2] == match[3] == b"1":
+                        raise ValueError()
+                    lookup_hits = int(match[1])
+                    trial_results.append((match[2], match[3]))
+                    accepted = (match[2] != match[3]
+                                and (match[3] != b"1" or lookup_hits > 0)) and accepted
+                else:
+                    # Preserve the HOME-unset audit's existing acceptance.
+                    accepted = (int(match[1]) > 0 and match[2] == b"1"
+                                and match[3] == b"1") and accepted
                 records.extend(f"trial{trial}_{implementation}_{line}"
                                for line in output.decode("ascii").splitlines())
+            if home_empty:
+                accepted = (trial_results[0] == trial_results[1]) and accepted
+                trial_classifications.append(tuple(trial_results))
         if os.path.lexists(base):
             raise ValueError()
         records.append(f"trial{trial}_cleanup=1")
+    if home_empty:
+        accepted = (trial_classifications[0] == trial_classifications[1]) and accepted
     # Temporary compiled probe/interposer cleanup is also part of acceptance.
     shutil.rmtree(os.path.dirname(probe))
     if os.path.lexists(os.path.dirname(probe)):
@@ -849,8 +884,8 @@ def setup_unreadable(base):
     return outer_path, base, base, include_path
 
 try:
-    if mode == "tilde-home-unset":
-        run_tilde_home_unset()
+    if mode in ("tilde-home-unset", "tilde-home-empty"):
+        run_tilde_home(home_empty=mode == "tilde-home-empty")
         sys.exit(0)
     if mode == "bare-cr":
         if not run_bare_cr():

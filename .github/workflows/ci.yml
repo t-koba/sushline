@@ -4212,6 +4212,16 @@ jobs:
           path: /tmp/readline_include_home_empty.out
           if-no-files-found: error
           retention-days: 14
+      - name: Compare tilde-expand with HOME explicitly empty against the pinned release
+        run: bash .github/scripts/readline-include-paths.sh --tilde-home-empty-only
+      - name: Upload HOME-empty tilde-expand comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-home-empty-tilde-expand
+          path: /tmp/readline_tilde_home_empty.out
+          if-no-files-found: error
+          retention-days: 14
       - name: Measure unreadable inputrc include against the pinned release
         run: bash .github/scripts/readline-include-paths.sh --unreadable-only
       - name: Upload unreadable inputrc include measurement

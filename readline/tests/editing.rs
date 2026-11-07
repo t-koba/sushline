@@ -1533,6 +1533,20 @@ fn current_account_name_and_home() -> Option<(String, Vec<u8>)> {
 #[test]
 #[ignore = "requires the controlled HOME-unset measurement driver"]
 fn tilde_expand_home_unset_fixture() {
+    tilde_expand_controlled_home_fixture(false);
+}
+
+// Measurement only: the driver compares sanitized classifications and lookup
+// counts with pinned GNU output; this fixture asserts no compatibility claim.
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "requires the controlled HOME-empty measurement driver"]
+fn tilde_expand_home_empty_fixture() {
+    tilde_expand_controlled_home_fixture(true);
+}
+
+#[cfg(target_os = "linux")]
+fn tilde_expand_controlled_home_fixture(home_empty: bool) {
     use std::os::unix::ffi::OsStrExt;
 
     // SAFETY: the driver loads these no-argument C functions from its own
@@ -1542,7 +1556,16 @@ fn tilde_expand_home_unset_fixture() {
         assert!(!symbol.is_null(), "controlled interposer missing");
         unsafe { std::mem::transmute(symbol) }
     }
-    assert!(std::env::var_os("HOME").is_none(), "HOME must be absent");
+    if home_empty {
+        assert!(
+            std::env::var_os("HOME").is_some_and(|home| home.is_empty()),
+            "HOME must be present and empty"
+        );
+        assert!(std::env::var_os("SUSHLINE_TILDE_HOME_EMPTY").is_some());
+    } else {
+        assert!(std::env::var_os("HOME").is_none(), "HOME must be absent");
+        assert!(std::env::var_os("SUSHLINE_TILDE_HOME_EMPTY").is_none());
+    }
     let target = std::env::var_os("SUSHLINE_PASSWD_HOME").expect("fixture home required");
     let (arm, hits, safe) = unsafe {
         (
@@ -1563,13 +1586,24 @@ fn tilde_expand_home_unset_fixture() {
     );
     line.load_inputrc_str(r#""\C-o": tilde-expand"#).unwrap();
     let result = line.read_line(Prompt::new(""), &mut ()).unwrap();
-    let matches = matches!(result, ReadlineResult::Line(actual) if actual == target.as_bytes());
+    let matches = matches!(&result, ReadlineResult::Line(actual) if actual == target.as_bytes());
+    let empty = matches!(&result, ReadlineResult::Line(actual) if actual.is_empty());
     // Never format the target, line, terminal output, or account data.
     // Leave comparison acceptance to the measurement driver so a mismatch or
     // missing lookup remains available as sanitized evidence in the artifact.
-    println!("home_absent=1");
+    if home_empty {
+        println!("home_present=1");
+        println!("home_empty=1");
+    } else {
+        println!("home_absent=1");
+    }
     println!("passwd_home_lookup_hits={}", hits());
-    println!("result_match={}", u8::from(matches));
+    if home_empty {
+        println!("result_empty={}", u8::from(empty));
+        println!("result_passwd_home={}", u8::from(matches));
+    } else {
+        println!("result_match={}", u8::from(matches));
+    }
     println!("guards_ok={}", safe());
 }
 

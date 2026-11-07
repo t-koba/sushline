@@ -39,7 +39,7 @@ impl LocaleLowercase {
                 std::ptr::null_mut(),
             )
         };
-        (!locale.is_null()).then_some(Self { locale })
+        (!locale.is_null()).then(|| Self { locale })
     }
 
     pub(crate) fn lowercase(&self, character: char) -> char {
@@ -99,5 +99,27 @@ impl LocaleLowercase {
 
     pub(crate) fn lowercase(&self, character: char) -> char {
         character
+    }
+}
+
+#[cfg(all(
+    test,
+    any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    )
+))]
+mod tests {
+    use super::LocaleLowercase;
+
+    #[test]
+    fn unavailable_locale_returns_none() {
+        assert!(LocaleLowercase::new("sushline-audit-locale-does-not-exist").is_none());
     }
 }

@@ -16,6 +16,7 @@
 # classifying empty vs synthetic passwd-home results without assuming either.
 # --tilde-home-nonempty-only compares HOME with a distinct synthetic passwd home.
 # --tilde-named-user-only measures one fixed synthetic named-user word.
+# --vi-tilde-named-user-only uses the same fixture with `vi-tilde-expand`.
 # Measurement only against the pinned release.
 set -euo pipefail
 ulimit -c 0
@@ -27,10 +28,11 @@ case "$#:$*" in
   1:--tilde-home-empty-only) mode=tilde-home-empty ;;
   1:--tilde-home-nonempty-only) mode=tilde-home-nonempty ;;
   1:--tilde-named-user-only) mode=tilde-named-user ;;
+  1:--vi-tilde-named-user-only) mode=tilde-named-user-vi ;;
   1:--home-empty-only) mode=home-empty ;;
   1:--unreadable-only) mode=unreadable ;;
   1:--bare-cr-only) mode=bare-cr ;;
-  *) echo "usage: readline-include-paths.sh [--tilde-named-user-only|--tilde-home-nonempty-only|--tilde-home-empty-only|--tilde-home-unset-only|--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
+  *) echo "usage: readline-include-paths.sh [--vi-tilde-named-user-only|--tilde-named-user-only|--tilde-home-nonempty-only|--tilde-home-empty-only|--tilde-home-unset-only|--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
 esac
 lookup_error_dir=$(mktemp -d /tmp/sushline-lookup-error-XXXXXX)
 trap 'rm -rf "$lookup_error_dir"' EXIT
@@ -119,7 +121,9 @@ int main(int argc, char **argv) {
         if (!pinned || rl_readline_version != 0x0803 || !home_ok ||
             !arm || !hits || !safe || !arm() || rl_initialize() != 0)
             return 2;
-        rl_command_func_t *command = rl_named_function("tilde-expand");
+        int vi = getenv("SUSHLINE_TILDE_VI") != NULL;
+        if (vi && !named) return 2;
+        rl_command_func_t *command = rl_named_function(vi ? "vi-tilde-expand" : "tilde-expand");
         int input[2];
         if (!command || rl_bind_key(15, command) != 0 || pipe(input) != 0)
             return 2;
@@ -569,7 +573,7 @@ home_unset_only = mode == "home-unset"
 home_empty_only = mode == "home-empty"
 resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
-def run_tilde_home(home_empty=False, home_nonempty=False, named=False):
+def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False):
     # Build only the existing editor integration target. Capture all build and
     # child diagnostics; only a fully validated, path-free report is published.
     build = subprocess.run(
@@ -604,9 +608,12 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False):
                            SUSHLINE_TILDE_HOME=home)
             if named:
                 env["SUSHLINE_TILDE_NAMED_USER"] = "1"
+            if vi:
+                env["SUSHLINE_TILDE_VI"] = "1"
             trial_results = []
             case = "empty" if home_empty else "nonempty" if home_nonempty else "unset"
-            fixture = ("tilde_expand_named_user_fixture" if named else
+            fixture = ("vi_tilde_expand_named_user_fixture" if vi else
+                       "tilde_expand_named_user_fixture" if named else
                        "tilde_expand_home_" + case + "_fixture")
             gnu_expected = home if home_nonempty else passwd_home
             for implementation, command in (
@@ -1033,8 +1040,8 @@ def setup_unreadable(base):
     return outer_path, base, base, include_path
 
 try:
-    if mode == "tilde-named-user":
-        run_tilde_home(named=True)
+    if mode in ("tilde-named-user", "tilde-named-user-vi"):
+        run_tilde_home(named=True, vi=mode == "tilde-named-user-vi")
         sys.exit(0)
     if mode in ("tilde-home-unset", "tilde-home-empty", "tilde-home-nonempty"):
         run_tilde_home(home_empty=mode == "tilde-home-empty",

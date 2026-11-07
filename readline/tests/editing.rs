@@ -1535,6 +1535,7 @@ enum ControlledTildeHome {
     Empty,
     Nonempty,
     NamedUser,
+    NamedUserVi,
 }
 
 #[cfg(target_os = "linux")]
@@ -1566,6 +1567,13 @@ fn tilde_expand_named_user_fixture() {
 }
 
 #[cfg(target_os = "linux")]
+#[test]
+#[ignore = "requires the controlled named-user vi measurement driver"]
+fn vi_tilde_expand_named_user_fixture() {
+    tilde_expand_controlled_home_fixture(ControlledTildeHome::NamedUserVi);
+}
+
+#[cfg(target_os = "linux")]
 fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
     use std::os::unix::ffi::OsStrExt;
 
@@ -1580,7 +1588,12 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
     let expected_home = std::env::var_os("SUSHLINE_TILDE_HOME");
     let home_empty = matches!(home_mode, ControlledTildeHome::Empty);
     let home_nonempty = matches!(home_mode, ControlledTildeHome::Nonempty);
-    let named = matches!(home_mode, ControlledTildeHome::NamedUser);
+    let named = matches!(
+        home_mode,
+        ControlledTildeHome::NamedUser | ControlledTildeHome::NamedUserVi
+    );
+    let vi = matches!(home_mode, ControlledTildeHome::NamedUserVi);
+    assert_eq!(std::env::var_os("SUSHLINE_TILDE_VI").is_some(), vi);
     assert_eq!(
         std::env::var_os("SUSHLINE_TILDE_NAMED_USER").is_some(),
         named
@@ -1601,7 +1614,9 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
             assert!(std::env::var_os("SUSHLINE_TILDE_HOME_NONEMPTY").is_none());
             assert!(expected_home.is_none());
         }
-        ControlledTildeHome::Nonempty | ControlledTildeHome::NamedUser => {
+        ControlledTildeHome::Nonempty
+        | ControlledTildeHome::NamedUser
+        | ControlledTildeHome::NamedUserVi => {
             let expected = expected_home.as_ref().expect("synthetic HOME required");
             assert!(
                 home.as_ref()
@@ -1639,7 +1654,12 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         terminal,
         History::new(),
     );
-    line.load_inputrc_str(r#""\C-o": tilde-expand"#).unwrap();
+    line.load_inputrc_str(if vi {
+        r#""\C-o": vi-tilde-expand"#
+    } else {
+        r#""\C-o": tilde-expand"#
+    })
+    .unwrap();
     let result = line.read_line(Prompt::new(""), &mut ()).unwrap();
     let matches_passwd_home = matches!(&result, ReadlineResult::Line(actual)
         if actual == target.as_os_str().as_bytes());

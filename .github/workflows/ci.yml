@@ -4242,6 +4242,16 @@ jobs:
           path: /tmp/readline_tilde_named_user.out
           if-no-files-found: error
           retention-days: 14
+      - name: Compare synthetic named-user vi-tilde-expand against the pinned release
+        run: bash .github/scripts/readline-include-paths.sh --vi-tilde-named-user-only
+      - name: Upload synthetic named-user vi-tilde-expand comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-named-user-vi-tilde-expand
+          path: /tmp/readline_tilde_named_user_vi.out
+          if-no-files-found: error
+          retention-days: 14
       - name: Measure unreadable inputrc include against the pinned release
         run: bash .github/scripts/readline-include-paths.sh --unreadable-only
       - name: Upload unreadable inputrc include measurement

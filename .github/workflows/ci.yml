@@ -4284,6 +4284,17 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Compare HOME-nonempty current-user filename completion against the pinned release
+        run: bash .github/scripts/readline-include-paths.sh --filename-home-nonempty-only
+      - name: Upload HOME-nonempty current-user filename completion comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-home-nonempty-filename-completion
+          path: /tmp/readline_tilde_home_nonempty_filename.out
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Compare synthetic named-user vi-tilde-expand against the pinned release
         run: bash .github/scripts/readline-include-paths.sh --vi-tilde-named-user-only
       - name: Upload synthetic named-user vi-tilde-expand comparison

@@ -1540,6 +1540,7 @@ enum ControlledTildeHome {
     EmptyVi,
     NamedFilename,
     UnsetFilename,
+    NonemptyFilename,
 }
 
 #[cfg(target_os = "linux")]
@@ -1606,6 +1607,13 @@ fn complete_filename_home_unset_fixture() {
 }
 
 #[cfg(target_os = "linux")]
+#[test]
+#[ignore = "requires the controlled HOME-nonempty filename measurement driver"]
+fn complete_filename_home_nonempty_fixture() {
+    tilde_expand_controlled_home_fixture(ControlledTildeHome::NonemptyFilename);
+}
+
+#[cfg(target_os = "linux")]
 fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
     use std::os::unix::ffi::OsStrExt;
 
@@ -1622,7 +1630,10 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         home_mode,
         ControlledTildeHome::Empty | ControlledTildeHome::EmptyVi
     );
-    let home_nonempty = matches!(home_mode, ControlledTildeHome::Nonempty);
+    let home_nonempty = matches!(
+        home_mode,
+        ControlledTildeHome::Nonempty | ControlledTildeHome::NonemptyFilename
+    );
     let named = matches!(
         home_mode,
         ControlledTildeHome::NamedUser
@@ -1631,7 +1642,9 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
     );
     let filename = matches!(
         home_mode,
-        ControlledTildeHome::NamedFilename | ControlledTildeHome::UnsetFilename
+        ControlledTildeHome::NamedFilename
+            | ControlledTildeHome::UnsetFilename
+            | ControlledTildeHome::NonemptyFilename
     );
     assert_eq!(
         std::env::var_os("SUSHLINE_FILENAME_PROBE").is_some(),
@@ -1667,6 +1680,7 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
             assert!(expected_home.is_none());
         }
         ControlledTildeHome::Nonempty
+        | ControlledTildeHome::NonemptyFilename
         | ControlledTildeHome::NamedUser
         | ControlledTildeHome::NamedUserVi
         | ControlledTildeHome::NamedFilename => {
@@ -1737,6 +1751,34 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         };
         if actual.last() == Some(&b' ') {
             actual.pop();
+        }
+        if home_nonempty {
+            let mut classifications = [false; 2];
+            let mut candidate = false;
+            for (index, home) in [expected_home.as_ref().unwrap(), &target]
+                .iter()
+                .enumerate()
+            {
+                let bytes = home.as_os_str().as_bytes();
+                if let Some(suffix) = actual.strip_prefix(bytes) {
+                    let completed = suffix == b"/audit-candidate";
+                    classifications[index] = completed || suffix == b"/audit-c";
+                    candidate |= completed;
+                }
+            }
+            println!("home_present=1\nhome_nonempty=1");
+            println!("passwd_home_lookup_hits={}", hits());
+            println!("result_home={}", u8::from(classifications[0]));
+            println!("result_passwd_home={}", u8::from(classifications[1]));
+            let literal_prefix = actual == b"~/audit-c";
+            let empty = actual.is_empty();
+            let other = !(classifications[0] || classifications[1] || literal_prefix || empty);
+            println!("result_candidate={}", u8::from(candidate));
+            println!("result_literal_prefix={}", u8::from(literal_prefix));
+            println!("result_empty={}", u8::from(empty));
+            println!("result_other={}", u8::from(other));
+            println!("guards_ok={}", safe());
+            return;
         }
         let mut prefix = target.as_os_str().as_bytes().to_vec();
         prefix.push(b'/');

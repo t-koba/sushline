@@ -24,6 +24,8 @@
 # --filename-named-user-only compares complete-filename with expand-tilde on,
 # one synthetic named-user prefix and one fresh test-owned candidate.
 # --filename-home-unset-only uses a current-UID ~/ prefix with child HOME absent.
+# --filename-home-nonempty-only uses a distinct test-owned HOME candidate and
+# an empty synthetic current-UID passwd home, without assuming the resolution.
 # Measurement only against the pinned release.
 set -euo pipefail
 ulimit -c 0
@@ -39,11 +41,12 @@ case "$#:$*" in
   1:--tilde-named-user-only) mode=tilde-named-user ;;
   1:--filename-named-user-only) mode=tilde-named-user-filename ;;
   1:--filename-home-unset-only) mode=tilde-home-unset-filename ;;
+  1:--filename-home-nonempty-only) mode=tilde-home-nonempty-filename ;;
   1:--vi-tilde-named-user-only) mode=tilde-named-user-vi ;;
   1:--home-empty-only) mode=home-empty ;;
   1:--unreadable-only) mode=unreadable ;;
   1:--bare-cr-only) mode=bare-cr ;;
-  *) echo "usage: readline-include-paths.sh [--vi-tilde-home-empty-only|--vi-tilde-home-unset-only|--filename-home-unset-only|--filename-named-user-only|--vi-tilde-named-user-only|--tilde-named-user-only|--tilde-home-nonempty-only|--tilde-home-empty-only|--tilde-home-unset-only|--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
+  *) echo "usage: readline-include-paths.sh [--filename-home-nonempty-only|--vi-tilde-home-empty-only|--vi-tilde-home-unset-only|--filename-home-unset-only|--filename-named-user-only|--vi-tilde-named-user-only|--tilde-named-user-only|--tilde-home-nonempty-only|--tilde-home-empty-only|--tilde-home-unset-only|--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
 esac
 lookup_error_dir=$(mktemp -d /tmp/sushline-lookup-error-XXXXXX)
 trap 'rm -rf "$lookup_error_dir"' EXIT
@@ -146,7 +149,7 @@ int main(int argc, char **argv) {
         int filename = getenv("SUSHLINE_FILENAME_PROBE") != NULL;
         int vi = getenv("SUSHLINE_TILDE_VI") != NULL;
         if ((vi && !named && home_nonempty) ||
-            (filename && (vi || home_empty || (!named && home_nonempty)))) return 2;
+            (filename && (vi || home_empty))) return 2;
         if (filename && rl_variable_bind("expand-tilde", "on") != 0) return 2;
         rl_command_func_t *command = filename ? complete_filename :
             rl_named_function(vi ? "vi-tilde-expand" : "tilde-expand");
@@ -176,6 +179,34 @@ int main(int argc, char **argv) {
         if (fclose(rl_instream) != 0 || fclose(rl_outstream) != 0) return 2;
         printf("readline_release=8.3\n");
         printf("pinned_library_loaded=1\n");
+        if (filename && home_nonempty && !named) {
+            const char *passwd_home = getenv("SUSHLINE_PASSWD_HOME");
+            size_t length = strlen(line);
+            if (length && line[length - 1] == ' ') line[--length] = '\0';
+            int result_home = 0, result_passwd = 0, candidate = 0;
+            const char *homes[] = {home, passwd_home};
+            for (int i = 0; i < 2; ++i) {
+                size_t size = strlen(homes[i]);
+                if (length > size && strncmp(line, homes[i], size) == 0) {
+                    int completed = strcmp(line + size, "/audit-candidate") == 0;
+                    int prefix = strcmp(line + size, "/audit-c") == 0;
+                    if (i == 0) result_home = completed || prefix;
+                    else result_passwd = completed || prefix;
+                    candidate |= completed;
+                }
+            }
+            int literal_prefix = strcmp(line, "~/audit-c") == 0;
+            int result_empty = length == 0;
+            int result_other = !(result_home || result_passwd || literal_prefix || result_empty);
+            printf("home_present=1\nhome_nonempty=1\n");
+            printf("passwd_home_lookup_hits=%u\n", hits());
+            printf("result_home=%d\nresult_passwd_home=%d\n", result_home, result_passwd);
+            printf("result_candidate=%d\nresult_literal_prefix=%d\n", candidate, literal_prefix);
+            printf("result_empty=%d\nresult_other=%d\n", result_empty, result_other);
+            printf("guards_ok=%u\n", safe());
+            free(line);
+            return 0;
+        }
         if (filename) {
             const char *candidate = "/audit-candidate";
             size_t length = strlen(line);
@@ -314,7 +345,20 @@ cat > "$lookup_error_dir/interposer.c" <<'INTERPOSER'
 
 /* Strict mode is armed by each probe after loader/runtime initialization.
    Only /dev/null is permitted for inputrc; never consult real account data. */
-static unsigned int armed, blocked;
+static unsigned int armed, blocked, checking;
+/* New fixture stops on the first unexpected access. Only fixed categories
+   reach stderr; no path, account, or child diagnostic is ever forwarded. */
+static void stop_unsafe(const char *category) {
+    if (armed && !checking && getenv("SUSHLINE_FILENAME_PROBE") &&
+        getenv("SUSHLINE_TILDE_HOME_NONEMPTY") &&
+        !getenv("SUSHLINE_TILDE_NAMED_USER")) {
+        const char *prefix = "guard_denied=";
+        (void)write(STDERR_FILENO, prefix, strlen(prefix));
+        (void)write(STDERR_FILENO, category, strlen(category));
+        (void)write(STDERR_FILENO, "\n", 1);
+        _exit(3);
+    }
+}
 unsigned int sushline_tilde_guard(void) {
     const char *home = getenv("HOME");
     int home_empty = getenv("SUSHLINE_TILDE_HOME_EMPTY") != NULL;
@@ -329,6 +373,7 @@ unsigned int sushline_tilde_guard(void) {
             getenv("SUSHLINE_PASSWD_HOME") != NULL;
 #ifdef SUSHLINE_TILDE_FILE_GUARD
     if (!armed || blocked != 0) return 0;
+    checking = 1;
     /* Prove both descriptor and stdio guards deny a test-owned directory.
        Even a broken guard can touch only the fresh, empty fixture here. */
     int fd = open64(getenv("SUSHLINE_PASSWD_HOME"), O_RDONLY);
@@ -370,6 +415,7 @@ unsigned int sushline_tilde_guard(void) {
                   blocked == before + 3;
     }
     blocked = 0;
+    checking = 0;
     return guarded;
 #else
     return 0;
@@ -381,6 +427,7 @@ static int denied(const char *path) {
     if (path == NULL) {
         if (armed) {
             ++blocked;
+            stop_unsafe("file");
             errno = EACCES;
         } else {
             errno = EINVAL;
@@ -389,6 +436,7 @@ static int denied(const char *path) {
     }
     if (armed && strcmp(path, "/dev/null") != 0) {
         ++blocked;
+        stop_unsafe("file");
         errno = EACCES;
         return 1;
     }
@@ -448,19 +496,27 @@ FILE *fopen64(const char *path, const char *mode) {
 }
 #endif
 #ifdef SUSHLINE_TILDE_FILE_GUARD
-/* Completion may enumerate only the synthetic home and inspect only it or
-   its one regular candidate. The parent creates and verifies both; no links,
-   relative paths, traversal or host directory enumeration are permitted. */
+/* Completion may enumerate only the test-owned fixture homes and inspect only
+   their configured candidate. No links, relative paths, traversal, or host
+   directory enumeration are permitted. */
 static int completion_path_denied(const char *path, int metadata) {
     if (!armed || !getenv("SUSHLINE_FILENAME_PROBE")) return 0;
-    const char *home = getenv("SUSHLINE_PASSWD_HOME");
-    if (getenv("SUSHLINE_FILENAME_PROBE") && path && home) {
+    int nonempty = getenv("SUSHLINE_TILDE_HOME_NONEMPTY") &&
+                   !getenv("SUSHLINE_TILDE_NAMED_USER");
+    const char *homes[] = {getenv("SUSHLINE_PASSWD_HOME"),
+                           nonempty ? getenv("SUSHLINE_TILDE_HOME") : NULL};
+    for (int i = 0; i < 2; ++i) {
+        const char *home = homes[i];
+        if (!path || !home) continue;
         size_t size = strlen(home);
         if (strncmp(path, home, size) == 0 &&
             (path[size] == '\0' || strcmp(path + size, "/") == 0 ||
-             (metadata && strcmp(path + size, "/audit-candidate") == 0))) return 0;
+             (metadata && (!nonempty || i == 1) &&
+              strcmp(path + size, "/audit-candidate") == 0))) return 0;
     }
     ++blocked;
+    stop_unsafe(path && strcmp(path, "/") == 0 ? "root" :
+                metadata ? "metadata" : "enumeration");
     errno = EACCES;
     return 1;
 }
@@ -479,6 +535,23 @@ METADATA_GUARD(stat, stat)
 METADATA_GUARD(lstat, stat)
 METADATA_GUARD(stat64, stat64)
 METADATA_GUARD(lstat64, stat64)
+#define AT_METADATA_GUARD(function, type) \
+int function(int dirfd, const char *path, struct type *output, int flags) { \
+    if (completion_path_denied(path, 1)) return -1; \
+    int (*next)(int, const char *, struct type *, int) = dlsym(RTLD_NEXT, #function); \
+    return next ? next(dirfd, path, output, flags) : -1; \
+}
+AT_METADATA_GUARD(fstatat, stat)
+AT_METADATA_GUARD(fstatat64, stat64)
+int access(const char *path, int mode) {
+    if (completion_path_denied(path, 1)) return -1;
+    return syscall(SYS_faccessat, AT_FDCWD, path, mode);
+}
+int faccessat(int dirfd, const char *path, int mode, int flags) {
+    if (completion_path_denied(path, 1)) return -1;
+    int (*next)(int, const char *, int, int) = dlsym(RTLD_NEXT, "faccessat");
+    return next ? next(dirfd, path, mode, flags) : -1;
+}
 int statx(int dirfd, const char *path, int flags, unsigned int mask, struct statx *output) {
     if (completion_path_denied(path, 1)) return -1;
     return syscall(SYS_statx, dirfd, path, flags, mask, output);
@@ -513,6 +586,7 @@ struct passwd *getpwuid(uid_t uid) {
     }
     if (getenv("SUSHLINE_TILDE_PROBE") != NULL) {
         ++blocked;
+        stop_unsafe("nss");
         errno = ENOENT;
         return NULL;
     }
@@ -541,6 +615,7 @@ int getpwuid_r(uid_t uid, struct passwd *pwd, char *buffer,
     }
     if (getenv("SUSHLINE_TILDE_PROBE") != NULL) {
         ++blocked;
+        stop_unsafe("nss");
         *result = NULL;
         return ENOENT;
     }
@@ -556,7 +631,7 @@ int getpwuid_r(uid_t uid, struct passwd *pwd, char *buffer,
 /* Never enumerate host accounts in a tilde probe. endpwent is harmless
    cleanup after the synthetic entry and must not forward to libc either. */
 void setpwent(void) {
-    if (getenv("SUSHLINE_TILDE_PROBE")) { ++blocked; return; }
+    if (getenv("SUSHLINE_TILDE_PROBE")) { ++blocked; stop_unsafe("nss"); return; }
     void (*next)(void) = dlsym(RTLD_NEXT, "setpwent");
     if (next) next();
 }
@@ -566,12 +641,12 @@ void endpwent(void) {
     if (next) next();
 }
 struct passwd *getpwent(void) {
-    if (getenv("SUSHLINE_TILDE_PROBE")) { ++blocked; errno = ENOENT; return NULL; }
+    if (getenv("SUSHLINE_TILDE_PROBE")) { ++blocked; stop_unsafe("nss"); errno = ENOENT; return NULL; }
     struct passwd *(*next)(void) = dlsym(RTLD_NEXT, "getpwent");
     return next ? next() : NULL;
 }
 int getpwent_r(struct passwd *pwd, char *buffer, size_t size, struct passwd **result) {
-    if (getenv("SUSHLINE_TILDE_PROBE")) { ++blocked; *result = NULL; return ENOENT; }
+    if (getenv("SUSHLINE_TILDE_PROBE")) { ++blocked; stop_unsafe("nss"); *result = NULL; return ENOENT; }
     int (*next)(struct passwd *, char *, size_t, struct passwd **) =
         dlsym(RTLD_NEXT, "getpwent_r");
     if (next) return next(pwd, buffer, size, result);
@@ -601,6 +676,7 @@ struct passwd *getpwnam(const char *name) {
     if (entry) return entry;
     if (getenv("SUSHLINE_TILDE_PROBE") != NULL) {
         ++blocked;
+        stop_unsafe("nss");
         errno = ENOENT;
         return NULL;
     }
@@ -632,6 +708,7 @@ int getpwnam_r(const char *name, struct passwd *pwd, char *buffer,
     }
     if (getenv("SUSHLINE_TILDE_PROBE") != NULL) {
         ++blocked;
+        stop_unsafe("nss");
         *result = NULL;
         return ENOENT;
     }
@@ -682,10 +759,54 @@ home_unset_only = mode == "home-unset"
 home_empty_only = mode == "home-empty"
 resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
+NONEMPTY_FILENAME_FIELDS = (
+    rb"home_present=1\nhome_nonempty=1\npasswd_home_lookup_hits=([0-9]{1,10})\n"
+    rb"result_home=([01])\nresult_passwd_home=([01])\n"
+    rb"result_candidate=([01])\nresult_literal_prefix=([01])\n"
+    rb"result_empty=([01])\nresult_other=([01])\nguards_ok=1\n"
+)
+
+def filename_comparison(rows):
+    stable = rows[:2] == rows[2:]
+    comparison = rows[0][1:] == rows[1][1:] and rows[2][1:] == rows[3][1:]
+    classified = all(
+        sum(int(row[index]) for index in (1, 2, 4, 5, 6)) == 1
+        and row[6] == b"0"
+        and (row[3] == b"0" or row[1] == b"1" or row[2] == b"1")
+        for row in rows
+    )
+    return stable, comparison, classified
+
+def test_nonempty_filename_parser():
+    # Path-free synthetic rows protect the failure semantics without an oracle.
+    row = (b"0", b"1", b"0", b"1", b"0", b"0", b"0")
+    other_count = (b"2", *row[1:])
+    passwd = (b"1", b"0", b"1", b"1", b"0", b"0", b"0")
+    empty = (b"0", b"0", b"0", b"0", b"0", b"1", b"0")
+    other = (b"0", b"0", b"0", b"0", b"0", b"0", b"1")
+    candidate_unclassified = (b"0", b"0", b"0", b"1", b"0", b"0", b"0")
+    assert filename_comparison([row, other_count, row, other_count]) == (True, True, True)
+    assert filename_comparison([row, passwd, row, passwd]) == (True, False, True)
+    assert filename_comparison([row, row, other_count, row]) == (False, True, True)
+    assert filename_comparison([empty, empty, empty, empty]) == (True, True, True)
+    assert filename_comparison([other, other, other, other]) == (True, True, False)
+    assert filename_comparison([candidate_unclassified] * 4) == (True, True, False)
+    assert filename_comparison([(b"0",) * 7] * 4) == (True, True, False)
+    valid = (b"home_present=1\nhome_nonempty=1\npasswd_home_lookup_hits=0\n"
+             b"result_home=1\nresult_passwd_home=0\nresult_candidate=1\n"
+             b"result_literal_prefix=0\nresult_empty=0\nresult_other=0\nguards_ok=1\n")
+    assert re.fullmatch(NONEMPTY_FILENAME_FIELDS, valid).groups() == row
+    for unsafe in (valid.replace(b"guards_ok=1", b"guards_ok=0"),
+                   valid.replace(b"result_home=1", b"result_home=2"), valid + b"unexpected\n"):
+        assert re.fullmatch(NONEMPTY_FILENAME_FIELDS, unsafe) is None
+
 def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False, filename=False):
     # Build only the existing editor integration target. Capture all build and
     # child diagnostics; only a fully validated, path-free report is published.
     current_vi = vi and not named
+    nonempty_filename = filename and home_nonempty and not named
+    if nonempty_filename:
+        test_nonempty_filename_parser()
     build = subprocess.run(
         ["cargo", "test", "--locked", "-p", "sushline-readline",
          "--no-default-features", "--test", "editing", "--no-run", "--message-format=json"],
@@ -700,161 +821,205 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
     accepted = True
     trial_classifications = []
     trial_rows = []
-    for trial in (1, 2):
-        with tempfile.TemporaryDirectory(prefix="sushline-tilde-home-", dir="/tmp") as base:
-            home = os.path.join(base, "home")
-            passwd_home = os.path.join(base, "passwd-home") if home_nonempty or named or filename else home
-            os.mkdir(home)
-            if home_nonempty or named or filename:
-                os.mkdir(passwd_home)
-            if filename:
-                candidate = os.path.join(passwd_home, "audit-candidate")
-                with open(candidate, "xb"):
-                    pass
-                def fixture_state():
-                    entries = [os.lstat(path) for path in (base, home, passwd_home, candidate)]
-                    if (any(not stat.S_ISDIR(entry.st_mode) for entry in entries[:3]) or
-                            not stat.S_ISREG(entries[3].st_mode) or entries[3].st_nlink != 1 or
-                            entries[3].st_size != 0 or any(entry.st_uid != os.getuid() for entry in entries)):
-                        raise ValueError()
-                    if (sorted(os.listdir(base)) != ["home", "passwd-home"] or os.listdir(home) or
-                            os.listdir(passwd_home) != ["audit-candidate"]):
-                        raise ValueError()
-                    return [(entry.st_dev, entry.st_ino, entry.st_mode, entry.st_uid, entry.st_gid,
-                             entry.st_nlink, entry.st_size, entry.st_mtime_ns, entry.st_ctime_ns)
-                            for entry in entries]
-                initial_state = fixture_state()
-            if current_vi:
-                def fixture_state():
-                    entries = [os.lstat(path) for path in (base, home)]
-                    if (any(not stat.S_ISDIR(entry.st_mode) or entry.st_uid != os.getuid()
-                            for entry in entries) or os.listdir(base) != ["home"] or os.listdir(home)):
-                        raise ValueError()
-                    return [(entry.st_dev, entry.st_ino, entry.st_mode, entry.st_uid, entry.st_gid,
-                             entry.st_nlink, entry.st_size, entry.st_mtime_ns, entry.st_ctime_ns)
-                            for entry in entries]
-                initial_state = fixture_state()
-            # Empty TERM avoids consulting host terminfo; the command is
-            # direct-library/in-memory, not a terminal-capability measurement.
-            env = dict(LC_ALL="C", TERM="", INPUTRC="/dev/null",
-                       LD_PRELOAD=os.environ["SUSHLINE_LOOKUP_ERROR_PRELOAD"],
-                       SUSHLINE_TILDE_PROBE="1", SUSHLINE_PASSWD_HOME=passwd_home)
-            if home_empty:
-                env.update(HOME="", SUSHLINE_TILDE_HOME_EMPTY="1")
-            elif home_nonempty or named:
-                env.update(HOME=home, SUSHLINE_TILDE_HOME_NONEMPTY="1",
-                           SUSHLINE_TILDE_HOME=home)
-            if named:
-                env["SUSHLINE_TILDE_NAMED_USER"] = "1"
-            if vi:
-                env["SUSHLINE_TILDE_VI"] = "1"
-            if filename:
-                env["SUSHLINE_FILENAME_PROBE"] = "1"
-                env["SUSHLINE_FILENAME_DENIED_HOME"] = home
-            trial_results = []
-            case = "empty" if home_empty else "nonempty" if home_nonempty else "unset"
-            if filename:
-                fixture = ("complete_filename_named_user_fixture" if named else
-                           "complete_filename_home_unset_fixture")
-            elif vi:
-                fixture = ("vi_tilde_expand_named_user_fixture" if named else
-                           "vi_tilde_expand_home_" + case + "_fixture")
-            elif named:
-                fixture = "tilde_expand_named_user_fixture"
-            else:
-                fixture = "tilde_expand_home_" + case + "_fixture"
-            gnu_expected = home if home_nonempty else passwd_home
-            for implementation, command in (
-                ("gnu", [probe, gnu_expected, os.environ["SUSHLINE_PINNED_READLINE"]]),
-                ("sushline", [executables[0], "--exact", fixture, "--ignored", "--nocapture", "--quiet"]),
-            ):
-                result = subprocess.run(command, cwd=base, env=env, stdin=subprocess.DEVNULL,
-                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                        timeout=5, check=True)
-                if (filename or current_vi) and fixture_state() != initial_state:
-                    raise ValueError()
-                output = result.stdout
-                if implementation == "sushline":
-                    match = re.fullmatch(
-                        rb"\nrunning 1 test\n(.*)\.\ntest result: ok\. 1 passed; 0 failed; "
-                        rb"0 ignored; 0 measured; [0-9]+ filtered out; finished in [0-9.]+s\n\n",
-                        output, re.DOTALL,
-                    )
-                    if not match:
-                        raise ValueError()
-                    output = match[1]
-                identity = (b"readline_release=8.3\npinned_library_loaded=1\n"
-                            if implementation == "gnu" else b"")
-                lookup_field = b"named" if named else b"passwd"
-                fields = (lookup_field + rb"_home_lookup_hits=([0-9]{1,10})\n"
-                          rb"result_synthetic_home=([01])\nresult_synthetic_candidate=([01])\nguards_ok=1\n"
-                          if filename else rb"named_home_lookup_hits=([0-9]{1,10})\n"
-                          rb"result_synthetic_home=([01])\nresult_trailing_slash=([01])\nguards_ok=1\n"
-                          if named else rb"home_present=1\nhome_empty=1\npasswd_home_lookup_hits=([0-9]+)\n"
-                          rb"result_empty=([01])\nresult_passwd_home=([01])\nguards_ok=1\n"
-                          if home_empty else
-                          rb"home_present=1\nhome_empty=0\nhome_nonempty=1\n"
-                          rb"passwd_home_lookup_hits=([0-9]+)\nresult_home=([01])\n"
-                          rb"result_passwd_home=([01])\nguards_ok=1\n"
-                          if home_nonempty else
-                          rb"home_absent=1\npasswd_home_lookup_hits=([0-9]+)\n"
-                          rb"result_match=([01])\nguards_ok=1\n")
-                match = re.fullmatch(re.escape(identity) + fields, output)
-                if not match or result.stderr:
-                    raise ValueError()
-                if filename or current_vi:
-                    trial_rows.append(match.groups())
-                if current_vi and not home_empty:
-                    # Keep each implementation's lookup count for repeatability,
-                    # but compare only resolved-home classifications between them.
-                    lookup_hits = int(match[1])
-                    trial_results.append(match[2])
-                    accepted = (lookup_hits > 0 and match[2] == b"1") and accepted
-                elif named or filename:
-                    # Retain valid negative rows for review, but fail the
-                    # measurement on disagreement after publishing the report.
-                    if match[2] == b"1" and int(match[1]) == 0:
-                        raise ValueError()
-                    trial_results.append((match[2], match[3]))
-                elif home_empty or home_nonempty:
-                    # Keep validated rows even for a disagreement or an
-                    # unclassified result, but never publish unsafe output.
-                    if match[2] == match[3] == b"1":
-                        raise ValueError()
-                    lookup_hits = int(match[1])
-                    trial_results.append((match[2], match[3]))
-                    accepted = (match[2] != match[3]
-                                and (match[3] != b"1" or lookup_hits > 0)) and accepted
+    completed = False
+    base = None
+    trial = None
+    try:
+        for trial in (1, 2):
+            with tempfile.TemporaryDirectory(prefix="sushline-tilde-home-", dir="/tmp") as base:
+                home = os.path.join(base, "home")
+                passwd_home = os.path.join(base, "passwd-home") if home_nonempty or named or filename else home
+                os.mkdir(home)
+                if home_nonempty or named or filename:
+                    os.mkdir(passwd_home)
+                if filename:
+                    candidate_home = home if nonempty_filename else passwd_home
+                    empty_home = passwd_home if nonempty_filename else home
+                    candidate = os.path.join(candidate_home, "audit-candidate")
+                    with open(candidate, "xb"):
+                        pass
+                    def fixture_state():
+                        entries = [os.lstat(path) for path in (base, home, passwd_home, candidate)]
+                        if (any(not stat.S_ISDIR(entry.st_mode) for entry in entries[:3]) or
+                                not stat.S_ISREG(entries[3].st_mode) or entries[3].st_nlink != 1 or
+                                entries[3].st_size != 0 or any(entry.st_uid != os.getuid() for entry in entries)):
+                            raise ValueError()
+                        if (sorted(os.listdir(base)) != ["home", "passwd-home"] or os.listdir(empty_home) or
+                                os.listdir(candidate_home) != ["audit-candidate"]):
+                            raise ValueError()
+                        return [(entry.st_dev, entry.st_ino, entry.st_mode, entry.st_uid, entry.st_gid,
+                                 entry.st_nlink, entry.st_size, entry.st_mtime_ns, entry.st_ctime_ns)
+                                for entry in entries]
+                    initial_state = fixture_state()
+                if current_vi:
+                    def fixture_state():
+                        entries = [os.lstat(path) for path in (base, home)]
+                        if (any(not stat.S_ISDIR(entry.st_mode) or entry.st_uid != os.getuid()
+                                for entry in entries) or os.listdir(base) != ["home"] or os.listdir(home)):
+                            raise ValueError()
+                        return [(entry.st_dev, entry.st_ino, entry.st_mode, entry.st_uid, entry.st_gid,
+                                 entry.st_nlink, entry.st_size, entry.st_mtime_ns, entry.st_ctime_ns)
+                                for entry in entries]
+                    initial_state = fixture_state()
+                # Empty TERM avoids consulting host terminfo; the command is
+                # direct-library/in-memory, not a terminal-capability measurement.
+                env = dict(LC_ALL="C", TERM="", INPUTRC="/dev/null",
+                           LD_PRELOAD=os.environ["SUSHLINE_LOOKUP_ERROR_PRELOAD"],
+                           SUSHLINE_TILDE_PROBE="1", SUSHLINE_PASSWD_HOME=passwd_home)
+                if home_empty:
+                    env.update(HOME="", SUSHLINE_TILDE_HOME_EMPTY="1")
+                elif home_nonempty or named:
+                    env.update(HOME=home, SUSHLINE_TILDE_HOME_NONEMPTY="1",
+                               SUSHLINE_TILDE_HOME=home)
+                if named:
+                    env["SUSHLINE_TILDE_NAMED_USER"] = "1"
+                if vi:
+                    env["SUSHLINE_TILDE_VI"] = "1"
+                if filename:
+                    env["SUSHLINE_FILENAME_PROBE"] = "1"
+                    env["SUSHLINE_FILENAME_DENIED_HOME"] = (
+                        os.path.join(passwd_home, ".") if nonempty_filename else home)
+                trial_results = []
+                case = "empty" if home_empty else "nonempty" if home_nonempty else "unset"
+                if filename:
+                    fixture = ("complete_filename_named_user_fixture" if named else
+                               "complete_filename_home_nonempty_fixture" if nonempty_filename else
+                               "complete_filename_home_unset_fixture")
+                elif vi:
+                    fixture = ("vi_tilde_expand_named_user_fixture" if named else
+                               "vi_tilde_expand_home_" + case + "_fixture")
+                elif named:
+                    fixture = "tilde_expand_named_user_fixture"
                 else:
-                    # The report regex requires guards_ok=1 literally; these
-                    # are the only two captured fields in the HOME-unset row.
-                    accepted = (int(match[1]) > 0 and match[2] == b"1") and accepted
-                records.extend(f"trial{trial}_{implementation}_{line}"
-                               for line in output.decode("ascii").splitlines())
-            if home_empty or home_nonempty or named or filename or current_vi:
-                accepted = (trial_results[0] == trial_results[1]) and accepted
-                trial_classifications.append(tuple(trial_results))
-        if os.path.lexists(base):
+                    fixture = "tilde_expand_home_" + case + "_fixture"
+                gnu_expected = home if home_nonempty else passwd_home
+                for implementation, command in (
+                    ("gnu", [probe, gnu_expected, os.environ["SUSHLINE_PINNED_READLINE"]]),
+                    ("sushline", [executables[0], "--exact", fixture, "--ignored", "--nocapture", "--quiet"]),
+                ):
+                    try:
+                        result = subprocess.run(command, cwd=base, env=env, stdin=subprocess.DEVNULL,
+                                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                                timeout=5, check=False)
+                    finally:
+                        if filename or current_vi:
+                            unchanged = fixture_state() == initial_state
+                            if nonempty_filename:
+                                records.append(f"trial{trial}_{implementation}_fixture_unchanged={int(unchanged)}")
+                            if not unchanged:
+                                raise ValueError()
+                    if nonempty_filename and result.returncode != 0:
+                        # Only an exact fixed guard category may escape a child.
+                        denied = re.fullmatch(rb"guard_denied=(root|file|metadata|enumeration|nss)\n",
+                                              result.stderr)
+                        records.append(f"trial{trial}_{implementation}_guard_denied=" +
+                                       (denied[1].decode("ascii") if denied else "child_failure"))
+                        raise ValueError()
+                    result.check_returncode()
+                    output = result.stdout
+                    if implementation == "sushline":
+                        match = re.fullmatch(
+                            rb"\nrunning 1 test\n(.*)\.\ntest result: ok\. 1 passed; 0 failed; "
+                            rb"0 ignored; 0 measured; [0-9]+ filtered out; finished in [0-9.]+s\n\n",
+                            output, re.DOTALL,
+                        )
+                        if not match:
+                            raise ValueError()
+                        output = match[1]
+                    identity = (b"readline_release=8.3\npinned_library_loaded=1\n"
+                                if implementation == "gnu" else b"")
+                    lookup_field = b"named" if named else b"passwd"
+                    fields = (NONEMPTY_FILENAME_FIELDS if nonempty_filename else
+                              lookup_field + rb"_home_lookup_hits=([0-9]{1,10})\n"
+                              rb"result_synthetic_home=([01])\nresult_synthetic_candidate=([01])\nguards_ok=1\n"
+                              if filename else rb"named_home_lookup_hits=([0-9]{1,10})\n"
+                              rb"result_synthetic_home=([01])\nresult_trailing_slash=([01])\nguards_ok=1\n"
+                              if named else rb"home_present=1\nhome_empty=1\npasswd_home_lookup_hits=([0-9]+)\n"
+                              rb"result_empty=([01])\nresult_passwd_home=([01])\nguards_ok=1\n"
+                              if home_empty else
+                              rb"home_present=1\nhome_empty=0\nhome_nonempty=1\n"
+                              rb"passwd_home_lookup_hits=([0-9]+)\nresult_home=([01])\n"
+                              rb"result_passwd_home=([01])\nguards_ok=1\n"
+                              if home_nonempty else
+                              rb"home_absent=1\npasswd_home_lookup_hits=([0-9]+)\n"
+                              rb"result_match=([01])\nguards_ok=1\n")
+                    match = re.fullmatch(re.escape(identity) + fields, output)
+                    if not match or result.stderr:
+                        raise ValueError()
+                    if filename or current_vi:
+                        trial_rows.append(match.groups())
+                    if nonempty_filename:
+                        trial_results.append(match.groups()[1:])
+                    elif current_vi and not home_empty:
+                        # Keep each implementation's lookup count for repeatability,
+                        # but compare only resolved-home classifications between them.
+                        lookup_hits = int(match[1])
+                        trial_results.append(match[2])
+                        accepted = (lookup_hits > 0 and match[2] == b"1") and accepted
+                    elif named or filename:
+                        # Retain valid negative rows for review, but fail the
+                        # measurement on disagreement after publishing the report.
+                        if match[2] == b"1" and int(match[1]) == 0:
+                            raise ValueError()
+                        trial_results.append((match[2], match[3]))
+                    elif home_empty or home_nonempty:
+                        # Keep validated rows even for a disagreement or an
+                        # unclassified result, but never publish unsafe output.
+                        if match[2] == match[3] == b"1":
+                            raise ValueError()
+                        lookup_hits = int(match[1])
+                        trial_results.append((match[2], match[3]))
+                        accepted = (match[2] != match[3]
+                                    and (match[3] != b"1" or lookup_hits > 0)) and accepted
+                    else:
+                        # The report regex requires guards_ok=1 literally; these
+                        # are the only two captured fields in the HOME-unset row.
+                        accepted = (int(match[1]) > 0 and match[2] == b"1") and accepted
+                    records.extend(f"trial{trial}_{implementation}_{line}"
+                                   for line in output.decode("ascii").splitlines())
+                if home_empty or home_nonempty or named or filename or current_vi:
+                    accepted = (trial_results[0] == trial_results[1]) and accepted
+                    trial_classifications.append(tuple(trial_results))
+            if os.path.lexists(base):
+                raise ValueError()
+            records.append(f"trial{trial}_cleanup=1")
+        if home_empty or home_nonempty or named or filename or current_vi:
+            accepted = (trial_classifications[0] == trial_classifications[1]) and accepted
+        if nonempty_filename:
+            stable, comparison, classified = filename_comparison(trial_rows)
+            accepted = stable and comparison and classified and accepted
+            records.extend((f"trials_stable={int(stable)}", f"comparison_match={int(comparison)}",
+                            f"results_classified={int(classified)}"))
+        elif current_vi and home_empty:
+            # Retain both sanitized rows even when counts or classifications vary.
+            stable = trial_rows[:2] == trial_rows[2:]
+            comparison = all(gnu == sushline for gnu, sushline in trial_classifications)
+            accepted = stable and comparison and accepted
+            records.extend((f"trials_stable={int(stable)}", f"comparison_match={int(comparison)}"))
+        elif (filename or current_vi) and trial_rows[:2] != trial_rows[2:]:
             raise ValueError()
-        records.append(f"trial{trial}_cleanup=1")
-    if home_empty or home_nonempty or named or filename or current_vi:
-        accepted = (trial_classifications[0] == trial_classifications[1]) and accepted
-    if current_vi and home_empty:
-        # Retain both sanitized rows even when counts or classifications vary.
-        stable = trial_rows[:2] == trial_rows[2:]
-        comparison = all(gnu == sushline for gnu, sushline in trial_classifications)
-        accepted = stable and comparison and accepted
-        records.extend((f"trials_stable={int(stable)}", f"comparison_match={int(comparison)}"))
-    elif (filename or current_vi) and trial_rows[:2] != trial_rows[2:]:
-        raise ValueError()
-    # Temporary compiled probe/interposer cleanup is also part of acceptance.
-    shutil.rmtree(os.path.dirname(probe))
-    if os.path.lexists(os.path.dirname(probe)):
-        raise ValueError()
-    print("\n".join(records))
-    print("probe_cleanup=1")
-    if not accepted:
-        raise ValueError()
+        if not nonempty_filename:
+            shutil.rmtree(os.path.dirname(probe))
+            if os.path.lexists(os.path.dirname(probe)):
+                raise ValueError()
+            print("\n".join(records))
+            print("probe_cleanup=1")
+        if not accepted:
+            raise ValueError()
+        completed = True
+    finally:
+        if nonempty_filename:
+            # Retain only already sanitized evidence, including mismatches and
+            # first-denial categories. TemporaryDirectory has exited even on a
+            # child error or timeout; never continue after an unsafe attempt.
+            if base is not None and f"trial{trial}_cleanup=1" not in records:
+                records.append(f"trial{trial}_cleanup={int(not os.path.lexists(base))}")
+            shutil.rmtree(os.path.dirname(probe))
+            cleaned = not os.path.lexists(os.path.dirname(probe))
+            records.extend((f"probe_cleanup={int(cleaned)}", f"measurement_ok={int(completed and cleaned)}"))
+            print("\n".join(records))
+            if not cleaned:
+                raise ValueError()
 
 def run_child(label, outer_path, cwd, home, lookup_error=False, home_unset=False, guard_path=None, home_empty=False):
     child = None
@@ -1208,8 +1373,9 @@ def setup_unreadable(base):
     return outer_path, base, base, include_path
 
 try:
-    if mode in ("tilde-named-user-filename", "tilde-home-unset-filename"):
-        run_tilde_home(named=mode == "tilde-named-user-filename", filename=True)
+    if mode in ("tilde-named-user-filename", "tilde-home-unset-filename", "tilde-home-nonempty-filename"):
+        run_tilde_home(named=mode == "tilde-named-user-filename", filename=True,
+                       home_nonempty=mode == "tilde-home-nonempty-filename")
         sys.exit(0)
     if mode in ("tilde-named-user", "tilde-named-user-vi"):
         run_tilde_home(named=True, vi=mode == "tilde-named-user-vi")

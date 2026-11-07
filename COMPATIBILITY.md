@@ -338,10 +338,12 @@ measurements; the vi command has its own fixture.
 | Direct synthetic named-account current-word `tilde-expand` | Matched the test-owned account home and preserved its trailing slash. | One named-account lookup per run; guards passed. | `pinned-readline-8.3-named-user-tilde-expand/readline_tilde_named_user.out` |
 | Direct synthetic named-user current-word `vi-tilde-expand` | Matched the synthetic home and preserved its trailing slash. | One named-account lookup per run; guards and cleanup passed. | `pinned-readline-8.3-named-user-vi-tilde-expand/readline_tilde_named_user_vi.out` |
 | Direct `complete-filename`, `expand-tilde on`, one fixed synthetic named-user prefix and one unique test-owned candidate | Resolved the synthetic home and candidate. | One named-home lookup per implementation per trial; GNU's pinned 8.3 library check, all guards, and cleanup checks passed. | `pinned-readline-8.3-named-user-filename-completion/readline_tilde_named_user_filename.out` |
+| Synthetic current-UID `~`, child `HOME` absent; `complete-filename` with `expand-tilde on` and one test-owned candidate | Resolved the synthetic current-UID home and candidate. | One controlled passwd-home lookup per implementation per trial; GNU's pinned 8.3 identity, guards, and cleanup passed. | `pinned-readline-8.3-home-unset-filename-completion/readline_tilde_home_unset_filename.out` |
 
-The filename-completion result is limited to that exact fixture: it does not
-establish behavior for other completion options, arbitrary account names, or
-broader NSS-provider behavior.
+Each filename-completion result is limited to its exact fixture. The named-user
+result does not establish behavior for other completion options, arbitrary account
+names, or broader NSS-provider behavior; the HOME-unset current-UID result does not
+generalize to other HOME states, prefixes, candidates, or completion options.
 
 Tests and sources for `tilde-expand` and the shared lookup/completion behavior:
 [`editing.rs`](readline/tests/editing.rs),

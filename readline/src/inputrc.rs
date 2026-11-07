@@ -791,6 +791,9 @@ fn expand_include_path_with_home(
 ) -> Option<PathBuf> {
     if let Some(rest) = path.strip_prefix("~/") {
         if let Some(home) = crate::home::resolve(home, None, lookup_home).map(PathBuf::from) {
+            if home.as_os_str().is_empty() {
+                return Some(Path::new("/").join(rest));
+            }
             return Some(home.join(rest));
         }
         return Some(PathBuf::from(path));

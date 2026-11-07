@@ -830,7 +830,7 @@ fn unknown_tilde_user_include_is_silently_skipped() {
 fn tilde_include_path_distinguishes_absent_empty_and_set_home() {
     for (home, expected) in [
         (None, "/synthetic-passwd-home/marker.inputrc"),
-        (Some(""), "marker.inputrc"),
+        (Some(""), "/marker.inputrc"),
         (Some("/synthetic-home"), "/synthetic-home/marker.inputrc"),
     ] {
         let mut lookups = 0;

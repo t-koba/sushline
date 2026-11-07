@@ -4242,6 +4242,16 @@ jobs:
           path: /tmp/readline_tilde_home_empty_vi.out
           if-no-files-found: error
           retention-days: 14
+      - name: Compare current-user vi-tilde-expand with nonempty HOME against the pinned release
+        run: bash .github/scripts/readline-include-paths.sh --vi-tilde-home-nonempty-only
+      - name: Upload HOME-nonempty current-user vi-tilde-expand comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-home-nonempty-vi-tilde-expand
+          path: /tmp/readline_tilde_home_nonempty_vi.out
+          if-no-files-found: error
+          retention-days: 14
       - name: Compare tilde-expand with nonempty HOME against the pinned release
         run: bash .github/scripts/readline-include-paths.sh --tilde-home-nonempty-only
       - name: Upload nonempty-HOME tilde-expand comparison

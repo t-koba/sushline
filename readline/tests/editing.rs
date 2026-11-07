@@ -1538,6 +1538,7 @@ enum ControlledTildeHome {
     NamedUserVi,
     UnsetVi,
     EmptyVi,
+    NonemptyVi,
     NamedFilename,
     UnsetFilename,
     NonemptyFilename,
@@ -1594,6 +1595,13 @@ fn vi_tilde_expand_home_empty_fixture() {
 
 #[cfg(target_os = "linux")]
 #[test]
+#[ignore = "requires the controlled HOME-nonempty current-user vi measurement driver"]
+fn vi_tilde_expand_home_nonempty_fixture() {
+    tilde_expand_controlled_home_fixture(ControlledTildeHome::NonemptyVi);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
 #[ignore = "requires the controlled named-user filename measurement driver"]
 fn complete_filename_named_user_fixture() {
     tilde_expand_controlled_home_fixture(ControlledTildeHome::NamedFilename);
@@ -1632,7 +1640,9 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
     );
     let home_nonempty = matches!(
         home_mode,
-        ControlledTildeHome::Nonempty | ControlledTildeHome::NonemptyFilename
+        ControlledTildeHome::Nonempty
+            | ControlledTildeHome::NonemptyFilename
+            | ControlledTildeHome::NonemptyVi
     );
     let named = matches!(
         home_mode,
@@ -1655,6 +1665,7 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         ControlledTildeHome::NamedUserVi
             | ControlledTildeHome::UnsetVi
             | ControlledTildeHome::EmptyVi
+            | ControlledTildeHome::NonemptyVi
     );
     assert_eq!(std::env::var_os("SUSHLINE_TILDE_VI").is_some(), vi);
     assert_eq!(
@@ -1680,6 +1691,7 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
             assert!(expected_home.is_none());
         }
         ControlledTildeHome::Nonempty
+        | ControlledTildeHome::NonemptyVi
         | ControlledTildeHome::NonemptyFilename
         | ControlledTildeHome::NamedUser
         | ControlledTildeHome::NamedUserVi
@@ -1807,6 +1819,26 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
             matches!(&result, ReadlineResult::Line(actual) if actual.ends_with(b"/"));
         println!("named_home_lookup_hits={}", hits());
         println!("result_synthetic_home={}", u8::from(synthetic_home));
+        println!("result_trailing_slash={}", u8::from(trailing_slash));
+        println!("guards_ok={}", safe());
+        return;
+    }
+    if vi && home_nonempty {
+        let ReadlineResult::Line(actual) = result else {
+            panic!("line required");
+        };
+        let trailing_slash = actual.ends_with(b"/");
+        let normalized = actual.strip_suffix(b"/").unwrap_or(&actual);
+        let result_home = normalized == expected_home.as_ref().unwrap().as_os_str().as_bytes();
+        let result_passwd = normalized == target.as_os_str().as_bytes();
+        let empty = actual.is_empty();
+        let other = !(result_home || result_passwd || empty);
+        println!("home_present=1\nhome_nonempty=1");
+        println!("passwd_home_lookup_hits={}", hits());
+        println!("result_home={}", u8::from(result_home));
+        println!("result_passwd_home={}", u8::from(result_passwd));
+        println!("result_empty={}", u8::from(empty));
+        println!("result_other={}", u8::from(other));
         println!("result_trailing_slash={}", u8::from(trailing_slash));
         println!("guards_ok={}", safe());
         return;

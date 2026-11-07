@@ -16,6 +16,8 @@
 # `~` with child HOME absent, in two fresh guarded synthetic passwd-home trials.
 # --vi-tilde-home-empty-only compares the same vi command with HOME present
 # but empty, classifying empty vs synthetic passwd-home results in fresh trials.
+# --vi-tilde-home-nonempty-only classifies HOME vs a distinct synthetic passwd
+# home for the current-user vi command, without assuming resolution or lookup.
 # --tilde-home-empty-only runs `tilde-expand` with HOME present but empty,
 # classifying empty vs synthetic passwd-home results without assuming either.
 # --tilde-home-nonempty-only compares HOME with a distinct synthetic passwd home.
@@ -36,6 +38,7 @@ case "$#:$*" in
   1:--tilde-home-unset-only) mode=tilde-home-unset ;;
   1:--vi-tilde-home-unset-only) mode=tilde-home-unset-vi ;;
   1:--vi-tilde-home-empty-only) mode=tilde-home-empty-vi ;;
+  1:--vi-tilde-home-nonempty-only) mode=tilde-home-nonempty-vi ;;
   1:--tilde-home-empty-only) mode=tilde-home-empty ;;
   1:--tilde-home-nonempty-only) mode=tilde-home-nonempty ;;
   1:--tilde-named-user-only) mode=tilde-named-user ;;
@@ -46,7 +49,7 @@ case "$#:$*" in
   1:--home-empty-only) mode=home-empty ;;
   1:--unreadable-only) mode=unreadable ;;
   1:--bare-cr-only) mode=bare-cr ;;
-  *) echo "usage: readline-include-paths.sh [--filename-home-nonempty-only|--vi-tilde-home-empty-only|--vi-tilde-home-unset-only|--filename-home-unset-only|--filename-named-user-only|--vi-tilde-named-user-only|--tilde-named-user-only|--tilde-home-nonempty-only|--tilde-home-empty-only|--tilde-home-unset-only|--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
+  *) echo "usage: readline-include-paths.sh [--vi-tilde-home-nonempty-only|--filename-home-nonempty-only|--vi-tilde-home-empty-only|--vi-tilde-home-unset-only|--filename-home-unset-only|--filename-named-user-only|--vi-tilde-named-user-only|--tilde-named-user-only|--tilde-home-nonempty-only|--tilde-home-empty-only|--tilde-home-unset-only|--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
 esac
 lookup_error_dir=$(mktemp -d /tmp/sushline-lookup-error-XXXXXX)
 trap 'rm -rf "$lookup_error_dir"' EXIT
@@ -148,8 +151,7 @@ int main(int argc, char **argv) {
             return 2;
         int filename = getenv("SUSHLINE_FILENAME_PROBE") != NULL;
         int vi = getenv("SUSHLINE_TILDE_VI") != NULL;
-        if ((vi && !named && home_nonempty) ||
-            (filename && (vi || home_empty))) return 2;
+        if (filename && (vi || home_empty)) return 2;
         if (filename && rl_variable_bind("expand-tilde", "on") != 0) return 2;
         rl_command_func_t *command = filename ? complete_filename :
             rl_named_function(vi ? "vi-tilde-expand" : "tilde-expand");
@@ -228,6 +230,22 @@ int main(int argc, char **argv) {
             printf("result_synthetic_home=%d\n", matches);
             printf("result_trailing_slash=%d\n", trailing_slash);
             printf("guards_ok=%u\n", safe());
+            free(line);
+            return 0;
+        }
+        if (vi && home_nonempty) {
+            if (!line) return 2;
+            size_t length = strlen(line);
+            if (trailing_slash) line[--length] = '\0';
+            const char *passwd_home = getenv("SUSHLINE_PASSWD_HOME");
+            int result_home = strcmp(line, home) == 0;
+            int result_passwd = passwd_home && strcmp(line, passwd_home) == 0;
+            int result_other = !(result_home || result_passwd || empty);
+            printf("home_present=1\nhome_nonempty=1\n");
+            printf("passwd_home_lookup_hits=%u\n", hits());
+            printf("result_home=%d\nresult_passwd_home=%d\n", result_home, result_passwd);
+            printf("result_empty=%d\nresult_other=%d\n", empty, result_other);
+            printf("result_trailing_slash=%d\nguards_ok=%u\n", trailing_slash, safe());
             free(line);
             return 0;
         }
@@ -346,12 +364,16 @@ cat > "$lookup_error_dir/interposer.c" <<'INTERPOSER'
 /* Strict mode is armed by each probe after loader/runtime initialization.
    Only /dev/null is permitted for inputrc; never consult real account data. */
 static unsigned int armed, blocked, checking;
-/* New fixture stops on the first unexpected access. Only fixed categories
+/* Focused fixtures stop on the first unexpected access. Only fixed categories
    reach stderr; no path, account, or child diagnostic is ever forwarded. */
+static int nonempty_current_vi(void) {
+    return getenv("SUSHLINE_TILDE_VI") && getenv("SUSHLINE_TILDE_HOME_NONEMPTY") &&
+           !getenv("SUSHLINE_TILDE_NAMED_USER");
+}
 static void stop_unsafe(const char *category) {
-    if (armed && !checking && getenv("SUSHLINE_FILENAME_PROBE") &&
-        getenv("SUSHLINE_TILDE_HOME_NONEMPTY") &&
-        !getenv("SUSHLINE_TILDE_NAMED_USER")) {
+    if (armed && !checking && (nonempty_current_vi() ||
+        (getenv("SUSHLINE_FILENAME_PROBE") && getenv("SUSHLINE_TILDE_HOME_NONEMPTY") &&
+         !getenv("SUSHLINE_TILDE_NAMED_USER")))) {
         const char *prefix = "guard_denied=";
         (void)write(STDERR_FILENO, prefix, strlen(prefix));
         (void)write(STDERR_FILENO, category, strlen(category));
@@ -413,6 +435,15 @@ unsigned int sushline_tilde_guard(void) {
         int enumeration_denied = getpwent() == NULL && errno == ENOENT;
         guarded = guarded && uid_denied && name_denied && enumeration_denied &&
                   blocked == before + 3;
+    }
+    if (nonempty_current_vi()) {
+        unsigned int before = blocked;
+        DIR *directory = opendir(getenv("SUSHLINE_TILDE_HOME"));
+        int directory_denied = directory == NULL && errno == EACCES;
+        if (directory) closedir(directory);
+        struct stat metadata;
+        int metadata_denied = stat(getenv("SUSHLINE_PASSWD_HOME"), &metadata) < 0 && errno == EACCES;
+        guarded = guarded && directory_denied && metadata_denied && blocked == before + 2;
     }
     blocked = 0;
     checking = 0;
@@ -496,10 +527,17 @@ FILE *fopen64(const char *path, const char *mode) {
 }
 #endif
 #ifdef SUSHLINE_TILDE_FILE_GUARD
-/* Completion may enumerate only the test-owned fixture homes and inspect only
-   their configured candidate. No links, relative paths, traversal, or host
-   directory enumeration are permitted. */
+/* Filename completion may enumerate only test-owned fixture homes and inspect
+   only the configured candidate. The nonempty current-user vi probe denies all
+   metadata/enumeration. No links, traversal, or host paths are permitted. */
 static int completion_path_denied(const char *path, int metadata) {
+    /* The nonempty current-user vi command needs no filesystem inspection. */
+    if (armed && nonempty_current_vi()) {
+        ++blocked;
+        stop_unsafe(metadata ? "metadata" : "enumeration");
+        errno = EACCES;
+        return 1;
+    }
     if (!armed || !getenv("SUSHLINE_FILENAME_PROBE")) return 0;
     int nonempty = getenv("SUSHLINE_TILDE_HOME_NONEMPTY") &&
                    !getenv("SUSHLINE_TILDE_NAMED_USER");
@@ -800,11 +838,52 @@ def test_nonempty_filename_parser():
                    valid.replace(b"result_home=1", b"result_home=2"), valid + b"unexpected\n"):
         assert re.fullmatch(NONEMPTY_FILENAME_FIELDS, unsafe) is None
 
+NONEMPTY_VI_FIELDS = (
+    rb"home_present=1\nhome_nonempty=1\npasswd_home_lookup_hits=([0-9]{1,10})\n"
+    rb"result_home=([01])\nresult_passwd_home=([01])\n"
+    rb"result_empty=([01])\nresult_other=([01])\nresult_trailing_slash=([01])\nguards_ok=1\n"
+)
+
+def vi_nonempty_comparison(rows):
+    # Rows contain lookup count, home, passwd-home, empty, other, trailing slash.
+    stable = rows[:2] == rows[2:]
+    comparison = rows[0][1:] == rows[1][1:] and rows[2][1:] == rows[3][1:]
+    classified = all(sum(int(value) for value in row[1:5]) == 1 and row[4] == b"0"
+                     and not (row[3] == row[5] == b"1") for row in rows)
+    return stable, comparison, classified
+
+def test_nonempty_vi_parser():
+    home = (b"0", b"1", b"0", b"0", b"0", b"0")
+    passwd = (b"2", b"0", b"1", b"0", b"0", b"0")
+    empty = (b"0", b"0", b"0", b"1", b"0", b"0")
+    for row in (home, passwd, empty, (*home[:-1], b"1")):
+        assert vi_nonempty_comparison([row] * 4) == (True, True, True)
+    different_count = (b"3", *home[1:])
+    assert vi_nonempty_comparison([home, different_count] * 2) == (True, True, True)
+    assert vi_nonempty_comparison([home, passwd] * 2) == (True, False, True)
+    trailing = (*home[:-1], b"1")
+    assert vi_nonempty_comparison([home, trailing] * 2) == (True, False, True)
+    assert vi_nonempty_comparison([home, home, different_count, home]) == (False, True, True)
+    for row in ((b"0",) * 6, (b"0", b"0", b"0", b"0", b"1", b"0"),
+                (b"0", b"1", b"1", b"0", b"0", b"0"), (*empty[:-1], b"1")):
+        assert vi_nonempty_comparison([row] * 4) == (True, True, False)
+    valid = (b"home_present=1\nhome_nonempty=1\npasswd_home_lookup_hits=0\n"
+             b"result_home=1\nresult_passwd_home=0\nresult_empty=0\nresult_other=0\n"
+             b"result_trailing_slash=0\nguards_ok=1\n")
+    assert re.fullmatch(NONEMPTY_VI_FIELDS, valid).groups() == home
+    for unsafe in (valid.replace(b"guards_ok=1", b"guards_ok=0"),
+                   valid.replace(b"result_home=1", b"result_home=2"), valid + b"unexpected\n"):
+        assert re.fullmatch(NONEMPTY_VI_FIELDS, unsafe) is None
+
 def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False, filename=False):
     # Build only the existing editor integration target. Capture all build and
     # child diagnostics; only a fully validated, path-free report is published.
     current_vi = vi and not named
     nonempty_filename = filename and home_nonempty and not named
+    nonempty_vi = current_vi and home_nonempty
+    retained_report = nonempty_filename or nonempty_vi
+    if nonempty_vi:
+        test_nonempty_vi_parser()
     if nonempty_filename:
         test_nonempty_filename_parser()
     build = subprocess.run(
@@ -853,9 +932,12 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                     initial_state = fixture_state()
                 if current_vi:
                     def fixture_state():
-                        entries = [os.lstat(path) for path in (base, home)]
+                        paths = (base, home, passwd_home) if nonempty_vi else (base, home)
+                        entries = [os.lstat(path) for path in paths]
+                        expected_entries = ["home", "passwd-home"] if nonempty_vi else ["home"]
                         if (any(not stat.S_ISDIR(entry.st_mode) or entry.st_uid != os.getuid()
-                                for entry in entries) or os.listdir(base) != ["home"] or os.listdir(home)):
+                                for entry in entries) or sorted(os.listdir(base)) != expected_entries or
+                                any(os.listdir(path) for path in paths[1:])):
                             raise ValueError()
                         return [(entry.st_dev, entry.st_ino, entry.st_mode, entry.st_uid, entry.st_gid,
                                  entry.st_nlink, entry.st_size, entry.st_mtime_ns, entry.st_ctime_ns)
@@ -904,11 +986,11 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                     finally:
                         if filename or current_vi:
                             unchanged = fixture_state() == initial_state
-                            if nonempty_filename:
+                            if retained_report:
                                 records.append(f"trial{trial}_{implementation}_fixture_unchanged={int(unchanged)}")
                             if not unchanged:
                                 raise ValueError()
-                    if nonempty_filename and result.returncode != 0:
+                    if retained_report and result.returncode != 0:
                         # Only an exact fixed guard category may escape a child.
                         denied = re.fullmatch(rb"guard_denied=(root|file|metadata|enumeration|nss)\n",
                                               result.stderr)
@@ -929,7 +1011,8 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                     identity = (b"readline_release=8.3\npinned_library_loaded=1\n"
                                 if implementation == "gnu" else b"")
                     lookup_field = b"named" if named else b"passwd"
-                    fields = (NONEMPTY_FILENAME_FIELDS if nonempty_filename else
+                    fields = (NONEMPTY_VI_FIELDS if nonempty_vi else
+                              NONEMPTY_FILENAME_FIELDS if nonempty_filename else
                               lookup_field + rb"_home_lookup_hits=([0-9]{1,10})\n"
                               rb"result_synthetic_home=([01])\nresult_synthetic_candidate=([01])\nguards_ok=1\n"
                               if filename else rb"named_home_lookup_hits=([0-9]{1,10})\n"
@@ -948,7 +1031,7 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                         raise ValueError()
                     if filename or current_vi:
                         trial_rows.append(match.groups())
-                    if nonempty_filename:
+                    if nonempty_filename or nonempty_vi:
                         trial_results.append(match.groups()[1:])
                     elif current_vi and not home_empty:
                         # Keep each implementation's lookup count for repeatability,
@@ -985,8 +1068,9 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
             records.append(f"trial{trial}_cleanup=1")
         if home_empty or home_nonempty or named or filename or current_vi:
             accepted = (trial_classifications[0] == trial_classifications[1]) and accepted
-        if nonempty_filename:
-            stable, comparison, classified = filename_comparison(trial_rows)
+        if retained_report:
+            stable, comparison, classified = (vi_nonempty_comparison(trial_rows) if nonempty_vi else
+                                              filename_comparison(trial_rows))
             accepted = stable and comparison and classified and accepted
             records.extend((f"trials_stable={int(stable)}", f"comparison_match={int(comparison)}",
                             f"results_classified={int(classified)}"))
@@ -998,7 +1082,7 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
             records.extend((f"trials_stable={int(stable)}", f"comparison_match={int(comparison)}"))
         elif (filename or current_vi) and trial_rows[:2] != trial_rows[2:]:
             raise ValueError()
-        if not nonempty_filename:
+        if not retained_report:
             shutil.rmtree(os.path.dirname(probe))
             if os.path.lexists(os.path.dirname(probe)):
                 raise ValueError()
@@ -1008,7 +1092,7 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
             raise ValueError()
         completed = True
     finally:
-        if nonempty_filename:
+        if retained_report:
             # Retain only already sanitized evidence, including mismatches and
             # first-denial categories. TemporaryDirectory has exited even on a
             # child error or timeout; never continue after an unsafe attempt.
@@ -1380,8 +1464,9 @@ try:
     if mode in ("tilde-named-user", "tilde-named-user-vi"):
         run_tilde_home(named=True, vi=mode == "tilde-named-user-vi")
         sys.exit(0)
-    if mode in ("tilde-home-unset-vi", "tilde-home-empty-vi"):
-        run_tilde_home(vi=True, home_empty=mode == "tilde-home-empty-vi")
+    if mode in ("tilde-home-unset-vi", "tilde-home-empty-vi", "tilde-home-nonempty-vi"):
+        run_tilde_home(vi=True, home_empty=mode == "tilde-home-empty-vi",
+                       home_nonempty=mode == "tilde-home-nonempty-vi")
         sys.exit(0)
     if mode in ("tilde-home-unset", "tilde-home-empty", "tilde-home-nonempty"):
         run_tilde_home(home_empty=mode == "tilde-home-empty",

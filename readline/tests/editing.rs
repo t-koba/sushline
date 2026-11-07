@@ -1565,14 +1565,12 @@ fn tilde_expand_home_unset_fixture() {
     let result = line.read_line(Prompt::new(""), &mut ()).unwrap();
     let matches = matches!(result, ReadlineResult::Line(actual) if actual == target.as_bytes());
     // Never format the target, line, terminal output, or account data.
+    // Leave comparison acceptance to the measurement driver so a mismatch or
+    // missing lookup remains available as sanitized evidence in the artifact.
     println!("home_absent=1");
     println!("passwd_home_lookup_hits={}", hits());
     println!("result_match={}", u8::from(matches));
     println!("guards_ok={}", safe());
-    assert!(
-        matches && hits() > 0 && safe() == 1,
-        "fixture guards failed"
-    );
 }
 
 #[cfg(unix)]

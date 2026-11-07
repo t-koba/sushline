@@ -12,7 +12,9 @@
 # include directives in two fresh fixtures. No arguments retains the refresh.
 # --tilde-home-unset-only compares the current-word `tilde-expand` command
 # with Sushline under a child-only synthetic passwd home and strict file guard.
-# --tilde-home-empty-only runs that command with HOME present but empty,
+# --vi-tilde-home-unset-only compares exactly `vi-tilde-expand` on current-user
+# `~` with child HOME absent, in two fresh guarded synthetic passwd-home trials.
+# --tilde-home-empty-only runs `tilde-expand` with HOME present but empty,
 # classifying empty vs synthetic passwd-home results without assuming either.
 # --tilde-home-nonempty-only compares HOME with a distinct synthetic passwd home.
 # --tilde-named-user-only measures one fixed synthetic named-user word.
@@ -28,6 +30,7 @@ case "$#:$*" in
   0:) ;;
   1:--home-unset-only) mode=home-unset ;;
   1:--tilde-home-unset-only) mode=tilde-home-unset ;;
+  1:--vi-tilde-home-unset-only) mode=tilde-home-unset-vi ;;
   1:--tilde-home-empty-only) mode=tilde-home-empty ;;
   1:--tilde-home-nonempty-only) mode=tilde-home-nonempty ;;
   1:--tilde-named-user-only) mode=tilde-named-user ;;
@@ -37,7 +40,7 @@ case "$#:$*" in
   1:--home-empty-only) mode=home-empty ;;
   1:--unreadable-only) mode=unreadable ;;
   1:--bare-cr-only) mode=bare-cr ;;
-  *) echo "usage: readline-include-paths.sh [--filename-home-unset-only|--filename-named-user-only|--vi-tilde-named-user-only|--tilde-named-user-only|--tilde-home-nonempty-only|--tilde-home-empty-only|--tilde-home-unset-only|--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
+  *) echo "usage: readline-include-paths.sh [--vi-tilde-home-unset-only|--filename-home-unset-only|--filename-named-user-only|--vi-tilde-named-user-only|--tilde-named-user-only|--tilde-home-nonempty-only|--tilde-home-empty-only|--tilde-home-unset-only|--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
 esac
 lookup_error_dir=$(mktemp -d /tmp/sushline-lookup-error-XXXXXX)
 trap 'rm -rf "$lookup_error_dir"' EXIT
@@ -139,7 +142,8 @@ int main(int argc, char **argv) {
             return 2;
         int filename = getenv("SUSHLINE_FILENAME_PROBE") != NULL;
         int vi = getenv("SUSHLINE_TILDE_VI") != NULL;
-        if ((vi && !named) || (filename && (vi || home_empty || (!named && home_nonempty)))) return 2;
+        if ((vi && !named && (home_empty || home_nonempty)) ||
+            (filename && (vi || home_empty || (!named && home_nonempty)))) return 2;
         if (filename && rl_variable_bind("expand-tilde", "on") != 0) return 2;
         rl_command_func_t *command = filename ? complete_filename :
             rl_named_function(vi ? "vi-tilde-expand" : "tilde-expand");
@@ -352,6 +356,14 @@ unsigned int sushline_tilde_guard(void) {
             getpwnam("sushline-audit-denied") : getpwuid(getuid() == 0 ? 1 : 0);
         int account_denied = account == NULL && errno == ENOENT;
         guarded = guarded && directory_denied && metadata_denied && account_denied &&
+                  blocked == before + 3;
+    }
+    if (getenv("SUSHLINE_TILDE_VI") && !getenv("SUSHLINE_TILDE_NAMED_USER")) {
+        unsigned int before = blocked;
+        int uid_denied = getpwuid(getuid() == 0 ? 1 : 0) == NULL && errno == ENOENT;
+        int name_denied = getpwnam("sushline-audit-denied") == NULL && errno == ENOENT;
+        int enumeration_denied = getpwent() == NULL && errno == ENOENT;
+        guarded = guarded && uid_denied && name_denied && enumeration_denied &&
                   blocked == before + 3;
     }
     blocked = 0;
@@ -670,6 +682,7 @@ resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False, filename=False):
     # Build only the existing editor integration target. Capture all build and
     # child diagnostics; only a fully validated, path-free report is published.
+    current_vi = vi and not named
     build = subprocess.run(
         ["cargo", "test", "--locked", "-p", "sushline-readline",
          "--no-default-features", "--test", "editing", "--no-run", "--message-format=json"],
@@ -708,6 +721,16 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                              entry.st_nlink, entry.st_size, entry.st_mtime_ns, entry.st_ctime_ns)
                             for entry in entries]
                 initial_state = fixture_state()
+            if current_vi:
+                def fixture_state():
+                    entries = [os.lstat(path) for path in (base, home)]
+                    if (any(not stat.S_ISDIR(entry.st_mode) or entry.st_uid != os.getuid()
+                            for entry in entries) or os.listdir(base) != ["home"] or os.listdir(home)):
+                        raise ValueError()
+                    return [(entry.st_dev, entry.st_ino, entry.st_mode, entry.st_uid, entry.st_gid,
+                             entry.st_nlink, entry.st_size, entry.st_mtime_ns, entry.st_ctime_ns)
+                            for entry in entries]
+                initial_state = fixture_state()
             # Empty TERM avoids consulting host terminfo; the command is
             # direct-library/in-memory, not a terminal-capability measurement.
             env = dict(LC_ALL="C", TERM="", INPUTRC="/dev/null",
@@ -727,21 +750,25 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                 env["SUSHLINE_FILENAME_DENIED_HOME"] = home
             trial_results = []
             case = "empty" if home_empty else "nonempty" if home_nonempty else "unset"
-            fixture = (("complete_filename_named_user_fixture" if named else
-                        "complete_filename_home_unset_fixture") if filename else
-                       "vi_tilde_expand_named_user_fixture" if vi else
-                       "tilde_expand_named_user_fixture" if named else
-                       "tilde_expand_home_" + case + "_fixture")
+            if filename:
+                fixture = ("complete_filename_named_user_fixture" if named else
+                           "complete_filename_home_unset_fixture")
+            elif vi:
+                fixture = ("vi_tilde_expand_named_user_fixture" if named else
+                           "vi_tilde_expand_home_unset_fixture")
+            elif named:
+                fixture = "tilde_expand_named_user_fixture"
+            else:
+                fixture = "tilde_expand_home_" + case + "_fixture"
             gnu_expected = home if home_nonempty else passwd_home
             for implementation, command in (
                 ("gnu", [probe, gnu_expected, os.environ["SUSHLINE_PINNED_READLINE"]]),
-                ("sushline", [executables[0], "--exact", fixture,
-                              "--ignored", "--nocapture", "--quiet"]),
+                ("sushline", [executables[0], "--exact", fixture, "--ignored", "--nocapture", "--quiet"]),
             ):
                 result = subprocess.run(command, cwd=base, env=env, stdin=subprocess.DEVNULL,
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                         timeout=5, check=True)
-                if filename and fixture_state() != initial_state:
+                if (filename or current_vi) and fixture_state() != initial_state:
                     raise ValueError()
                 output = result.stdout
                 if implementation == "sushline":
@@ -772,9 +799,15 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                 match = re.fullmatch(re.escape(identity) + fields, output)
                 if not match or result.stderr:
                     raise ValueError()
-                if filename:
+                if filename or current_vi:
                     trial_rows.append(match.groups())
-                if named or filename:
+                if current_vi:
+                    # Keep each implementation's lookup count for repeatability,
+                    # but compare only resolved-home classifications between them.
+                    lookup_hits = int(match[1])
+                    trial_results.append(match[2])
+                    accepted = (lookup_hits > 0 and match[2] == b"1") and accepted
+                elif named or filename:
                     # Retain valid negative rows for review, but fail the
                     # measurement on disagreement after publishing the report.
                     if match[2] == b"1" and int(match[1]) == 0:
@@ -795,15 +828,15 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                     accepted = (int(match[1]) > 0 and match[2] == b"1") and accepted
                 records.extend(f"trial{trial}_{implementation}_{line}"
                                for line in output.decode("ascii").splitlines())
-            if home_empty or home_nonempty or named or filename:
+            if home_empty or home_nonempty or named or filename or current_vi:
                 accepted = (trial_results[0] == trial_results[1]) and accepted
                 trial_classifications.append(tuple(trial_results))
         if os.path.lexists(base):
             raise ValueError()
         records.append(f"trial{trial}_cleanup=1")
-    if home_empty or home_nonempty or named or filename:
+    if home_empty or home_nonempty or named or filename or current_vi:
         accepted = (trial_classifications[0] == trial_classifications[1]) and accepted
-    if filename and trial_rows[:2] != trial_rows[2:]:
+    if (filename or current_vi) and trial_rows[:2] != trial_rows[2:]:
         raise ValueError()
     # Temporary compiled probe/interposer cleanup is also part of acceptance.
     shutil.rmtree(os.path.dirname(probe))
@@ -1171,6 +1204,9 @@ try:
         sys.exit(0)
     if mode in ("tilde-named-user", "tilde-named-user-vi"):
         run_tilde_home(named=True, vi=mode == "tilde-named-user-vi")
+        sys.exit(0)
+    if mode == "tilde-home-unset-vi":
+        run_tilde_home(vi=True)
         sys.exit(0)
     if mode in ("tilde-home-unset", "tilde-home-empty", "tilde-home-nonempty"):
         run_tilde_home(home_empty=mode == "tilde-home-empty",

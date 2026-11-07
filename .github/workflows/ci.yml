@@ -4202,6 +4202,16 @@ jobs:
           path: /tmp/readline_tilde_home_unset.out
           if-no-files-found: error
           retention-days: 14
+      - name: Compare current-user vi-tilde-expand with HOME absent against the pinned release
+        run: bash .github/scripts/readline-include-paths.sh --vi-tilde-home-unset-only
+      - name: Upload HOME-unset current-user vi-tilde-expand comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-home-unset-vi-tilde-expand
+          path: /tmp/readline_tilde_home_unset_vi.out
+          if-no-files-found: error
+          retention-days: 14
       - name: Measure inputrc tilde include with HOME explicitly empty against the pinned release
         run: bash .github/scripts/readline-include-paths.sh --home-empty-only
       - name: Upload HOME-empty inputrc include measurement

@@ -1536,6 +1536,7 @@ enum ControlledTildeHome {
     Nonempty,
     NamedUser,
     NamedUserVi,
+    UnsetVi,
     NamedFilename,
     UnsetFilename,
 }
@@ -1573,6 +1574,13 @@ fn tilde_expand_named_user_fixture() {
 #[ignore = "requires the controlled named-user vi measurement driver"]
 fn vi_tilde_expand_named_user_fixture() {
     tilde_expand_controlled_home_fixture(ControlledTildeHome::NamedUserVi);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "requires the controlled HOME-unset current-user vi measurement driver"]
+fn vi_tilde_expand_home_unset_fixture() {
+    tilde_expand_controlled_home_fixture(ControlledTildeHome::UnsetVi);
 }
 
 #[cfg(target_os = "linux")]
@@ -1618,14 +1626,19 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         std::env::var_os("SUSHLINE_FILENAME_PROBE").is_some(),
         filename
     );
-    let vi = matches!(home_mode, ControlledTildeHome::NamedUserVi);
+    let vi = matches!(
+        home_mode,
+        ControlledTildeHome::NamedUserVi | ControlledTildeHome::UnsetVi
+    );
     assert_eq!(std::env::var_os("SUSHLINE_TILDE_VI").is_some(), vi);
     assert_eq!(
         std::env::var_os("SUSHLINE_TILDE_NAMED_USER").is_some(),
         named
     );
     match home_mode {
-        ControlledTildeHome::Unset | ControlledTildeHome::UnsetFilename => {
+        ControlledTildeHome::Unset
+        | ControlledTildeHome::UnsetFilename
+        | ControlledTildeHome::UnsetVi => {
             assert!(home.is_none(), "HOME must be absent");
             assert!(std::env::var_os("SUSHLINE_TILDE_HOME_EMPTY").is_none());
             assert!(std::env::var_os("SUSHLINE_TILDE_HOME_NONEMPTY").is_none());

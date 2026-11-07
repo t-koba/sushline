@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Measure read_history(NULL) with HOME absent; do not prescribe its fallback.
+# Measure read_history(NULL) with HOME absent; allow only test-owned file opens.
 set -euo pipefail
 ulimit -c 0
 report=/tmp/history_home_unset.out
@@ -27,16 +27,56 @@ cat > "$work/probe.c" <<'PROBE'
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <stdarg.h>
 #include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/syscall.h>
+#include <sys/types.h>
 #include <unistd.h>
 #include <readline/history.h>
 #include <readline/readline.h>
 
 static char *home;
 static unsigned int hits;
+static int guard_enabled;
+static unsigned int allowed_open_attempts;
+static unsigned int blocked_open_attempts;
+static char cwd_history[PATH_MAX];
+static char home_history[PATH_MAX];
+static char tilde_history[PATH_MAX];
+
+static int allowed_history_path(const char *path) {
+    if (strcmp(path, cwd_history) == 0 ||
+        strcmp(path, home_history) == 0 ||
+        strcmp(path, tilde_history) == 0)
+        return 1;
+    return strcmp(path, ".history") == 0 ||
+           strcmp(path, "./.history") == 0 ||
+           strcmp(path, "~/.history") == 0;
+}
+
+int open(const char *path, int flags, ...) {
+    mode_t mode = 0;
+    if (flags & O_CREAT) {
+        va_list args;
+        va_start(args, flags);
+        mode = (mode_t)va_arg(args, int);
+        va_end(args);
+    }
+    if (guard_enabled) {
+        if (!allowed_history_path(path)) {
+            ++blocked_open_attempts;
+            errno = EACCES;
+            return -1;
+        }
+        ++allowed_open_attempts;
+    }
+    return (int)syscall(SYS_openat, AT_FDCWD, path, flags, mode);
+}
 
 /* Exported executable symbols interpose every passwd lookup imported by the
    pinned libraries, including the reentrant and enumeration variants. Never
@@ -183,6 +223,14 @@ static int pinned(void *symbol, const char *expected) {
     return matches;
 }
 
+static int history_has_entry(const char *line) {
+    HIST_ENTRY **entries = history_list();
+    for (int i = 0; entries != NULL && entries[i] != NULL; ++i)
+        if (strcmp(entries[i]->line, line) == 0)
+            return 1;
+    return 0;
+}
+
 int main(int argc, char **argv) {
     if (argc != 4) return 2;
     int identity = pinned((void *)read_history, argv[2]) &&
@@ -190,21 +238,43 @@ int main(int argc, char **argv) {
     int home_present = getenv("HOME") != NULL;
     if (!identity || rl_readline_version != 0x0803 || home_present) return 2;
     home = argv[1];
+    char cwd[PATH_MAX];
+    if (getcwd(cwd, sizeof(cwd)) == NULL ||
+        snprintf(cwd_history, sizeof(cwd_history), "%s/.history", cwd) >=
+            (int)sizeof(cwd_history) ||
+        snprintf(home_history, sizeof(home_history), "%s/.history", home) >=
+            (int)sizeof(home_history) ||
+        snprintf(tilde_history, sizeof(tilde_history), "%s/~/.history", cwd) >=
+            (int)sizeof(tilde_history))
+        return 2;
+
     using_history();
+    guard_enabled = 1;
+    int control_status = read_history(cwd_history);
+    int control_cwd_sentinel = history_has_entry("sushline_home_unset_cwd");
+    unsigned int control_open_attempts = allowed_open_attempts;
+    int control_safe = control_status == 0 && control_cwd_sentinel &&
+                       control_open_attempts == 1 &&
+                       blocked_open_attempts == 0;
+    clear_history();
+    if (!control_safe) return 2;
+
+    allowed_open_attempts = blocked_open_attempts = hits = 0;
     int status = read_history(NULL);
-    int cwd_sentinel = 0, passwd_sentinel = 0, tilde_sentinel = 0;
-    HIST_ENTRY **entries = history_list();
-    for (int i = 0; entries != NULL && entries[i] != NULL; ++i) {
-        cwd_sentinel |= strcmp(entries[i]->line, "sushline_home_unset_cwd") == 0;
-        passwd_sentinel |= strcmp(entries[i]->line, "sushline_home_unset_passwd") == 0;
-        tilde_sentinel |= strcmp(entries[i]->line, "sushline_home_unset_tilde") == 0;
-    }
+    int cwd_sentinel = history_has_entry("sushline_home_unset_cwd");
+    int passwd_sentinel = history_has_entry("sushline_home_unset_passwd");
+    int tilde_sentinel = history_has_entry("sushline_home_unset_tilde");
     printf("readline_release=%d.%d\n", rl_readline_version >> 8,
            rl_readline_version & 0xff);
     printf("pinned_library_loaded=%d\n", identity);
     printf("home_present=%d\n", home_present);
+    printf("control_status=%d\n", control_status);
+    printf("control_open_attempts=%u\n", control_open_attempts);
+    printf("control_cwd_sentinel_loaded=%d\n", control_cwd_sentinel);
     printf("passwd_lookup_hits=%u\n", hits);
     printf("read_status=%d\n", status);
+    printf("allowed_open_attempts=%u\n", allowed_open_attempts);
+    printf("blocked_open_attempts=%u\n", blocked_open_attempts);
     printf("cwd_sentinel_loaded=%d\n", cwd_sentinel);
     printf("passwd_sentinel_loaded=%d\n", passwd_sentinel);
     printf("tilde_sentinel_loaded=%d\n", tilde_sentinel);
@@ -230,7 +300,6 @@ fi
 SUSHLINE_HISTORY_PROBE="$work/probe" SUSHLINE_PINNED_HISTORY="$history_library" \
 SUSHLINE_PINNED_READLINE="$readline_library" python3 - <<'PYPROBE' | tee "$report"
 import os
-import re
 import subprocess
 import tempfile
 
@@ -239,6 +308,8 @@ try:
     for trial in (1, 2):
         # Each child gets a new process, CWD, and passwd home. No inherited
         # HOME (not even an empty value), loader overrides, or user settings.
+        # The C probe first confirms that read_history uses the guarded open
+        # entry point; any non-fixture path is denied before the NULL call.
         with tempfile.TemporaryDirectory(prefix="sushline-history-home-trial-", dir="/tmp") as base:
             cwd = os.path.join(base, "cwd")
             home = os.path.join(base, "home")
@@ -257,21 +328,25 @@ try:
             )
             # Validate the entire report before emitting anything; never print
             # captured diagnostics, file paths, or history entry contents.
-            pattern = (
-                rb"readline_release=8\.3\n"
-                rb"pinned_library_loaded=1\n"
-                rb"home_present=0\n"
-                rb"passwd_lookup_hits=[0-9]+\n"
-                rb"read_status=-?[0-9]+\n"
-                rb"cwd_sentinel_loaded=[01]\n"
-                rb"passwd_sentinel_loaded=[01]\n"
-                rb"tilde_sentinel_loaded=[01]\n"
+            expected = (
+                b"readline_release=8.3\n"
+                b"pinned_library_loaded=1\n"
+                b"home_present=0\n"
+                b"control_status=0\n"
+                b"control_open_attempts=1\n"
+                b"control_cwd_sentinel_loaded=1\n"
+                b"passwd_lookup_hits=0\n"
+                b"read_status=0\n"
+                b"allowed_open_attempts=0\n"
+                b"blocked_open_attempts=0\n"
+                b"cwd_sentinel_loaded=0\n"
+                b"passwd_sentinel_loaded=0\n"
+                b"tilde_sentinel_loaded=0\n"
             )
-            if result.stderr or re.fullmatch(pattern, result.stdout) is None:
+            if result.stderr or result.stdout != expected:
                 raise ValueError
             records.append(result.stdout)
-    # This is a measurement, not an expected-outcome fixture: require only
-    # repeatability, including lookup count and status, across fresh trials.
+    # Assert the measured 8.3 result in two fresh, path-guarded trials.
     if records[0] != records[1]:
         raise ValueError
     for trial, record in enumerate(records, 1):

@@ -1526,27 +1526,39 @@ fn current_account_name_and_home() -> Option<(String, Vec<u8>)> {
     })
 }
 
-// Run only via readline-include-paths.sh --tilde-home-unset-only: that
-// driver supplies a child-only interposer, a fresh synthetic home and no HOME.
-// The helper unit test does not exercise NSS wiring or command dispatch.
+// Measurement-only fixtures: their driver supplies a child-only interposer,
+// fresh test-owned homes and sanitized comparison with pinned GNU output.
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy)]
+enum ControlledTildeHome {
+    Unset,
+    Empty,
+    Nonempty,
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 #[ignore = "requires the controlled HOME-unset measurement driver"]
 fn tilde_expand_home_unset_fixture() {
-    tilde_expand_controlled_home_fixture(false);
+    tilde_expand_controlled_home_fixture(ControlledTildeHome::Unset);
 }
 
-// Measurement only: the driver compares sanitized classifications and lookup
-// counts with pinned GNU output; this fixture asserts no compatibility claim.
 #[cfg(target_os = "linux")]
 #[test]
 #[ignore = "requires the controlled HOME-empty measurement driver"]
 fn tilde_expand_home_empty_fixture() {
-    tilde_expand_controlled_home_fixture(true);
+    tilde_expand_controlled_home_fixture(ControlledTildeHome::Empty);
 }
 
 #[cfg(target_os = "linux")]
-fn tilde_expand_controlled_home_fixture(home_empty: bool) {
+#[test]
+#[ignore = "requires the controlled HOME-nonempty measurement driver"]
+fn tilde_expand_home_nonempty_fixture() {
+    tilde_expand_controlled_home_fixture(ControlledTildeHome::Nonempty);
+}
+
+#[cfg(target_os = "linux")]
+fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
     use std::os::unix::ffi::OsStrExt;
 
     // SAFETY: the driver loads these no-argument C functions from its own
@@ -1556,17 +1568,38 @@ fn tilde_expand_controlled_home_fixture(home_empty: bool) {
         assert!(!symbol.is_null(), "controlled interposer missing");
         unsafe { std::mem::transmute(symbol) }
     }
-    if home_empty {
-        assert!(
-            std::env::var_os("HOME").is_some_and(|home| home.is_empty()),
-            "HOME must be present and empty"
-        );
-        assert!(std::env::var_os("SUSHLINE_TILDE_HOME_EMPTY").is_some());
-    } else {
-        assert!(std::env::var_os("HOME").is_none(), "HOME must be absent");
-        assert!(std::env::var_os("SUSHLINE_TILDE_HOME_EMPTY").is_none());
+    let home = std::env::var_os("HOME");
+    let expected_home = std::env::var_os("SUSHLINE_TILDE_HOME");
+    let home_empty = matches!(home_mode, ControlledTildeHome::Empty);
+    let home_nonempty = matches!(home_mode, ControlledTildeHome::Nonempty);
+    match home_mode {
+        ControlledTildeHome::Unset => {
+            assert!(home.is_none(), "HOME must be absent");
+            assert!(std::env::var_os("SUSHLINE_TILDE_HOME_EMPTY").is_none());
+            assert!(std::env::var_os("SUSHLINE_TILDE_HOME_NONEMPTY").is_none());
+            assert!(expected_home.is_none());
+        }
+        ControlledTildeHome::Empty => {
+            assert!(
+                home.as_ref().is_some_and(|home| home.is_empty()),
+                "HOME must be present and empty"
+            );
+            assert!(std::env::var_os("SUSHLINE_TILDE_HOME_EMPTY").is_some());
+            assert!(std::env::var_os("SUSHLINE_TILDE_HOME_NONEMPTY").is_none());
+            assert!(expected_home.is_none());
+        }
+        ControlledTildeHome::Nonempty => {
+            let expected = expected_home.as_ref().expect("synthetic HOME required");
+            assert!(
+                home.as_ref()
+                    .is_some_and(|home| !home.is_empty() && home == expected),
+                "HOME must match the test-owned synthetic value"
+            );
+            assert!(std::env::var_os("SUSHLINE_TILDE_HOME_NONEMPTY").is_some());
+            assert!(std::env::var_os("SUSHLINE_TILDE_HOME_EMPTY").is_none());
+        }
     }
-    let target = std::env::var_os("SUSHLINE_PASSWD_HOME").expect("fixture home required");
+    let target = std::env::var_os("SUSHLINE_PASSWD_HOME").expect("fixture passwd home required");
     let (arm, hits, safe) = unsafe {
         (
             probe_function(c"sushline_tilde_guard"),
@@ -1586,23 +1619,34 @@ fn tilde_expand_controlled_home_fixture(home_empty: bool) {
     );
     line.load_inputrc_str(r#""\C-o": tilde-expand"#).unwrap();
     let result = line.read_line(Prompt::new(""), &mut ()).unwrap();
-    let matches = matches!(&result, ReadlineResult::Line(actual) if actual == target.as_bytes());
+    let matches_passwd_home = matches!(&result, ReadlineResult::Line(actual)
+        if actual == target.as_os_str().as_bytes());
+    let matches_home = expected_home.as_ref().is_some_and(|home| {
+        matches!(&result, ReadlineResult::Line(actual) if actual == home.as_os_str().as_bytes())
+    });
     let empty = matches!(&result, ReadlineResult::Line(actual) if actual.is_empty());
-    // Never format the target, line, terminal output, or account data.
+    // Never format either target, line, terminal output, or account data.
     // Leave comparison acceptance to the measurement driver so a mismatch or
     // missing lookup remains available as sanitized evidence in the artifact.
     if home_empty {
         println!("home_present=1");
         println!("home_empty=1");
+    } else if home_nonempty {
+        println!("home_present=1");
+        println!("home_empty=0");
+        println!("home_nonempty=1");
     } else {
         println!("home_absent=1");
     }
     println!("passwd_home_lookup_hits={}", hits());
     if home_empty {
         println!("result_empty={}", u8::from(empty));
-        println!("result_passwd_home={}", u8::from(matches));
+        println!("result_passwd_home={}", u8::from(matches_passwd_home));
+    } else if home_nonempty {
+        println!("result_home={}", u8::from(matches_home));
+        println!("result_passwd_home={}", u8::from(matches_passwd_home));
     } else {
-        println!("result_match={}", u8::from(matches));
+        println!("result_match={}", u8::from(matches_passwd_home));
     }
     println!("guards_ok={}", safe());
 }

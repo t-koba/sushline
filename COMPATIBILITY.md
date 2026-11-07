@@ -299,7 +299,7 @@ Sushline-only extensions use the `Sushline extension` status.
 | `display-shell-version`, `tty-status` | Hook-backed | Status supplied by hooks. Tests: [`bind.rs`](readline/tests/bind.rs), [`bind_golden.rs`](readline/tests/bind_golden.rs). |
 | `shell-expand-line`, `spell-correct-word`, `edit-and-execute-command` | Hook-backed | Application services use hooks. Tests: [`bind.rs`](readline/tests/bind.rs), [`bind_golden.rs`](readline/tests/bind_golden.rs). |
 | Application command bindings (`bind -x`) | Hook-backed | BindApi stores, queries, unbinds and prints; dispatch uses `Hooks::on_command`. Tests: [`bind.rs`](readline/tests/bind.rs), [`bind_golden.rs`](readline/tests/bind_golden.rs). |
-| `tilde-expand` | Compatible | Current-word expansion including whitespace, assignment-like words, and `~+`/`~-`; named-user trailing-slash handling is included. On Unix, this command, `vi-tilde-expand`, filename-tilde expansion/completion and `$include` share NSS-backed home lookup (`getpwuid_r` for the current UID when `HOME` is absent, `getpwnam_r` for names); a present `HOME`, including empty, retains precedence for the current user. Synthetic unit tests cover the shared selection and HOME-unset command/completion helpers. The two-trial direct pinned GNU 8.3 HOME-unset current-word `~` fixture matched Sushline's synthetic current-UID home in both trials (one controlled passwd lookup per process in each trial; guards passed); report: `pinned-readline-8.3-home-unset-tilde-expand/readline_tilde_home_unset.out`. In the separate two-trial HOME-present-but-empty current-word fixture, pinned GNU and Sushline both returned an empty word with zero controlled passwd lookups and guards passed; report: `pinned-readline-8.3-home-empty-tilde-expand/readline_tilde_home_empty.out`. In the separate two-trial HOME-present-and-nonempty current-word fixture, pinned GNU and Sushline both matched the test-owned HOME with zero controlled passwd-home lookups and guards passed; report: `pinned-readline-8.3-home-nonempty-tilde-expand/readline_tilde_home_nonempty.out`. A separate two-trial direct current-word synthetic named-account fixture matched the test-owned account home and preserved its trailing slash in both trials for each implementation, with one controlled named-account lookup per run and guards passed; report: `pinned-readline-8.3-named-user-tilde-expand/readline_tilde_named_user.out`. A separate direct pinned GNU Readline 8.3 two-trial `complete-filename` fixture with `expand-tilde on`, one fixed synthetic named-user prefix, and one unique test-owned candidate matched Sushline: both resolved the synthetic home and candidate in both trials, with one controlled named-home lookup per implementation per trial. GNU's pinned 8.3 library check, all guards, and cleanup checks passed. Report: `pinned-readline-8.3-named-user-filename-completion/readline_tilde_named_user_filename.out`. This result is limited to that exact fixture; it does not establish behavior for other completion options, arbitrary account names, or broader NSS-provider behavior. Tests: [`editing.rs`](readline/tests/editing.rs), [`oracle/completion.rs`](readline/tests/oracle/completion.rs), [`oracle/editing.rs`](readline/tests/oracle/editing.rs), [`readline-include-paths.sh`](.github/scripts/readline-include-paths.sh), [`ci.yml`](.github/workflows/ci.yml). |
+| `tilde-expand` | Compatible | Current-word expansion including whitespace, assignment-like words, `~+`/`~-`, and named-user trailing-slash handling. See [Tilde Expansion Evidence](#tilde-expansion-evidence) for shared Unix lookup behavior, tests, and fixture-specific results. |
 | `character-search`, `character-search-backward` | Compatible | Editor search behavior; no match rings once. The search takes a whole character, so a multibyte target is one target, it is matched like GNU and the rest of the character never reaches the line. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `insert-comment` | Compatible | Inserts/toggles `comment-begin` and accepts. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 
@@ -312,9 +312,49 @@ Sushline-only extensions use the `Sushline extension` status.
 | `vi-bWord`, `vi-backward-bigword`, `vi-back-to-indent`, `vi-first-print`, `vi-backward-word`, `vi-bword`, `vi-prev-word`, `vi-column`, `vi-eWord`, `vi-end-bigword`, `vi-end-word`, `vi-eword`, `vi-fWord`, `vi-forward-bigword`, `vi-forward-word`, `vi-fword`, `vi-next-word`, `vi-match` | Compatible | Punctuation/bigword, count, operator, column and bracket behavior. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `vi-change-case`, `vi-change-char`, `vi-replace`, `vi-change-to`, `vi-delete`, `vi-delete-to`, `vi-subst`, `vi-yank-to` | Compatible | Operator, change, replacement and redo. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs), [`vi_mode.rs`](readline/tests/vi_mode.rs). |
 | `vi-overstrike`, `vi-overstrike-delete`, `vi-rubout`, `vi-put`, `vi-redo`, `vi-undo`, `vi-yank-pop` | Compatible | Editor behavior; last change persists across reads; empty `vi-undo` or `vi-put` rings once, while empty `vi-redo` stays silent. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs), [`vi_mode.rs`](readline/tests/vi_mode.rs). |
-| `vi-fetch-history`, `vi-eof-maybe`, `vi-goto-mark`, `vi-set-mark`, `vi-tilde-expand`, `vi-unix-word-rubout`, `vi-yank-arg` | Compatible | Fetch, EOF, tilde, mark, default register-command, rubout and numeric yank-arg behavior; `vi-goto-mark` with no mark rings once, a vi mark is named by one lowercase ASCII letter and any other name rings once, with `vi-tilde-expand` trailing-slash handling as in the `tilde-expand` row above. A separate direct pinned GNU 8.3 two-trial synthetic named-user current-word `vi-tilde-expand` fixture matched the synthetic home and preserved its trailing slash in both trials for each implementation (one controlled named-account lookup per run; guards and cleanup passed); report: `pinned-readline-8.3-named-user-vi-tilde-expand/readline_tilde_named_user_vi.out`. Tests: [`editing.rs`](readline/tests/editing.rs), [`oracle/editing.rs`](readline/tests/oracle/editing.rs), [`vi_mode.rs`](readline/tests/vi_mode.rs), [`readline-include-paths.sh`](.github/scripts/readline-include-paths.sh), [`ci.yml`](.github/workflows/ci.yml). |
+| `vi-fetch-history`, `vi-eof-maybe`, `vi-goto-mark`, `vi-set-mark`, `vi-unix-word-rubout`, `vi-yank-arg` | Compatible | Fetch, EOF, mark, default register-command, rubout and numeric yank-arg behavior; `vi-goto-mark` with no mark rings once, a vi mark is named by one lowercase ASCII letter and any other name rings once. Tests: [`editing.rs`](readline/tests/editing.rs), [`oracle/editing.rs`](readline/tests/oracle/editing.rs), [`vi_mode.rs`](readline/tests/vi_mode.rs). |
+| `vi-tilde-expand` | Compatible | Tilde expansion with trailing-slash handling as in `tilde-expand`. See [Tilde Expansion Evidence](#tilde-expansion-evidence) for the separate named-user current-word vi fixture and tests. |
 | `vi-edit-and-execute-command` | Hook-backed | External edit behavior uses `Hooks::edit_and_execute`. Tests: [`bind.rs`](readline/tests/bind.rs), [`bind_golden.rs`](readline/tests/bind_golden.rs). |
 | `vi-set-register` | Sushline extension | Named vi registers are unavailable by default; enable by setting `sushline-vi-registers` to `on` in inputrc. Tests: [`inputrc/tests.rs`](readline/src/inputrc/tests.rs), [`bind/tests.rs`](readline/src/bind/tests.rs). |
+
+### Tilde Expansion Evidence
+
+On Unix, `tilde-expand`, `vi-tilde-expand`, filename-tilde expansion/completion
+and `$include` share NSS-backed home lookup: `getpwuid_r` for the current UID
+when `HOME` is absent, and `getpwnam_r` for names. A present `HOME`, including
+empty, retains precedence for the current user. Synthetic unit tests cover the
+shared selection and HOME-unset command/completion helpers; these are distinct
+from the direct measurements below.
+
+Each row is a two-trial direct comparison of Sushline against the pinned GNU
+Readline 8.3 library. Current-word commands and filename completion are separate
+measurements; the vi command has its own fixture.
+
+| Fixture scope | Result in both trials for each implementation | Controlled lookups and checks | Report artifact |
+| --- | --- | --- | --- |
+| Current-user current-word `tilde-expand`, `HOME` unset | Matched the synthetic current-UID home. | One passwd lookup per process per trial; guards passed. | `pinned-readline-8.3-home-unset-tilde-expand/readline_tilde_home_unset.out` |
+| Current-user current-word `tilde-expand`, `HOME` present but empty | Returned an empty word. | Zero passwd lookups; guards passed. | `pinned-readline-8.3-home-empty-tilde-expand/readline_tilde_home_empty.out` |
+| Current-user current-word `tilde-expand`, `HOME` present and nonempty | Matched the test-owned HOME. | Zero passwd-home lookups; guards passed. | `pinned-readline-8.3-home-nonempty-tilde-expand/readline_tilde_home_nonempty.out` |
+| Direct synthetic named-account current-word `tilde-expand` | Matched the test-owned account home and preserved its trailing slash. | One named-account lookup per run; guards passed. | `pinned-readline-8.3-named-user-tilde-expand/readline_tilde_named_user.out` |
+| Direct synthetic named-user current-word `vi-tilde-expand` | Matched the synthetic home and preserved its trailing slash. | One named-account lookup per run; guards and cleanup passed. | `pinned-readline-8.3-named-user-vi-tilde-expand/readline_tilde_named_user_vi.out` |
+| Direct `complete-filename`, `expand-tilde on`, one fixed synthetic named-user prefix and one unique test-owned candidate | Resolved the synthetic home and candidate. | One named-home lookup per implementation per trial; GNU's pinned 8.3 library check, all guards, and cleanup checks passed. | `pinned-readline-8.3-named-user-filename-completion/readline_tilde_named_user_filename.out` |
+
+The filename-completion result is limited to that exact fixture: it does not
+establish behavior for other completion options, arbitrary account names, or
+broader NSS-provider behavior.
+
+Tests and sources for `tilde-expand` and the shared lookup/completion behavior:
+[`editing.rs`](readline/tests/editing.rs),
+[`oracle/completion.rs`](readline/tests/oracle/completion.rs),
+[`oracle/editing.rs`](readline/tests/oracle/editing.rs),
+[`readline-include-paths.sh`](.github/scripts/readline-include-paths.sh),
+[`ci.yml`](.github/workflows/ci.yml).
+The `vi-tilde-expand` tests and sources are
+[`editing.rs`](readline/tests/editing.rs),
+[`oracle/editing.rs`](readline/tests/oracle/editing.rs),
+[`vi_mode.rs`](readline/tests/vi_mode.rs),
+[`readline-include-paths.sh`](.github/scripts/readline-include-paths.sh),
+[`ci.yml`](.github/workflows/ci.yml).
 
 ## Readline Init File and Variables
 

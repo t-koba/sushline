@@ -19,6 +19,7 @@
 # --vi-tilde-named-user-only uses the same fixture with `vi-tilde-expand`.
 # --filename-named-user-only compares complete-filename with expand-tilde on,
 # one synthetic named-user prefix and one fresh test-owned candidate.
+# --filename-home-unset-only uses a current-UID ~/ prefix with child HOME absent.
 # Measurement only against the pinned release.
 set -euo pipefail
 ulimit -c 0
@@ -31,11 +32,12 @@ case "$#:$*" in
   1:--tilde-home-nonempty-only) mode=tilde-home-nonempty ;;
   1:--tilde-named-user-only) mode=tilde-named-user ;;
   1:--filename-named-user-only) mode=tilde-named-user-filename ;;
+  1:--filename-home-unset-only) mode=tilde-home-unset-filename ;;
   1:--vi-tilde-named-user-only) mode=tilde-named-user-vi ;;
   1:--home-empty-only) mode=home-empty ;;
   1:--unreadable-only) mode=unreadable ;;
   1:--bare-cr-only) mode=bare-cr ;;
-  *) echo "usage: readline-include-paths.sh [--filename-named-user-only|--vi-tilde-named-user-only|--tilde-named-user-only|--tilde-home-nonempty-only|--tilde-home-empty-only|--tilde-home-unset-only|--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
+  *) echo "usage: readline-include-paths.sh [--filename-home-unset-only|--filename-named-user-only|--vi-tilde-named-user-only|--tilde-named-user-only|--tilde-home-nonempty-only|--tilde-home-empty-only|--tilde-home-unset-only|--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
 esac
 lookup_error_dir=$(mktemp -d /tmp/sushline-lookup-error-XXXXXX)
 trap 'rm -rf "$lookup_error_dir"' EXIT
@@ -137,7 +139,7 @@ int main(int argc, char **argv) {
             return 2;
         int filename = getenv("SUSHLINE_FILENAME_PROBE") != NULL;
         int vi = getenv("SUSHLINE_TILDE_VI") != NULL;
-        if ((vi && !named) || (filename && (!named || vi))) return 2;
+        if ((vi && !named) || (filename && (vi || home_empty || (!named && home_nonempty)))) return 2;
         if (filename && rl_variable_bind("expand-tilde", "on") != 0) return 2;
         rl_command_func_t *command = filename ? complete_filename :
             rl_named_function(vi ? "vi-tilde-expand" : "tilde-expand");
@@ -146,7 +148,8 @@ int main(int argc, char **argv) {
             return 2;
         /* Same ~, Ctrl-O, accept-line sequence as the in-memory Rust editor.
            A pipe supplies only fixture bytes; terminal output is discarded. */
-        const char *keys = filename ? "~sushline-audit-user/audit-c\017\n" :
+        const char *keys = filename ? (named ? "~sushline-audit-user/audit-c\017\n" :
+                                             "~/audit-c\017\n") :
                            named ? "~sushline-audit-user/\017\n" : "~\017\n";
         size_t key_count = strlen(keys);
         if (write(input[1], keys, key_count) != (ssize_t)key_count || close(input[1]) != 0)
@@ -155,7 +158,7 @@ int main(int argc, char **argv) {
         rl_outstream = fopen("/dev/null", "w");
         if (!rl_instream || !rl_outstream) return 2;
         char *line = readline("");
-        if (named && !line) return 2;
+        if ((named || filename) && !line) return 2;
         int matches = line != NULL && strcmp(line, argv[1]) == 0;
         /* Classify the synthetic home independently of the optional slash. */
         if (named && line && strlen(line) == strlen(argv[1]) + 1 &&
@@ -175,7 +178,7 @@ int main(int argc, char **argv) {
             size_t suffix = strlen(candidate);
             int resolved_candidate = length >= suffix &&
                                      strcmp(line + length - suffix, candidate) == 0;
-            printf("named_home_lookup_hits=%u\n", hits());
+            printf("%s_home_lookup_hits=%u\n", named ? "named" : "passwd", hits());
             printf("result_synthetic_home=%d\n", resolved_home);
             printf("result_synthetic_candidate=%d\n", resolved_candidate);
             printf("guards_ok=%u\n", safe());
@@ -328,7 +331,7 @@ unsigned int sushline_tilde_guard(void) {
     int stdio_denied = stream == NULL && errno == EACCES;
     if (stream) fclose(stream);
     int guarded = descriptor_denied && stdio_denied && blocked == 2;
-    if (getenv("SUSHLINE_TILDE_NAMED_USER")) {
+    if (getenv("SUSHLINE_TILDE_NAMED_USER") || getenv("SUSHLINE_FILENAME_PROBE")) {
         fd = openat64(AT_FDCWD, getenv("SUSHLINE_PASSWD_HOME"), O_RDONLY);
         int relative_denied = fd < 0 && errno == EACCES;
         if (fd >= 0) close(fd);
@@ -338,12 +341,15 @@ unsigned int sushline_tilde_guard(void) {
         /* Negative guard checks touch only the other fresh, empty home even
            if an interposition hook is broken. Never use real account names. */
         unsigned int before = blocked;
-        DIR *directory = opendir(getenv("HOME"));
+        const char *denied_home = getenv("SUSHLINE_FILENAME_DENIED_HOME");
+        if (!denied_home || strcmp(denied_home, getenv("SUSHLINE_PASSWD_HOME")) == 0) return 0;
+        DIR *directory = opendir(denied_home);
         int directory_denied = directory == NULL && errno == EACCES;
         if (directory) closedir(directory);
         struct stat metadata;
-        int metadata_denied = stat(getenv("HOME"), &metadata) < 0 && errno == EACCES;
-        struct passwd *account = getpwnam("sushline-audit-denied");
+        int metadata_denied = stat(denied_home, &metadata) < 0 && errno == EACCES;
+        struct passwd *account = getenv("SUSHLINE_TILDE_NAMED_USER") ?
+            getpwnam("sushline-audit-denied") : getpwuid(getuid() == 0 ? 1 : 0);
         int account_denied = account == NULL && errno == ENOENT;
         guarded = guarded && directory_denied && metadata_denied && account_denied &&
                   blocked == before + 3;
@@ -649,6 +655,7 @@ import pwd
 import re
 import resource
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -680,18 +687,27 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
     for trial in (1, 2):
         with tempfile.TemporaryDirectory(prefix="sushline-tilde-home-", dir="/tmp") as base:
             home = os.path.join(base, "home")
-            passwd_home = os.path.join(base, "passwd-home") if home_nonempty or named else home
+            passwd_home = os.path.join(base, "passwd-home") if home_nonempty or named or filename else home
             os.mkdir(home)
-            if home_nonempty or named:
+            if home_nonempty or named or filename:
                 os.mkdir(passwd_home)
             if filename:
                 candidate = os.path.join(passwd_home, "audit-candidate")
                 with open(candidate, "xb"):
                     pass
-                if (os.path.islink(passwd_home) or os.path.islink(candidate) or
-                        os.listdir(passwd_home) != ["audit-candidate"] or
-                        not os.path.isfile(candidate)):
-                    raise ValueError()
+                def fixture_state():
+                    entries = [os.lstat(path) for path in (base, home, passwd_home, candidate)]
+                    if (any(not stat.S_ISDIR(entry.st_mode) for entry in entries[:3]) or
+                            not stat.S_ISREG(entries[3].st_mode) or entries[3].st_nlink != 1 or
+                            entries[3].st_size != 0 or any(entry.st_uid != os.getuid() for entry in entries)):
+                        raise ValueError()
+                    if (sorted(os.listdir(base)) != ["home", "passwd-home"] or os.listdir(home) or
+                            os.listdir(passwd_home) != ["audit-candidate"]):
+                        raise ValueError()
+                    return [(entry.st_dev, entry.st_ino, entry.st_mode, entry.st_uid, entry.st_gid,
+                             entry.st_nlink, entry.st_size, entry.st_mtime_ns, entry.st_ctime_ns)
+                            for entry in entries]
+                initial_state = fixture_state()
             # Empty TERM avoids consulting host terminfo; the command is
             # direct-library/in-memory, not a terminal-capability measurement.
             env = dict(LC_ALL="C", TERM="", INPUTRC="/dev/null",
@@ -708,9 +724,11 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                 env["SUSHLINE_TILDE_VI"] = "1"
             if filename:
                 env["SUSHLINE_FILENAME_PROBE"] = "1"
+                env["SUSHLINE_FILENAME_DENIED_HOME"] = home
             trial_results = []
             case = "empty" if home_empty else "nonempty" if home_nonempty else "unset"
-            fixture = ("complete_filename_named_user_fixture" if filename else
+            fixture = (("complete_filename_named_user_fixture" if named else
+                        "complete_filename_home_unset_fixture") if filename else
                        "vi_tilde_expand_named_user_fixture" if vi else
                        "tilde_expand_named_user_fixture" if named else
                        "tilde_expand_home_" + case + "_fixture")
@@ -723,6 +741,8 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                 result = subprocess.run(command, cwd=base, env=env, stdin=subprocess.DEVNULL,
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                         timeout=5, check=True)
+                if filename and fixture_state() != initial_state:
+                    raise ValueError()
                 output = result.stdout
                 if implementation == "sushline":
                     match = re.fullmatch(
@@ -735,7 +755,8 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                     output = match[1]
                 identity = (b"readline_release=8.3\npinned_library_loaded=1\n"
                             if implementation == "gnu" else b"")
-                fields = (rb"named_home_lookup_hits=([0-9]{1,10})\n"
+                lookup_field = b"named" if named else b"passwd"
+                fields = (lookup_field + rb"_home_lookup_hits=([0-9]{1,10})\n"
                           rb"result_synthetic_home=([01])\nresult_synthetic_candidate=([01])\nguards_ok=1\n"
                           if filename else rb"named_home_lookup_hits=([0-9]{1,10})\n"
                           rb"result_synthetic_home=([01])\nresult_trailing_slash=([01])\nguards_ok=1\n"
@@ -753,7 +774,7 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                     raise ValueError()
                 if filename:
                     trial_rows.append(match.groups())
-                if named:
+                if named or filename:
                     # Retain valid negative rows for review, but fail the
                     # measurement on disagreement after publishing the report.
                     if match[2] == b"1" and int(match[1]) == 0:
@@ -774,13 +795,13 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                     accepted = (int(match[1]) > 0 and match[2] == b"1") and accepted
                 records.extend(f"trial{trial}_{implementation}_{line}"
                                for line in output.decode("ascii").splitlines())
-            if home_empty or home_nonempty or named:
+            if home_empty or home_nonempty or named or filename:
                 accepted = (trial_results[0] == trial_results[1]) and accepted
                 trial_classifications.append(tuple(trial_results))
         if os.path.lexists(base):
             raise ValueError()
         records.append(f"trial{trial}_cleanup=1")
-    if home_empty or home_nonempty or named:
+    if home_empty or home_nonempty or named or filename:
         accepted = (trial_classifications[0] == trial_classifications[1]) and accepted
     if filename and trial_rows[:2] != trial_rows[2:]:
         raise ValueError()
@@ -1145,8 +1166,8 @@ def setup_unreadable(base):
     return outer_path, base, base, include_path
 
 try:
-    if mode == "tilde-named-user-filename":
-        run_tilde_home(named=True, filename=True)
+    if mode in ("tilde-named-user-filename", "tilde-home-unset-filename"):
+        run_tilde_home(named=mode == "tilde-named-user-filename", filename=True)
         sys.exit(0)
     if mode in ("tilde-named-user", "tilde-named-user-vi"):
         run_tilde_home(named=True, vi=mode == "tilde-named-user-vi")

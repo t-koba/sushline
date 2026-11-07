@@ -1537,6 +1537,7 @@ enum ControlledTildeHome {
     NamedUser,
     NamedUserVi,
     NamedFilename,
+    UnsetFilename,
 }
 
 #[cfg(target_os = "linux")]
@@ -1582,6 +1583,13 @@ fn complete_filename_named_user_fixture() {
 }
 
 #[cfg(target_os = "linux")]
+#[test]
+#[ignore = "requires the controlled HOME-unset filename measurement driver"]
+fn complete_filename_home_unset_fixture() {
+    tilde_expand_controlled_home_fixture(ControlledTildeHome::UnsetFilename);
+}
+
+#[cfg(target_os = "linux")]
 fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
     use std::os::unix::ffi::OsStrExt;
 
@@ -1602,7 +1610,10 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
             | ControlledTildeHome::NamedUserVi
             | ControlledTildeHome::NamedFilename
     );
-    let filename = matches!(home_mode, ControlledTildeHome::NamedFilename);
+    let filename = matches!(
+        home_mode,
+        ControlledTildeHome::NamedFilename | ControlledTildeHome::UnsetFilename
+    );
     assert_eq!(
         std::env::var_os("SUSHLINE_FILENAME_PROBE").is_some(),
         filename
@@ -1614,7 +1625,7 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         named
     );
     match home_mode {
-        ControlledTildeHome::Unset => {
+        ControlledTildeHome::Unset | ControlledTildeHome::UnsetFilename => {
             assert!(home.is_none(), "HOME must be absent");
             assert!(std::env::var_os("SUSHLINE_TILDE_HOME_EMPTY").is_none());
             assert!(std::env::var_os("SUSHLINE_TILDE_HOME_NONEMPTY").is_none());
@@ -1657,7 +1668,11 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
     };
     assert!(arm() == 1, "file guard must be armed");
     let keys: &[u8] = if filename {
-        b"~sushline-audit-user/audit-c\x0f\r"
+        if named {
+            b"~sushline-audit-user/audit-c\x0f\r"
+        } else {
+            b"~/audit-c\x0f\r"
+        }
     } else if named {
         b"~sushline-audit-user/\x0f\r"
     } else {
@@ -1699,7 +1714,11 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         }
         let mut prefix = target.as_os_str().as_bytes().to_vec();
         prefix.push(b'/');
-        println!("named_home_lookup_hits={}", hits());
+        println!(
+            "{}_home_lookup_hits={}",
+            if named { "named" } else { "passwd" },
+            hits()
+        );
         println!(
             "result_synthetic_home={}",
             u8::from(actual.starts_with(&prefix))

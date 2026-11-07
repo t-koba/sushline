@@ -575,9 +575,9 @@ Rust-owned state; this is not a C ABI or C API promise.
 | Navigation: `history_set_pos`, `previous_history`, `next_history` | `set_pos`, `previous_history`, `next_history` | Compatible | Pinned A/B/C fixtures cover positions 0–3, end-position success, beyond-end target failure without movement, and cleared-empty position 0/1 controls. Paired previous/next calls cover those same starting offsets. Current-entry queries stay below length; navigation never starts beyond end. This establishes no negative-position or beyond-end navigation behavior. Evidence: [`history/tests/history.rs`](history/tests/history.rs), [`history-position-set-pos.expected`](.github/scripts/history-position-set-pos.expected), [`history-position-navigation.expected`](.github/scripts/history-position-navigation.expected). |
 | Search: `history_search`, `history_search_prefix`, `history_search_pos` | `history_search_bytes`, `history_search_prefix`, `history_search_pos` | Mixed | The measured GNU library takes `history_search_pos` direction before position, opposite the header’s parameter names; Rust follows measured order with an enum direction and entry/offset result. Search includes its zero-based starting position, failure preserves the cursor, and an invalid start falls back to the current cursor (projected starts 0/3/99, cursor 1). Raw byte-search fixtures cover ASCII/UTF-8 single-entry offsets, multi-entry traversal/current match/failure, invalid bytes and empty queries; the pinned single-entry uppercase `ALPHA` control does not match lowercase `alpha` in either direction. Offsets are byte-based, not character counts. For the projected `alpha\0suffix` query GNU’s C string stops at NUL, while Rust searches the full slice and finds no match, preserving state. This is a deliberate byte-slice capability, not general NUL/search equivalence. Evidence: [`history-position-search-pos.expected`](.github/scripts/history-position-search-pos.expected), [`history/tests/history.rs`](history/tests/history.rs), [`history-search-offset.expected`](.github/scripts/history-search-offset.expected), [`history-search-nul-query.expected`](.github/scripts/history-search-nul-query.expected). |
 | Case-insensitive search helper | `history_search_bytes_with_case` | Sushline extension | Explicit ASCII-only case folding; GNU History search has no equivalent option. Tests: [`history.rs`](history/tests/history.rs). |
-| Files: `read_history`, `write_history`, `append_history`, `history_truncate_file`, default `~/.history` filename | `read_file`, `read_file_with_multiline`, `load_file`, `load_file_with_multiline`, `write_file`, append variants, `truncate_file`, default path/helpers | Mixed | On Unix, regular rewrites are atomic and mode 0600. This includes writes through a symlink to an existing regular file: Sushline preserves the link but defaults to replacing its target with mode 0600. Opting into `HistoryWriteOptions { preserve_symlink_target_mode: true, ..Default::default() }` preserves an existing regular symlink target's Unix permission mode on full writes and truncation; direct paths and missing targets still use 0600. Only the pinned GNU Readline 8.3 `write_history` symlink fixture (mode-0644 target preserved) is claimed equivalent. Non-regular reads are rejected and non-regular writes truncate in place. Sushline preserves NUL bytes by default; opt-in `TruncateAtNul` matches only cited truncation fixtures and does not synthesize GNU run-dependent timestamps. Per-line imports skip blanks and apply timestamp records to following commands; `Joined` retains interior blanks. The pinned plain joined-EOF pair produces one `A\nB` entry without the final LF and one `A\nB\nunterminated` entry with it; no broader unterminated-line rule is claimed. The pinned GNU History 8.3 multiline-mode-1, limit-1 fixture yields one entry containing `B0\nB1` from the final timestamp block; no broader joined/stifled limit behavior is claimed. CRLF is stripped on import but preserved on truncation. On Unix, the pinned GNU History 8.3 append fixture shows mode 0644 retained for an existing direct file and the relative symlink target; both implementations preserve the link and append to its target. For a missing direct destination, Sushline defaults to creating the file even when no entries are selected. Options-taking append variants with `HistoryAppendOptions { create_missing: false }` return NotFound without creating it, matching only the pinned GNU History 8.3 `append_history` ENOENT/no-file count-0 and count-1 cases. Appends remain non-atomic. On Unix, a no-op truncation preserves the existing mode, matching the tested GNU mode fixture; actual rewrites default to mode 0600, with the same symlink-target opt-in described above. Close errors propagate; there is no fsync/crash-durability guarantee; concurrent writers are last-writer-wins. The pinned GNU History 8.3 `read_history(NULL)` probe with `HOME` absent returned status 0 and loaded none of the test-owned CWD `.history`, synthetic passwd-home `.history`, or literal CWD `~/.history` sentinels in two fresh trials; the probe's passwd-lookup counter remained 0. This result is limited to that call and those fixtures: it does not identify a fallback path or establish equivalence to this helper. The Rust default-path helper uses `$HOME/.history`, or relative `./.history` when `HOME` is unset; that fallback remains Sushline-specific, with no GNU path-equivalence claim. These are fixture-scoped only. Evidence: [`history.rs`](history/tests/history.rs), [`ci.yml`](.github/workflows/ci.yml), [write](.github/scripts/history-write-mode.expected), [append](.github/scripts/history-append.expected), [CRLF](.github/scripts/history-full-crlf.expected), [joined EOF](.github/scripts/history-joined-eof.expected), [multiline cap](.github/scripts/history-multiline-limit.expected), [NUL per-line](.github/scripts/history-full-nul-eof.expected), [NUL joined](.github/scripts/history-full-nul-eof-joined.expected), [truncate](.github/scripts/readline-history-truncate.sh). |
+| Files: `read_history`, `write_history`, `append_history`, `history_truncate_file`, default `~/.history` filename | `read_file`, `read_file_with_multiline`, `load_file`, `load_file_with_multiline`, `write_file`, append variants, `truncate_file`, default path/helpers | Mixed | Read/write/append/truncate and default paths have distinct policies and fixture limits; see [History file behavior](#history-file-behavior). |
 | File-import cursor fixtures | `read_file`, `read_file_range`, `load_file`, `load_file_range` | Compatible | The three-line plain-file projection covers empty/nonempty full imports, range import, and stifled imports at its selected positions/bounds. Numeric offsets survive, including offset 3 beyond a resulting two-entry list. The probe avoids current-entry/navigation queries at invalid offsets. No other files, bounds or positions are claimed. Evidence: [`history-import-cursor.expected`](.github/scripts/history-import-cursor.expected), [`history/tests/history.rs`](history/tests/history.rs), [`history-import-cursor.sh`](.github/scripts/history-import-cursor.sh). |
-| File range: `read_history_range` | `read_file_range`, `read_file_range_with_multiline`, `read_file_range_with_options`, `load_file_range`, `load_file_range_with_multiline`, `load_file_range_with_options` | Mixed by policy | Bounds count physical command lines, including blanks, but not timestamp records. For FROM<TO, TO is exclusive; grouping happens after selection and may end at a partial block. Per-line mode skips blank entries; joined spans keep blanks and may yield an empty entry. `HistoryReadOptions::range_policy` defaults to `HistoryRangePolicy::Sushline`: equal bounds select one physical position and reversed bounds select through EOF. Convenience methods retain that default. Opt-in `GnuReadline83` matches the pinned GNU Readline 8.3 range matrix asserted in CI: timestamped/plain forward ranges, late markers, blank-line edges in both grouping modes, no-blank equal/reversed per-line edges, and per-line out-of-range bounds. In the no-blank timestamped fixture, (0,0), (2,2) and (2,1) yield no entries; in the plain fixture they yield {C0}, {C2} and {C2}. In both blank-line fixtures, (1,1), (1,0) and (1,2) yield none per-line or one empty joined entry; (2,1) yields {A1} in both modes. FROM past EOF yields none and TO past EOF yields the remaining lines in the tested cases. Forward ranges and explicit `None` suffixes are unchanged by the option, which affects only range reads/loads, not full-file imports or mutations. These are fixture-scoped results, not general GNU range equivalence. Evidence: [`history/tests/history.rs`](history/tests/history.rs), [`ci.yml`](.github/workflows/ci.yml). |
+| File range: `read_history_range` | `read_file_range`, `read_file_range_with_multiline`, `read_file_range_with_options`, `load_file_range`, `load_file_range_with_multiline`, `load_file_range_with_options` | Mixed by policy | Physical-line selection and grouping; Sushline defaults differ from the opt-in pinned GNU policy. See [History file ranges](#history-file-ranges) for exact bounds, fixtures and limits. |
 | Expansion: `history_expand` | `expand_history`, status/state variants, `HistoryExpansionState`, `Hooks::expand_history` | Compatible | Text and print-only status; Editor context forwards session state to hooks. Marker matching is byte-oriented and ASCII-only; non-ASCII `HistoryChars` values are inert. Tests: [`history.rs`](history/tests/history.rs), [`oracle/history.rs`](readline/tests/oracle/history.rs). |
 | Expansion helpers: `get_history_event`, `history_tokenize`, `history_arg_extract` | `get_history_event`, `history_tokenize`, `history_arg_extract`, `command_words` | Compatible | Rust helpers exposed. Tests: [`history.rs`](history/tests/history.rs). |
 | Variables: `history_base`, `history_length`, `history_max_entries` | `HistoryState` and methods | Compatible | Rust-owned offset, length, stifle and maximum-entry behavior. Tests: [`history.rs`](history/tests/history.rs). |
@@ -585,3 +585,98 @@ Rust-owned state; this is not a C ABI or C API promise.
 | Variable: `history_write_timestamps` | Timestamp write/append methods | Compatible | Enabled or suppressed per call. Tests: [`history.rs`](history/tests/history.rs). |
 | Variable: `history_quoting_state` | `HistoryExpansionPolicy::quote_state` | Compatible | The pinned GNU History 8.3 [`history_expand_probe`](.github/workflows/ci.yml) checks only `!!` after seeding `echo previous`, `echo a b`, `echo a b`, with `history_quotes_inhibit_expansion=1`: inherited single-quote state returned status 0/literal `!!`, and state 0 returned status 1/`echo a b`. Both globals reset to 0 after each run; exact rows are retained in `history_expand.out`. [`history_expansion_inherited_quote_state_matches_pinned_fixture`](history/tests/history.rs) checks the corresponding Rust policy outputs and `Unchanged`/`Expanded` statuses. The exact rows passed in pinned GNU History 8.3 CI; local GNU 8.2 observations are directional only. This is not a general quote-state compatibility claim. |
 | Variable: `history_inhibit_expansion_function` | `expand_history` inhibit predicate | Compatible | Per-call predicate rather than process-global pointer. Tests: [`history.rs`](history/tests/history.rs). |
+
+### History file behavior
+
+These are fixture-scoped only. Close errors propagate; there is no
+fsync/crash-durability guarantee; concurrent writers are last-writer-wins.
+
+Evidence: [`history/tests/history.rs`](history/tests/history.rs),
+[`ci.yml`](.github/workflows/ci.yml).
+
+#### Full writes and file types
+
+On Unix, regular rewrites are atomic and mode 0600. This includes writes through a
+symlink to an existing regular file: Sushline preserves the link but defaults to
+replacing its target with mode 0600. Opting into `HistoryWriteOptions { preserve_symlink_target_mode: true, ..Default::default() }` preserves an existing
+regular symlink target's Unix permission mode on full writes and truncation; direct
+paths and missing targets still use 0600. Only the pinned GNU Readline 8.3
+`write_history` symlink fixture (mode-0644 target preserved) is claimed equivalent.
+
+Non-regular reads are rejected and non-regular writes truncate in place.
+
+Evidence: [write](.github/scripts/history-write-mode.expected).
+
+#### Full-file imports
+
+- Sushline preserves NUL bytes by default; opt-in `TruncateAtNul` matches only cited
+  truncation fixtures and does not synthesize GNU run-dependent timestamps. Evidence:
+  [NUL per-line](.github/scripts/history-full-nul-eof.expected), [NUL joined](.github/scripts/history-full-nul-eof-joined.expected).
+- Per-line imports skip blanks and apply timestamp records to following commands;
+  `Joined` retains interior blanks.
+- The pinned plain joined-EOF pair produces one `A\nB` entry without the final LF and
+  one `A\nB\nunterminated` entry with it; no broader unterminated-line rule is claimed.
+  Evidence: [joined EOF](.github/scripts/history-joined-eof.expected).
+- The pinned GNU History 8.3 multiline-mode-1, limit-1 fixture yields one entry
+  containing `B0\nB1` from the final timestamp block; no broader joined/stifled limit
+  behavior is claimed. Evidence: [multiline cap](.github/scripts/history-multiline-limit.expected).
+- CRLF is stripped on import but preserved on truncation. Evidence:
+  [CRLF](.github/scripts/history-full-crlf.expected).
+
+#### Appends
+
+- On Unix, the pinned GNU History 8.3 append fixture shows mode 0644 retained for an
+  existing direct file and the relative symlink target; both implementations preserve
+  the link and append to its target.
+- For a missing direct destination, Sushline defaults to creating the file even when no
+  entries are selected. Options-taking append variants with `HistoryAppendOptions { create_missing: false }` return NotFound without creating it, matching only the pinned
+  GNU History 8.3 `append_history` ENOENT/no-file count-0 and count-1 cases.
+
+Appends remain non-atomic. Evidence: [append](.github/scripts/history-append.expected).
+
+#### Truncation
+
+On Unix, a no-op truncation preserves the existing mode, matching the tested GNU mode
+fixture; actual rewrites default to mode 0600, with the same symlink-target opt-in
+described above.
+
+Evidence: [truncate](.github/scripts/readline-history-truncate.sh),
+[write](.github/scripts/history-write-mode.expected),
+[CRLF](.github/scripts/history-full-crlf.expected).
+
+#### Default history-file path
+
+The pinned GNU History 8.3 `read_history(NULL)` probe with `HOME` absent returned status
+0 and loaded none of the test-owned CWD `.history`, synthetic passwd-home `.history`, or
+literal CWD `~/.history` sentinels in two fresh trials; the probe's passwd-lookup
+counter remained 0. This result is limited to that call and those fixtures: it does not
+identify a fallback path or establish equivalence to this helper.
+
+The Rust default-path helper uses `$HOME/.history`, or relative `./.history` when `HOME`
+is unset; that fallback remains Sushline-specific, with no GNU path-equivalence claim.
+
+### History file ranges
+
+Bounds count physical command lines, including blanks, but not timestamp records. For
+FROM<TO, TO is exclusive; grouping happens after selection and may end at a partial
+block. Per-line mode skips blank entries; joined spans keep blanks and may yield an
+empty entry. `HistoryReadOptions::range_policy` defaults to
+`HistoryRangePolicy::Sushline`: equal bounds select one physical position and reversed
+bounds select through EOF. Convenience methods retain that default.
+
+Opt-in `GnuReadline83` matches the pinned GNU Readline 8.3 range matrix asserted in CI:
+timestamped/plain forward ranges, late markers, blank-line edges in both grouping modes,
+no-blank equal/reversed per-line edges, and per-line out-of-range bounds.
+
+- In the no-blank timestamped fixture, (0,0), (2,2) and (2,1) yield no entries; in the
+  plain fixture they yield {C0}, {C2} and {C2}.
+- In both blank-line fixtures, (1,1), (1,0) and (1,2) yield none per-line or one empty
+  joined entry; (2,1) yields {A1} in both modes.
+- FROM past EOF yields none and TO past EOF yields the remaining lines in the tested
+  cases.
+
+Forward ranges and explicit `None` suffixes are unchanged by the option, which affects
+only range reads/loads, not full-file imports or mutations. These are fixture-scoped
+results, not general GNU range equivalence. Evidence:
+[`history/tests/history.rs`](history/tests/history.rs),
+[`ci.yml`](.github/workflows/ci.yml).

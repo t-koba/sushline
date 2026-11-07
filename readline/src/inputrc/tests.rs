@@ -734,6 +734,45 @@ fn crlf_include_path_keeps_terminal_cr() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn bare_cr_include_path_keeps_terminal_cr() {
+    let dir = tempfile::tempdir().unwrap();
+    let plain = dir.path().join("included.inputrc");
+    let cr_suffixed = dir.path().join("included.inputrc\r");
+    fs::write(
+        &plain,
+        "set completion-ignore-case on\nset editing-mode vi\n",
+    )
+    .unwrap();
+    fs::write(
+        &cr_suffixed,
+        "set completion-ignore-case off\nset editing-mode vi\n",
+    )
+    .unwrap();
+    let outer = dir.path().join("outer.inputrc");
+
+    for (ending, expected_ignore_case) in [("\n", true), ("\r", false)] {
+        let source = format!(
+            "set completion-ignore-case off\nset editing-mode emacs\n$include {}{ending}",
+            plain.display()
+        );
+        fs::write(&outer, source).unwrap();
+        let mut keymap = KeyMap::emacs_default();
+        let mut variables = Variables::new();
+        let diagnostics = InputrcParser::new()
+            .parse_file(&outer, &Config::default(), &mut keymap, &mut variables)
+            .unwrap();
+
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert_eq!(
+            variables.is_on("completion-ignore-case"),
+            expected_ignore_case
+        );
+        assert_eq!(keymap.current(), KeyMapName::ViInsert);
+    }
+}
+
 #[test]
 fn include_paths_leave_dollar_vars_unexpanded() {
     // GNU does not expand $VAR in $include: even when the var points at a

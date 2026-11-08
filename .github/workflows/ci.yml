@@ -4306,6 +4306,7 @@ jobs:
           retention-days: 14
 
       - name: Compare HOME-nonempty bare-tilde filename completion against the pinned release
+        if: ${{ !cancelled() }}
         run: bash .github/scripts/readline-include-paths.sh --filename-bare-tilde-home-nonempty-only
       - name: Upload HOME-nonempty bare-tilde filename completion comparison
         if: ${{ !cancelled() }}
@@ -4317,6 +4318,7 @@ jobs:
           retention-days: 14
 
       - name: Compare HOME-nonempty filename completion with expand-tilde off against the pinned release
+        if: ${{ !cancelled() }}
         run: bash .github/scripts/readline-include-paths.sh --filename-home-nonempty-expand-tilde-off-only
       - name: Upload HOME-nonempty expand-tilde off filename completion comparison
         if: ${{ !cancelled() }}

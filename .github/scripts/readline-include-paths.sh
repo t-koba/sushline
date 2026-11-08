@@ -1153,6 +1153,63 @@ def test_nonempty_vi_parser():
                    valid.replace(b"result_home=1", b"result_home=2"), valid + b"unexpected\n"):
         assert re.fullmatch(NONEMPTY_VI_FIELDS, unsafe) is None
 
+def filename_child_report(stdout, stderr, returncode, pattern, harness=False, timed_out=False):
+    # Child bytes are untrusted. Only full matches may reach the result report;
+    # diagnostics contain fixed categories, never child text or exit values.
+    output = stdout or b""
+    if harness:
+        wrapper = re.fullmatch(
+            rb"\nrunning 1 test\n(.*)\.\ntest result: ok\. 1 passed; 0 failed; "
+            rb"0 ignored; 0 measured; [0-9]+ filtered out; finished in [0-9.]+s\n\n",
+            output, re.DOTALL,
+        )
+        output = wrapper[1] if wrapper else b""
+    match = re.fullmatch(pattern, output)
+    denied = re.fullmatch(rb"guard_denied=(root|file|metadata|enumeration|nss)\n", stderr or b"")
+    category = denied[1].decode("ascii") if returncode == 3 and denied else "none"
+    status = "timeout" if timed_out else "nonzero_exit" if returncode != 0 else "ok"
+    diagnostics = ("child_status=" + status, "guard_denied=" + category,
+                   "stdout_shape=" + ("expected" if match else "unexpected"),
+                   "stderr_nonempty=" + str(int(bool(stderr))))
+    return output, match, diagnostics
+
+def test_filename_child_report():
+    # Synthetic bytes only: no child execution, accounts, or filesystem access.
+    pattern = rb"safe=([01])\n"
+    valid = b"safe=1\n"
+    def check(stdout=valid, stderr=b"", returncode=0, harness=False, timed_out=False,
+              status="ok", guard="none", shape="expected"):
+        output, match, diagnostics = filename_child_report(
+            stdout, stderr, returncode, pattern, harness, timed_out)
+        assert diagnostics == ("child_status=" + status, "guard_denied=" + guard,
+                               "stdout_shape=" + shape,
+                               "stderr_nonempty=" + str(int(bool(stderr))))
+        assert bool(match) == (shape == "expected")
+        if match:
+            assert output == valid
+    check()
+    for category in (b"root", b"file", b"metadata", b"enumeration", b"nss"):
+        check(stderr=b"guard_denied=" + category + b"\n", returncode=3,
+              status="nonzero_exit", guard=category.decode("ascii"))
+    for stderr in (b"private text\n", b"guard_denied=unknown\n",
+                   b"guard_denied=file\nprivate text\n", b"guard_denied=file\n\n", b"\xff"):
+        check(stderr=stderr, returncode=3, status="nonzero_exit")
+    check(stderr=b"guard_denied=file\n")  # Only exit 3 identifies a guard denial.
+    for returncode in (1, 2, -9):
+        check(returncode=returncode, status="nonzero_exit")
+    for stdout in (b"", b"private text\n", valid + b"private text\n", b"safe=2\n", b"\xff"):
+        check(stdout=stdout, shape="unexpected")
+    check(stderr=b"private text\n")
+    check(stdout=None, stderr=None, returncode=None, timed_out=True,
+          status="timeout", shape="unexpected")
+    check(stdout=b"private text", stderr=b"private text", returncode=None, timed_out=True,
+          status="timeout", shape="unexpected")
+    wrapper = (b"\nrunning 1 test\n" + valid + b".\ntest result: ok. 1 passed; 0 failed; "
+               b"0 ignored; 0 measured; 7 filtered out; finished in 0.01s\n\n")
+    check(stdout=wrapper, harness=True)
+    check(stdout=valid, harness=True, shape="unexpected")
+    check(stdout=wrapper + b"private text\n", harness=True, shape="unexpected")
+
 def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False, filename=False, bare=False, off=False):
     # Build only the existing editor integration target. Capture all build and
     # child diagnostics; only a fully validated, path-free report is published.
@@ -1161,6 +1218,9 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
     nonempty_vi = current_vi and home_nonempty
     named_off_filename = named and filename and off
     retained_report = nonempty_filename or nonempty_vi or named_off_filename
+    focused_filename = nonempty_filename and (bare or off)
+    if focused_filename:
+        test_filename_child_report()
     if off:
         assert (nonempty_filename or named_off_filename) and home_nonempty and not vi and not bare
         if named_off_filename:
@@ -1295,35 +1355,6 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                     ("gnu", [probe, gnu_expected, os.environ["SUSHLINE_PINNED_READLINE"]]),
                     ("sushline", [executables[0], "--exact", fixture, "--ignored", "--nocapture", "--quiet"]),
                 ):
-                    try:
-                        result = subprocess.run(command, cwd=home if bare else cwd if off else base, env=env, stdin=subprocess.DEVNULL,
-                                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                                timeout=5, check=False)
-                    finally:
-                        if filename or current_vi:
-                            unchanged = fixture_state() == initial_state
-                            if retained_report:
-                                records.append(f"trial{trial}_{implementation}_fixture_unchanged={int(unchanged)}")
-                            if not unchanged:
-                                raise ValueError()
-                    if retained_report and result.returncode != 0:
-                        # Only an exact fixed guard category may escape a child.
-                        denied = re.fullmatch(rb"guard_denied=(root|file|metadata|enumeration|nss)\n",
-                                              result.stderr)
-                        records.append(f"trial{trial}_{implementation}_guard_denied=" +
-                                       (denied[1].decode("ascii") if denied else "child_failure"))
-                        raise ValueError()
-                    result.check_returncode()
-                    output = result.stdout
-                    if implementation == "sushline":
-                        match = re.fullmatch(
-                            rb"\nrunning 1 test\n(.*)\.\ntest result: ok\. 1 passed; 0 failed; "
-                            rb"0 ignored; 0 measured; [0-9]+ filtered out; finished in [0-9.]+s\n\n",
-                            output, re.DOTALL,
-                        )
-                        if not match:
-                            raise ValueError()
-                        output = match[1]
                     identity = (b"readline_release=8.3\npinned_library_loaded=1\n"
                                 if implementation == "gnu" else b"")
                     lookup_field = b"named" if named else b"passwd"
@@ -1345,7 +1376,38 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                               if home_nonempty else
                               rb"home_absent=1\npasswd_home_lookup_hits=([0-9]+)\n"
                               rb"result_match=([01])\nguards_ok=1\n")
-                    match = re.fullmatch(re.escape(identity) + fields, output)
+                    try:
+                        result = subprocess.run(command, cwd=home if bare else cwd if off else base, env=env, stdin=subprocess.DEVNULL,
+                                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                                timeout=5, check=False)
+                    except subprocess.TimeoutExpired as error:
+                        if focused_filename:
+                            _, _, diagnostics = filename_child_report(
+                                error.stdout, error.stderr, None, re.escape(identity) + fields,
+                                implementation == "sushline", timed_out=True)
+                            records.extend(f"trial{trial}_{implementation}_{line}" for line in diagnostics)
+                        raise
+                    else:
+                        output, match, diagnostics = filename_child_report(
+                            result.stdout, result.stderr, result.returncode,
+                            re.escape(identity) + fields, implementation == "sushline")
+                        if focused_filename:
+                            records.extend(f"trial{trial}_{implementation}_{line}" for line in diagnostics)
+                    finally:
+                        if filename or current_vi:
+                            unchanged = fixture_state() == initial_state
+                            if retained_report:
+                                records.append(f"trial{trial}_{implementation}_fixture_unchanged={int(unchanged)}")
+                            if not unchanged:
+                                raise ValueError()
+                    if retained_report and not focused_filename and result.returncode != 0:
+                        # Only an exact fixed guard category may escape a child.
+                        denied = re.fullmatch(rb"guard_denied=(root|file|metadata|enumeration|nss)\n",
+                                              result.stderr)
+                        records.append(f"trial{trial}_{implementation}_guard_denied=" +
+                                       (denied[1].decode("ascii") if denied else "child_failure"))
+                        raise ValueError()
+                    result.check_returncode()
                     if not match or result.stderr:
                         raise ValueError()
                     if filename or current_vi:

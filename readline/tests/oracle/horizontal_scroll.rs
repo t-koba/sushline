@@ -701,6 +701,39 @@ fn bash_and_sushline_horizontal_scroll_matches_geometry_for_bytewise_wide_tail()
 }
 
 #[test]
+fn bash_and_sushline_horizontal_scroll_records_four_byte_tail_deviation() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+    let base = "0123456789".repeat(10);
+    let text = format!("{base}🙂");
+    let steps: Vec<Vec<u8>> = text.as_bytes().iter().map(|byte| vec![*byte]).collect();
+    let bash = checkpoints_with_locale(true, 80, "P>", &steps, "C.UTF-8");
+    let sushline = checkpoints_with_locale(false, 80, "P>", &steps, "C.UTF-8");
+    let (bash_screen, bash_column) = bash.last().expect("GNU frame");
+    let (sushline_screen, sushline_column) = sushline.last().expect("Sushline frame");
+    let digit_count = |screen: &str| screen.chars().filter(char::is_ascii_digit).count();
+
+    // GNU leaves two later digits and replacement cells after the completed
+    // four-byte glyph; Sushline preserves the valid glyph without that replay.
+    // Keep this separate from the three-byte 中 geometry correction.
+    assert_eq!((digit_count(bash_screen), *bash_column), (42, 43), "GNU");
+    assert!(
+        bash_screen.contains("🙂4\u{fffd}6"),
+        "GNU row: {bash_screen:?}"
+    );
+    assert_eq!(
+        (digit_count(sushline_screen), *sushline_column),
+        (49, 52),
+        "Sushline"
+    );
+    assert!(
+        sushline_screen.ends_with('🙂'),
+        "Sushline row: {sushline_screen:?}"
+    );
+}
+
+#[test]
 fn bash_and_sushline_horizontal_scroll_starts_the_window_on_the_byte_edge_with_a_multiline_prompt()
 {
     if !c_utf8_locale_available() {

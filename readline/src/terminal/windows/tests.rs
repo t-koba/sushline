@@ -144,6 +144,22 @@ impl Drop for TestConsole {
 #[test]
 fn native_console_lifecycle_events_and_output() {
     let console = TestConsole::new();
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        exercise_native_console_lifecycle(&console);
+    }));
+    drop(console);
+    if let Err(payload) = outcome {
+        if let Some(message) = payload.downcast_ref::<String>() {
+            panic!("{message}");
+        }
+        if let Some(message) = payload.downcast_ref::<&'static str>() {
+            panic!("{message}");
+        }
+        panic!("native console test panicked with a non-string payload");
+    }
+}
+
+fn exercise_native_console_lifecycle(console: &TestConsole) {
     let original = (console.mode(true), console.mode(false));
     let codepages = unsafe { (GetConsoleCP(), GetConsoleOutputCP()) };
     let mut terminal = Terminal::new();

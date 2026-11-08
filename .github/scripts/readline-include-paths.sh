@@ -38,6 +38,8 @@
 # from a separate test-owned literal-tilde CWD candidate with expand-tilde off.
 # --filename-bare-tilde-home-nonempty-expand-tilde-off-only isolates bare `~`
 # with expand-tilde off, distinct HOME/passwd candidates and a literal CWD tilde.
+# --filename-bare-tilde-home-unset-expand-tilde-off-only isolates bare `~`
+# with child HOME absent, a synthetic passwd home and a literal CWD tilde.
 # Measurement only against the pinned release.
 set -euo pipefail
 ulimit -c 0
@@ -55,6 +57,7 @@ case "$#:$*" in
   1:--filename-named-user-expand-tilde-off-only) mode=tilde-named-user-filename-off ;;
   1:--filename-named-user-only) mode=tilde-named-user-filename ;;
   1:--filename-home-unset-only) mode=tilde-home-unset-filename ;;
+  1:--filename-bare-tilde-home-unset-expand-tilde-off-only) mode=tilde-home-unset-filename-bare-off ;;
   1:--filename-bare-tilde-home-nonempty-expand-tilde-off-only) mode=tilde-home-nonempty-filename-bare-off ;;
   1:--filename-bare-tilde-home-empty-only) mode=tilde-home-empty-filename-bare ;;
   1:--filename-bare-tilde-home-nonempty-only) mode=tilde-home-nonempty-filename-bare ;;
@@ -64,7 +67,7 @@ case "$#:$*" in
   1:--home-empty-only) mode=home-empty ;;
   1:--unreadable-only) mode=unreadable ;;
   1:--bare-cr-only) mode=bare-cr ;;
-  *) echo "usage: readline-include-paths.sh [--filename-bare-tilde-home-nonempty-expand-tilde-off-only|--filename-bare-tilde-home-empty-only|--filename-named-user-expand-tilde-off-only|--filename-home-nonempty-expand-tilde-off-only|--filename-bare-tilde-home-nonempty-only|--vi-tilde-home-nonempty-only|--filename-home-nonempty-only|--vi-tilde-home-empty-only|--vi-tilde-home-unset-only|--filename-home-unset-only|--filename-named-user-only|--vi-tilde-named-user-only|--tilde-named-user-only|--tilde-home-nonempty-only|--tilde-home-empty-only|--tilde-home-unset-only|--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
+  *) echo "usage: readline-include-paths.sh [--filename-bare-tilde-home-unset-expand-tilde-off-only|--filename-bare-tilde-home-nonempty-expand-tilde-off-only|--filename-bare-tilde-home-empty-only|--filename-named-user-expand-tilde-off-only|--filename-home-nonempty-expand-tilde-off-only|--filename-bare-tilde-home-nonempty-only|--vi-tilde-home-nonempty-only|--filename-home-nonempty-only|--vi-tilde-home-empty-only|--vi-tilde-home-unset-only|--filename-home-unset-only|--filename-named-user-only|--vi-tilde-named-user-only|--tilde-named-user-only|--tilde-home-nonempty-only|--tilde-home-empty-only|--tilde-home-unset-only|--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
 esac
 lookup_error_dir=$(mktemp -d /tmp/sushline-lookup-error-XXXXXX)
 trap 'rm -rf "$lookup_error_dir"' EXIT
@@ -168,9 +171,10 @@ int main(int argc, char **argv) {
         int bare = getenv("SUSHLINE_FILENAME_BARE_TILDE") != NULL;
         int off = getenv("SUSHLINE_FILENAME_TILDE_OFF") != NULL;
         int vi = getenv("SUSHLINE_TILDE_VI") != NULL;
-        if (bare && (!filename || !(home_nonempty || home_empty) || named)) return 2;
+        int unset_bare_off = filename && bare && off && !home && !named;
+        if (bare && (!filename || !(home_nonempty || home_empty || unset_bare_off) || named)) return 2;
         if (filename && (vi || (home_empty && !bare))) return 2;
-        if (off && (!filename || !home_nonempty || (bare && named))) return 2;
+        if (off && (!filename || !(home_nonempty || unset_bare_off) || (bare && named))) return 2;
         if (filename && rl_variable_bind("expand-tilde", off ? "off" : "on") != 0) return 2;
         rl_command_func_t *command = filename ? complete_filename :
             rl_named_function(vi ? "vi-tilde-expand" : "tilde-expand");
@@ -200,7 +204,7 @@ int main(int argc, char **argv) {
         if (fclose(rl_instream) != 0 || fclose(rl_outstream) != 0) return 2;
         printf("readline_release=8.3\n");
         printf("pinned_library_loaded=1\n");
-        if (filename && (home_nonempty || (home_empty && bare)) && (!named || off)) {
+        if (filename && (home_nonempty || (home_empty && bare) || unset_bare_off) && (!named || off)) {
             const char *passwd_home = getenv("SUSHLINE_PASSWD_HOME");
             size_t length = strlen(line);
             if (length && line[length - 1] == ' ') line[--length] = '\0';
@@ -209,6 +213,7 @@ int main(int argc, char **argv) {
             int result_home = 0, result_passwd = 0, candidate = 0;
             const char *homes[] = {home, passwd_home};
             for (int i = 0; i < 2; ++i) {
+                if (!homes[i]) continue;
                 size_t size = strlen(homes[i]);
                 if (size && length >= size && strncmp(line, homes[i], size) == 0) {
                     int completed = strcmp(line + size, off && bare && i == 1 ?
@@ -222,11 +227,15 @@ int main(int argc, char **argv) {
             /* Distinct candidate suffixes identify a resolved home vs literal CWD even
                when expand-tilde off retains the tilde in the returned word. */
             const char *tilde_relative = named ? "~sushline-audit-user/audit-cwd-candidate" : "~/audit-cwd-candidate";
-            if (off && !named && strcmp(line, "~/audit-candidate") == 0) {
+            if (off && home_nonempty && !named && strcmp(line, "~/audit-candidate") == 0) {
                 result_home = 1;
                 candidate = 1;
             }
             if (off && named && strcmp(line, "~sushline-audit-user/audit-candidate") == 0) {
+                result_passwd = 1;
+                candidate = 1;
+            }
+            if (unset_bare_off && strcmp(line, "~/audit-passwd-candidate") == 0) {
                 result_passwd = 1;
                 candidate = 1;
             }
@@ -243,8 +252,11 @@ int main(int argc, char **argv) {
             literal_prefix |= escaped_prefix;
             int result_empty = length == 0;
             int result_other = !(result_home || result_passwd || relative || literal_prefix || result_empty);
-            printf("home_present=1\n");
-            printf(home_empty ? "home_empty=1\n" : "home_nonempty=1\n");
+            if (unset_bare_off) printf("home_absent=1\n");
+            else {
+                printf("home_present=1\n");
+                printf(home_empty ? "home_empty=1\n" : "home_nonempty=1\n");
+            }
             printf("%s_home_lookup_hits=%u\n", named ? "named" : "passwd", hits());
             printf("result_home=%d\nresult_passwd_home=%d\n", result_home, result_passwd);
             printf("result_candidate=%d\nresult_literal_prefix=%d\n", candidate, literal_prefix);
@@ -1116,6 +1128,10 @@ def test_off_filename_parser():
 BARE_OFF_FILENAME_FIELDS = OFF_FILENAME_FIELDS.replace(
     rb"guards_ok=1\n", rb"result_trailing_slash=([01])\nresult_escaped_literal_prefix=([01])\nguards_ok=1\n")
 
+UNSET_BARE_OFF_FILENAME_FIELDS = BARE_OFF_FILENAME_FIELDS.replace(
+    rb"home_present=1\nhome_nonempty=1\n", rb"home_absent=1\n").replace(
+    rb"result_home=([01])", rb"result_home=(0)")
+
 def bare_off_filename_comparison(rows):
     stable = rows[:2] == rows[2:]
     comparison = rows[0][1:] == rows[1][1:] and rows[2][1:] == rows[3][1:]
@@ -1435,6 +1451,25 @@ def test_filename_child_report():
     check(stdout=valid, harness=True, shape="unexpected")
     check(stdout=wrapper + b"private text\n", harness=True, shape="unexpected")
 
+def test_unset_bare_off_filename_parser():
+    valid = (b"home_absent=1\npasswd_home_lookup_hits=2\n"
+             b"result_home=0\nresult_passwd_home=1\nresult_candidate=0\n"
+             b"result_literal_prefix=0\nresult_empty=0\nresult_other=0\n"
+             b"result_relative=0\nresult_trailing_slash=1\nresult_escaped_literal_prefix=0\nguards_ok=1\n")
+    row = re.fullmatch(UNSET_BARE_OFF_FILENAME_FIELDS, valid).groups()
+    assert bare_off_filename_comparison([row] * 4) == (True, True, True)
+    for unsafe in (valid.replace(b"home_absent=1", b"home_present=1\nhome_empty=1"),
+                   valid.replace(b"home_absent=1", b"home_present=1\nhome_nonempty=1"),
+                   valid.replace(b"result_home=0", b"result_home=1"),
+                   valid.replace(b"guards_ok=1", b"guards_ok=0"),
+                   valid.replace(b"lookup_hits=2", b"lookup_hits=-1"),
+                   valid.replace(b"lookup_hits=2", b"lookup_hits=12345678901"),
+                   valid.replace(b"result_trailing_slash=1", b"result_trailing_slash=2"),
+                   valid.replace(b"result_escaped_literal_prefix=0\n", b""), valid + b"unexpected\n"):
+        assert re.fullmatch(UNSET_BARE_OFF_FILENAME_FIELDS, unsafe) is None
+    assert bare_off_filename_comparison([(b"0", *row[1:])] * 4) == (True, True, False)
+
+
 def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False, filename=False, bare=False, off=False):
     # Build only the existing editor integration target. Capture all build and
     # child diagnostics; only a fully validated, path-free report is published.
@@ -1444,20 +1479,23 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
     named_off_filename = named and filename and off
     bare_off_filename = filename and bare and off
     empty_bare_filename = filename and home_empty and bare and not named
-    retained_report = nonempty_filename or nonempty_vi or named_off_filename or empty_bare_filename
-    focused_filename = (nonempty_filename and (bare or off)) or empty_bare_filename
+    unset_bare_off_filename = bare_off_filename and not (home_empty or home_nonempty or named)
+    retained_report = nonempty_filename or nonempty_vi or named_off_filename or empty_bare_filename or unset_bare_off_filename
+    focused_filename = (nonempty_filename and (bare or off)) or empty_bare_filename or unset_bare_off_filename
     if focused_filename:
         test_filename_child_report()
     if off:
-        assert (nonempty_filename or named_off_filename) and home_nonempty and not vi and (not bare or not named)
+        assert ((nonempty_filename or named_off_filename) and home_nonempty or unset_bare_off_filename) and not vi and (not bare or not named)
         if named_off_filename:
             test_named_off_filename_parser()
         elif bare:
             test_bare_off_filename_parser()
+            if unset_bare_off_filename:
+                test_unset_bare_off_filename_parser()
         else:
             test_off_filename_parser()
     if bare:
-        assert (nonempty_filename or empty_bare_filename) and not vi and (not off or nonempty_filename)
+        assert (nonempty_filename or empty_bare_filename or unset_bare_off_filename) and not vi and (not off or nonempty_filename or unset_bare_off_filename)
         test_bare_filename_parser()
         if empty_bare_filename:
             test_empty_bare_filename_parser()
@@ -1487,17 +1525,19 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
             with tempfile.TemporaryDirectory(prefix="sushline-tilde-home-", dir="/tmp") as base:
                 home = os.path.join(base, "home")
                 passwd_home = os.path.join(base, "passwd-home") if home_nonempty or named or filename else home
-                os.mkdir(home)
+                if not unset_bare_off_filename:
+                    os.mkdir(home)
                 if home_nonempty or named or filename:
                     os.mkdir(passwd_home)
                 if filename:
                     candidate_home = home if nonempty_filename else passwd_home
                     empty_home = passwd_home if nonempty_filename else home
-                    candidate = os.path.join(candidate_home, "audit-candidate")
+                    candidate_name = "audit-passwd-candidate" if unset_bare_off_filename else "audit-candidate"
+                    candidate = os.path.join(candidate_home, candidate_name)
                     with open(candidate, "xb"):
                         pass
                     passwd_candidate = os.path.join(passwd_home, "audit-passwd-candidate")
-                    if bare_off_filename:
+                    if bare_off_filename and not unset_bare_off_filename:
                         with open(passwd_candidate, "xb"):
                             pass
                     cwd = os.path.join(base, "cwd") if off else base
@@ -1510,17 +1550,20 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                         with open(literal_candidate, "xb"):
                             pass
                     def fixture_state():
-                        entries = [os.lstat(path) for path in (base, home, passwd_home, candidate)]
-                        if (any(not stat.S_ISDIR(entry.st_mode) for entry in entries[:3]) or
-                                not stat.S_ISREG(entries[3].st_mode) or entries[3].st_nlink != 1 or
-                                entries[3].st_size != 0 or any(entry.st_uid != os.getuid() for entry in entries)):
+                        paths = (base, passwd_home, candidate) if unset_bare_off_filename else (base, home, passwd_home, candidate)
+                        entries = [os.lstat(path) for path in paths]
+                        if (any(not stat.S_ISDIR(entry.st_mode) for entry in entries[:-1]) or
+                                not stat.S_ISREG(entries[-1].st_mode) or entries[-1].st_nlink != 1 or
+                                entries[-1].st_size != 0 or any(entry.st_uid != os.getuid() for entry in entries)):
                             raise ValueError()
-                        if (sorted(os.listdir(base)) != (["cwd", "home", "passwd-home"] if off else
+                        if (sorted(os.listdir(base)) != (["cwd", "passwd-home"] if unset_bare_off_filename else
+                                                             ["cwd", "home", "passwd-home"] if off else
                                                              ["home", "passwd-home"]) or
-                                sorted(os.listdir(empty_home)) != (["audit-passwd-candidate"] if bare_off_filename else []) or
-                                os.listdir(candidate_home) != ["audit-candidate"]):
+                                (not unset_bare_off_filename and
+                                 sorted(os.listdir(empty_home)) != (["audit-passwd-candidate"] if bare_off_filename else [])) or
+                                os.listdir(candidate_home) != [candidate_name]):
                             raise ValueError()
-                        if bare_off_filename:
+                        if bare_off_filename and not unset_bare_off_filename:
                             entry = os.lstat(passwd_candidate)
                             if (not stat.S_ISREG(entry.st_mode) or entry.st_nlink != 1 or
                                     entry.st_size != 0 or entry.st_uid != os.getuid()):
@@ -1577,11 +1620,12 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                     env["SUSHLINE_FILENAME_PROBE"] = "1"
                     env["SUSHLINE_FILENAME_DENIED_HOME"] = (
                         os.path.join(passwd_home, ".")
-                        if nonempty_filename or named_off_filename else home)
+                        if nonempty_filename or named_off_filename or unset_bare_off_filename else home)
                 trial_results = []
                 case = "empty" if home_empty else "nonempty" if home_nonempty else "unset"
                 if filename:
-                    fixture = ("complete_filename_named_user_tilde_off_fixture" if named_off_filename else
+                    fixture = ("complete_filename_bare_tilde_home_unset_tilde_off_fixture" if unset_bare_off_filename else
+                               "complete_filename_named_user_tilde_off_fixture" if named_off_filename else
                                "complete_filename_bare_tilde_home_nonempty_tilde_off_fixture" if bare_off_filename else
                                "complete_filename_home_nonempty_tilde_off_fixture" if off else
                                "complete_filename_bare_tilde_home_empty_fixture" if empty_bare_filename else
@@ -1604,7 +1648,8 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                     identity = (b"readline_release=8.3\npinned_library_loaded=1\n"
                                 if implementation == "gnu" else b"")
                     lookup_field = b"named" if named else b"passwd"
-                    fields = (NAMED_OFF_FILENAME_FIELDS if named_off_filename else
+                    fields = (UNSET_BARE_OFF_FILENAME_FIELDS if unset_bare_off_filename else
+                              NAMED_OFF_FILENAME_FIELDS if named_off_filename else
                               BARE_OFF_FILENAME_FIELDS if bare_off_filename else
                               OFF_FILENAME_FIELDS if off else
                               EMPTY_BARE_FILENAME_FIELDS if empty_bare_filename else
@@ -2093,6 +2138,9 @@ def setup_unreadable(base):
     return outer_path, base, base, include_path
 
 try:
+    if mode == "tilde-home-unset-filename-bare-off":
+        run_tilde_home(filename=True, bare=True, off=True)
+        sys.exit(0)
     if mode == "tilde-home-nonempty-filename-bare-off":
         run_tilde_home(home_nonempty=True, filename=True, bare=True, off=True)
         sys.exit(0)

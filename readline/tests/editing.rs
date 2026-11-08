@@ -1547,6 +1547,7 @@ enum ControlledTildeHome {
     EmptyBareFilename,
     NonemptyOffFilename,
     NonemptyBareOffFilename,
+    UnsetBareOffFilename,
 }
 
 #[cfg(target_os = "linux")]
@@ -1662,6 +1663,13 @@ fn complete_filename_bare_tilde_home_nonempty_tilde_off_fixture() {
 }
 
 #[cfg(target_os = "linux")]
+#[test]
+#[ignore = "requires the controlled HOME-unset bare-tilde expand-tilde off filename driver"]
+fn complete_filename_bare_tilde_home_unset_tilde_off_fixture() {
+    tilde_expand_controlled_home_fixture(ControlledTildeHome::UnsetBareOffFilename);
+}
+
+#[cfg(target_os = "linux")]
 fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
     use std::os::unix::ffi::OsStrExt;
 
@@ -1707,6 +1715,7 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
             | ControlledTildeHome::NonemptyBareFilename
             | ControlledTildeHome::NonemptyOffFilename
             | ControlledTildeHome::NonemptyBareOffFilename
+            | ControlledTildeHome::UnsetBareOffFilename
     );
     assert_eq!(
         std::env::var_os("SUSHLINE_FILENAME_PROBE").is_some(),
@@ -1716,6 +1725,7 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         home_mode,
         ControlledTildeHome::NonemptyOffFilename
             | ControlledTildeHome::NonemptyBareOffFilename
+            | ControlledTildeHome::UnsetBareOffFilename
             | ControlledTildeHome::NamedOffFilename
     );
     assert_eq!(
@@ -1726,6 +1736,7 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         home_mode,
         ControlledTildeHome::NonemptyBareFilename
             | ControlledTildeHome::NonemptyBareOffFilename
+            | ControlledTildeHome::UnsetBareOffFilename
             | ControlledTildeHome::EmptyBareFilename
     );
     assert_eq!(
@@ -1747,6 +1758,7 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
     match home_mode {
         ControlledTildeHome::Unset
         | ControlledTildeHome::UnsetFilename
+        | ControlledTildeHome::UnsetBareOffFilename
         | ControlledTildeHome::UnsetVi => {
             assert!(home.is_none(), "HOME must be absent");
             assert!(std::env::var_os("SUSHLINE_TILDE_HOME_EMPTY").is_none());
@@ -1846,14 +1858,15 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         if actual.last() == Some(&b' ') {
             actual.pop();
         }
-        if home_nonempty || (home_empty && bare) {
+        if home_nonempty || (home_empty && bare) || (off && bare) {
             let trailing_slash = bare && actual.ends_with(b"/");
             if trailing_slash {
                 actual.pop();
             }
             let mut classifications = [false; 2];
             let mut candidate = false;
-            for (index, home) in [home.as_ref().unwrap(), &target].iter().enumerate() {
+            for (index, home) in [home.as_ref(), Some(&target)].iter().enumerate() {
+                let Some(home) = home else { continue };
                 let bytes = home.as_os_str().as_bytes();
                 if let Some(suffix) = actual.strip_prefix(bytes).filter(|_| !bytes.is_empty()) {
                     let completed = suffix
@@ -1876,11 +1889,15 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
             } else {
                 b"~/audit-cwd-candidate".as_slice()
             };
-            if off && !named && actual == b"~/audit-candidate" {
+            if off && home_nonempty && !named && actual == b"~/audit-candidate" {
                 classifications[0] = true;
                 candidate = true;
             }
             if off && named && actual == b"~sushline-audit-user/audit-candidate" {
+                classifications[1] = true;
+                candidate = true;
+            }
+            if off && bare && home.is_none() && actual == b"~/audit-passwd-candidate" {
                 classifications[1] = true;
                 candidate = true;
             }
@@ -1895,15 +1912,19 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
                 relative |= std::env::var_os("SUSHLINE_FILENAME_LITERAL_HOME")
                     .is_some_and(|home| actual == home.as_os_str().as_bytes());
             }
-            println!("home_present=1");
-            println!(
-                "{}=1",
-                if home_empty {
-                    "home_empty"
-                } else {
-                    "home_nonempty"
-                }
-            );
+            if home.is_none() {
+                println!("home_absent=1");
+            } else {
+                println!("home_present=1");
+                println!(
+                    "{}=1",
+                    if home_empty {
+                        "home_empty"
+                    } else {
+                        "home_nonempty"
+                    }
+                );
+            }
             let lookup = if named { "named" } else { "passwd" };
             println!("{lookup}_home_lookup_hits={}", hits());
             println!("result_home={}", u8::from(classifications[0]));

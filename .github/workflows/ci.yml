@@ -4341,6 +4341,18 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Compare HOME-unset bare-tilde filename completion with expand-tilde off against the pinned release
+        if: ${{ !cancelled() }}
+        run: bash .github/scripts/readline-include-paths.sh --filename-bare-tilde-home-unset-expand-tilde-off-only
+      - name: Upload HOME-unset bare-tilde expand-tilde off filename completion comparison
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-home-unset-bare-tilde-off-filename-completion-${{ github.sha }}
+          path: /tmp/readline_tilde_home_unset_filename_bare_off.out
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Compare HOME-nonempty filename completion with expand-tilde off against the pinned release
         if: ${{ !cancelled() }}
         run: bash .github/scripts/readline-include-paths.sh --filename-home-nonempty-expand-tilde-off-only

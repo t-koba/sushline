@@ -1548,6 +1548,7 @@ enum ControlledTildeHome {
     NonemptyOffFilename,
     NonemptyBareOffFilename,
     UnsetBareOffFilename,
+    EmptyBareOffFilename,
 }
 
 #[cfg(target_os = "linux")]
@@ -1670,6 +1671,13 @@ fn complete_filename_bare_tilde_home_unset_tilde_off_fixture() {
 }
 
 #[cfg(target_os = "linux")]
+#[test]
+#[ignore = "requires the controlled HOME-empty bare-tilde expand-tilde off filename driver"]
+fn complete_filename_bare_tilde_home_empty_tilde_off_fixture() {
+    tilde_expand_controlled_home_fixture(ControlledTildeHome::EmptyBareOffFilename);
+}
+
+#[cfg(target_os = "linux")]
 fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
     use std::os::unix::ffi::OsStrExt;
 
@@ -1687,6 +1695,7 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         ControlledTildeHome::Empty
             | ControlledTildeHome::EmptyVi
             | ControlledTildeHome::EmptyBareFilename
+            | ControlledTildeHome::EmptyBareOffFilename
     );
     let home_nonempty = matches!(
         home_mode,
@@ -1711,6 +1720,7 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
             | ControlledTildeHome::NamedOffFilename
             | ControlledTildeHome::UnsetFilename
             | ControlledTildeHome::EmptyBareFilename
+            | ControlledTildeHome::EmptyBareOffFilename
             | ControlledTildeHome::NonemptyFilename
             | ControlledTildeHome::NonemptyBareFilename
             | ControlledTildeHome::NonemptyOffFilename
@@ -1726,6 +1736,7 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         ControlledTildeHome::NonemptyOffFilename
             | ControlledTildeHome::NonemptyBareOffFilename
             | ControlledTildeHome::UnsetBareOffFilename
+            | ControlledTildeHome::EmptyBareOffFilename
             | ControlledTildeHome::NamedOffFilename
     );
     assert_eq!(
@@ -1738,6 +1749,7 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
             | ControlledTildeHome::NonemptyBareOffFilename
             | ControlledTildeHome::UnsetBareOffFilename
             | ControlledTildeHome::EmptyBareFilename
+            | ControlledTildeHome::EmptyBareOffFilename
     );
     assert_eq!(
         std::env::var_os("SUSHLINE_FILENAME_BARE_TILDE").is_some(),
@@ -1767,7 +1779,8 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         }
         ControlledTildeHome::Empty
         | ControlledTildeHome::EmptyVi
-        | ControlledTildeHome::EmptyBareFilename => {
+        | ControlledTildeHome::EmptyBareFilename
+        | ControlledTildeHome::EmptyBareOffFilename => {
             assert!(
                 home.as_ref().is_some_and(|home| home.is_empty()),
                 "HOME must be present and empty"
@@ -1897,7 +1910,11 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
                 classifications[1] = true;
                 candidate = true;
             }
-            if off && bare && home.is_none() && actual == b"~/audit-passwd-candidate" {
+            if off
+                && bare
+                && (home.is_none() || home_empty)
+                && actual == b"~/audit-passwd-candidate"
+            {
                 classifications[1] = true;
                 candidate = true;
             }

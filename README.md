@@ -78,12 +78,16 @@ CI runs the following checks by event:
 
 | Event | Checks and evidence |
 | --- | --- |
-| Push or pull request | `ci / check` and `ci / oracle`; required full-file late-timestamp comparison artifact. Upstream-only measurements and the replica job are skipped. |
-| Manual dispatch with `refresh_upstream_measurements: false` (default) | Same checks and artifact as push/PR. |
-| Manual dispatch with `refresh_upstream_measurements: true` | `ci / check`, `ci / oracle` (including upstream primary measurements), and `ci / oracle-measurements-replica`; required comparison, primary measurement, and replica report artifacts, plus primary/replica agreement checks. |
+| Push to a non-`mizu` branch or tag, or a pull request | `ci / check`, `ci / oracle`, and `ci / windows-terminal`; required full-file late-timestamp comparison artifact. Upstream-only measurements and the replica job are skipped. |
+| Manual dispatch with `refresh_upstream_measurements: false` (default) | The same three jobs and artifact as a push/PR. |
+| Manual dispatch with `refresh_upstream_measurements: true` | `ci / check`, `ci / oracle` (including upstream primary measurements), `ci / windows-terminal`, and `ci / oracle-measurements-replica`; required comparison, primary measurement, and replica report artifacts, plus primary/replica agreement checks. |
 
-On every push/PR and dispatch, `ci / check` runs formatting, Clippy, and the
-non-oracle workspace tests. `ci / oracle` builds or restores and validates the
+For every workflow event, `ci / check` runs formatting, Clippy, and the
+non-oracle workspace tests. `ci / windows-terminal` compiles the readline
+library on Windows and runs targeted native-console, filename, quoting,
+editor-completion, locale-default, and C-locale history tests. These Windows
+tests cover those named fixtures only; they are not a full workspace run or a
+GNU compatibility claim. `ci / oracle` builds or restores and validates the
 same digest-pinned Readline 8.3 and Bash 5.3, runs `Run the oracle suite`, and
 runs the mixed full-file late-timestamp Rust/GNU comparison. Its required
 `pinned-readline-8.3-full-file-comparison` artifact contains

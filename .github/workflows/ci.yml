@@ -51,7 +51,7 @@ jobs:
   # The Rust checks do not need the oracle host, so a network fault in the
   # host download cannot hide them.
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -95,7 +95,7 @@ jobs:
           LC_ALL: C
 
   oracle:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
         with:
@@ -4639,7 +4639,7 @@ jobs:
   oracle-measurements-replica:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
     needs: oracle
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
         with:

@@ -864,20 +864,28 @@ fn windows_paths_complete_repeatedly_through_editor_with_shell_escapes() {
         .expect("UTF-8 fixture path")
         .replace('/', "\\");
     let candidate = format!("{parent}\\report file.txt").into_bytes();
-    // Leave native separators literal while shell-escaping spaces and any
-    // metacharacters in the runner's temporary directory name.
+    // Leave native separators literal and escape only characters that are
+    // shell-significant here. In particular, `~` and `#` are not special in
+    // the middle of this absolute word; closing bracket/brace escapes depend
+    // on their corresponding opener.
     let escape = |bytes: &[u8]| {
+        let escape_closing_brackets = bytes.contains(&b'[');
+        let escape_brace_expansion = bytes.contains(&b'{');
         let mut out = Vec::new();
-        for byte in bytes {
-            if (byte.is_ascii_whitespace() || b"\\\"'`$!&|;<>()[]{}*?~#".contains(byte))
-                && *byte != b'\\'
-            {
+        for (index, byte) in bytes.iter().enumerate() {
+            let needs_escape = byte.is_ascii_whitespace()
+                || b"\"'`$!&|;<>()[*?{".contains(byte)
+                || (*byte == b']' && escape_closing_brackets)
+                || (escape_brace_expansion && matches!(*byte, b'}' | b','))
+                || (index == 0 && matches!(*byte, b'~' | b'#'));
+            if needs_escape {
                 out.push(b'\\');
             }
             out.push(*byte);
         }
         out
     };
+    assert_eq!(escape(b"X:dir~1"), b"X:dir~1");
     for (command_case, command) in [
         "complete",
         "complete-filename",

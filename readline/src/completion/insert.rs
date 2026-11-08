@@ -730,7 +730,16 @@ where
         let raw_word = edit.line.get(raw_start..edit.end).unwrap_or_default();
         let is_unescaped_named_user_path =
             is_named_user_tilde_path(edit.matching_word()) && !raw_word.starts_with(b"\\~");
+        // The guarded Readline 8.3 fixture keeps this literal directory prefix
+        // unescaped; do not extend it to other tilde words, commands or HOME states.
+        let preserve_bare_tilde = edit.builtin_filename_completion
+            && completion_type == CompletionType::Filename
+            && raw_word == b"~"
+            && value == b"~/"
+            && !self.variables.is_on("expand-tilde")
+            && std::env::var_os("HOME").is_some_and(|home| !home.is_empty());
         let escape_leading_tilde = options.filename_candidates
+            && !preserve_bare_tilde
             && !edit.matching_word().starts_with(b"~/")
             && !is_unescaped_named_user_path
             && matches!(

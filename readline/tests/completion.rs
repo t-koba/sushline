@@ -8,6 +8,62 @@ use readline::{
 };
 
 #[test]
+fn bare_tilde_filename_directory_with_nonempty_home_escapes_only_when_tilde_expansion_is_on() {
+    const CHILD: &str = "SUSHLINE_BARE_TILDE_COMPLETION_TEST";
+    if std::env::var_os(CHILD).is_some() {
+        for expand in ["off", "on"] {
+            let terminal =
+                MemoryTerminal::with_events(vec![TerminalEvent::Bytes(b"~\x0f\r".to_vec())]);
+            let mut line = Editor::new(
+                Config {
+                    inputrc_path: readline::InputrcPath::Disabled,
+                    ..Config::default()
+                },
+                terminal,
+                History::new(),
+            );
+            line.load_inputrc_str(&format!(
+                "set expand-tilde {expand}\n\"\\C-o\": complete-filename"
+            ))
+            .unwrap();
+            let expected = if expand == "off" {
+                b"~/".as_slice()
+            } else {
+                b"\\~/".as_slice()
+            };
+            assert_eq!(
+                line.read_line(Prompt::new(""), &mut ()).unwrap(),
+                ReadlineResult::Line(expected.to_vec()),
+                "expand-tilde {expand}"
+            );
+        }
+        return;
+    }
+
+    // HOME and CWD belong only to the child; never mutate the test runner's state.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("~")).unwrap();
+    std::fs::create_dir(dir.path().join("home")).unwrap();
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "bare_tilde_filename_directory_with_nonempty_home_escapes_only_when_tilde_expansion_is_on",
+            "--nocapture",
+        ])
+        .current_dir(dir.path())
+        .env(CHILD, "1")
+        .env("HOME", dir.path().join("home"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn application_default_filename_fallback_uses_reopened_segment_scope() {
     let dir = tempfile::tempdir().expect("completion fixture directory");
     for name in ["safe-one", "safe-two", "eagle-one", "eagle-two"] {

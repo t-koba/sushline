@@ -1,0 +1,11 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    ignore:
+      # This reference selects dtolnay/rust-toolchain's moving `stable` branch.
+      # Dependabot's SHA updates use the latest commit when no tag matches, which
+      # may not be that branch; update this pin from the canonical branch manually.
+      - dependency-name: dtolnay/rust-toolchain

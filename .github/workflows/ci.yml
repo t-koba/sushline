@@ -53,12 +53,12 @@ jobs:
   check:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           components: rustfmt, clippy
       - name: Cache the cargo registry
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ~/.cargo/registry
           key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
@@ -73,8 +73,8 @@ jobs:
   windows-terminal:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           components: clippy
       - name: Compile the Windows library and terminal tests
@@ -97,22 +97,22 @@ jobs:
   oracle:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.sha }}
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
       - name: Cache the cargo registry
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ~/.cargo/registry
           key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
       - name: Cache the pinned Readline release
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ~/.cache/sushline/readline-oracle
           key: readline-${{ runner.os }}-${{ env.READLINE_ORACLE_VERSION }}-${{ env.READLINE_ORACLE_SHA256 }}-${{ env.READLINE_ORACLE_CONFIGURE_FLAGS }}-configure-accepted-v1
       - name: Cache the pinned bash oracle host
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ~/.cache/sushline/bash-oracle
           key: bash-${{ runner.os }}-${{ env.BASH_ORACLE_VERSION }}-${{ env.BASH_ORACLE_SHA256 }}-${{ env.READLINE_ORACLE_VERSION }}-${{ env.READLINE_ORACLE_SHA256 }}-${{ env.READLINE_ORACLE_CONFIGURE_FLAGS }}-${{ env.BASH_ORACLE_READLINE }}
@@ -4228,7 +4228,7 @@ jobs:
         run: bash .github/scripts/readline-include-paths.sh --home-unset-only
       - name: Upload HOME-unset inputrc include measurement
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-home-unset-include
           path: /tmp/readline_include_home_unset.out
@@ -4238,7 +4238,7 @@ jobs:
         run: bash .github/scripts/readline-include-paths.sh --tilde-home-unset-only
       - name: Upload HOME-unset tilde-expand comparison
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-home-unset-tilde-expand
           path: /tmp/readline_tilde_home_unset.out
@@ -4248,7 +4248,7 @@ jobs:
         run: bash .github/scripts/readline-include-paths.sh --vi-tilde-home-unset-only
       - name: Upload HOME-unset current-user vi-tilde-expand comparison
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-home-unset-vi-tilde-expand
           path: /tmp/readline_tilde_home_unset_vi.out
@@ -4258,7 +4258,7 @@ jobs:
         run: bash .github/scripts/readline-include-paths.sh --home-empty-only
       - name: Upload HOME-empty inputrc include measurement
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-home-empty-include
           path: /tmp/readline_include_home_empty.out
@@ -4268,7 +4268,7 @@ jobs:
         run: bash .github/scripts/readline-include-paths.sh --tilde-home-empty-only
       - name: Upload HOME-empty tilde-expand comparison
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-home-empty-tilde-expand
           path: /tmp/readline_tilde_home_empty.out
@@ -4278,7 +4278,7 @@ jobs:
         run: bash .github/scripts/readline-include-paths.sh --vi-tilde-home-empty-only
       - name: Upload HOME-empty current-user vi-tilde-expand comparison
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-home-empty-vi-tilde-expand
           path: /tmp/readline_tilde_home_empty_vi.out
@@ -4288,7 +4288,7 @@ jobs:
         run: bash .github/scripts/readline-include-paths.sh --vi-tilde-home-nonempty-only
       - name: Upload HOME-nonempty current-user vi-tilde-expand comparison
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-home-nonempty-vi-tilde-expand
           path: /tmp/readline_tilde_home_nonempty_vi.out
@@ -4298,7 +4298,7 @@ jobs:
         run: bash .github/scripts/readline-include-paths.sh --tilde-home-nonempty-only
       - name: Upload nonempty-HOME tilde-expand comparison
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-home-nonempty-tilde-expand
           path: /tmp/readline_tilde_home_nonempty.out
@@ -4308,7 +4308,7 @@ jobs:
         run: bash .github/scripts/readline-include-paths.sh --tilde-named-user-only
       - name: Upload synthetic named-user tilde-expand comparison
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-named-user-tilde-expand
           path: /tmp/readline_tilde_named_user.out
@@ -4318,7 +4318,7 @@ jobs:
         run: bash .github/scripts/readline-include-paths.sh --filename-named-user-expand-tilde-off-only
       - name: Upload synthetic named-user expand-tilde off filename completion comparison
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-named-user-tilde-off-filename-completion-${{ github.sha }}
           path: /tmp/readline_tilde_named_user_filename_off.out
@@ -4329,7 +4329,7 @@ jobs:
         run: bash .github/scripts/readline-include-paths.sh --filename-named-user-only
       - name: Upload synthetic named-user filename completion comparison
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-named-user-filename-completion
           path: /tmp/readline_tilde_named_user_filename.out
@@ -4340,7 +4340,7 @@ jobs:
         run: bash .github/scripts/readline-include-paths.sh --filename-home-unset-only
       - name: Upload HOME-unset current-user filename completion comparison
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-home-unset-filename-completion
           path: /tmp/readline_tilde_home_unset_filename.out
@@ -4352,7 +4352,7 @@ jobs:
         run: bash .github/scripts/readline-include-paths.sh --filename-bare-tilde-home-empty-only
       - name: Upload HOME-empty bare-tilde filename completion comparison
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-home-empty-bare-tilde-filename-completion-${{ github.sha }}
           path: /tmp/readline_tilde_home_empty_filename_bare.out
@@ -4364,7 +4364,7 @@ jobs:
         run: bash .github/scripts/readline-include-paths.sh --filename-bare-tilde-home-nonempty-only
       - name: Upload HOME-nonempty bare-tilde filename completion comparison
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-home-nonempty-bare-tilde-filename-completion-${{ github.sha }}
           path: /tmp/readline_tilde_home_nonempty_filename_bare.out
@@ -4376,7 +4376,7 @@ jobs:
         run: bash .github/scripts/readline-include-paths.sh --filename-bare-tilde-home-nonempty-expand-tilde-off-only
       - name: Upload HOME-nonempty bare-tilde expand-tilde off filename completion comparison
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-home-nonempty-bare-tilde-off-filename-completion-${{ github.sha }}
           path: /tmp/readline_tilde_home_nonempty_filename_bare_off.out
@@ -4388,7 +4388,7 @@ jobs:
         run: bash .github/scripts/readline-include-paths.sh --filename-bare-tilde-home-unset-expand-tilde-off-only
       - name: Upload HOME-unset bare-tilde expand-tilde off filename completion comparison
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-home-unset-bare-tilde-off-filename-completion-${{ github.sha }}
           path: /tmp/readline_tilde_home_unset_filename_bare_off.out
@@ -4400,7 +4400,7 @@ jobs:
         run: bash .github/scripts/readline-include-paths.sh --filename-bare-tilde-home-empty-expand-tilde-off-only
       - name: Upload HOME-empty bare-tilde expand-tilde off filename completion comparison
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-home-empty-bare-tilde-off-filename-completion-${{ github.sha }}
           path: /tmp/readline_tilde_home_empty_filename_bare_off.out
@@ -4412,7 +4412,7 @@ jobs:
         run: bash .github/scripts/readline-include-paths.sh --filename-home-nonempty-expand-tilde-off-only
       - name: Upload HOME-nonempty expand-tilde off filename completion comparison
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-home-nonempty-tilde-off-filename-completion-${{ github.sha }}
           path: /tmp/readline_tilde_home_nonempty_filename_off.out
@@ -4423,7 +4423,7 @@ jobs:
         run: bash .github/scripts/readline-include-paths.sh --filename-home-nonempty-only
       - name: Upload HOME-nonempty current-user filename completion comparison
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-home-nonempty-filename-completion
           path: /tmp/readline_tilde_home_nonempty_filename.out
@@ -4434,7 +4434,7 @@ jobs:
         run: bash .github/scripts/readline-include-paths.sh --vi-tilde-named-user-only
       - name: Upload synthetic named-user vi-tilde-expand comparison
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-named-user-vi-tilde-expand
           path: /tmp/readline_tilde_named_user_vi.out
@@ -4444,7 +4444,7 @@ jobs:
         run: bash .github/scripts/readline-include-paths.sh --unreadable-only
       - name: Upload unreadable inputrc include measurement
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-unreadable-include
           path: /tmp/readline_include_unreadable.out
@@ -4454,7 +4454,7 @@ jobs:
         run: bash .github/scripts/readline-include-paths.sh --bare-cr-only
       - name: Upload bare-CR inputrc include measurement
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-bare-cr-include
           path: /tmp/readline_include_bare_cr.out
@@ -4464,7 +4464,7 @@ jobs:
         run: bash .github/scripts/readline-include-paths.sh --conditional-crlf-only
       - name: Upload CRLF conditional directive recovery measurement
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-conditional-crlf-${{ github.sha }}
           path: /tmp/readline_conditional_crlf.out
@@ -4474,7 +4474,7 @@ jobs:
         run: bash .github/scripts/history-home-unset.sh
       - name: Upload HOME-unset default history measurement
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-home-unset-history
           path: /tmp/history_home_unset.out
@@ -4483,7 +4483,7 @@ jobs:
       - name: Report the exact CRLF set-value fixture and LF control
         run: python3 .github/scripts/readline-crlf-set-value.py
       - name: Upload sanitized CRLF set-value evidence
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-crlf-set-value-${{ github.sha }}
           path: ${{ runner.temp }}/readline_crlf_set_value.json
@@ -4517,7 +4517,7 @@ jobs:
             /tmp/history_full_file_comparison.out "$report_dir/"
       - name: Upload full-file late-timestamp comparison reports
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-full-file-comparison
           path: ${{ runner.temp }}/sushline-history-full-file-comparison/
@@ -4626,7 +4626,7 @@ jobs:
           done
       - name: Upload pinned oracle measurement reports
         if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-measurements
           path: ${{ runner.temp }}/sushline-oracle-measurements/
@@ -4641,12 +4641,12 @@ jobs:
     needs: oracle
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.sha }}
       - name: Restore the exact pinned Readline release
         id: readline-cache
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ~/.cache/sushline/readline-oracle
           key: readline-${{ runner.os }}-${{ env.READLINE_ORACLE_VERSION }}-${{ env.READLINE_ORACLE_SHA256 }}-${{ env.READLINE_ORACLE_CONFIGURE_FLAGS }}-configure-accepted-v1
@@ -4733,7 +4733,7 @@ jobs:
           test -f /tmp/readline_include_depth_32.out
       - name: Upload independent pinned include-depth reports
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-include-depth-replica
           path: |
@@ -4743,7 +4743,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned horizontal-scroll report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-horizontal-render-replica
           path: /tmp/readline_horizontal_render.out
@@ -4751,7 +4751,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned stream-EOF report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-stream-eof-replica
           path: /tmp/readline_stream_eof_replica.out
@@ -4759,7 +4759,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned invalid-history-search report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-invalid-history-search-replica
           path: /tmp/readline_invalid_history_search.out
@@ -4767,7 +4767,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned invalid-history-prefix-search report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-invalid-history-prefix-search-replica
           path: /tmp/readline_invalid_history_prefix_search.out
@@ -4775,7 +4775,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned Unicode-history-prefix-search report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-unicode-history-prefix-search-replica
           path: /tmp/readline_unicode_history_prefix_search.out
@@ -4783,7 +4783,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned Unicode-history-incremental-search report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-unicode-history-incremental-search-replica
           path: /tmp/readline_unicode_history_incremental_search.out
@@ -4791,7 +4791,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned C-locale history incremental search report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-c-locale-history-incremental-search-replica
           path: /tmp/readline_c_locale_history_incremental_search.out
@@ -4799,7 +4799,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned C-locale input-meta history incremental search report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-c-locale-input-meta-history-incremental-search-replica
           path: /tmp/readline_c_locale_input_meta_history_incremental_search.out
@@ -4807,7 +4807,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned C-locale input-meta history ASCII-prefix search report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-c-locale-input-meta-history-ascii-prefix-search-replica
           path: /tmp/readline_c_locale_input_meta_history_ascii_prefix_search.out
@@ -4815,7 +4815,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned Unicode-history-expansion-incremental-search report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-unicode-history-expansion-incremental-search-replica
           path: /tmp/readline_unicode_history_expansion_incremental_search.out
@@ -4823,7 +4823,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned Unicode-history-forward-incremental-search report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-unicode-history-forward-incremental-search-replica
           path: /tmp/readline_unicode_history_forward_incremental_search.out
@@ -4831,7 +4831,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned Unicode-history-forward-expansion-incremental-search report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-unicode-history-forward-expansion-incremental-search-replica
           path: /tmp/readline_unicode_history_forward_expansion_incremental_search.out
@@ -4839,7 +4839,7 @@ jobs:
           retention-days: 14
       - name: Upload raw Unicode query expansion reverse incremental search report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-unicode-history-query-expansion-incremental-search-replica
           path: /tmp/readline_unicode_history_query_expansion_incremental_search.out
@@ -4847,7 +4847,7 @@ jobs:
           retention-days: 14
       - name: Upload raw Unicode query expansion forward incremental search report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-unicode-history-forward-query-expansion-incremental-search-replica
           path: /tmp/readline_unicode_history_forward_query_expansion_incremental_search.out
@@ -4855,7 +4855,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned Unicode-width report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-unicode-width-replica
           path: /tmp/readline_unicode_width.out
@@ -4863,7 +4863,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned history-truncate report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-history-truncate-replica
           path: /tmp/history_truncate_replica.out
@@ -4871,7 +4871,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned history-append report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-history-append-replica
           path: /tmp/history_append_replica.out
@@ -4879,7 +4879,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned history-write-mode report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-history-write-mode-replica
           path: /tmp/history_write_mode_replica.out
@@ -4887,7 +4887,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned history-multiline-limit report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-history-multiline-limit-replica
           path: /tmp/history_multiline_limit_replica.out
@@ -4895,7 +4895,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned history-joined-eof report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-history-joined-eof-replica
           path: /tmp/history_joined_eof_replica.out
@@ -4903,7 +4903,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned history-expand-reuse report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-history-expand-reuse-replica
           path: /tmp/history_expand_reuse_replica.out
@@ -4911,7 +4911,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned history-search-offset report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-history-search-offset-replica
           path: /tmp/history_search_offset_replica.out
@@ -4919,7 +4919,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned history-search-nul report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-history-search-nul-replica
           path: /tmp/history_search_nul_replica.out
@@ -4927,7 +4927,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned shorter application-name prefix report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-inputrc-application-name-prefix-replica
           path: /tmp/readline_inputrc_application_name_prefix.out
@@ -4935,7 +4935,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned inputrc application-name strict-prefix report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-inputrc-application-prefix-replica
           path: /tmp/readline_inputrc_application_prefix.out
@@ -4943,7 +4943,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned reverse inputrc application-name casing report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-inputrc-application-case-reverse-replica
           path: /tmp/readline_inputrc_application_case_reverse.out
@@ -4951,7 +4951,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned inputrc application-name casing report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-inputrc-application-case-replica
           path: /tmp/readline_inputrc_application_case.out
@@ -4959,7 +4959,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned inputrc version inequality report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-inputrc-version-inequality-replica
           path: /tmp/readline_inputrc_version_inequality.out
@@ -4967,7 +4967,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned inputrc version equality report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-inputrc-version-equality-replica
           path: /tmp/readline_inputrc_version_equality.out
@@ -4975,7 +4975,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned inputrc version double-equality report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-inputrc-version-double-equality-replica
           path: /tmp/readline_inputrc_version_double_equality.out
@@ -4983,7 +4983,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned inputrc vi-mode true-branch report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-inputrc-mode-vi-true-replica
           path: /tmp/readline_inputrc_mode_vi_true.out
@@ -4991,7 +4991,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned inputrc conditions report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-inputrc-conditions-replica
           path: /tmp/readline_inputrc_conditions.out
@@ -4999,7 +4999,7 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned inputrc term report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-inputrc-term-replica
           path: /tmp/readline_inputrc_term.out
@@ -5007,14 +5007,14 @@ jobs:
           retention-days: 14
       - name: Upload independent pinned inputrc variable RHS report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-inputrc-variable-rhs-replica
           path: /tmp/readline_inputrc_variable_rhs.out
           if-no-files-found: error
           retention-days: 14
       - name: Download the primary inputrc variable RHS report
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-measurements
           path: ${{ runner.temp }}/sushline-primary-measurements/

@@ -20,10 +20,11 @@ fn default_file_path_from_home(home: Option<&std::ffi::OsStr>) -> PathBuf {
 impl History {
     /// Return the default history file path.
     ///
-    /// The path is `$HOME/.history` when `HOME` is set, or the relative
-    /// `./.history` in the current working directory when it is not. This is
-    /// Sushline's Rust-helper behavior; no GNU compatibility claim is made
-    /// for the unset-`HOME` case.
+    /// A nonempty `HOME` yields `$HOME/.history`. A present but empty `HOME`
+    /// yields the relative `.history` path, while an unset `HOME` yields
+    /// relative `./.history`; both relative paths target the current directory.
+    /// This is Sushline's Rust-helper behavior; no GNU path-equivalence claim
+    /// is made for empty or unset `HOME`.
     pub fn default_file_path() -> PathBuf {
         let home = std::env::var_os("HOME");
         default_file_path_from_home(home.as_deref())
@@ -1260,10 +1261,14 @@ mod tests {
     }
 
     #[test]
-    fn default_file_path_uses_home_or_relative_fallback() {
+    fn default_file_path_distinguishes_nonempty_empty_and_unset_home() {
         assert_eq!(
             default_file_path_from_home(Some(std::ffi::OsStr::new("/home/test"))),
             PathBuf::from("/home/test/.history")
+        );
+        assert_eq!(
+            default_file_path_from_home(Some(std::ffi::OsStr::new(""))),
+            PathBuf::from(".history")
         );
         assert_eq!(
             default_file_path_from_home(None),

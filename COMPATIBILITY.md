@@ -671,8 +671,11 @@ literal CWD `~/.history` sentinels in two fresh trials; the probe's passwd-looku
 counter remained 0. This result is limited to that call and those fixtures: it does not
 identify a fallback path or establish equivalence to this helper.
 
-The Rust default-path helper uses `$HOME/.history`, or relative `./.history` when `HOME`
-is unset; that fallback remains Sushline-specific, with no GNU path-equivalence claim.
+The Rust default-path helper uses `$HOME/.history` for nonempty `HOME`; a present
+but empty `HOME` produces relative `.history`, while an unset `HOME` produces
+relative `./.history`. Both relative paths target the current directory. These are
+Sushline-specific path-selection behaviors; no GNU path-equivalence claim is made
+for empty or unset `HOME`.
 
 ### History file ranges
 

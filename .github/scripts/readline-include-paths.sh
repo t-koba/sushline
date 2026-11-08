@@ -1154,16 +1154,43 @@ def test_nonempty_vi_parser():
         assert re.fullmatch(NONEMPTY_VI_FIELDS, unsafe) is None
 
 def filename_stderr_category(stderr):
-    # Emit only fixed, path-free families; never retain or print child bytes.
+    # Inspect at most a bounded prefix and emit only fixed, path-free families.
     if not stderr:
         return "empty"
+    if len(stderr) > 512:
+        return "oversize_redacted"
     lines = stderr.splitlines()
     if lines and all(line.startswith(b"readline: warning:") for line in lines):
         return "readline_warning"
     if lines and all(line.startswith(b"readline: ") for line in lines):
         return "readline_diagnostic"
+    if lines and all(line.lower().startswith(b"warning:") for line in lines):
+        return "warning_prefix_redacted"
+    if lines and all(line.lower().startswith(b"error:") for line in lines):
+        return "error_prefix_redacted"
+    lowered = stderr.lower()
+    if any(marker in lowered for marker in (b"terminal", b"tty", b"termcap", b"terminfo")):
+        return "terminal_marker_redacted"
+    if any(marker in lowered for marker in (
+        b"permission", b"no such file", b"not a directory", b"cannot open",
+        b"failed to open", b"opendir", b"stat failed", b"file not found",
+    )):
+        return "filesystem_marker_redacted"
+    if any(marker in lowered for marker in (b"completion", b"matches", b"filename", b"tilde")):
+        return "completion_marker_redacted"
+    if any(byte < 32 and byte not in (9, 10, 13) or byte > 126 for byte in stderr):
+        return "control_or_nonascii_redacted"
+    if any(marker in stderr for marker in (b"/", b"\\", b"~")):
+        return "path_marker_redacted"
+    if lines:
+        first_token = lines[0].split(None, 1)
+        if first_token and first_token[0].endswith(b":"):
+            return "colon_prefix_redacted"
+    if len(lines) == 1:
+        return "single_line_redacted"
+    if len(lines) > 1:
+        return "multiline_redacted"
     return "other_redacted"
-
 
 def filename_child_report(stdout, stderr, returncode, pattern, harness=False, timed_out=False):
     # Child bytes are untrusted. Only full matches may reach the result report;
@@ -1203,15 +1230,24 @@ def test_filename_child_report():
             assert output == valid
     check()
     for stderr, category in (
-        (b"readline: warning: marker\n", "readline_warning"),
-        (b"readline: marker\n", "readline_diagnostic"),
-        (b"marker\n", "other_redacted"),
-        (b"readline: warning: marker\nother\n", "other_redacted"),
+        (b"readline: warning: secret-raw-stderr\n", "readline_warning"),
+        (b"readline: secret-raw-stderr\n", "readline_diagnostic"),
+        (b"warning: secret-raw-stderr\n", "warning_prefix_redacted"),
+        (b"terminal secret-raw-stderr\n", "terminal_marker_redacted"),
+        (b"file not found secret-raw-stderr\n", "filesystem_marker_redacted"),
+        (b"filename completion secret-raw-stderr\n", "completion_marker_redacted"),
+        (b"opaque\x07secret-raw-stderr\n", "control_or_nonascii_redacted"),
+        (b"opaque/secret-raw-stderr\n", "path_marker_redacted"),
+        (b"opaque: secret-raw-stderr\n", "colon_prefix_redacted"),
+        (b"secret-raw-stderr\n", "single_line_redacted"),
+        (b"\n", "single_line_redacted"),
+        (b"secret-raw-stderr\nsecond\n", "multiline_redacted"),
+        (b"x" * 513, "oversize_redacted"),
     ):
         assert filename_stderr_category(stderr) == category
         _, _, diagnostics = filename_child_report(valid, stderr, 0, pattern)
         assert diagnostics[-1] == "stderr_category=" + category
-        assert all(b"marker" not in value.encode("ascii") for value in diagnostics)
+        assert all(b"secret-raw-stderr" not in value.encode("ascii") for value in diagnostics)
     for category in (b"root", b"file", b"metadata", b"enumeration", b"nss"):
         check(stderr=b"guard_denied=" + category + b"\n", returncode=3,
               status="nonzero_exit", guard=category.decode("ascii"))

@@ -1544,6 +1544,7 @@ enum ControlledTildeHome {
     UnsetFilename,
     NonemptyFilename,
     NonemptyBareFilename,
+    EmptyBareFilename,
     NonemptyOffFilename,
 }
 
@@ -1640,6 +1641,13 @@ fn complete_filename_bare_tilde_home_nonempty_fixture() {
 
 #[cfg(target_os = "linux")]
 #[test]
+#[ignore = "requires the controlled HOME-empty bare-tilde filename measurement driver"]
+fn complete_filename_bare_tilde_home_empty_fixture() {
+    tilde_expand_controlled_home_fixture(ControlledTildeHome::EmptyBareFilename);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
 #[ignore = "requires the controlled HOME-nonempty expand-tilde off filename measurement driver"]
 fn complete_filename_home_nonempty_tilde_off_fixture() {
     tilde_expand_controlled_home_fixture(ControlledTildeHome::NonemptyOffFilename);
@@ -1660,7 +1668,9 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
     let expected_home = std::env::var_os("SUSHLINE_TILDE_HOME");
     let home_empty = matches!(
         home_mode,
-        ControlledTildeHome::Empty | ControlledTildeHome::EmptyVi
+        ControlledTildeHome::Empty
+            | ControlledTildeHome::EmptyVi
+            | ControlledTildeHome::EmptyBareFilename
     );
     let home_nonempty = matches!(
         home_mode,
@@ -1683,6 +1693,7 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         ControlledTildeHome::NamedFilename
             | ControlledTildeHome::NamedOffFilename
             | ControlledTildeHome::UnsetFilename
+            | ControlledTildeHome::EmptyBareFilename
             | ControlledTildeHome::NonemptyFilename
             | ControlledTildeHome::NonemptyBareFilename
             | ControlledTildeHome::NonemptyOffFilename
@@ -1699,7 +1710,10 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         std::env::var_os("SUSHLINE_FILENAME_TILDE_OFF").is_some(),
         off
     );
-    let bare = matches!(home_mode, ControlledTildeHome::NonemptyBareFilename);
+    let bare = matches!(
+        home_mode,
+        ControlledTildeHome::NonemptyBareFilename | ControlledTildeHome::EmptyBareFilename
+    );
     assert_eq!(
         std::env::var_os("SUSHLINE_FILENAME_BARE_TILDE").is_some(),
         bare
@@ -1725,7 +1739,9 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
             assert!(std::env::var_os("SUSHLINE_TILDE_HOME_NONEMPTY").is_none());
             assert!(expected_home.is_none());
         }
-        ControlledTildeHome::Empty | ControlledTildeHome::EmptyVi => {
+        ControlledTildeHome::Empty
+        | ControlledTildeHome::EmptyVi
+        | ControlledTildeHome::EmptyBareFilename => {
             assert!(
                 home.as_ref().is_some_and(|home| home.is_empty()),
                 "HOME must be present and empty"
@@ -1815,19 +1831,16 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         if actual.last() == Some(&b' ') {
             actual.pop();
         }
-        if home_nonempty {
+        if home_nonempty || (home_empty && bare) {
             let trailing_slash = bare && actual.ends_with(b"/");
             if trailing_slash {
                 actual.pop();
             }
             let mut classifications = [false; 2];
             let mut candidate = false;
-            for (index, home) in [expected_home.as_ref().unwrap(), &target]
-                .iter()
-                .enumerate()
-            {
+            for (index, home) in [home.as_ref().unwrap(), &target].iter().enumerate() {
                 let bytes = home.as_os_str().as_bytes();
-                if let Some(suffix) = actual.strip_prefix(bytes) {
+                if let Some(suffix) = actual.strip_prefix(bytes).filter(|_| !bytes.is_empty()) {
                     let completed = suffix == b"/audit-candidate";
                     classifications[index] = completed
                         || if bare {
@@ -1858,7 +1871,15 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
                             == Some(b"/audit-cwd-candidate".as_slice())
                     }));
             candidate |= relative;
-            println!("home_present=1\nhome_nonempty=1");
+            println!("home_present=1");
+            println!(
+                "{}=1",
+                if home_empty {
+                    "home_empty"
+                } else {
+                    "home_nonempty"
+                }
+            );
             let lookup = if named { "named" } else { "passwd" };
             println!("{lookup}_home_lookup_hits={}", hits());
             println!("result_home={}", u8::from(classifications[0]));

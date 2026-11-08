@@ -9,6 +9,15 @@ WORKFLOW = Path(".github/workflows/ci.yml")
 USES_KEY = re.compile(
     r"^\s*(?:-\s*)?(?:uses|['\"]uses['\"])\s*:|[\[{,]\s*(?:uses|['\"]uses['\"])\s*:"
 )
+EXPLICIT_KEY = re.compile(r"(?:^|[\[{,])\s*(?:-\s*)?\?")
+ESCAPED_QUOTED_KEY = re.compile(
+    r'(?:^|[\[{,])\s*(?:-\s*)?"(?:[^"\\]|\\.)*\\(?:[^"\\]|\\.)*"\s*:'
+)
+ALIAS_KEY = re.compile(r"(?:^|[\[{,])\s*(?:-\s*)?\*[A-Za-z0-9_-]+\s*:")
+KEY_PROPERTY = re.compile(r"(?:^|(?<![$\{])[\[{,])\s*(?:-\s*)?(?:&[A-Za-z0-9_-]+|!{1,2}[^\s]+)\s+")
+BLOCK_SCALAR_HEADER = re.compile(
+    r"^(?P<indent> *)[^#\n]*:\s*[|>](?:[+-][1-9]?|[1-9][+-]?)?(?:\s+#.*)?\s*$"
+)
 USES_LINE = re.compile(r"^\s*(?:-\s*)?uses\s*:\s*(\S+)(?:\s+#\s*(.*))?\s*$")
 REMOTE_PIN = re.compile(r"(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+@[0-9a-f]{40}")
 LOCAL_ACTION = re.compile(r"\./[^@\s#]+")
@@ -16,18 +25,37 @@ LOCAL_ACTION = re.compile(r"\./[^@\s#]+")
 
 def invalid_lines(text):
     invalid = []
+    block_indent = None
     for number, line in enumerate(text.splitlines(), 1):
-        if line.lstrip().startswith("#") or not USES_KEY.search(line):
+        indentation = len(line) - len(line.lstrip(" "))
+        if block_indent is not None:
+            if not line.strip() or indentation > block_indent:
+                continue
+            block_indent = None
+        if line.lstrip().startswith("#"):
             continue
-        match = USES_LINE.fullmatch(line)
-        if match is None:
+
+        block_header = BLOCK_SCALAR_HEADER.fullmatch(line)
+        if (
+            EXPLICIT_KEY.search(line)
+            or ESCAPED_QUOTED_KEY.search(line)
+            or ALIAS_KEY.search(line)
+            or KEY_PROPERTY.search(line)
+        ):
             invalid.append(number)
-            continue
-        reference, comment = match.groups()
-        if LOCAL_ACTION.fullmatch(reference):
-            continue
-        if not REMOTE_PIN.fullmatch(reference) or not comment or not comment.strip():
-            invalid.append(number)
+        elif USES_KEY.search(line):
+            match = USES_LINE.fullmatch(line)
+            if match is None:
+                invalid.append(number)
+            else:
+                reference, comment = match.groups()
+                if not LOCAL_ACTION.fullmatch(reference) and (
+                    not REMOTE_PIN.fullmatch(reference) or not comment or not comment.strip()
+                ):
+                    invalid.append(number)
+
+        if block_header is not None:
+            block_indent = len(block_header.group("indent"))
     return invalid
 
 
@@ -39,6 +67,7 @@ def self_test():
         "  - uses: ./.github/actions/check\n",
         "# uses: actions/checkout@v5\n",
         "run: echo uses: actions/checkout@v5\n",
+        "run: |\n  ? SIG_IGN : application_sigint;\n",
     )
     for sample in accepted:
         if invalid_lines(sample):
@@ -52,6 +81,14 @@ def self_test():
         "uses: ${{ matrix.action }} # v5\n",
         f"'uses': actions/checkout@{sha} # v5\n",
         "steps: [{uses: actions/checkout@v5}]\n",
+        "? uses\n: actions/checkout@v5\n",
+        "steps: [{? uses: actions/checkout@v5}]\n",
+        r'"us\u0065s": actions/checkout@v5' + "\n",
+        r'steps: [{"us\u0065s": actions/checkout@v5}]' + "\n",
+        r'? "us\u0065s"' + "\n: actions/checkout@v5\n",
+        "steps: [{*action: actions/checkout@v5}]\n",
+        "&action uses: actions/checkout@v5\n",
+        "!!str uses: actions/checkout@v5\n",
         "uses: docker://alpine:3.20\n",
     )
     for sample in rejected:

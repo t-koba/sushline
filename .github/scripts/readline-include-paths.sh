@@ -1178,8 +1178,10 @@ def filename_stderr_category(stderr):
         return "filesystem_marker_redacted"
     if any(marker in lowered for marker in (b"completion", b"matches", b"filename", b"tilde")):
         return "completion_marker_redacted"
-    if any(byte < 32 and byte not in (9, 10, 13) or byte > 126 for byte in stderr):
-        return "control_or_nonascii_redacted"
+    if any(byte < 32 and byte not in (9, 10, 13) for byte in stderr):
+        return "control_byte_redacted"
+    if any(byte > 126 for byte in stderr):
+        return "nonascii_byte_redacted"
     if any(marker in stderr for marker in (b"/", b"\\", b"~")):
         return "path_marker_redacted"
     if lines:
@@ -1236,7 +1238,8 @@ def test_filename_child_report():
         (b"terminal secret-raw-stderr\n", "terminal_marker_redacted"),
         (b"file not found secret-raw-stderr\n", "filesystem_marker_redacted"),
         (b"filename completion secret-raw-stderr\n", "completion_marker_redacted"),
-        (b"opaque\x07secret-raw-stderr\n", "control_or_nonascii_redacted"),
+        (b"opaque\x07secret-raw-stderr\n", "control_byte_redacted"),
+        (b"opaque\xffsecret-raw-stderr\n", "nonascii_byte_redacted"),
         (b"opaque/secret-raw-stderr\n", "path_marker_redacted"),
         (b"opaque: secret-raw-stderr\n", "colon_prefix_redacted"),
         (b"secret-raw-stderr\n", "single_line_redacted"),

@@ -4434,6 +4434,16 @@ jobs:
           path: /tmp/readline_include_bare_cr.out
           if-no-files-found: error
           retention-days: 14
+      - name: Measure isolated CRLF conditional directive recovery against the pinned release
+        run: bash .github/scripts/readline-include-paths.sh --conditional-crlf-only
+      - name: Upload CRLF conditional directive recovery measurement
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-readline-${{ env.READLINE_ORACLE_VERSION }}-conditional-crlf-${{ github.sha }}
+          path: /tmp/readline_conditional_crlf.out
+          if-no-files-found: error
+          retention-days: 14
       - name: Measure default history file with HOME absent against the pinned release
         run: bash .github/scripts/history-home-unset.sh
       - name: Upload HOME-unset default history measurement

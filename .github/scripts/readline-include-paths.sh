@@ -42,6 +42,8 @@
 # with child HOME absent, a synthetic passwd home and a literal CWD tilde.
 # --filename-bare-tilde-home-empty-expand-tilde-off-only isolates bare `~`
 # with child HOME present but empty, a synthetic passwd home and literal CWD tilde.
+# --conditional-crlf-only isolates CR on each conditional directive, with an
+# all-LF control and an independent post-block sentinel read. Measurement only.
 # Measurement only against the pinned release.
 set -euo pipefail
 ulimit -c 0
@@ -70,13 +72,14 @@ case "$#:$*" in
   1:--home-empty-only) mode=home-empty ;;
   1:--unreadable-only) mode=unreadable ;;
   1:--bare-cr-only) mode=bare-cr ;;
-  *) echo "usage: readline-include-paths.sh [--filename-bare-tilde-home-empty-expand-tilde-off-only|--filename-bare-tilde-home-unset-expand-tilde-off-only|--filename-bare-tilde-home-nonempty-expand-tilde-off-only|--filename-bare-tilde-home-empty-only|--filename-named-user-expand-tilde-off-only|--filename-home-nonempty-expand-tilde-off-only|--filename-bare-tilde-home-nonempty-only|--vi-tilde-home-nonempty-only|--filename-home-nonempty-only|--vi-tilde-home-empty-only|--vi-tilde-home-unset-only|--filename-home-unset-only|--filename-named-user-only|--vi-tilde-named-user-only|--tilde-named-user-only|--tilde-home-nonempty-only|--tilde-home-empty-only|--tilde-home-unset-only|--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
+  1:--conditional-crlf-only) mode=conditional-crlf ;;
+  *) echo "usage: readline-include-paths.sh [--conditional-crlf-only|--filename-bare-tilde-home-empty-expand-tilde-off-only|--filename-bare-tilde-home-unset-expand-tilde-off-only|--filename-bare-tilde-home-nonempty-expand-tilde-off-only|--filename-bare-tilde-home-empty-only|--filename-named-user-expand-tilde-off-only|--filename-home-nonempty-expand-tilde-off-only|--filename-bare-tilde-home-nonempty-only|--vi-tilde-home-nonempty-only|--filename-home-nonempty-only|--vi-tilde-home-empty-only|--vi-tilde-home-unset-only|--filename-home-unset-only|--filename-named-user-only|--vi-tilde-named-user-only|--tilde-named-user-only|--tilde-home-nonempty-only|--tilde-home-empty-only|--tilde-home-unset-only|--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
 esac
 lookup_error_dir=$(mktemp -d /tmp/sushline-lookup-error-XXXXXX)
 trap 'rm -rf "$lookup_error_dir"' EXIT
 probe="$lookup_error_dir/probe"
 report=/tmp/readline_include_paths.out
-if [[ "$mode" = tilde-* ]]; then
+if [[ "$mode" = tilde-* || "$mode" = conditional-crlf ]]; then
   report="/tmp/readline_${mode//-/_}.out"
   rm -f "$report"
   [ "$READLINE_ORACLE_VERSION" = 8.3 ] || exit 1
@@ -101,7 +104,7 @@ if [ ! -f "$readline/lib/libreadline.so" ] || [ ! -f "$marker" ] || \
   echo "paths probe requires the exact pinned Readline cache" >&2
   exit 1
 fi
-if [[ "$mode" = tilde-* ]]; then
+if [[ "$mode" = tilde-* || "$mode" = conditional-crlf ]]; then
   prefix=$(realpath -e "$readline")
   library=$(realpath -e "$readline/lib/libreadline.so")
   case "$library" in
@@ -170,6 +173,27 @@ int main(int argc, char **argv) {
         if (!pinned || rl_readline_version != 0x0803 || !home_ok ||
             !arm || !hits || !safe || !arm() || rl_initialize() != 0)
             return 2;
+        if (getenv("SUSHLINE_CONDITIONAL_INPUTRC")) {
+            if (RL_READLINE_VERSION != 0x0803 || strcmp(rl_library_version, "8.3") != 0)
+                return 2;
+            int status = rl_read_init_file(getenv("SUSHLINE_CONDITIONAL_INPUTRC"));
+            int input[2];
+            const char *keys = getenv("SUSHLINE_CONDITIONAL_SENTINEL") ? "\020\r" : "abc\017X\r";
+            size_t count = strlen(keys);
+            if (pipe(input) != 0 || write(input[1], keys, count) != (ssize_t)count ||
+                close(input[1]) != 0) return 2;
+            rl_instream = fdopen(input[0], "r");
+            rl_outstream = fopen("/dev/null", "w");
+            if (!rl_instream || !rl_outstream) return 2;
+            char *line = readline("");
+            if (!line || strlen(line) > 16) { free(line); return 2; }
+            printf("readline_release=8.3\npinned_library_loaded=1\nread_status=%d\naccepted_hex=", status);
+            for (size_t i = 0; line[i]; ++i) printf("%02x", (unsigned char)line[i]);
+            printf("\nguards_ok=%u\n", safe());
+            free(line);
+            if (fclose(rl_instream) != 0 || fclose(rl_outstream) != 0) return 2;
+            return 0;
+        }
         int filename = getenv("SUSHLINE_FILENAME_PROBE") != NULL;
         int bare = getenv("SUSHLINE_FILENAME_BARE_TILDE") != NULL;
         int off = getenv("SUSHLINE_FILENAME_TILDE_OFF") != NULL;
@@ -433,7 +457,7 @@ static int nonempty_current_vi(void) {
            !getenv("SUSHLINE_TILDE_NAMED_USER");
 }
 static void stop_unsafe(const char *category) {
-    if (armed && !checking && (nonempty_current_vi() ||
+    if (armed && !checking && (getenv("SUSHLINE_CONDITIONAL_INPUTRC") || nonempty_current_vi() ||
         (getenv("SUSHLINE_FILENAME_PROBE") &&
          (getenv("SUSHLINE_TILDE_HOME_NONEMPTY") || getenv("SUSHLINE_FILENAME_BARE_TILDE")) &&
          (!getenv("SUSHLINE_TILDE_NAMED_USER") || getenv("SUSHLINE_FILENAME_TILDE_OFF"))))) {
@@ -491,7 +515,7 @@ unsigned int sushline_tilde_guard(void) {
         guarded = guarded && directory_denied && metadata_denied && account_denied &&
                   blocked == before + 3;
     }
-    if ((getenv("SUSHLINE_TILDE_VI") || getenv("SUSHLINE_FILENAME_BARE_TILDE") ||
+    if ((getenv("SUSHLINE_CONDITIONAL_INPUTRC") || getenv("SUSHLINE_TILDE_VI") || getenv("SUSHLINE_FILENAME_BARE_TILDE") ||
          getenv("SUSHLINE_FILENAME_TILDE_OFF")) &&
         !getenv("SUSHLINE_TILDE_NAMED_USER")) {
         unsigned int before = blocked;
@@ -577,7 +601,7 @@ unsigned int sushline_tilde_guard(void) {
         if (directory) closedir(directory);
         guarded = guarded && descriptor_denied && enumeration_denied && blocked == before + (getenv("SUSHLINE_TILDE_NAMED_USER") ? 24 : 14);
     }
-    if (nonempty_current_vi()) {
+    if (nonempty_current_vi() || getenv("SUSHLINE_CONDITIONAL_INPUTRC")) {
         unsigned int before = blocked;
         DIR *directory = opendir(getenv("SUSHLINE_TILDE_HOME"));
         int directory_denied = directory == NULL && errno == EACCES;
@@ -606,7 +630,9 @@ static int denied(const char *path) {
         }
         return 1;
     }
-    if (armed && strcmp(path, "/dev/null") != 0) {
+    const char *conditional = getenv("SUSHLINE_CONDITIONAL_INPUTRC");
+    if (armed && strcmp(path, "/dev/null") != 0 &&
+        !(conditional && strcmp(path, conditional) == 0)) {
         ++blocked;
         stop_unsafe("file");
         errno = EACCES;
@@ -672,8 +698,12 @@ FILE *fopen64(const char *path, const char *mode) {
    only the configured candidate. The nonempty current-user vi probe denies all
    metadata/enumeration. No links, traversal, or host paths are permitted. */
 static int completion_path_denied_at(int dirfd, const char *path, int metadata, int flags) {
+    /* Conditional parsing may inspect only its owned inputrc and /dev/null. */
+    const char *conditional = getenv("SUSHLINE_CONDITIONAL_INPUTRC");
+    if (armed && conditional && metadata && dirfd == AT_FDCWD && flags == 0 &&
+        path && (strcmp(path, conditional) == 0 || strcmp(path, "/dev/null") == 0)) return 0;
     /* The nonempty current-user vi command needs no filesystem inspection. */
-    if (armed && nonempty_current_vi()) {
+    if (armed && (nonempty_current_vi() || conditional)) {
         ++blocked;
         stop_unsafe(metadata ? "metadata" : "enumeration");
         errno = EACCES;
@@ -811,7 +841,8 @@ unsigned int sushline_passwd_home_hits(void) { return home_hits; }
 
 static struct passwd *synthetic_passwd(uid_t uid) {
     const char *home = getenv("SUSHLINE_PASSWD_HOME");
-    if (getenv("SUSHLINE_TILDE_NAMED_USER") != NULL ||
+    if (getenv("SUSHLINE_CONDITIONAL_INPUTRC") ||
+        getenv("SUSHLINE_TILDE_NAMED_USER") != NULL ||
         home == NULL || uid != getuid()) {
         return NULL;
     }
@@ -975,7 +1006,7 @@ int getpwnam_r(const char *name, struct passwd *pwd, char *buffer,
 }
 INTERPOSER
 interposer_flags=()
-if [[ "$mode" = tilde-* ]]; then
+if [[ "$mode" = tilde-* || "$mode" = conditional-crlf ]]; then
   interposer_flags=(-DSUSHLINE_TILDE_FILE_GUARD)
 fi
 if ! cc -Wall -Wextra -Werror "${interposer_flags[@]}" -shared -fPIC -o "$lookup_error_dir/interposer.so" \
@@ -1522,6 +1553,87 @@ def test_empty_bare_off_filename_parser():
                    valid.replace(b"result_trailing_slash=0\n", b""),
                    valid.replace(b"result_escaped_literal_prefix=0\n", b""), valid + b"unexpected\n"):
         assert re.fullmatch(EMPTY_BARE_OFF_FILENAME_FIELDS, unsafe) is None
+
+
+def conditional_diagnostics(stderr, path):
+    # Match complete diagnostic records, not substrings; never forward child bytes.
+    prefix = rb"readline: " + re.escape(os.fsencode(path)) + rb": line ([1-6]): "
+    record = re.compile(prefix + rb"(?:(trailing garbage on line): `[^\n]{0,64}'|"
+                        rb"(?:else|endif)\r: (unknown parser directive))\n")
+    categories = []
+    while stderr:
+        match = record.match(stderr)
+        if match is None:
+            raise ValueError()
+        categories.append((int(match[1]), (match[2] or match[3]).decode("ascii").replace(" ", "_")))
+        stderr = stderr[match.end():]
+    return categories
+
+
+def run_conditional_crlf():
+    sample = b"readline: outer.inputrc: line 3: else\r: unknown parser directive\n"
+    assert conditional_diagnostics(sample, "outer.inputrc") == [(3, "unknown_parser_directive")]
+    assert conditional_diagnostics(b"", "outer.inputrc") == []
+    for unsafe in (sample + b"unexpected\n", sample.replace(b"outer.inputrc", b"other"),
+                   sample.replace(b"unknown parser directive", b"unknown category")):
+        try:
+            conditional_diagnostics(unsafe, "outer.inputrc")
+        except ValueError:
+            continue
+        raise ValueError()
+    # The baseline bindings/keys are the existing mixed-ending oracle fixture.
+    # A separate fresh process tests Ctrl-P, so early accept-line on Ctrl-O
+    # cannot consume or hide the post-block sentinel. No new outcome is golden.
+    for label, endings in (("lf", ("", "", "")), ("if_cr", ("\r", "", "")),
+                           ("else_cr", ("", "\r", "")), ("endif_cr", ("", "", "\r"))):
+        with tempfile.TemporaryDirectory(prefix="sushline-conditional-crlf-", dir="/tmp") as base:
+            path = os.path.join(base, "outer.inputrc")
+            denied = os.path.join(base, "denied")
+            os.mkdir(denied)
+            contents = ('$if version >= 8.0' + endings[0] + '\n"\\C-o": beginning-of-line\n'
+                        '$else' + endings[1] + '\n"\\C-o": end-of-line\n$endif' + endings[2] +
+                        '\n"\\C-p": "S"\n').encode("ascii")
+            with open(path, "xb") as config:
+                config.write(contents)
+            identity = os.stat(path, follow_symlinks=False)
+            for sentinel in (False, True):
+                # Like the other in-memory probes, avoid host terminfo lookup.
+                env = {"PATH": "/usr/bin:/bin", "HOME": base, "INPUTRC": "/dev/null",
+                       "LC_ALL": "C", "TERM": "",
+                       "LD_PRELOAD": os.environ["SUSHLINE_LOOKUP_ERROR_PRELOAD"],
+                       "SUSHLINE_TILDE_PROBE": "1", "SUSHLINE_TILDE_HOME_NONEMPTY": "1",
+                       "SUSHLINE_TILDE_HOME": base, "SUSHLINE_PASSWD_HOME": denied,
+                       "SUSHLINE_CONDITIONAL_INPUTRC": path}
+                if sentinel:
+                    env["SUSHLINE_CONDITIONAL_SENTINEL"] = "1"
+                result = subprocess.run([probe, path, os.environ["SUSHLINE_PINNED_READLINE"]],
+                                        env=env, cwd=base, stdin=subprocess.DEVNULL,
+                                        capture_output=True, timeout=5, check=False)
+                match = re.fullmatch(rb"readline_release=8.3\npinned_library_loaded=1\nread_status=0\n"
+                                     rb"accepted_hex=([0-9a-f]{0,32})\nguards_ok=1\n", result.stdout)
+                if result.returncode != 0 or match is None:
+                    raise ValueError()
+                accepted = bytes.fromhex(match[1].decode("ascii"))
+                if accepted not in ((b"", b"S") if sentinel else (b"abc", b"Xabc", b"abcX")):
+                    raise ValueError()
+                diagnostics = conditional_diagnostics(result.stderr, path)
+                if label == "lf" and (diagnostics or accepted != (b"S" if sentinel else b"Xabc")):
+                    raise ValueError()
+                after = os.stat(path, follow_symlinks=False)
+                with open(path, "rb") as config:
+                    unchanged = config.read() == contents
+                if ((identity.st_dev, identity.st_ino) != (after.st_dev, after.st_ino) or
+                        not stat.S_ISREG(after.st_mode) or not unchanged or os.listdir(denied) or
+                        sorted(os.listdir(base)) != ["denied", "outer.inputrc"]):
+                    raise ValueError()
+                phase = "continuation" if sentinel else "branch"
+                print(f"{label}_{phase}_accepted_hex={accepted.hex()}")
+                print(f"{label}_{phase}_diagnostics={json.dumps(diagnostics, separators=(',', ':'))}")
+                print(f"{label}_{phase}_guards_ok=1")
+                if sentinel:
+                    print(f"{label}_post_block_sentinel={int(accepted == b'S')}")
+        print(f"{label}_cleanup={int(not os.path.lexists(base))}")
+    print("readline_release=8.3 pinned_library_loaded=1 measurement_ok=1")
 
 
 def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False, filename=False, bare=False, off=False):
@@ -2198,6 +2310,9 @@ def setup_unreadable(base):
     return outer_path, base, base, include_path
 
 try:
+    if mode == "conditional-crlf":
+        run_conditional_crlf()
+        sys.exit(0)
     if mode == "tilde-home-empty-filename-bare-off":
         run_tilde_home(home_empty=True, filename=True, bare=True, off=True)
         sys.exit(0)

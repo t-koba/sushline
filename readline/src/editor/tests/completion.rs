@@ -747,3 +747,114 @@ fn visible_stats_marker_uses_raw_bytes_for_non_utf8_paths() {
     let dir_name = dir.path().as_os_str().as_bytes().to_vec();
     assert_eq!(visible_stats_marker_bytes(&dir_name), Some('/'));
 }
+
+#[cfg(windows)]
+#[test]
+fn windows_paths_complete_through_editor_with_shell_escaped_spaces() {
+    #[derive(Default)]
+    struct Observe {
+        words: Vec<Vec<u8>>,
+        defaults: Vec<Vec<u8>>,
+        replacements: Vec<Vec<u8>>,
+    }
+    impl Hooks for Observe {
+        fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
+            self.words.push(request.context.word);
+            None
+        }
+        fn default_complete(&mut self, request: &CompletionRequest) -> Option<CompletionResponse> {
+            self.defaults.push(request.context.word.clone());
+            None
+        }
+        fn quote_completion(&mut self, context: crate::hooks::QuoteContext<'_>) -> Option<Vec<u8>> {
+            self.replacements.push(context.value.to_vec());
+            None
+        }
+    }
+
+    // Do not include filesystem paths or edited lines in failure diagnostics.
+    let dir = tempfile::tempdir().unwrap_or_else(|_| panic!("create completion fixture"));
+    let parent = dir.path().join("native space");
+    assert!(
+        std::fs::create_dir(&parent).is_ok(),
+        "create fixture directory"
+    );
+    assert!(
+        std::fs::write(parent.join("report file.txt"), b"").is_ok(),
+        "create fixture file"
+    );
+    let parent = parent
+        .to_str()
+        .expect("UTF-8 fixture path")
+        .replace('/', "\\");
+    let candidate = format!("{parent}\\report file.txt").into_bytes();
+    // Leave native separators literal while shell-escaping spaces and any
+    // metacharacters in the runner's temporary directory name.
+    let escape = |bytes: &[u8], native: bool| {
+        let mut out = Vec::new();
+        for byte in bytes {
+            if (byte.is_ascii_whitespace() || b"\\\"'`$!&|;<>()[]{}*?~#".contains(byte))
+                && !(native && *byte == b'\\')
+            {
+                out.push(b'\\');
+            }
+            out.push(*byte);
+        }
+        out
+    };
+    for command in [
+        "complete",
+        "complete-filename",
+        "possible-filename-completions",
+    ] {
+        for prefix in [b"rep".as_slice(), br"report\ f"] {
+            let mut typed = escape(parent.as_bytes(), true);
+            typed.push(b'\\');
+            typed.extend_from_slice(prefix);
+            let terminal = MemoryTerminal::with_events(vec![
+                TerminalEvent::Bytes(typed.clone()),
+                TerminalEvent::Bytes(b"\t\r".to_vec()),
+            ]);
+            let mut line = Editor::new(Config::default(), terminal, History::new());
+            assert!(
+                line.load_inputrc_str(&format!("\"\\C-i\": {command}"))
+                    .is_ok()
+            );
+            let mut hooks = Observe::default();
+            let result = line.read_line(Prompt::new("> "), &mut hooks);
+            assert!(result.is_ok(), "editor completion failed");
+            let listing = command == "possible-filename-completions";
+            let expected = if listing {
+                assert!(
+                    line.terminal.out.contains("report file.txt"),
+                    "missing candidate listing"
+                );
+                typed
+            } else {
+                assert!(
+                    hooks.replacements.iter().any(|value| value == &candidate),
+                    "wrong lookup candidate"
+                );
+                let mut expected = escape(&candidate, false);
+                expected.push(b' ');
+                expected
+            };
+            assert!(
+                matches!(result, Ok(ReadlineResult::Line(bytes)) if bytes == expected),
+                "wrong completed line"
+            );
+            assert_eq!(hooks.words.len(), 1);
+            // Both application hooks still receive the same generic word,
+            // not the native-path lookup context.
+            assert!(!hooks.words[0].starts_with(parent.as_bytes()));
+            if command == "complete" {
+                assert!(
+                    hooks.defaults == hooks.words,
+                    "application word changed in fallback"
+                );
+            } else {
+                assert!(hooks.defaults.is_empty());
+            }
+        }
+    }
+}

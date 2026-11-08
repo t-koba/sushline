@@ -59,7 +59,7 @@ impl CompletionEdit {
             return None;
         }
         let raw = self.line.get(self.start..self.end)?;
-        let (_, quote, opening) = dequote_completion_word_with_opening(raw);
+        let (_, quote, opening) = dequote_completion_word_with_opening(raw, false);
         let opening = opening.filter(|opening| *opening > 0)?;
         if !matches!(quote, Some('\'' | '"')) || opening + 1 == raw.len() {
             return None;
@@ -124,11 +124,32 @@ pub(super) fn completion_edit(
 }
 
 pub(super) fn dequote_completion_word_bytes(raw: &[u8]) -> (Vec<u8>, Option<char>) {
-    let (word, quote, _) = dequote_completion_word_with_opening(raw);
+    let (word, quote, _) = dequote_completion_word_with_opening(raw, false);
     (word, quote)
 }
 
-fn dequote_completion_word_with_opening(raw: &[u8]) -> (Vec<u8>, Option<char>, Option<usize>) {
+// Only built-in filename lookup opts into native separators. Application
+// requests retain the generic shell-dequoted word on every platform.
+pub(super) fn filename_completion_context(
+    context: &crate::completion::CompletionContext,
+    segment: Option<&FilenameSegment>,
+) -> crate::completion::CompletionContext {
+    let mut context = context.clone();
+    if let Some(segment) = segment {
+        context.word_start = segment.raw_start;
+        context.word = segment.word_bytes.clone();
+    }
+    #[cfg(windows)]
+    if let Some(raw) = context.line.get(context.word_start..context.word_end) {
+        context.word = dequote_completion_word_with_opening(raw, true).0;
+    }
+    context
+}
+
+fn dequote_completion_word_with_opening(
+    raw: &[u8],
+    native_separators: bool,
+) -> (Vec<u8>, Option<char>, Option<usize>) {
     let ansi_c_quote = raw.starts_with(b"$'");
     let mut idx = if ansi_c_quote { 2 } else { 0 };
     // A plain single- or double-quoted word can continue through unquoted escaped bytes
@@ -167,6 +188,15 @@ fn dequote_completion_word_with_opening(raw: &[u8]) -> (Vec<u8>, Option<char>, O
                     Some(b'\n') => idx += 1,
                     Some(_) | None => out.push(b'\\'),
                 }
+            } else if native_separators
+                && raw.get(idx).is_none_or(|next| {
+                    !next.is_ascii_whitespace() && !b"\"'`$!&|;<>()[]{}*?~#".contains(next)
+                })
+            {
+                // Ordinary component bytes and consecutive separators (UNC
+                // included) are literal; shell whitespace/metacharacters
+                // still accept an intentional backslash escape.
+                out.push(b'\\');
             } else {
                 escaped = true;
             }
@@ -353,6 +383,34 @@ mod tests {
     use super::{
         dequote_completion_word_bytes, quote_double_quoted_filename_bytes, quote_filename_bytes,
     };
+
+    #[test]
+    fn native_filename_dequoting_preserves_separators_but_not_shell_escapes() {
+        for (raw, expected) in [
+            (br"C:\temp\rep".as_slice(), br"C:\temp\rep".as_slice()),
+            (br"\\server\share\\rep", br"\\server\share\\rep"),
+            (br"C:\temp\report\ file", br"C:\temp\report file"),
+            (br"C:\temp\report\[x\]", br"C:\temp\report[x]"),
+            (br"C:\temp\", br"C:\temp\"),
+        ] {
+            assert_eq!(
+                super::dequote_completion_word_with_opening(raw, true).0,
+                expected
+            );
+        }
+        // Native lookup must not change the generic application request word.
+        assert_eq!(
+            dequote_completion_word_bytes(br"C:\temp\rep").0,
+            b"C:temprep"
+        );
+        // Quoted shell escape rules are unchanged even for native lookup.
+        for raw in [br#""C:\temp\\rep""#.as_slice(), br"'C:\temp\rep'"] {
+            assert_eq!(
+                super::dequote_completion_word_with_opening(raw, true).0,
+                dequote_completion_word_bytes(raw).0,
+            );
+        }
+    }
 
     #[test]
     fn filename_quoting_uses_single_quotes_for_line_feeds() {

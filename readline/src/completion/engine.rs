@@ -155,18 +155,11 @@ where
                 completion_type,
             },
         };
-        let mut filename_context = request.context.clone();
-        if let Some(segment) = &segment {
-            filename_context.word_start = segment.raw_start;
-            filename_context.word = segment.word_bytes.clone();
-        }
+        let mut filename_context = filename_completion_context(&request.context, segment.as_ref());
         let Some(mut response) = hooks.complete(request.clone()) else {
             if segment.is_none() {
                 segment = edit.reopened_filename_segment();
-                if let Some(segment) = &segment {
-                    filename_context.word_start = segment.raw_start;
-                    filename_context.word = segment.word_bytes.clone();
-                }
+                filename_context = filename_completion_context(&request.context, segment.as_ref());
             }
             let (response, builtin_filenames) =
                 self.default_completion(&request, hooks, Some(&filename_context));
@@ -185,10 +178,7 @@ where
                     || response.options.dirnames));
         if needs_filename_context && segment.is_none() {
             segment = edit.reopened_filename_segment();
-            if let Some(segment) = &segment {
-                filename_context.word_start = segment.raw_start;
-                filename_context.word = segment.word_bytes.clone();
-            }
+            filename_context = filename_completion_context(&request.context, segment.as_ref());
         }
         if response.candidates.is_empty()
             && (response.options.bashdefault

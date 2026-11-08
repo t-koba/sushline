@@ -83,6 +83,8 @@ jobs:
         run: cargo test -p sushline-readline --lib --no-default-features --locked terminal::windows::tests -- --nocapture --test-threads=1
       - name: Complete native Windows filename paths
         run: cargo test -p sushline-readline --lib --no-default-features --locked completion::filename::tests::windows_paths -- --nocapture --test-threads=1
+      - name: Complete native Windows paths through the editor
+        run: cargo test -p sushline-readline --lib --no-default-features --locked editor::tests::completion::windows_paths -- --nocapture --test-threads=1
       - name: Preserve locale defaults for custom terminal backends
         run: cargo test -p sushline-readline --lib --no-default-features --locked editor::tests::signals::custom_terminal_keeps_locale_based_utf8_defaults -- --nocapture --test-threads=1
       - name: Search UTF-8 history under the C locale on an opted-in terminal

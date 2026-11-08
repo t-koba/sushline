@@ -5,10 +5,14 @@
 //! ANSI escape sequences. Parameterized terminfo expansion for those helpers is
 //! intentionally not part of the terminal backend.
 //!
-//! The concrete terminal backend is Unix-oriented. Non-Unix targets compile,
-//! but live terminal operations return `Unsupported` until a backend is added.
+//! The built-in backend supports Unix terminals and modern Windows consoles
+//! with VT output. Windows uses native Unicode key records (Ctrl-C is input,
+//! not a POSIX signal), and requires console stdin/stdout rather than pipes.
+//! Other targets return `Unsupported` for live terminal operations.
 
-use std::io::{self, Stdout, Write};
+#[cfg(not(windows))]
+use std::io::Stdout;
+use std::io::{self, Write};
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
 #[cfg(unix)]
@@ -17,6 +21,8 @@ use std::time::Duration;
 
 pub(crate) mod escape;
 mod terminfo;
+#[cfg(windows)]
+mod windows;
 pub(crate) use terminfo::{DefaultCapabilities, default_capabilities};
 use terminfo::{terminfo_keypad_sequence, terminfo_sequence};
 
@@ -66,11 +72,20 @@ pub trait TerminalIo {
     /// Default SIGINT policy for editors constructed with this backend.
     ///
     /// Custom backends retain the `Interrupted` default unless they opt in.
-    /// The built-in [`Terminal`] defaults to `Continue`. An editor can override
-    /// either default with [`crate::Editor::set_sigint_policy`]. Fatal redelivery
-    /// of a genuinely caught signal prevents either policy from returning.
+    /// The Unix built-in [`Terminal`] defaults to `Continue`; its Windows
+    /// console defaults to `Interrupted` because Ctrl-C arrives as input. An
+    /// editor can override either default with [`crate::Editor::set_sigint_policy`].
+    /// Fatal redelivery of a genuinely caught Unix signal prevents either policy
+    /// from returning.
     fn sigint_policy(&self) -> SigintPolicy {
         SigintPolicy::Interrupted
+    }
+
+    /// Whether `read_event` returns UTF-8 bytes and `write_bytes` accepts UTF-8,
+    /// independent of the process locale. The editor uses this for matching
+    /// Unicode and Meta-key defaults; custom backends may opt in.
+    fn uses_utf8_io(&self) -> bool {
+        false
     }
 
     /// Enters raw terminal mode.
@@ -115,6 +130,7 @@ pub trait TerminalIo {
         true
     }
     /// Writes bytes to the terminal.
+    /// The built-in Windows console requires valid UTF-8 (`InvalidData` otherwise).
     fn write_bytes(&mut self, bytes: &[u8]) -> io::Result<()>;
     /// Flushes pending terminal output.
     fn flush(&mut self) -> io::Result<()>;
@@ -150,8 +166,9 @@ pub trait TerminalIo {
     }
     /// Notifies the backend of Readline's input-meta flag before raw-mode entry.
     ///
-    /// The built-in terminal uses it to prepare eight-bit input for CS7;
-    /// custom backends may apply their own input policy.
+    /// The Unix built-in terminal uses it to prepare eight-bit input for CS7;
+    /// custom backends may apply their own input policy. Other built-in targets
+    /// do not need the setting.
     fn set_input_meta_enabled(&mut self, _enabled: bool) -> io::Result<()> {
         Ok(())
     }
@@ -167,15 +184,22 @@ pub trait TerminalIo {
 
 /// Built-in stdin/stdout terminal backend.
 ///
-/// Only one built-in `Terminal` may hold raw mode at a time because termios and
-/// signal dispositions are process-wide; a second active entry returns
+/// Only one built-in `Terminal` may hold raw mode at a time because console
+/// modes (and Unix signal dispositions) are shared; a second active entry returns
 /// `WouldBlock`.
 pub struct Terminal {
+    #[cfg(not(windows))]
     stdout: Stdout,
+    #[cfg(windows)]
+    console: windows::Console,
     raw: bool,
+    #[cfg(unix)]
     catch_signals: bool,
+    #[cfg(unix)]
     catch_sigwinch: bool,
+    #[cfg(unix)]
     reraise_sigint_default: bool,
+    #[cfg(unix)]
     input_meta_enabled: bool,
     /// Input that was read before a signal was noticed.
     ///
@@ -198,11 +222,18 @@ impl Terminal {
     /// See [`Self::set_reraise_sigint_default`] for the nonfatal opt-out.
     pub fn new() -> Self {
         Self {
+            #[cfg(not(windows))]
             stdout: io::stdout(),
+            #[cfg(windows)]
+            console: windows::Console::default(),
             raw: false,
+            #[cfg(unix)]
             catch_signals: true,
+            #[cfg(unix)]
             catch_sigwinch: true,
+            #[cfg(unix)]
             reraise_sigint_default: true,
+            #[cfg(unix)]
             input_meta_enabled: false,
             #[cfg(unix)]
             pending: Vec::new(),
@@ -226,7 +257,12 @@ impl Terminal {
     /// reports or literal Ctrl-C bytes. If redelivery terminates the process,
     /// neither `Continue` nor `Interrupted` can produce a read result.
     pub fn set_reraise_sigint_default(&mut self, enabled: bool) {
-        self.reraise_sigint_default = enabled;
+        #[cfg(unix)]
+        {
+            self.reraise_sigint_default = enabled;
+        }
+        #[cfg(not(unix))]
+        let _ = enabled;
     }
 
     /// Sets whether the built-in terminal catches SIGINT, SIGQUIT, SIGTERM,
@@ -248,7 +284,12 @@ impl Terminal {
     /// direct GNU Readline 8.3 fixture invokes that handler once and continues
     /// `abc` + Ctrl-C + `X` as `abcX`; this is not a claim about Bash.
     pub fn set_catch_signals(&mut self, catch: bool) {
-        self.catch_signals = catch;
+        #[cfg(unix)]
+        {
+            self.catch_signals = catch;
+        }
+        #[cfg(not(unix))]
+        let _ = catch;
     }
 
     /// Sets whether the built-in terminal catches SIGWINCH on Unix.
@@ -262,7 +303,12 @@ impl Terminal {
     /// the process-wide disposition to the embedder. This option does not
     /// affect custom [`TerminalIo`] implementations.
     pub fn set_catch_sigwinch(&mut self, catch: bool) {
-        self.catch_sigwinch = catch;
+        #[cfg(unix)]
+        {
+            self.catch_sigwinch = catch;
+        }
+        #[cfg(not(unix))]
+        let _ = catch;
     }
 }
 
@@ -280,16 +326,35 @@ impl Drop for Terminal {
 
 impl TerminalIo for Terminal {
     fn sigint_policy(&self) -> SigintPolicy {
-        SigintPolicy::Continue
+        #[cfg(unix)]
+        {
+            SigintPolicy::Continue
+        }
+        #[cfg(not(unix))]
+        {
+            SigintPolicy::Interrupted
+        }
+    }
+
+    fn uses_utf8_io(&self) -> bool {
+        cfg!(windows)
     }
 
     fn set_input_meta_enabled(&mut self, enabled: bool) -> io::Result<()> {
-        self.input_meta_enabled = enabled;
+        #[cfg(unix)]
+        {
+            self.input_meta_enabled = enabled;
+        }
+        #[cfg(not(unix))]
+        let _ = enabled;
         Ok(())
     }
 
     fn enter_raw_mode(&mut self) -> io::Result<()> {
         if self.raw {
+            #[cfg(windows)]
+            return self.console.enter();
+            #[cfg(not(windows))]
             return Ok(());
         }
         #[cfg(unix)]
@@ -318,7 +383,13 @@ impl TerminalIo for Terminal {
             self.raw = true;
             Ok(())
         }
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        {
+            let result = self.console.enter();
+            self.raw = self.console.active();
+            result
+        }
+        #[cfg(not(any(unix, windows)))]
         {
             Err(unsupported_terminal_io())
         }
@@ -339,7 +410,13 @@ impl TerminalIo for Terminal {
                 self.raw = false;
                 RAW_TERMINAL_ACTIVE.store(false, Ordering::SeqCst);
             }
-            #[cfg(not(unix))]
+            #[cfg(windows)]
+            {
+                let result = self.console.restore();
+                self.raw = self.console.active();
+                result?;
+            }
+            #[cfg(not(any(unix, windows)))]
             {
                 return Err(unsupported_terminal_io());
             }
@@ -380,7 +457,11 @@ impl TerminalIo for Terminal {
             Ok(event)
         }
 
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        {
+            self.console.read_event(timeout)
+        }
+        #[cfg(not(any(unix, windows)))]
         {
             let _ = timeout;
             Err(unsupported_terminal_io())
@@ -388,10 +469,14 @@ impl TerminalIo for Terminal {
     }
 
     fn write(&mut self, text: &str) -> io::Result<()> {
-        self.stdout.write_all(text.as_bytes())
+        self.write_bytes(text.as_bytes())
     }
 
     fn write_diagnostic(&mut self, text: &str) -> io::Result<()> {
+        #[cfg(windows)]
+        if windows::is_console(windows::stderr()) {
+            return windows::write(windows::stderr(), text.as_bytes());
+        }
         let mut stderr = io::stderr().lock();
         stderr.write_all(text.as_bytes())?;
         stderr.flush()
@@ -405,71 +490,86 @@ impl TerminalIo for Terminal {
         {
             same_device(libc::STDOUT_FILENO, libc::STDERR_FILENO)
         }
-        #[cfg(not(unix))]
+        #[cfg(windows)]
         {
-            // The built-in terminal has no live operations off Unix, and
-            // both streams reach the console there.
+            windows::diagnostics_use_terminal()
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
             true
         }
     }
 
     fn write_bytes(&mut self, bytes: &[u8]) -> io::Result<()> {
+        #[cfg(windows)]
+        {
+            self.console.write(bytes)
+        }
+        #[cfg(not(windows))]
         self.stdout.write_all(bytes)
     }
 
     fn flush(&mut self) -> io::Result<()> {
+        #[cfg(windows)]
+        {
+            // WriteConsoleW is synchronous; validate the sink, with no buffer to drain.
+            self.console.write(&[])
+        }
+        #[cfg(not(windows))]
         self.stdout.flush()
     }
 
     fn size(&self) -> io::Result<TerminalSize> {
+        #[cfg(windows)]
+        {
+            self.console.size()
+        }
+        #[cfg(not(windows))]
         query_terminal_size()
     }
 
     fn clear_after_cursor(&mut self) -> io::Result<()> {
-        self.stdout
-            .write_all(escape::CLEAR_TO_LINE_END.as_bytes())?;
-        self.stdout.flush()
+        self.write_bytes(escape::CLEAR_TO_LINE_END.as_bytes())?;
+        self.flush()
     }
 
     fn clear_to_screen_end(&mut self) -> io::Result<()> {
-        self.stdout
-            .write_all(escape::CLEAR_TO_SCREEN_END.as_bytes())?;
-        self.stdout.flush()
+        self.write_bytes(escape::CLEAR_TO_SCREEN_END.as_bytes())?;
+        self.flush()
     }
 
     fn clear_display(&mut self) -> io::Result<()> {
         if let Some(sequence) = terminfo_sequence("clear") {
-            self.stdout.write_all(&sequence)?;
+            self.write_bytes(&sequence)?;
         } else {
-            self.stdout.write_all(escape::CLEAR_ALL.as_bytes())?;
+            self.write_bytes(escape::CLEAR_ALL.as_bytes())?;
         }
         if let Some(sequence) = terminfo_sequence("E3") {
-            self.stdout.write_all(&sequence)
+            self.write_bytes(&sequence)
         } else {
-            self.stdout.write_all(escape::ERASE_SCROLLBACK.as_bytes())
+            self.write_bytes(escape::ERASE_SCROLLBACK.as_bytes())
         }
     }
 
     fn move_to_column(&mut self, column: u16) -> io::Result<()> {
-        self.stdout
-            .write_all(escape::move_to_column(column).as_bytes())
+        self.write_bytes(escape::move_to_column(column).as_bytes())
     }
 
     fn move_up(&mut self, rows: u16) -> io::Result<()> {
-        self.stdout.write_all(escape::move_up(rows).as_bytes())
+        self.write_bytes(escape::move_up(rows).as_bytes())
     }
 
     fn visible_bell(&mut self) -> io::Result<()> {
         if let Some(sequence) = terminfo_sequence("flash") {
-            self.stdout.write_all(&sequence)
+            self.write_bytes(&sequence)
         } else {
-            self.stdout.write_all(escape::VISIBLE_BELL.as_bytes())
+            self.write_bytes(escape::VISIBLE_BELL.as_bytes())
         }
     }
 
     fn set_application_keypad_enabled(&mut self, enabled: bool) -> io::Result<()> {
         if let Some(sequence) = terminfo_keypad_sequence(enabled) {
-            self.stdout.write_all(&sequence)
+            self.write_bytes(&sequence)
         } else {
             Ok(())
         }
@@ -934,13 +1034,13 @@ fn query_terminal_size_fd(fd: std::os::fd::RawFd) -> io::Result<TerminalSize> {
     })
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn query_terminal_size() -> io::Result<TerminalSize> {
     // Err.
     Err(unsupported_terminal_io())
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn unsupported_terminal_io() -> io::Error {
     io::Error::new(
         io::ErrorKind::Unsupported,

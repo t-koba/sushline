@@ -70,6 +70,20 @@ jobs:
         env:
           SUSHLINE_REQUIRE_NAMED_USER_INCLUDE_TEST: "1"
 
+  windows-terminal:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Compile the Windows library and terminal tests
+        run: cargo clippy -p sushline-readline --lib --no-default-features --locked -- -D warnings
+      - name: Exercise native console modes, events, Unicode output and cleanup
+        run: cargo test -p sushline-readline --lib --no-default-features --locked terminal::windows::tests -- --nocapture --test-threads=1
+      - name: Preserve locale defaults for custom terminal backends
+        run: cargo test -p sushline-readline --lib --no-default-features --locked editor::tests::signals::custom_terminal_keeps_locale_based_utf8_defaults -- --nocapture --test-threads=1
+
   oracle:
     runs-on: ubuntu-latest
     steps:

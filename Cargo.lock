@@ -416,6 +416,7 @@ dependencies = [
  "sushline-history",
  "tempfile",
  "unicode-width",
+ "windows-sys",
 ]
 
 [[package]]

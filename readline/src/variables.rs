@@ -262,6 +262,17 @@ impl Variables {
         self.utf8_locale
     }
 
+    pub(crate) fn use_utf8_io_defaults(&mut self) {
+        self.utf8_locale = true;
+        for (name, value) in [
+            ("input-meta", "on"),
+            ("output-meta", "on"),
+            ("convert-meta", "off"),
+        ] {
+            let _ = self.insert(name.to_owned(), value.to_owned());
+        }
+    }
+
     pub(crate) fn lc_ctype(&self) -> Option<&str> {
         self.lc_ctype.as_deref()
     }

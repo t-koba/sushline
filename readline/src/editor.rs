@@ -134,7 +134,10 @@ where
 
     fn new_without_inputrc(config: Config, terminal: T, history: History) -> Self {
         let mut keymap = KeyMap::emacs_default();
-        let variables = Variables::default_for_config(&config);
+        let mut variables = Variables::default_for_config(&config);
+        if terminal.uses_utf8_io() {
+            variables.use_utf8_io_defaults();
+        }
         keymap.set_current(match config.editing_mode {
             crate::config::EditingMode::Emacs => crate::keymap::KeyMapName::EmacsStandard,
             crate::config::EditingMode::Vi => crate::keymap::KeyMapName::ViInsert,
@@ -174,9 +177,9 @@ where
     /// Sets the SIGINT and unquoted Ctrl-C policy for subsequent reads.
     ///
     /// The initial value comes from [`TerminalIo::sigint_policy`]: `Continue`
-    /// for the built-in terminal and `Interrupted` for custom backends unless
-    /// they opt in. This does not change caller-owned OS signal dispositions
-    /// or how non-SIGINT signals are handled.
+    /// for the Unix built-in terminal and `Interrupted` for Windows and custom
+    /// backends unless they opt in. This does not change caller-owned OS signal
+    /// dispositions or how non-SIGINT signals are handled.
     pub fn set_sigint_policy(&mut self, policy: SigintPolicy) {
         self.sigint_policy = policy;
     }

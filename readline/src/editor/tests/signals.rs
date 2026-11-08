@@ -94,9 +94,30 @@ fn timeout_rechecks_embedder_signal_hook() {
 #[test]
 fn sigint_policy_defaults_are_backend_specific() {
     let builtin = Editor::new(Config::default(), crate::Terminal::new(), History::new());
+    #[cfg(unix)]
     assert_eq!(builtin.sigint_policy(), SigintPolicy::Continue);
+    #[cfg(not(unix))]
+    assert_eq!(builtin.sigint_policy(), SigintPolicy::Interrupted);
     let custom = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
     assert_eq!(custom.sigint_policy(), SigintPolicy::Interrupted);
+}
+
+#[test]
+fn custom_terminal_keeps_locale_based_utf8_defaults() {
+    let config = Config {
+        inputrc_path: crate::InputrcPath::Disabled,
+        ..Config::default()
+    };
+    let expected = crate::variables::Variables::default_for_config(&config);
+    let custom = Editor::new(config, MemoryTerminal::default(), History::new());
+    assert_eq!(custom.variables().utf8_locale(), expected.utf8_locale());
+    for name in ["input-meta", "output-meta", "convert-meta"] {
+        assert_eq!(
+            custom.variables().is_on(name),
+            expected.is_on(name),
+            "{name}"
+        );
+    }
 }
 
 #[test]

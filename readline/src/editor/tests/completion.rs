@@ -750,6 +750,59 @@ fn visible_stats_marker_uses_raw_bytes_for_non_utf8_paths() {
 
 #[cfg(windows)]
 #[test]
+fn windows_paths_complete_drive_relative_names_through_editor() {
+    // Run in an isolated CWD on the fixture's drive, never the shared test
+    // process. The parent owns cleanup after the child releases its CWD.
+    if std::env::var_os("SUSHLINE_DRIVE_RELATIVE_EDITOR_CHILD").is_none() {
+        let dir =
+            tempfile::tempdir().unwrap_or_else(|_| panic!("create drive-relative editor fixture"));
+        assert!(std::fs::write(dir.path().join("report.txt"), b"").is_ok());
+        assert!(std::fs::create_dir(dir.path().join("folder")).is_ok());
+        assert!(std::fs::write(dir.path().join("folder/child.txt"), b"").is_ok());
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "editor::tests::completion::windows_paths_complete_drive_relative_names_through_editor",
+                "--test-threads=1",
+            ])
+            .env("SUSHLINE_DRIVE_RELATIVE_EDITOR_CHILD", "1")
+            .current_dir(dir.path())
+            .status()
+            .expect("run drive-relative editor child");
+        assert!(status.success(), "drive-relative editor child failed");
+        return;
+    }
+    let cwd = std::env::current_dir().expect("read fixture directory");
+    let cwd = cwd.to_str().expect("UTF-8 fixture directory").as_bytes();
+    assert!(cwd.len() >= 3 && cwd[0].is_ascii_alphabetic() && cwd[1] == b':');
+    let drive = std::str::from_utf8(&cwd[..2]).unwrap();
+    for command in ["complete", "complete-filename"] {
+        for (prefix, keys, suffix) in [
+            ("rep", b"\t\r".as_slice(), "report.txt "),
+            // Complete a drive-relative directory, then its child on Tab 2.
+            ("fo", b"\t\t\r".as_slice(), "folder/child.txt "),
+        ] {
+            let terminal = MemoryTerminal::with_events(vec![
+                TerminalEvent::Bytes(format!("{drive}{prefix}").into_bytes()),
+                TerminalEvent::Bytes(keys.to_vec()),
+            ]);
+            let mut line = Editor::new(Config::default(), terminal, History::new());
+            assert!(
+                line.load_inputrc_str(&format!("\"\\C-i\": {command}"))
+                    .is_ok()
+            );
+            let expected = format!("{drive}{suffix}").into_bytes();
+            let result = line.read_line(Prompt::new("> "), &mut ());
+            assert!(
+                matches!(result, Ok(ReadlineResult::Line(bytes)) if bytes == expected),
+                "wrong drive-relative completed line"
+            );
+        }
+    }
+}
+
+#[cfg(windows)]
+#[test]
 fn windows_paths_complete_repeatedly_through_editor_with_shell_escapes() {
     #[derive(Default)]
     struct Observe {

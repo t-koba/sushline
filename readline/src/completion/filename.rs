@@ -228,6 +228,11 @@ pub(crate) fn split_word_path_bytes(word: &[u8]) -> (Vec<u8>, &[u8], Vec<u8>) {
             word[..=pos].to_vec(),
         );
     }
+    if cfg!(windows) && word.len() >= 2 && word[0].is_ascii_alphabetic() && word[1] == b':' {
+        // No separator: look up the drive's current directory, not its root,
+        // and retain the drive designator without inserting a separator.
+        return (word[..2].to_vec(), &word[2..], word[..2].to_vec());
+    }
     (b".".to_vec(), word, Vec::new())
 }
 
@@ -1077,6 +1082,77 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    fn windows_paths_split_drive_relative_designators() {
+        for word in [b"C:rep".as_slice(), b"z:rep", b"C:"] {
+            let (lookup, prefix, display) = split_word_path_bytes(word);
+            assert_eq!(lookup, &word[..2]);
+            assert_eq!(display, &word[..2]);
+            assert_eq!(prefix, &word[2..]);
+        }
+        for word in [b"1:rep".as_slice(), b":rep", b"CC:rep", b"\xc3\xa9:rep"] {
+            let (lookup, prefix, display) = split_word_path_bytes(word);
+            assert_eq!(lookup, b".");
+            assert_eq!(prefix, word);
+            assert!(display.is_empty());
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_paths_complete_drive_relative_names() {
+        // Set only the child's CWD: other tests never observe the fixture,
+        // and the parent can remove it after the child has exited.
+        if std::env::var_os("SUSHLINE_DRIVE_RELATIVE_PROVIDER_CHILD").is_none() {
+            let dir =
+                tempfile::tempdir().unwrap_or_else(|_| panic!("create drive-relative fixture"));
+            assert!(fs::write(dir.path().join("report.txt"), b"").is_ok());
+            assert!(fs::create_dir(dir.path().join("folder")).is_ok());
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "completion::filename::tests::windows_paths_complete_drive_relative_names",
+                    "--test-threads=1",
+                ])
+                .env("SUSHLINE_DRIVE_RELATIVE_PROVIDER_CHILD", "1")
+                .current_dir(dir.path())
+                .status()
+                .expect("run drive-relative provider child");
+            assert!(status.success(), "drive-relative provider child failed");
+            return;
+        }
+        let cwd = std::env::current_dir().expect("read fixture directory");
+        let cwd = cwd.to_str().expect("UTF-8 fixture directory").as_bytes();
+        assert!(cwd.len() >= 3 && cwd[0].is_ascii_alphabetic() && cwd[1] == b':');
+        let drive = std::str::from_utf8(&cwd[..2]).unwrap();
+        let opts = test_options();
+        for prefix in ["rep", ""] {
+            let word = format!("{drive}{prefix}").into_bytes();
+            let response = complete_filenames_bytes(&word, &opts);
+            assert_eq!(
+                response.candidates.len(),
+                if prefix.is_empty() { 2 } else { 1 }
+            );
+            let expected = format!("{drive}report.txt").into_bytes();
+            assert!(
+                response.candidates.iter().any(|candidate| {
+                    candidate.replacement_bytes() == expected
+                        && candidate.display.as_deref() == Some("report.txt")
+                }),
+                "missing drive-relative file candidate"
+            );
+        }
+        let word = format!("{drive}fo").into_bytes();
+        let expected = format!("{drive}folder").into_bytes();
+        let response = complete_directories_bytes(&word, &opts);
+        assert_eq!(response.candidates.len(), 1);
+        assert!(response.candidates[0].replacement_bytes() == expected);
+        assert_eq!(response.candidates[0].display.as_deref(), Some("folder/"));
+        assert!(response.options.nospace);
+        assert!(filename_directory_completion(&word, &expected, &opts).is_some());
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn windows_paths_reconstruct_and_mark_directories() {
         let dir = tempfile::tempdir().unwrap();
         fs::create_dir(dir.path().join("folder")).unwrap();
@@ -1130,10 +1206,12 @@ mod tests {
         assert_eq!(response.candidates.len(), 1);
         assert_eq!(response.candidates[0].replacement_bytes(), expected);
         assert_eq!(filename_display_name(&expected), "part\\file");
-        let (lookup, prefix, display) = split_word_path_bytes(b"part\\f");
-        assert_eq!(lookup, b".");
-        assert_eq!(prefix, b"part\\f");
-        assert!(display.is_empty());
+        for word in [b"part\\f".as_slice(), b"C:rep"] {
+            let (lookup, prefix, display) = split_word_path_bytes(word);
+            assert_eq!(lookup, b".");
+            assert_eq!(prefix, word);
+            assert!(display.is_empty());
+        }
     }
 
     #[test]

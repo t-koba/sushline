@@ -424,6 +424,7 @@ impl History {
         options: HistoryAppendOptions,
     ) -> io::Result<()> {
         let path = path.as_ref();
+        #[cfg(unix)]
         let existed = fs::metadata(path).is_ok();
         let mut append_opts = OpenOptions::new();
         append_opts.create(options.create_missing).append(true);

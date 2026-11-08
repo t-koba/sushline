@@ -1153,6 +1153,18 @@ def test_nonempty_vi_parser():
                    valid.replace(b"result_home=1", b"result_home=2"), valid + b"unexpected\n"):
         assert re.fullmatch(NONEMPTY_VI_FIELDS, unsafe) is None
 
+def filename_stderr_category(stderr):
+    # Emit only fixed, path-free families; never retain or print child bytes.
+    if not stderr:
+        return "empty"
+    lines = stderr.splitlines()
+    if lines and all(line.startswith(b"readline: warning:") for line in lines):
+        return "readline_warning"
+    if lines and all(line.startswith(b"readline: ") for line in lines):
+        return "readline_diagnostic"
+    return "other_redacted"
+
+
 def filename_child_report(stdout, stderr, returncode, pattern, harness=False, timed_out=False):
     # Child bytes are untrusted. Only full matches may reach the result report;
     # diagnostics contain fixed categories, never child text or exit values.
@@ -1170,7 +1182,8 @@ def filename_child_report(stdout, stderr, returncode, pattern, harness=False, ti
     status = "timeout" if timed_out else "nonzero_exit" if returncode != 0 else "ok"
     diagnostics = ("child_status=" + status, "guard_denied=" + category,
                    "stdout_shape=" + ("expected" if match else "unexpected"),
-                   "stderr_nonempty=" + str(int(bool(stderr))))
+                   "stderr_nonempty=" + str(int(bool(stderr))),
+                   "stderr_category=" + filename_stderr_category(stderr or b""))
     return output, match, diagnostics
 
 def test_filename_child_report():
@@ -1183,11 +1196,22 @@ def test_filename_child_report():
             stdout, stderr, returncode, pattern, harness, timed_out)
         assert diagnostics == ("child_status=" + status, "guard_denied=" + guard,
                                "stdout_shape=" + shape,
-                               "stderr_nonempty=" + str(int(bool(stderr))))
+                               "stderr_nonempty=" + str(int(bool(stderr))),
+                               "stderr_category=" + filename_stderr_category(stderr or b""))
         assert bool(match) == (shape == "expected")
         if match:
             assert output == valid
     check()
+    for stderr, category in (
+        (b"readline: warning: marker\n", "readline_warning"),
+        (b"readline: marker\n", "readline_diagnostic"),
+        (b"marker\n", "other_redacted"),
+        (b"readline: warning: marker\nother\n", "other_redacted"),
+    ):
+        assert filename_stderr_category(stderr) == category
+        _, _, diagnostics = filename_child_report(valid, stderr, 0, pattern)
+        assert diagnostics[-1] == "stderr_category=" + category
+        assert all(b"marker" not in value.encode("ascii") for value in diagnostics)
     for category in (b"root", b"file", b"metadata", b"enumeration", b"nss"):
         check(stderr=b"guard_denied=" + category + b"\n", returncode=3,
               status="nonzero_exit", guard=category.decode("ascii"))

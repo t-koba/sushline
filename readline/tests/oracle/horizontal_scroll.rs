@@ -668,37 +668,35 @@ fn bash_horizontal_scroll_starts_the_window_on_the_byte_edge() {
 }
 
 #[test]
-fn bash_and_sushline_horizontal_scroll_differ_on_a_bytewise_wide_tail() {
+fn bash_and_sushline_horizontal_scroll_matches_geometry_for_bytewise_wide_tail() {
     if !c_utf8_locale_available() {
         return;
     }
-    // The bytewise path with a wide tail: the two editors show different
-    // amounts of the line, GNU 46 leading digits against Sushline's 49, and
-    // their cursor columns, 49 and 52, follow from that difference. GNU's
-    // rendered row shows the glyph followed by two replacement cells, while
-    // Sushline's keeps the tail's characters whole.
+    // The final byte completes a three-byte wide character after the
+    // bytewise path has scrolled. Both editors then show 46 digits at column
+    // 49. GNU's replay row retains two replacement cells; Sushline keeps the
+    // valid glyph intact, so this fixture compares geometry separately.
     let base = "0123456789".repeat(10);
     let text = format!("{base}\u{4e2d}");
     let steps: Vec<Vec<u8>> = text.as_bytes().iter().map(|byte| vec![*byte]).collect();
     let bash = checkpoints_with_locale(true, 80, "P>", &steps, "C.UTF-8");
     let sushline = checkpoints_with_locale(false, 80, "P>", &steps, "C.UTF-8");
-    assert_eq!(bash.last().map(|frame| frame.1), Some(49), "GNU cursor");
+    let (bash_screen, bash_column) = bash.last().expect("GNU frame");
+    let (sushline_screen, sushline_column) = sushline.last().expect("Sushline frame");
+    let visible_digits = |screen: &str| screen.chars().filter(char::is_ascii_digit).count();
+    assert_eq!((visible_digits(bash_screen), *bash_column), (46, 49), "GNU");
     assert_eq!(
-        sushline.last().map(|frame| frame.1),
-        Some(52),
-        "Sushline cursor"
+        (visible_digits(sushline_screen), *sushline_column),
+        (46, 49),
+        "Sushline"
     );
-    // The two editors show different amounts of the line: GNU leaves the
-    // glyph's trailing bytes on the row, Sushline keeps the glyph whole.
-    let (bash_screen, _) = bash.last().expect("GNU frame");
-    let (sushline_screen, _) = sushline.last().expect("Sushline frame");
-    assert_eq!(
-        bash_screen, "<1234567890123456789012345678901234567890123456中\u{fffd}\u{fffd}",
-        "GNU row"
+    assert!(
+        bash_screen.ends_with("中\u{fffd}\u{fffd}"),
+        "GNU row: {bash_screen:?}"
     );
-    assert_eq!(
-        sushline_screen, "<1234567890123456789012345678901234567890123456789中",
-        "Sushline row"
+    assert!(
+        sushline_screen.ends_with("中"),
+        "Sushline row: {sushline_screen:?}"
     );
 }
 

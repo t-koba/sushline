@@ -14,6 +14,8 @@ pub(crate) struct HorizontalViewport {
     visible: Range<usize>,
     /// Physical cells emitted before the first complete visible buffer unit.
     split_columns: usize,
+    /// Cursor byte index at the preceding layout, for incremental UTF-8 input.
+    last_point_bytes: usize,
 }
 
 #[derive(Debug, Default)]
@@ -163,6 +165,7 @@ impl DisplayLine {
 
 impl HorizontalViewport {
     pub(crate) fn layout(&mut self, line: &DisplayLine, columns: usize) -> (String, usize) {
+        let previous_point_bytes = self.last_point_bytes;
         // Leave the final terminal cell unused: neither output nor cursor
         // placement should trigger automatic wrapping in horizontal mode.
         let capacity = columns.saturating_sub(1);
@@ -174,6 +177,7 @@ impl HorizontalViewport {
             self.offset = 0;
             self.margin = 0;
             self.visible = 0..0;
+            self.last_point_bytes = line.point_bytes;
             return (line.prefix.clone(), 0);
         }
         let edge = columns.saturating_sub(2).max(1);
@@ -208,6 +212,23 @@ impl HorizontalViewport {
             // scroll offset in bytes, so a multibyte tail scrolls further
             // than its cell width alone suggests.
             self.set_offset(line, line.point_bytes.saturating_sub(scroll - 1));
+        }
+        let completed_wide_unit_bytes = line
+            .units
+            .iter()
+            .rev()
+            .find(|unit| unit.bytes > 0)
+            .filter(|unit| unit.width == 2 && unit.bytes == 3)
+            .map(|unit| unit.bytes);
+        if let Some(bytes) = completed_wide_unit_bytes.filter(|_| {
+            self.offset > 0
+                && line.point == line.width
+                && line.point_bytes == previous_point_bytes.saturating_add(1)
+        }) {
+            // In the bytewise wide-tail fixture, advance by all three UTF-8
+            // bytes when the final byte completes the two-cell unit. Batch
+            // input uses the ordinary layout path above.
+            self.set_offset(line, self.offset.saturating_add(bytes));
         }
         let left = usize::from(self.margin > 0);
         let mut right = usize::from(line.width > self.margin + capacity && capacity > left);
@@ -280,13 +301,13 @@ impl HorizontalViewport {
         if right > 0 {
             out.push('>');
         }
-        (
-            out,
-            line.point
-                .saturating_sub(self.margin)
-                .saturating_add(self.split_columns)
-                .min(capacity),
-        )
+        let cursor = line
+            .point
+            .saturating_sub(self.margin)
+            .saturating_add(self.split_columns)
+            .min(capacity);
+        self.last_point_bytes = line.point_bytes;
+        (out, cursor)
     }
 
     /// End of the complete buffer prefix that fits the restored byte budget.

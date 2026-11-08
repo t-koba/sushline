@@ -4646,7 +4646,7 @@ jobs:
           ref: ${{ github.sha }}
       - name: Restore the exact pinned Readline release
         id: readline-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: ~/.cache/sushline/readline-oracle
           key: readline-${{ runner.os }}-${{ env.READLINE_ORACLE_VERSION }}-${{ env.READLINE_ORACLE_SHA256 }}-${{ env.READLINE_ORACLE_CONFIGURE_FLAGS }}-configure-accepted-v1

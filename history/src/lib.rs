@@ -252,6 +252,12 @@ pub struct HistoryWriteOptions {
     /// This budget is unused when no replacement is needed during truncation,
     /// or when a full write targets a non-regular file (written in place).
     pub temporary_file_attempts: NonZeroUsize,
+    /// Maximum symbolic links followed while resolving full-write and
+    /// truncation targets. Defaults to 40. Exceeding the bound returns
+    /// `InvalidInput` before replacing the target; direct paths use no hops.
+    /// This safety budget can be raised or lowered to match the host's path
+    /// behavior. It does not affect append operations.
+    pub maximum_symlink_hops: NonZeroUsize,
     /// On Unix, preserve the existing regular target's permission mode when
     /// rewriting through a symlink (default: `false`). Direct paths and missing
     /// targets still use mode `0o600`, as do all rewrites with this option off.
@@ -268,6 +274,7 @@ impl Default for HistoryWriteOptions {
     fn default() -> Self {
         Self {
             temporary_file_attempts: NonZeroUsize::new(100).unwrap(),
+            maximum_symlink_hops: NonZeroUsize::new(40).unwrap(),
             preserve_symlink_target_mode: false,
         }
     }

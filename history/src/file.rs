@@ -9,7 +9,6 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
-const MAX_SYMLINK_HOPS: usize = 40;
 const HISTORY_TRUNCATE_BUFFER_SIZE: usize = 64 * 1024;
 
 fn default_file_path_from_home(home: Option<&std::ffi::OsStr>) -> PathBuf {
@@ -560,7 +559,7 @@ impl History {
         options: HistoryWriteOptions,
     ) -> io::Result<()> {
         let path = path.as_ref();
-        let dest = effective_write_path(path)?;
+        let dest = effective_write_path(path, options.maximum_symlink_hops.get())?;
         if dest_is_non_regular(&dest) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -678,7 +677,7 @@ fn write_atomic(
     options: HistoryWriteOptions,
     write_tmp: impl FnOnce(&mut fs::File) -> io::Result<()>,
 ) -> io::Result<()> {
-    let dest = effective_write_path(path)?;
+    let dest = effective_write_path(path, options.maximum_symlink_hops.get())?;
     #[cfg(unix)]
     let preserved_permissions = if options.preserve_symlink_target_mode {
         match fs::symlink_metadata(path) {
@@ -810,7 +809,7 @@ fn close_file_os(file: fs::File) -> io::Result<()> {
     Ok(())
 }
 
-fn effective_write_path(path: &Path) -> io::Result<PathBuf> {
+fn effective_write_path(path: &Path, maximum_hops: usize) -> io::Result<PathBuf> {
     let mut current = path.to_path_buf();
     let mut hops = 0;
     loop {
@@ -822,7 +821,7 @@ fn effective_write_path(path: &Path) -> io::Result<PathBuf> {
         if !metadata.file_type().is_symlink() {
             return Ok(current);
         }
-        if hops == MAX_SYMLINK_HOPS {
+        if hops == maximum_hops {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "too many symbolic links in history path",

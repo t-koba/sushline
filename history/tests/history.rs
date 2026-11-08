@@ -1,4 +1,5 @@
 use std::fs;
+use std::num::NonZeroUsize;
 
 use history::expansion::{
     HistoryChars, HistoryExpansionError, HistoryExpansionPolicy, HistoryExpansionState,
@@ -9,6 +10,7 @@ use history::expansion::{
 use history::{
     History, HistoryAppendOptions, HistoryDirection, HistoryEntry, HistoryMultiline,
     HistoryNulPolicy, HistoryRangePolicy, HistoryReadOptions, HistoryUndoEntry,
+    HistoryWriteOptions,
 };
 
 #[test]
@@ -2817,6 +2819,99 @@ fn full_write_preserves_relative_symlink_chain() {
             PathBuf::from("target-history")
         );
         assert_eq!(fs::read_to_string(target).unwrap(), "target-v2\n");
+    }
+}
+
+#[test]
+#[cfg_attr(not(unix), ignore = "requires Unix symlinks")]
+fn full_write_obeys_configured_symlink_hop_limit() {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target-history");
+        fs::write(&target, "old\n").unwrap();
+        let intermediate = dir.path().join("intermediate-history");
+        symlink("target-history", &intermediate).unwrap();
+        let link = dir.path().join("link-history");
+        symlink("intermediate-history", &link).unwrap();
+
+        assert_eq!(
+            HistoryWriteOptions::default().maximum_symlink_hops.get(),
+            40
+        );
+        let mut history = History::new();
+        history.push("new");
+        let two_hops = HistoryWriteOptions {
+            maximum_symlink_hops: NonZeroUsize::new(2).unwrap(),
+            ..HistoryWriteOptions::default()
+        };
+        history.write_file_with_options(&link, two_hops).unwrap();
+        assert_eq!(fs::read_to_string(&target).unwrap(), "new\n");
+
+        let one_hop = HistoryWriteOptions {
+            maximum_symlink_hops: NonZeroUsize::new(1).unwrap(),
+            ..HistoryWriteOptions::default()
+        };
+        assert_eq!(
+            history
+                .write_file_with_options(&link, one_hop)
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::InvalidInput
+        );
+        assert_eq!(fs::read_to_string(&target).unwrap(), "new\n");
+        assert_eq!(
+            fs::read_link(&link).unwrap(),
+            std::path::Path::new("intermediate-history")
+        );
+        assert_eq!(
+            fs::read_link(&intermediate).unwrap(),
+            std::path::Path::new("target-history")
+        );
+    }
+}
+
+#[test]
+#[cfg_attr(not(unix), ignore = "requires Unix symlinks")]
+fn truncate_file_obeys_configured_symlink_hop_limit() {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target-history");
+        fs::write(&target, "one\ntwo\nthree\n").unwrap();
+        let intermediate = dir.path().join("intermediate-history");
+        symlink("target-history", &intermediate).unwrap();
+        let link = dir.path().join("link-history");
+        symlink("intermediate-history", &link).unwrap();
+
+        let one_hop = HistoryWriteOptions {
+            maximum_symlink_hops: NonZeroUsize::new(1).unwrap(),
+            ..HistoryWriteOptions::default()
+        };
+        assert_eq!(
+            History::truncate_file_with_options(&link, 2, one_hop)
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::InvalidInput
+        );
+        assert_eq!(fs::read_to_string(&target).unwrap(), "one\ntwo\nthree\n");
+
+        let two_hops = HistoryWriteOptions {
+            maximum_symlink_hops: NonZeroUsize::new(2).unwrap(),
+            ..HistoryWriteOptions::default()
+        };
+        History::truncate_file_with_options(&link, 2, two_hops).unwrap();
+        assert_eq!(fs::read_to_string(&target).unwrap(), "two\nthree\n");
+        assert_eq!(
+            fs::read_link(&link).unwrap(),
+            std::path::Path::new("intermediate-history")
+        );
+        assert_eq!(
+            fs::read_link(&intermediate).unwrap(),
+            std::path::Path::new("target-history")
+        );
     }
 }
 

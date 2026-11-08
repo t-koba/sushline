@@ -132,7 +132,7 @@ mod terminal_signal_options {
     use readline::{Terminal, TerminalEvent, TerminalIo};
     use std::os::fd::{FromRawFd, OwnedFd};
     use std::process::{Command, Stdio};
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::time::Duration;
 
     const PROBE_ENV: &str = "SUSHLINE_SIGNAL_OPTIONS_PROBE";
@@ -148,9 +148,16 @@ mod terminal_signal_options {
         libc::SIGWINCH,
     ];
     static WINCH_CALLS: AtomicUsize = AtomicUsize::new(0);
+    static WINCH_MASK_BLOCKED: AtomicBool = AtomicBool::new(false);
 
     extern "C" fn application_handler(signal: i32) {
         if signal == libc::SIGWINCH {
+            let mut current: libc::sigset_t = unsafe { std::mem::zeroed() };
+            let queried = unsafe {
+                libc::sigprocmask(libc::SIG_SETMASK, std::ptr::null(), &mut current) == 0
+            };
+            let blocked = queried && unsafe { libc::sigismember(&current, libc::SIGUSR1) == 1 };
+            WINCH_MASK_BLOCKED.store(blocked, Ordering::SeqCst);
             WINCH_CALLS.fetch_add(1, Ordering::SeqCst);
         }
     }
@@ -201,8 +208,19 @@ mod terminal_signal_options {
             return;
         }
         // This child is the only test running in its process and has PTY
-        // stdin. Exercise defaults and all four combinations in sequence to
-        // cover resetting the shared installed state between the two groups.
+        // stdin. Ensure SIGUSR1 starts unblocked so the saved SIGWINCH action
+        // is the reason it is blocked inside the chained callback.
+        unsafe {
+            let mut sigusr1: libc::sigset_t = std::mem::zeroed();
+            assert_eq!(libc::sigemptyset(&mut sigusr1), 0);
+            assert_eq!(libc::sigaddset(&mut sigusr1, libc::SIGUSR1), 0);
+            assert_eq!(
+                libc::sigprocmask(libc::SIG_UNBLOCK, &sigusr1, std::ptr::null_mut()),
+                0
+            );
+        }
+        // Exercise defaults and all four combinations in sequence to cover
+        // resetting the shared installed state between the two groups.
         for ignore in [false, true] {
             for flags in [
                 None,
@@ -263,11 +281,30 @@ mod terminal_signal_options {
                     );
                 }
                 let winch_calls = WINCH_CALLS.load(Ordering::SeqCst);
+                WINCH_MASK_BLOCKED.store(false, Ordering::SeqCst);
                 assert_eq!(unsafe { libc::raise(libc::SIGWINCH) }, 0);
                 assert_eq!(
                     WINCH_CALLS.load(Ordering::SeqCst) - winch_calls,
                     usize::from(!ignore),
                     "saved SIGWINCH callback is chained only when not ignored"
+                );
+                if !ignore {
+                    assert!(
+                        WINCH_MASK_BLOCKED.load(Ordering::SeqCst),
+                        "saved SIGWINCH action mask applies inside the callback"
+                    );
+                }
+                let mut current_mask: libc::sigset_t = unsafe { std::mem::zeroed() };
+                assert_eq!(
+                    unsafe {
+                        libc::sigprocmask(libc::SIG_SETMASK, std::ptr::null(), &mut current_mask)
+                    },
+                    0
+                );
+                assert_eq!(
+                    unsafe { libc::sigismember(&current_mask, libc::SIGUSR1) },
+                    0,
+                    "saved callback mask is restored after SIGWINCH"
                 );
                 assert_eq!(
                     terminal.read_event(Some(Duration::ZERO)).unwrap(),

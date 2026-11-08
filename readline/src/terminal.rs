@@ -257,7 +257,8 @@ impl Terminal {
     /// Configure this before `Editor::read_line` or raw-mode entry; changes
     /// take effect on the next raw-mode entry, not during an active read.
     /// When enabled, an inherited `SIG_IGN` is preserved; otherwise the saved
-    /// handler is chained and resize events are reported. Disabling it leaves
+    /// handler is chained with its explicit signal mask in effect during the
+    /// callback, and resize events are reported. Disabling it leaves
     /// the process-wide disposition to the embedder. This option does not
     /// affect custom [`TerminalIo`] implementations.
     pub fn set_catch_sigwinch(&mut self, catch: bool) {
@@ -623,6 +624,13 @@ unsafe fn call_saved_signal_action(
     if handler == libc::SIG_DFL || handler == libc::SIG_IGN || handler == 0 {
         return;
     }
+    // The kernel applied the wrapper's mask, not the saved action's mask.
+    // Mirror the saved action's explicit mask while chaining its callback.
+    // sigprocmask is async-signal-safe; the wrapper still blocks SIGWINCH as
+    // usual while its handler runs.
+    let mut previous_mask: libc::sigset_t = unsafe { std::mem::zeroed() };
+    let restore_mask =
+        unsafe { libc::sigprocmask(libc::SIG_BLOCK, &action.sa_mask, &mut previous_mask) == 0 };
     if action.sa_flags & libc::SA_SIGINFO != 0 {
         let callback: extern "C" fn(libc::c_int, *mut libc::siginfo_t, *mut libc::c_void) =
             unsafe { std::mem::transmute(handler) };
@@ -630,6 +638,11 @@ unsafe fn call_saved_signal_action(
     } else {
         let callback: extern "C" fn(libc::c_int) = unsafe { std::mem::transmute(handler) };
         callback(signal);
+    }
+    if restore_mask {
+        unsafe {
+            libc::sigprocmask(libc::SIG_SETMASK, &previous_mask, std::ptr::null_mut());
+        }
     }
 }
 

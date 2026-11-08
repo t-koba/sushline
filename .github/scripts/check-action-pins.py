@@ -6,8 +6,10 @@ import sys
 from pathlib import Path
 
 WORKFLOW = Path(".github/workflows/ci.yml")
-USES_KEY = re.compile(r"^\s*(?:uses|['\"]uses['\"])\s*:")
-USES_LINE = re.compile(r"^\s*uses\s*:\s*(\S+)(?:\s+#\s*(.*))?\s*$")
+USES_KEY = re.compile(
+    r"^\s*(?:-\s*)?(?:uses|['\"]uses['\"])\s*:|[\[{,]\s*(?:uses|['\"]uses['\"])\s*:"
+)
+USES_LINE = re.compile(r"^\s*(?:-\s*)?uses\s*:\s*(\S+)(?:\s+#\s*(.*))?\s*$")
 REMOTE_PIN = re.compile(r"(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+@[0-9a-f]{40}")
 LOCAL_ACTION = re.compile(r"\./[^@\s#]+")
 
@@ -15,7 +17,7 @@ LOCAL_ACTION = re.compile(r"\./[^@\s#]+")
 def invalid_lines(text):
     invalid = []
     for number, line in enumerate(text.splitlines(), 1):
-        if not USES_KEY.match(line):
+        if line.lstrip().startswith("#") or not USES_KEY.search(line):
             continue
         match = USES_LINE.fullmatch(line)
         if match is None:
@@ -33,8 +35,9 @@ def self_test():
     sha = "a" * 40
     accepted = (
         f"uses: actions/checkout@{sha} # v5\n",
-        f"  uses: actions/cache/restore@{sha} # v5\n",
-        "uses: ./.github/actions/check\n",
+        f"  - uses: actions/cache/restore@{sha} # v5\n",
+        "  - uses: ./.github/actions/check\n",
+        "# uses: actions/checkout@v5\n",
         "run: echo uses: actions/checkout@v5\n",
     )
     for sample in accepted:
@@ -43,10 +46,12 @@ def self_test():
 
     rejected = (
         "uses: actions/checkout@v5 # v5\n",
+        "  - uses: actions/checkout@v5 # v5\n",
         f"uses: actions/checkout@{'a' * 39} # v5\n",
         f"uses: actions/checkout@{sha}\n",
         "uses: ${{ matrix.action }} # v5\n",
         f"'uses': actions/checkout@{sha} # v5\n",
+        "steps: [{uses: actions/checkout@v5}]\n",
         "uses: docker://alpine:3.20\n",
     )
     for sample in rejected:

@@ -8,10 +8,18 @@ use readline::{
 };
 
 #[test]
-fn bare_tilde_filename_directory_with_nonempty_home_escapes_only_when_tilde_expansion_is_on() {
+fn bare_tilde_filename_directory_escaping_respects_home_state() {
     const CHILD: &str = "SUSHLINE_BARE_TILDE_COMPLETION_TEST";
     if std::env::var_os(CHILD).is_some() {
-        for expand in ["off", "on"] {
+        let home = std::env::var_os("HOME");
+        // Preserve empty HOME's current spelling; its oracle result is not yet reviewed.
+        // Exercise expansion-on only for the existing nonempty-HOME case.
+        let expansions: &[&str] = if home.as_ref().is_some_and(|home| !home.is_empty()) {
+            &["off", "on"]
+        } else {
+            &["off"]
+        };
+        for expand in expansions {
             let terminal =
                 MemoryTerminal::with_events(vec![TerminalEvent::Bytes(b"~\x0f\r".to_vec())]);
             let mut line = Editor::new(
@@ -26,7 +34,9 @@ fn bare_tilde_filename_directory_with_nonempty_home_escapes_only_when_tilde_expa
                 "set expand-tilde {expand}\n\"\\C-o\": complete-filename"
             ))
             .unwrap();
-            let expected = if expand == "off" {
+            let expected = if home.as_ref().is_some_and(|home| home.is_empty()) {
+                b"\\~".as_slice()
+            } else if *expand == "off" {
                 b"~/".as_slice()
             } else {
                 b"\\~/".as_slice()
@@ -44,23 +54,30 @@ fn bare_tilde_filename_directory_with_nonempty_home_escapes_only_when_tilde_expa
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir(dir.path().join("~")).unwrap();
     std::fs::create_dir(dir.path().join("home")).unwrap();
-    let output = std::process::Command::new(std::env::current_exe().unwrap())
-        .args([
-            "--exact",
-            "bare_tilde_filename_directory_with_nonempty_home_escapes_only_when_tilde_expansion_is_on",
-            "--nocapture",
-        ])
-        .current_dir(dir.path())
-        .env(CHILD, "1")
-        .env("HOME", dir.path().join("home"))
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    for home_state in ["nonempty", "unset", "empty"] {
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+        child
+            .args([
+                "--exact",
+                "bare_tilde_filename_directory_escaping_respects_home_state",
+                "--nocapture",
+            ])
+            .current_dir(dir.path())
+            .env(CHILD, "1");
+        match home_state {
+            "nonempty" => child.env("HOME", dir.path().join("home")),
+            "unset" => child.env_remove("HOME"),
+            "empty" => child.env("HOME", ""),
+            _ => unreachable!(),
+        };
+        let output = child.output().unwrap();
+        assert!(
+            output.status.success(),
+            "HOME {home_state}: {}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }
 
 #[test]

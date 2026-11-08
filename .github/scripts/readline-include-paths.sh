@@ -36,6 +36,8 @@
 # present but empty and a distinct synthetic passwd-home candidate.
 # --filename-home-nonempty-expand-tilde-off-only distinguishes HOME resolution
 # from a separate test-owned literal-tilde CWD candidate with expand-tilde off.
+# --filename-bare-tilde-home-nonempty-expand-tilde-off-only isolates bare `~`
+# with expand-tilde off, distinct HOME/passwd candidates and a literal CWD tilde.
 # Measurement only against the pinned release.
 set -euo pipefail
 ulimit -c 0
@@ -53,6 +55,7 @@ case "$#:$*" in
   1:--filename-named-user-expand-tilde-off-only) mode=tilde-named-user-filename-off ;;
   1:--filename-named-user-only) mode=tilde-named-user-filename ;;
   1:--filename-home-unset-only) mode=tilde-home-unset-filename ;;
+  1:--filename-bare-tilde-home-nonempty-expand-tilde-off-only) mode=tilde-home-nonempty-filename-bare-off ;;
   1:--filename-bare-tilde-home-empty-only) mode=tilde-home-empty-filename-bare ;;
   1:--filename-bare-tilde-home-nonempty-only) mode=tilde-home-nonempty-filename-bare ;;
   1:--filename-home-nonempty-expand-tilde-off-only) mode=tilde-home-nonempty-filename-off ;;
@@ -61,7 +64,7 @@ case "$#:$*" in
   1:--home-empty-only) mode=home-empty ;;
   1:--unreadable-only) mode=unreadable ;;
   1:--bare-cr-only) mode=bare-cr ;;
-  *) echo "usage: readline-include-paths.sh [--filename-bare-tilde-home-empty-only|--filename-named-user-expand-tilde-off-only|--filename-home-nonempty-expand-tilde-off-only|--filename-bare-tilde-home-nonempty-only|--vi-tilde-home-nonempty-only|--filename-home-nonempty-only|--vi-tilde-home-empty-only|--vi-tilde-home-unset-only|--filename-home-unset-only|--filename-named-user-only|--vi-tilde-named-user-only|--tilde-named-user-only|--tilde-home-nonempty-only|--tilde-home-empty-only|--tilde-home-unset-only|--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
+  *) echo "usage: readline-include-paths.sh [--filename-bare-tilde-home-nonempty-expand-tilde-off-only|--filename-bare-tilde-home-empty-only|--filename-named-user-expand-tilde-off-only|--filename-home-nonempty-expand-tilde-off-only|--filename-bare-tilde-home-nonempty-only|--vi-tilde-home-nonempty-only|--filename-home-nonempty-only|--vi-tilde-home-empty-only|--vi-tilde-home-unset-only|--filename-home-unset-only|--filename-named-user-only|--vi-tilde-named-user-only|--tilde-named-user-only|--tilde-home-nonempty-only|--tilde-home-empty-only|--tilde-home-unset-only|--home-unset-only|--home-empty-only|--unreadable-only|--bare-cr-only]" >&2; exit 2 ;;
 esac
 lookup_error_dir=$(mktemp -d /tmp/sushline-lookup-error-XXXXXX)
 trap 'rm -rf "$lookup_error_dir"' EXIT
@@ -167,7 +170,7 @@ int main(int argc, char **argv) {
         int vi = getenv("SUSHLINE_TILDE_VI") != NULL;
         if (bare && (!filename || !(home_nonempty || home_empty) || named)) return 2;
         if (filename && (vi || (home_empty && !bare))) return 2;
-        if (off && (!filename || !home_nonempty || bare)) return 2;
+        if (off && (!filename || !home_nonempty || (bare && named))) return 2;
         if (filename && rl_variable_bind("expand-tilde", off ? "off" : "on") != 0) return 2;
         rl_command_func_t *command = filename ? complete_filename :
             rl_named_function(vi ? "vi-tilde-expand" : "tilde-expand");
@@ -208,7 +211,8 @@ int main(int argc, char **argv) {
             for (int i = 0; i < 2; ++i) {
                 size_t size = strlen(homes[i]);
                 if (size && length >= size && strncmp(line, homes[i], size) == 0) {
-                    int completed = strcmp(line + size, "/audit-candidate") == 0;
+                    int completed = strcmp(line + size, off && bare && i == 1 ?
+                                           "/audit-passwd-candidate" : "/audit-candidate") == 0;
                     int prefix = bare ? length == size : strcmp(line + size, "/audit-c") == 0;
                     if (i == 0) result_home = completed || prefix;
                     else result_passwd = completed || prefix;
@@ -231,7 +235,12 @@ int main(int argc, char **argv) {
                 (literal_home && strncmp(line, literal_home, strlen(literal_home)) == 0 &&
                  strcmp(line + strlen(literal_home), "/audit-cwd-candidate") == 0));
             if (relative) candidate = 1;
+            if (off && bare && literal_home && strcmp(line, literal_home) == 0) relative = 1;
             int literal_prefix = strcmp(line, named ? "~sushline-audit-user/audit-c" : bare ? "~" : "~/audit-c") == 0;
+            /* Keep the exact escaped bare-prefix spelling distinct; never
+               unescape arbitrary child output or infer its resolution source. */
+            int escaped_prefix = off && bare && strcmp(line, "\\~") == 0;
+            literal_prefix |= escaped_prefix;
             int result_empty = length == 0;
             int result_other = !(result_home || result_passwd || relative || literal_prefix || result_empty);
             printf("home_present=1\n");
@@ -242,6 +251,7 @@ int main(int argc, char **argv) {
             printf("result_empty=%d\nresult_other=%d\n", result_empty, result_other);
             if (off) printf("result_relative=%d\n", relative);
             if (bare) printf("result_trailing_slash=%d\n", bare_slash);
+            if (off && bare) printf("result_escaped_literal_prefix=%d\n", escaped_prefix);
             printf("guards_ok=%u\n", safe());
             free(line);
             return 0;
@@ -502,7 +512,8 @@ unsigned int sushline_tilde_guard(void) {
     }
     if (getenv("SUSHLINE_FILENAME_TILDE_OFF")) {
         unsigned int before = blocked;
-        const char *paths[] = {".", "./~", "~/..", "~/../home", "~/audit-other",
+        const char *paths[] = {getenv("SUSHLINE_FILENAME_BARE_TILDE") ? "./" : ".",
+                               getenv("SUSHLINE_FILENAME_BARE_TILDE") ? "./~/.." : "./~", "~/..", "~/../home", "~/audit-other",
                                "~/audit-cwd-candidate/.."};
         for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); ++i) {
             DIR *directory = opendir(paths[i]);
@@ -650,6 +661,12 @@ static int completion_path_denied_at(int dirfd, const char *path, int metadata) 
            arbitrary descriptor. The parent proves these trees have no links
            and rechecks their identities and contents after each child. */
         int named = getenv("SUSHLINE_TILDE_NAMED_USER") != NULL;
+        int off = getenv("SUSHLINE_FILENAME_TILDE_OFF") != NULL;
+        int bare = getenv("SUSHLINE_FILENAME_BARE_TILDE") != NULL;
+        /* Bare completion may scan the proven CWD and stat read_dir's exact
+           ./~ entry. No normalization, parent traversal, or descriptor alias. */
+        if (controlled && off && bare && dirfd == AT_FDCWD && path &&
+            (strcmp(path, ".") == 0 || (metadata && strcmp(path, "./~") == 0))) return 0;
         const char *roots[] = {home, passwd_home, literal_home, named ? "~sushline-audit-user" : "~"};
         for (int i = 0; controlled && path && dirfd == AT_FDCWD && i < 4; ++i) {
             if (!roots[i]) continue;
@@ -657,8 +674,9 @@ static int completion_path_denied_at(int dirfd, const char *path, int metadata) 
             if (strncmp(path, roots[i], size) != 0) continue;
             const char *suffix = path + size;
             if (!*suffix || strcmp(suffix, "/") == 0 ||
-                (metadata && i != (named ? 0 : 1) && strcmp(suffix,
-                 i >= 2 ? "/audit-cwd-candidate" : "/audit-candidate") == 0)) return 0;
+                (metadata && ((off && bare) || i != (named ? 0 : 1)) && strcmp(suffix,
+                 i >= 2 ? "/audit-cwd-candidate" : off && bare && i == 1 ?
+                 "/audit-passwd-candidate" : "/audit-candidate") == 0)) return 0;
         }
         ++blocked;
         stop_unsafe(metadata ? "metadata" : "enumeration");
@@ -1095,6 +1113,50 @@ def test_off_filename_parser():
                    valid.replace(b"result_relative=1\n", b""), valid + b"unexpected\n"):
         assert re.fullmatch(OFF_FILENAME_FIELDS, unsafe) is None
 
+BARE_OFF_FILENAME_FIELDS = OFF_FILENAME_FIELDS.replace(
+    rb"guards_ok=1\n", rb"result_trailing_slash=([01])\nresult_escaped_literal_prefix=([01])\nguards_ok=1\n")
+
+def bare_off_filename_comparison(rows):
+    stable = rows[:2] == rows[2:]
+    comparison = rows[0][1:] == rows[1][1:] and rows[2][1:] == rows[3][1:]
+    classified = all(
+        sum(int(row[i]) for i in (1, 2, 4, 5, 6, 7)) == 1 and row[6] == b"0"
+        and (row[3] == b"0" or any(row[i] == b"1" for i in (1, 2, 7)))
+        and (row[8] == b"0" or (row[3] == b"0" and row[5] == b"0"))
+        and (row[9] == b"0" or row[4] == b"1")
+        and (row[2] == b"0" or int(row[0]) > 0) for row in rows)
+    return stable, comparison, classified
+
+def test_bare_off_filename_parser():
+    home = (b"0", b"1", b"0", b"0", b"0", b"0", b"0", b"0", b"1", b"0")
+    passwd = (b"2", b"0", b"1", b"0", b"0", b"0", b"0", b"0", b"1", b"0")
+    relative = (b"0", b"0", b"0", b"0", b"0", b"0", b"0", b"1", b"1", b"0")
+    prefix = (b"0", b"0", b"0", b"0", b"1", b"0", b"0", b"0", b"0", b"0")
+    escaped = (*prefix[:-1], b"1")
+    empty = (b"0", b"0", b"0", b"0", b"0", b"1", b"0", b"0", b"0", b"0")
+    for row in (home, passwd, relative, prefix, escaped, empty,
+                (b"0", b"0", b"0", b"1", b"0", b"0", b"0", b"1", b"0", b"0")):
+        assert bare_off_filename_comparison([row] * 4) == (True, True, True)
+    count = (b"3", *home[1:])
+    assert bare_off_filename_comparison([home, count] * 2) == (True, True, True)
+    for different in (relative, escaped):
+        assert bare_off_filename_comparison([prefix, different] * 2) == (True, False, True)
+    assert bare_off_filename_comparison([home, home, count, home]) == (False, True, True)
+    for row in ((b"0",) * 10, (b"0", *passwd[1:]), (*home[:-1], b"1"),
+                (*empty[:8], b"1", b"0"),
+                (b"0", b"0", b"0", b"0", b"0", b"0", b"1", b"0", b"0", b"0")):
+        assert bare_off_filename_comparison([row] * 4) == (True, True, False)
+    valid = (b"home_present=1\nhome_nonempty=1\npasswd_home_lookup_hits=0\n"
+             b"result_home=0\nresult_passwd_home=0\nresult_candidate=0\n"
+             b"result_literal_prefix=1\nresult_empty=0\nresult_other=0\n"
+             b"result_relative=0\nresult_trailing_slash=0\nresult_escaped_literal_prefix=0\nguards_ok=1\n")
+    assert re.fullmatch(BARE_OFF_FILENAME_FIELDS, valid).groups() == prefix
+    for unsafe in (valid.replace(b"guards_ok=1", b"guards_ok=0"),
+                   valid.replace(b"result_escaped_literal_prefix=0", b"result_escaped_literal_prefix=2"),
+                   valid.replace(b"result_trailing_slash=0\n", b""),
+                   valid.replace(b"lookup_hits=0", b"lookup_hits=-1"), valid + b"unexpected\n"):
+        assert re.fullmatch(BARE_OFF_FILENAME_FIELDS, unsafe) is None
+
 NAMED_OFF_FILENAME_FIELDS = OFF_FILENAME_FIELDS.replace(b"passwd_home_lookup_hits", b"named_home_lookup_hits")
 
 def named_off_filename_comparison(rows):
@@ -1252,10 +1314,17 @@ def filename_stderr_category(stderr):
         return "multiline_redacted"
     return "other_redacted"
 
-def filename_stderr_allowed(stderr, implementation, bare):
+def filename_bare_prefix(bare, off, row):
+    # A retained tilde is syntax only, not evidence of which home was consulted.
+    # Neither a slash nor an escaped prefix shares the reviewed BEL exception.
+    return (bare and len(row) == (10 if off else 8) and
+            row[1:] == (b"0", b"0", b"0", b"1", b"0", b"0") +
+            ((b"0",) if off else ()) + (b"0",) + ((b"0",) if off else ()))
+
+def filename_stderr_allowed(stderr, implementation, bare_prefix):
     # The reviewed bare-prefix GNU result contains exactly one BEL byte.
     # Permit only that fixed case; every other nonempty diagnostic fails closed.
-    return not stderr or (implementation == "gnu" and bare and stderr == b"\x07")
+    return not stderr or (implementation == "gnu" and bare_prefix and stderr == b"\x07")
 
 def filename_child_report(stdout, stderr, returncode, pattern, harness=False, timed_out=False):
     # Child bytes are untrusted. Only full matches may reach the result report;
@@ -1296,6 +1365,14 @@ def test_filename_child_report():
         if match:
             assert output == valid
     check()
+    for off in (False, True):
+        row = (b"0", b"0", b"0", b"0", b"1", b"0", b"0") + ((b"0",) if off else ()) + (b"0",) + ((b"0",) if off else ())
+        assert filename_bare_prefix(True, off, row)
+        assert not filename_bare_prefix(False, off, row)
+        assert not filename_bare_prefix(True, off, ())
+        for i in range(1, len(row)):
+            changed = (*row[:i], b"1" if row[i] == b"0" else b"0", *row[i + 1:])
+            assert not filename_bare_prefix(True, off, changed)
     for stderr, implementation, bare, allowed in (
         (b"", "gnu", False, True), (b"", "sushline", True, True),
         (b"\x07", "gnu", True, True), (b"\x07", "gnu", False, False),
@@ -1365,19 +1442,22 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
     nonempty_filename = filename and home_nonempty and not named
     nonempty_vi = current_vi and home_nonempty
     named_off_filename = named and filename and off
+    bare_off_filename = filename and bare and off
     empty_bare_filename = filename and home_empty and bare and not named
     retained_report = nonempty_filename or nonempty_vi or named_off_filename or empty_bare_filename
     focused_filename = (nonempty_filename and (bare or off)) or empty_bare_filename
     if focused_filename:
         test_filename_child_report()
     if off:
-        assert (nonempty_filename or named_off_filename) and home_nonempty and not vi and not bare
+        assert (nonempty_filename or named_off_filename) and home_nonempty and not vi and (not bare or not named)
         if named_off_filename:
             test_named_off_filename_parser()
+        elif bare:
+            test_bare_off_filename_parser()
         else:
             test_off_filename_parser()
     if bare:
-        assert (nonempty_filename or empty_bare_filename) and not vi and not off
+        assert (nonempty_filename or empty_bare_filename) and not vi and (not off or nonempty_filename)
         test_bare_filename_parser()
         if empty_bare_filename:
             test_empty_bare_filename_parser()
@@ -1416,6 +1496,10 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                     candidate = os.path.join(candidate_home, "audit-candidate")
                     with open(candidate, "xb"):
                         pass
+                    passwd_candidate = os.path.join(passwd_home, "audit-passwd-candidate")
+                    if bare_off_filename:
+                        with open(passwd_candidate, "xb"):
+                            pass
                     cwd = os.path.join(base, "cwd") if off else base
                     literal_name = "~sushline-audit-user" if named else "~"
                     literal_home = os.path.join(cwd, literal_name)
@@ -1432,9 +1516,16 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                                 entries[3].st_size != 0 or any(entry.st_uid != os.getuid() for entry in entries)):
                             raise ValueError()
                         if (sorted(os.listdir(base)) != (["cwd", "home", "passwd-home"] if off else
-                                                             ["home", "passwd-home"]) or os.listdir(empty_home) or
+                                                             ["home", "passwd-home"]) or
+                                sorted(os.listdir(empty_home)) != (["audit-passwd-candidate"] if bare_off_filename else []) or
                                 os.listdir(candidate_home) != ["audit-candidate"]):
                             raise ValueError()
+                        if bare_off_filename:
+                            entry = os.lstat(passwd_candidate)
+                            if (not stat.S_ISREG(entry.st_mode) or entry.st_nlink != 1 or
+                                    entry.st_size != 0 or entry.st_uid != os.getuid()):
+                                raise ValueError()
+                            entries.append(entry)
                         if off:
                             extra = [os.lstat(path) for path in (cwd, literal_home, literal_candidate)]
                             if (any(not stat.S_ISDIR(entry.st_mode) for entry in extra[:2]) or
@@ -1491,6 +1582,7 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                 case = "empty" if home_empty else "nonempty" if home_nonempty else "unset"
                 if filename:
                     fixture = ("complete_filename_named_user_tilde_off_fixture" if named_off_filename else
+                               "complete_filename_bare_tilde_home_nonempty_tilde_off_fixture" if bare_off_filename else
                                "complete_filename_home_nonempty_tilde_off_fixture" if off else
                                "complete_filename_bare_tilde_home_empty_fixture" if empty_bare_filename else
                                "complete_filename_bare_tilde_home_nonempty_fixture" if bare else
@@ -1513,6 +1605,7 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                                 if implementation == "gnu" else b"")
                     lookup_field = b"named" if named else b"passwd"
                     fields = (NAMED_OFF_FILENAME_FIELDS if named_off_filename else
+                              BARE_OFF_FILENAME_FIELDS if bare_off_filename else
                               OFF_FILENAME_FIELDS if off else
                               EMPTY_BARE_FILENAME_FIELDS if empty_bare_filename else
                               BARE_FILENAME_FIELDS if bare else
@@ -1532,7 +1625,7 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                               rb"home_absent=1\npasswd_home_lookup_hits=([0-9]+)\n"
                               rb"result_match=([01])\nguards_ok=1\n")
                     try:
-                        result = subprocess.run(command, cwd=home if bare else cwd if off else base, env=env, stdin=subprocess.DEVNULL,
+                        result = subprocess.run(command, cwd=cwd if off else home if bare else base, env=env, stdin=subprocess.DEVNULL,
                                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                                 timeout=5, check=False)
                     except subprocess.TimeoutExpired as error:
@@ -1563,7 +1656,10 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                                        (denied[1].decode("ascii") if denied else "child_failure"))
                         raise ValueError()
                     result.check_returncode()
-                    if not match or not filename_stderr_allowed(result.stderr, implementation, bare):
+                    # One BEL is accepted only with the exact classified bare-prefix
+                    # row, not merely any execution of a bare-tilde command.
+                    bare_prefix = filename_bare_prefix(bare, off, match.groups() if match else ())
+                    if not match or not filename_stderr_allowed(result.stderr, implementation, bare_prefix):
                         raise ValueError()
                     if filename or current_vi:
                         trial_rows.append(match.groups())
@@ -1606,6 +1702,7 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
             accepted = (trial_classifications[0] == trial_classifications[1]) and accepted
         if retained_report:
             stable, comparison, classified = (named_off_filename_comparison(trial_rows) if named_off_filename else
+                                              bare_off_filename_comparison(trial_rows) if bare_off_filename else
                                               off_filename_comparison(trial_rows) if off else
                                               bare_filename_comparison(trial_rows) if bare else
                                               vi_nonempty_comparison(trial_rows) if nonempty_vi else
@@ -1996,6 +2093,9 @@ def setup_unreadable(base):
     return outer_path, base, base, include_path
 
 try:
+    if mode == "tilde-home-nonempty-filename-bare-off":
+        run_tilde_home(home_nonempty=True, filename=True, bare=True, off=True)
+        sys.exit(0)
     if mode == "tilde-named-user-filename-off":
         run_tilde_home(named=True, home_nonempty=True, filename=True, off=True)
         sys.exit(0)

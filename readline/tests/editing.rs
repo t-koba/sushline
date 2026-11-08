@@ -1546,6 +1546,7 @@ enum ControlledTildeHome {
     NonemptyBareFilename,
     EmptyBareFilename,
     NonemptyOffFilename,
+    NonemptyBareOffFilename,
 }
 
 #[cfg(target_os = "linux")]
@@ -1654,6 +1655,13 @@ fn complete_filename_home_nonempty_tilde_off_fixture() {
 }
 
 #[cfg(target_os = "linux")]
+#[test]
+#[ignore = "requires the controlled HOME-nonempty bare-tilde expand-tilde off filename driver"]
+fn complete_filename_bare_tilde_home_nonempty_tilde_off_fixture() {
+    tilde_expand_controlled_home_fixture(ControlledTildeHome::NonemptyBareOffFilename);
+}
+
+#[cfg(target_os = "linux")]
 fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
     use std::os::unix::ffi::OsStrExt;
 
@@ -1678,6 +1686,7 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
             | ControlledTildeHome::NonemptyFilename
             | ControlledTildeHome::NonemptyBareFilename
             | ControlledTildeHome::NonemptyOffFilename
+            | ControlledTildeHome::NonemptyBareOffFilename
             | ControlledTildeHome::NamedOffFilename
             | ControlledTildeHome::NonemptyVi
     );
@@ -1697,6 +1706,7 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
             | ControlledTildeHome::NonemptyFilename
             | ControlledTildeHome::NonemptyBareFilename
             | ControlledTildeHome::NonemptyOffFilename
+            | ControlledTildeHome::NonemptyBareOffFilename
     );
     assert_eq!(
         std::env::var_os("SUSHLINE_FILENAME_PROBE").is_some(),
@@ -1704,7 +1714,9 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
     );
     let off = matches!(
         home_mode,
-        ControlledTildeHome::NonemptyOffFilename | ControlledTildeHome::NamedOffFilename
+        ControlledTildeHome::NonemptyOffFilename
+            | ControlledTildeHome::NonemptyBareOffFilename
+            | ControlledTildeHome::NamedOffFilename
     );
     assert_eq!(
         std::env::var_os("SUSHLINE_FILENAME_TILDE_OFF").is_some(),
@@ -1712,7 +1724,9 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
     );
     let bare = matches!(
         home_mode,
-        ControlledTildeHome::NonemptyBareFilename | ControlledTildeHome::EmptyBareFilename
+        ControlledTildeHome::NonemptyBareFilename
+            | ControlledTildeHome::NonemptyBareOffFilename
+            | ControlledTildeHome::EmptyBareFilename
     );
     assert_eq!(
         std::env::var_os("SUSHLINE_FILENAME_BARE_TILDE").is_some(),
@@ -1755,6 +1769,7 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         | ControlledTildeHome::NonemptyFilename
         | ControlledTildeHome::NonemptyBareFilename
         | ControlledTildeHome::NonemptyOffFilename
+        | ControlledTildeHome::NonemptyBareOffFilename
         | ControlledTildeHome::NamedUser
         | ControlledTildeHome::NamedUserVi
         | ControlledTildeHome::NamedFilename
@@ -1841,7 +1856,12 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
             for (index, home) in [home.as_ref().unwrap(), &target].iter().enumerate() {
                 let bytes = home.as_os_str().as_bytes();
                 if let Some(suffix) = actual.strip_prefix(bytes).filter(|_| !bytes.is_empty()) {
-                    let completed = suffix == b"/audit-candidate";
+                    let completed = suffix
+                        == if off && bare && index == 1 {
+                            b"/audit-passwd-candidate".as_slice()
+                        } else {
+                            b"/audit-candidate".as_slice()
+                        };
                     classifications[index] = completed
                         || if bare {
                             suffix.is_empty()
@@ -1864,13 +1884,17 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
                 classifications[1] = true;
                 candidate = true;
             }
-            let relative = off
+            let mut relative = off
                 && (actual == tilde_relative
                     || std::env::var_os("SUSHLINE_FILENAME_LITERAL_HOME").is_some_and(|home| {
                         actual.strip_prefix(home.as_os_str().as_bytes())
                             == Some(b"/audit-cwd-candidate".as_slice())
                     }));
             candidate |= relative;
+            if off && bare {
+                relative |= std::env::var_os("SUSHLINE_FILENAME_LITERAL_HOME")
+                    .is_some_and(|home| actual == home.as_os_str().as_bytes());
+            }
             println!("home_present=1");
             println!(
                 "{}=1",
@@ -1884,14 +1908,16 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
             println!("{lookup}_home_lookup_hits={}", hits());
             println!("result_home={}", u8::from(classifications[0]));
             println!("result_passwd_home={}", u8::from(classifications[1]));
-            let literal_prefix = actual
-                == if named {
-                    b"~sushline-audit-user/audit-c".as_slice()
-                } else if bare {
-                    b"~".as_slice()
-                } else {
-                    b"~/audit-c".as_slice()
-                };
+            let escaped_prefix = off && bare && actual == b"\\~";
+            let literal_prefix = escaped_prefix
+                || actual
+                    == if named {
+                        b"~sushline-audit-user/audit-c".as_slice()
+                    } else if bare {
+                        b"~".as_slice()
+                    } else {
+                        b"~/audit-c".as_slice()
+                    };
             let empty = actual.is_empty();
             let other =
                 !(classifications[0] || classifications[1] || relative || literal_prefix || empty);
@@ -1904,6 +1930,9 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
             }
             if bare {
                 println!("result_trailing_slash={}", u8::from(trailing_slash));
+            }
+            if off && bare {
+                println!("result_escaped_literal_prefix={}", u8::from(escaped_prefix));
             }
             println!("guards_ok={}", safe());
             return;

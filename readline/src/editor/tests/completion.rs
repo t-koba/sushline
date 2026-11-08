@@ -878,12 +878,15 @@ fn windows_paths_complete_repeatedly_through_editor_with_shell_escapes() {
         }
         out
     };
-    for command in [
+    for (command_case, command) in [
         "complete",
         "complete-filename",
         "possible-filename-completions",
-    ] {
-        for prefix in [b"rep".as_slice(), br"report\ f"] {
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        for (prefix_case, prefix) in [b"rep".as_slice(), br"report\ f"].into_iter().enumerate() {
             let mut typed = escape(parent.as_bytes());
             typed.push(b'\\');
             typed.extend_from_slice(prefix);
@@ -915,9 +918,22 @@ fn windows_paths_complete_repeatedly_through_editor_with_shell_escapes() {
                 expected.push(b' ');
                 expected
             };
+            let actual = match result {
+                Ok(ReadlineResult::Line(bytes)) => bytes,
+                _ => panic!(
+                    "wrong completion result (command case {command_case}, prefix case {prefix_case})"
+                ),
+            };
+            let mismatch = expected
+                .iter()
+                .zip(&actual)
+                .position(|(expected, actual)| expected != actual)
+                .unwrap_or(expected.len().min(actual.len()));
             assert!(
-                matches!(result, Ok(ReadlineResult::Line(bytes)) if bytes == expected),
-                "wrong completed line"
+                actual == expected,
+                "wrong completed line (command case {command_case}, prefix case {prefix_case}, mismatch byte {mismatch}, expected length {}, actual length {})",
+                expected.len(),
+                actual.len()
             );
             assert_eq!(hooks.words.len(), 1);
             // Both application hooks still receive the same generic word,

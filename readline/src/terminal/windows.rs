@@ -10,8 +10,8 @@ use windows_sys::Win32::System::Console::*;
 use windows_sys::Win32::System::Threading::{INFINITE, WaitForSingleObject};
 
 static ACTIVE: AtomicBool = AtomicBool::new(false);
-const KEY_EVENT_TYPE: u32 = KEY_EVENT as u32;
-const WINDOW_BUFFER_SIZE_EVENT_TYPE: u32 = WINDOW_BUFFER_SIZE_EVENT as u32;
+const KEY_EVENT_TYPE: u32 = KEY_EVENT;
+const WINDOW_BUFFER_SIZE_EVENT_TYPE: u32 = WINDOW_BUFFER_SIZE_EVENT;
 
 #[derive(Default)]
 pub(super) struct Console {

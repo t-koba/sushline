@@ -16,7 +16,7 @@ ESCAPED_QUOTED_KEY = re.compile(
 ALIAS_KEY = re.compile(r"(?:^|[\[{,])\s*(?:-\s*)?\*[A-Za-z0-9_-]+\s*:")
 KEY_PROPERTY = re.compile(r"(?:^|(?<![$\{])[\[{,])\s*(?:-\s*)?(?:&[A-Za-z0-9_-]+|!{1,2}[^\s]+)\s+")
 BLOCK_SCALAR_HEADER = re.compile(
-    r"^(?P<indent> *)(?P<sequence>-\s+)?[^#\n]*:\s*[|>](?:[+-][1-9]?|[1-9][+-]?)?(?:\s+#.*)?\s*$"
+    r"^(?P<indent> *)(?P<sequence>-\s+)?[^#\n]*:\s*[|>](?P<modifiers>(?:[+-][1-9]?|[1-9][+-]?))?(?:\s+#.*)?\s*$"
 )
 USES_LINE = re.compile(r"^\s*(?:-\s*)?uses\s*:\s*(\S+)(?:\s+#\s*(.*))?\s*$")
 REMOTE_PIN = re.compile(r"(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+@[0-9a-f]{40}")
@@ -69,7 +69,9 @@ def invalid_lines(text):
             block_parent_indent = len(block_header.group("indent")) + len(
                 block_header.group("sequence") or ""
             )
-            block_content_indent = None
+            modifiers = block_header.group("modifiers") or ""
+            indicator = next((int(char) for char in modifiers if char.isdigit()), None)
+            block_content_indent = (block_parent_indent + indicator) if indicator else None
     return invalid
 
 
@@ -83,6 +85,7 @@ def self_test():
         "run: echo uses: actions/checkout@v5\n",
         "run: |\n  ? SIG_IGN : application_sigint;\n",
         "steps:\n  - run: |\n      uses: echo-only\n",
+        "steps:\n  - run: |2\n        cat <<'EOF'\n      uses: echo-only\n      EOF\n",
     )
     for sample in accepted:
         if invalid_lines(sample):
@@ -98,6 +101,7 @@ def self_test():
         "steps: [{uses: actions/checkout@v5}]\n",
         "? uses\n: actions/checkout@v5\n",
         "steps:\n  - name: |\n      Example\n    uses: actions/checkout@v5\n",
+        "steps:\n  - name: |2\n        Example\n    uses: actions/checkout@v5\n",
         "steps:\n  - name: |\n    uses: actions/checkout@v5\n",
         "steps: [{? uses: actions/checkout@v5}]\n",
         r'"us\u0065s": actions/checkout@v5' + "\n",

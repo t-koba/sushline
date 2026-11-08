@@ -1228,6 +1228,11 @@ def filename_stderr_category(stderr):
         return "multiline_redacted"
     return "other_redacted"
 
+def filename_stderr_allowed(stderr, implementation, bare):
+    # The reviewed bare-prefix GNU result contains exactly one BEL byte.
+    # Permit only that fixed case; every other nonempty diagnostic fails closed.
+    return not stderr or (implementation == "gnu" and bare and stderr == b"\x07")
+
 def filename_child_report(stdout, stderr, returncode, pattern, harness=False, timed_out=False):
     # Child bytes are untrusted. Only full matches may reach the result report;
     # diagnostics contain fixed categories, never child text or exit values.
@@ -1267,6 +1272,14 @@ def test_filename_child_report():
         if match:
             assert output == valid
     check()
+    for stderr, implementation, bare, allowed in (
+        (b"", "gnu", False, True), (b"", "sushline", True, True),
+        (b"\x07", "gnu", True, True), (b"\x07", "gnu", False, False),
+        (b"\x07", "sushline", True, False), (b"\x07\x07", "gnu", True, False),
+        (b"opaque\x07", "gnu", True, False), (b"\x07opaque", "gnu", True, False),
+        (b"\x1b", "gnu", True, False),
+    ):
+        assert filename_stderr_allowed(stderr, implementation, bare) == allowed
     for stderr, single_bell in ((b"\x07", 1), (b"\x07\x07", 0),
                                 (b"opaque\x07", 0), (b"\x07opaque", 0), (b"", 0)):
         _, _, diagnostics = filename_child_report(valid, stderr, 0, pattern)
@@ -1519,7 +1532,7 @@ def run_tilde_home(home_empty=False, home_nonempty=False, named=False, vi=False,
                                        (denied[1].decode("ascii") if denied else "child_failure"))
                         raise ValueError()
                     result.check_returncode()
-                    if not match or result.stderr:
+                    if not match or not filename_stderr_allowed(result.stderr, implementation, bare):
                         raise ValueError()
                     if filename or current_vi:
                         trial_rows.append(match.groups())

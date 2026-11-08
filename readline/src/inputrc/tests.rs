@@ -1198,6 +1198,36 @@ fn does_not_strip_non_utf8_comments_from_set_directives() {
 }
 
 #[test]
+fn crlf_completion_ignore_case_set_does_not_select_lf_condition() {
+    for (inputrc, expected_value, expected_binding) in [
+        (
+            "set completion-ignore-case on\r\n$if completion-ignore-case = on\n\"\\C-o\": \"M\"\n$endif\n",
+            "off",
+            Some(KeyBinding::NamedCommand("operate-and-get-next".to_string())),
+        ),
+        (
+            "set completion-ignore-case on\n$if completion-ignore-case = on\n\"\\C-o\": \"M\"\n$endif\n",
+            "on",
+            Some(KeyBinding::Macro(b"M".to_vec())),
+        ),
+    ] {
+        let mut keymap = KeyMap::emacs_default();
+        let mut variables = Variables::new();
+        let diagnostics = InputrcParser::new()
+            .parse_str(inputrc, &Config::default(), &mut keymap, &mut variables)
+            .unwrap();
+
+        assert!(diagnostics.is_empty(), "{inputrc:?}: {diagnostics:?}");
+        assert_eq!(
+            keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
+            expected_binding.as_ref(),
+            "{inputrc:?}"
+        );
+        assert_eq!(variables["completion-ignore-case"], expected_value);
+    }
+}
+
+#[test]
 fn crlf_backward_char_binding_unbinds_unlike_lf() {
     for (inputrc, expected) in [
         ("\"\\C-o\": backward-char\r\n", None),

@@ -783,7 +783,7 @@ fn bash_readline_and_sushline_differ_on_crlf_condition_directives() {
 }
 
 #[test]
-fn bash_readline_and_sushline_differ_on_crlf_set_value_and_match_lf_control() {
+fn bash_readline_and_sushline_match_crlf_set_value_and_lf_control() {
     assert_eq!(
         super::host_readline::host_readline_identity()
             .expect("Readline identity")
@@ -792,7 +792,7 @@ fn bash_readline_and_sushline_differ_on_crlf_set_value_and_match_lf_control() {
     );
     let keys = b"abc\x0fX\r";
     for (ending, expected_bash, expected_sushline) in
-        [("\r\n", "abc", "abcMX"), ("\n", "abcMX", "abcMX")]
+        [("\r\n", "abc", "abc"), ("\n", "abcMX", "abcMX")]
     {
         let inputrc = format!(
             "set completion-ignore-case on{ending}$if completion-ignore-case = on\n\"\\C-o\": \"M\"\n$endif\n"

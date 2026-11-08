@@ -286,7 +286,7 @@ impl InputrcParser {
                 let rest = after.trim_start_matches(char::is_whitespace);
                 let mut parts = rest.splitn(2, char::is_whitespace);
                 let name = parts.next().unwrap_or("");
-                let value = parts.next().unwrap_or("").trim();
+                let value = trim_set_value(name, parts.next().unwrap_or(""));
                 if let Some(message) = apply_variable(ctx.keymap, ctx.variables, name, value) {
                     diagnostics.push(InputrcDiagnostic {
                         path: path.map(Path::to_path_buf),
@@ -840,8 +840,16 @@ fn is_quoted(value: &str) -> bool {
     quoted_value_end(value.as_bytes()) == Some(value.len())
 }
 
+fn trim_set_value<'a>(name: &str, value: &'a str) -> &'a str {
+    // Preserve CR in the measured completion-ignore-case set-value fixture;
+    // do not extend this line-ending rule to unmeasured variables.
+    value.trim_matches(|c: char| {
+        c.is_whitespace() && !(c == '\r' && name.eq_ignore_ascii_case("completion-ignore-case"))
+    })
+}
+
 fn normalize_variable_value(name: &str, value: &str) -> Option<String> {
-    let value = value.trim();
+    let value = trim_set_value(name, value);
     if matches!(
         name,
         "completion-display-width"

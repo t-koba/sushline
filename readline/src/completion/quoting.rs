@@ -13,6 +13,12 @@ pub(crate) struct CompletionEdit {
     // replacement range continue to describe the entire original word.
     pub(super) filename_segment: Option<FilenameSegment>,
     pub(super) builtin_filename_completion: bool,
+    #[cfg(windows)]
+    filename_start: usize,
+    // Native bounds apply only after callbacks decline. Retain their original
+    // word for quote hooks, whose returned spelling still replaces that word.
+    #[cfg(windows)]
+    pub(super) hook_word: Option<(usize, Vec<u8>, Option<char>)>,
 }
 
 #[derive(Clone, Debug)]
@@ -23,6 +29,24 @@ pub(super) struct FilenameSegment {
 }
 
 impl CompletionEdit {
+    pub(super) fn select_builtin_filename(
+        &mut self,
+        _context: &crate::completion::CompletionContext,
+        segment: Option<FilenameSegment>,
+    ) {
+        #[cfg(windows)]
+        if _context.word_start < self.start {
+            self.hook_word = Some((self.start, self.word_bytes.clone(), self.quote));
+            self.start = _context.word_start;
+            self.word_bytes = _context.word.clone();
+            let raw = &self.line[self.start..self.end];
+            self.quote = dequote_completion_word_with_opening(raw, true).1;
+            self.ansi_c_quote = raw.starts_with(b"$'");
+        }
+        self.filename_segment = segment;
+        self.builtin_filename_completion = true;
+    }
+
     pub(super) fn matching_word(&self) -> &[u8] {
         self.filename_segment
             .as_ref()
@@ -120,6 +144,10 @@ pub(super) fn completion_edit(
         point: state.buffer.byte_point(),
         filename_segment: None,
         builtin_filename_completion: false,
+        #[cfg(windows)]
+        filename_start: windows_filename_word_start(&bytes[..end], break_chars),
+        #[cfg(windows)]
+        hook_word: None,
     }
 }
 
@@ -133,8 +161,13 @@ pub(super) fn dequote_completion_word_bytes(raw: &[u8]) -> (Vec<u8>, Option<char
 pub(super) fn filename_completion_context(
     context: &crate::completion::CompletionContext,
     segment: Option<&FilenameSegment>,
+    _edit: &CompletionEdit,
 ) -> crate::completion::CompletionContext {
     let mut context = context.clone();
+    #[cfg(windows)]
+    {
+        context.word_start = _edit.filename_start;
+    }
     if let Some(segment) = segment {
         context.word_start = segment.raw_start;
         context.word = segment.word_bytes.clone();
@@ -144,6 +177,41 @@ pub(super) fn filename_completion_context(
         context.word = dequote_completion_word_with_opening(raw, true).0;
     }
     context
+}
+
+// Use the same unquoted escape policy for native bounds and dequoting: a
+// separator before another separator is literal, so the latter can escape a
+// component's leading space or metacharacter. Never opt the global scanner in.
+fn native_filename_escape(next: u8) -> bool {
+    next.is_ascii_whitespace() || b"\"'`$!&|;<>()[]{}*?~#".contains(&next)
+}
+
+#[cfg(windows)]
+fn windows_filename_word_start(raw: &[u8], break_chars: &[u8]) -> usize {
+    let mut start = 0;
+    let mut quote = None;
+    let mut idx = 0;
+    while let Some(&byte) = raw.get(idx) {
+        idx += 1;
+        if byte == b'\\' && quote != Some(b'\'') {
+            if quote.is_some()
+                || raw
+                    .get(idx)
+                    .is_some_and(|&next| native_filename_escape(next))
+            {
+                idx += usize::from(idx < raw.len());
+            }
+        } else if let Some(active) = quote {
+            if byte == active {
+                quote = None;
+            }
+        } else if matches!(byte, b'\'' | b'"') {
+            quote = Some(byte);
+        } else if byte.is_ascii() && break_chars.contains(&byte) {
+            start = idx;
+        }
+    }
+    start
 }
 
 fn dequote_completion_word_with_opening(
@@ -189,9 +257,9 @@ fn dequote_completion_word_with_opening(
                     Some(_) | None => out.push(b'\\'),
                 }
             } else if native_separators
-                && raw.get(idx).is_none_or(|next| {
-                    !next.is_ascii_whitespace() && !b"\"'`$!&|;<>()[]{}*?~#".contains(next)
-                })
+                && raw
+                    .get(idx)
+                    .is_none_or(|&next| !native_filename_escape(next))
             {
                 // Ordinary component bytes and consecutive separators (UNC
                 // included) are literal; shell whitespace/metacharacters
@@ -427,6 +495,47 @@ mod tests {
                 super::dequote_completion_word_with_opening(raw, true).0,
                 dequote_completion_word_bytes(raw).0,
             );
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_paths_bounds_keep_escaped_leading_component_bytes() {
+        use crate::{
+            completion::{CompletionContext, CompletionType},
+            prompt::Prompt,
+            state::EditorState,
+        };
+        for (raw, expected) in [
+            (
+                br"run C:\dir\\ space\\child".as_slice(),
+                br"C:\dir\ space\\child".as_slice(),
+            ),
+            (br"run C:\dir\\&break\child", br"C:\dir\&break\child"),
+        ] {
+            let state = EditorState::new(Prompt::new(""), Some(raw.to_vec()));
+            let mut edit = super::completion_edit(&state, b" \t\n&", false);
+            let generic_start = edit.start;
+            assert!(generic_start > 4, "fixture must split under generic bounds");
+            let context = CompletionContext {
+                line: raw.to_vec(),
+                point: raw.len(),
+                word_start: edit.start,
+                word_end: edit.end,
+                word: edit.word_bytes.clone(),
+                key: b"\t".to_vec(),
+                completion_type: CompletionType::Complete,
+            };
+            let native = super::filename_completion_context(&context, None, &edit);
+            assert_eq!(native.word_start, 4);
+            assert_eq!(native.word, expected);
+            edit.select_builtin_filename(&native, None);
+            assert_eq!(edit.start, 4);
+            assert_eq!(edit.matching_word(), expected);
+            let (start, word, quote) = edit.hook_word.unwrap();
+            assert_eq!(start, generic_start);
+            assert_eq!(word, context.word);
+            assert_eq!(quote, None);
         }
     }
 

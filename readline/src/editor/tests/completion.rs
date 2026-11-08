@@ -756,19 +756,36 @@ fn windows_paths_complete_repeatedly_through_editor_with_shell_escapes() {
         words: Vec<Vec<u8>>,
         defaults: Vec<Vec<u8>>,
         replacements: Vec<Vec<u8>>,
+        request: Option<crate::completion::CompletionContext>,
+        override_quote: bool,
     }
     impl Hooks for Observe {
         fn complete(&mut self, request: CompletionRequest) -> Option<CompletionResponse> {
-            self.words.push(request.context.word);
+            // Compare callbacks against the unchanged generic scanner, even
+            // when it sees only the suffix after a leading escaped byte.
+            let buffer = crate::buffer::LineBuffer::from_bytes(request.context.line.clone());
+            let (start, end) = buffer.completion_word_bounds(Some(b" \t\n&"));
+            assert!(request.context.word_start == start && request.context.word_end == end);
+            self.words.push(request.context.word.clone());
+            self.request = Some(request.context);
             None
         }
         fn default_complete(&mut self, request: &CompletionRequest) -> Option<CompletionResponse> {
             self.defaults.push(request.context.word.clone());
             None
         }
+        fn completion_word_breaks(&mut self) -> Option<Vec<u8>> {
+            Some(b" \t\n&".to_vec())
+        }
         fn quote_completion(&mut self, context: crate::hooks::QuoteContext<'_>) -> Option<Vec<u8>> {
+            let request = self.request.as_ref().unwrap();
+            assert!(context.line == request.line && context.point == request.point);
+            assert!(
+                context.word_start == request.word_start && context.word_end == request.word_end
+            );
+            assert!(context.word == request.word && context.quote.is_none());
             self.replacements.push(context.value.to_vec());
-            None
+            (self.override_quote && self.words.len() == 2).then(|| b"hook-result".to_vec())
         }
     }
 
@@ -858,42 +875,67 @@ fn windows_paths_complete_repeatedly_through_editor_with_shell_escapes() {
         }
     }
 
-    let nested = dir.path().join("native space").join("nested dir[x]");
-    assert!(
-        std::fs::create_dir(&nested).is_ok(),
-        "create nested fixture"
-    );
-    assert!(
-        std::fs::write(nested.join("child file.txt"), b"").is_ok(),
-        "create nested file"
-    );
-    for command in ["complete", "complete-filename"] {
-        let mut typed = escape(parent.as_bytes());
-        typed.extend_from_slice(br"\nest");
-        let terminal = MemoryTerminal::with_events(vec![
-            TerminalEvent::Bytes(typed),
-            // The first Tab must insert a directory and its slash, without
-            // a space. The second must look up the sole child from that line.
-            TerminalEvent::Bytes(b"\t\t\r".to_vec()),
-        ]);
-        let mut line = Editor::new(Config::default(), terminal, History::new());
+    for (name, prefix) in [
+        ("nested dir[x]", "nest"),
+        (" space-dir", " spa"),
+        ("&break-dir", "&br"),
+    ] {
+        let nested = dir.path().join("native space").join(name);
         assert!(
-            line.load_inputrc_str(&format!("\"\\C-i\": {command}"))
-                .is_ok()
+            std::fs::create_dir(&nested).is_ok(),
+            "create nested fixture"
         );
-        let mut hooks = Observe::default();
-        let result = line.read_line(Prompt::new("> "), &mut hooks);
-        let candidate = format!("{parent}\\nested dir[x]/child file.txt").into_bytes();
         assert!(
-            hooks.replacements.iter().any(|value| value == &candidate),
-            "second completion did not look up the child"
+            std::fs::write(nested.join("child file.txt"), b"").is_ok(),
+            "create nested file"
         );
-        let mut expected = escape(&candidate);
-        expected.push(b' ');
-        assert!(
-            matches!(result, Ok(ReadlineResult::Line(bytes)) if bytes == expected),
-            "wrong sequentially completed line"
-        );
-        assert_eq!(hooks.words.len(), 2);
+        for command in ["complete", "complete-filename"] {
+            for override_quote in [false, true] {
+                let mut typed = escape(parent.as_bytes());
+                typed.push(b'\\');
+                typed.extend_from_slice(&escape(prefix.as_bytes()));
+                let terminal = MemoryTerminal::with_events(vec![
+                    TerminalEvent::Bytes(typed),
+                    // Complete the directory, then its sole child from the
+                    // inserted line, including a separator + escaped byte.
+                    TerminalEvent::Bytes(b"\t\t\r".to_vec()),
+                ]);
+                let mut line = Editor::new(Config::default(), terminal, History::new());
+                assert!(
+                    line.load_inputrc_str(&format!("\"\\C-i\": {command}"))
+                        .is_ok()
+                );
+                let mut hooks = Observe {
+                    override_quote,
+                    ..Observe::default()
+                };
+                let result = line.read_line(Prompt::new("> "), &mut hooks);
+                let candidate = format!("{parent}\\{name}/child file.txt").into_bytes();
+                assert!(
+                    hooks.replacements.iter().any(|value| value == &candidate),
+                    "second completion did not look up the child"
+                );
+                let mut expected = if override_quote {
+                    let request = hooks.request.as_ref().unwrap();
+                    let mut bytes = request.line[..request.word_start].to_vec();
+                    bytes.extend_from_slice(b"hook-result");
+                    bytes
+                } else {
+                    escape(&candidate)
+                };
+                expected.push(b' ');
+                assert!(
+                    matches!(result, Ok(ReadlineResult::Line(bytes)) if bytes == expected),
+                    "wrong sequentially completed line"
+                );
+                assert_eq!(hooks.words.len(), 2);
+                if command == "complete" {
+                    assert!(
+                        hooks.defaults == hooks.words,
+                        "fallback changed application words"
+                    );
+                }
+            }
+        }
     }
 }

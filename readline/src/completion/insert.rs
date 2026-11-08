@@ -710,17 +710,33 @@ where
             full.extend_from_slice(value);
             full
         });
+        let (word_start, word, quote) = (edit.start, edit.word_bytes.as_slice(), edit.quote);
+        #[cfg(windows)]
+        let (word_start, word, quote) = edit
+            .hook_word
+            .as_ref()
+            .map_or((word_start, word, quote), |(start, word, quote)| {
+                (*start, word.as_slice(), *quote)
+            });
         if let Some(quoted) = hooks.quote_completion(QuoteContext {
             value: full_value.as_deref().unwrap_or(value),
             line: &edit.line,
             point: edit.point,
-            word_start: edit.start,
+            word_start,
             word_end: edit.end,
-            word: &edit.word_bytes,
-            quote: edit.quote,
+            word,
+            quote,
             completion_type,
             quote_filename: options.quote_filename,
         }) {
+            #[cfg(windows)]
+            let quoted = if word_start > edit.start {
+                let mut full = edit.line[edit.start..word_start].to_vec();
+                full.extend_from_slice(&quoted);
+                full
+            } else {
+                quoted
+            };
             return (quoted, true);
         }
         let raw_start = edit

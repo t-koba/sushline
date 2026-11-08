@@ -55,12 +55,6 @@ where
         }
 
         let mut edit = self.completion_edit(state, hooks);
-        if matches!(
-            completion_type,
-            CompletionType::Complete | CompletionType::Filename
-        ) {
-            edit.filename_segment = edit.reopened_filename_segment();
-        }
         let response = self.completion_response(state, key, completion_type, &mut edit, hooks);
         match completion_type {
             CompletionType::PossibleCompletions
@@ -143,7 +137,7 @@ where
     ) -> CompletionResponse {
         // Callbacks always see the full word; restore this scope only if a
         // built-in provider is ultimately selected.
-        let mut segment = edit.filename_segment.take();
+        let segment = edit.reopened_filename_segment();
         let request = CompletionRequest {
             context: CompletionContext {
                 line: state.buffer.as_bytes().to_vec(),
@@ -155,31 +149,18 @@ where
                 completion_type,
             },
         };
-        let mut filename_context = filename_completion_context(&request.context, segment.as_ref());
+        let filename_context =
+            filename_completion_context(&request.context, segment.as_ref(), edit);
         let Some(mut response) = hooks.complete(request.clone()) else {
-            if segment.is_none() {
-                segment = edit.reopened_filename_segment();
-                filename_context = filename_completion_context(&request.context, segment.as_ref());
-            }
             let (response, builtin_filenames) =
                 self.default_completion(&request, hooks, Some(&filename_context));
             if builtin_filenames {
-                edit.filename_segment = segment;
-                edit.builtin_filename_completion = true;
+                edit.select_builtin_filename(&filename_context, segment);
             }
             return response;
         };
         let mut empty_application_response = false;
         let mut builtin_filename_fallback = false;
-        let needs_filename_context = response.options.plusdirs
-            || (response.candidates.is_empty()
-                && (response.options.bashdefault
-                    || response.options.default
-                    || response.options.dirnames));
-        if needs_filename_context && segment.is_none() {
-            segment = edit.reopened_filename_segment();
-            filename_context = filename_completion_context(&request.context, segment.as_ref());
-        }
         if response.candidates.is_empty()
             && (response.options.bashdefault
                 || response.options.default
@@ -219,8 +200,7 @@ where
             builtin_filename_fallback |= empty_application_response;
         }
         if builtin_filename_fallback {
-            edit.filename_segment = segment;
-            edit.builtin_filename_completion = true;
+            edit.select_builtin_filename(&filename_context, segment);
         }
         apply_extended_completion_options(&mut response);
         sort_completion_response(&mut response);

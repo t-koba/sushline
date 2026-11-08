@@ -12,7 +12,7 @@ fn bare_tilde_filename_directory_escaping_respects_home_state() {
     const CHILD: &str = "SUSHLINE_BARE_TILDE_COMPLETION_TEST";
     if std::env::var_os(CHILD).is_some() {
         let home = std::env::var_os("HOME");
-        // Preserve empty HOME's current spelling; its oracle result is not yet reviewed.
+        // HOME-empty's reviewed Readline fixture retains a bare prefix without a slash.
         // Exercise expansion-on only for the existing nonempty-HOME case.
         let expansions: &[&str] = if home.as_ref().is_some_and(|home| !home.is_empty()) {
             &["off", "on"]
@@ -35,7 +35,7 @@ fn bare_tilde_filename_directory_escaping_respects_home_state() {
             ))
             .unwrap();
             let expected = if home.as_ref().is_some_and(|home| home.is_empty()) {
-                b"\\~".as_slice()
+                b"~".as_slice()
             } else if *expand == "off" {
                 b"~/".as_slice()
             } else {

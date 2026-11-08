@@ -730,15 +730,18 @@ where
         let raw_word = edit.line.get(raw_start..edit.end).unwrap_or_default();
         let is_unescaped_named_user_path =
             is_named_user_tilde_path(edit.matching_word()) && !raw_word.starts_with(b"\\~");
-        // Guarded Readline 8.3 fixtures keep this literal directory prefix
-        // unescaped with HOME absent or nonempty. Keep empty HOME and other
-        // tilde words, commands and modes outside this exception.
+        // Guarded Readline 8.3 fixtures retain a bare literal prefix unescaped:
+        // `~/` for HOME absent/nonempty and `~` for HOME-empty. Keep this to
+        // built-in filename completion; other tilde words and commands differ.
+        let preserve_bare_tilde_value = match std::env::var_os("HOME") {
+            Some(home) if home.is_empty() => value == b"~",
+            _ => value == b"~/",
+        };
         let preserve_bare_tilde = edit.builtin_filename_completion
             && completion_type == CompletionType::Filename
             && raw_word == b"~"
-            && value == b"~/"
             && !self.variables.is_on("expand-tilde")
-            && std::env::var_os("HOME").is_none_or(|home| !home.is_empty());
+            && preserve_bare_tilde_value;
         let escape_leading_tilde = options.filename_candidates
             && !preserve_bare_tilde
             && !edit.matching_word().starts_with(b"~/")

@@ -207,16 +207,23 @@ fn filename_response(
     }
 }
 
+fn is_path_separator(byte: u8) -> bool {
+    byte == b'/' || (cfg!(windows) && byte == b'\\')
+}
+
 pub(crate) fn split_word_path_bytes(word: &[u8]) -> (Vec<u8>, &[u8], Vec<u8>) {
-    if word.ends_with(b"/") {
+    if word.last().is_some_and(|byte| is_path_separator(*byte)) {
         return (word.to_vec(), &b""[..], word.to_vec());
     }
-    if let Some(pos) = word.iter().rposition(|byte| *byte == b'/') {
+    if let Some(pos) = word.iter().rposition(|byte| is_path_separator(*byte)) {
         if pos == 0 {
-            return (b"/".to_vec(), &word[1..], b"/".to_vec());
+            return (word[..1].to_vec(), &word[1..], word[..1].to_vec());
         }
+        // Keep the separator for Windows lookup: `C:\` is a drive root,
+        // whereas `C:` alone refers to that drive's current directory.
+        let dir_end = if cfg!(windows) { pos + 1 } else { pos };
         return (
-            word[..pos].to_vec(),
+            word[..dir_end].to_vec(),
             &word[pos + 1..],
             word[..=pos].to_vec(),
         );
@@ -256,7 +263,10 @@ fn filter_directory_candidates(
     opts: &FilenameOptions,
 ) -> CompletionResponse {
     response.candidates.retain(|candidate| {
-        candidate.replacement_bytes().ends_with(b"/")
+        candidate
+            .replacement_bytes()
+            .last()
+            .is_some_and(|byte| is_path_separator(*byte))
             || filename_directory_completion(word, candidate.replacement_bytes(), opts).is_some()
     });
     response.options.nospace = response.candidates.len() == 1;
@@ -436,12 +446,12 @@ pub(super) fn filename_directory_completion(
 pub(super) fn filename_display_name(replacement: &[u8]) -> String {
     let without_trailing_slashes = replacement
         .iter()
-        .rposition(|byte| *byte != b'/')
+        .rposition(|byte| !is_path_separator(*byte))
         .map(|idx| &replacement[..=idx])
         .unwrap_or(replacement);
     let name = without_trailing_slashes
         .iter()
-        .rposition(|byte| *byte == b'/')
+        .rposition(|byte| is_path_separator(*byte))
         .map(|idx| &without_trailing_slashes[idx + 1..])
         .unwrap_or(without_trailing_slashes);
     // GNU `fnprint` lists control bytes as caret notation (`^[` for ESC,
@@ -465,10 +475,10 @@ pub(super) fn filename_display_name(replacement: &[u8]) -> String {
 fn completion_replacement_path(word: &[u8], replacement: &[u8]) -> Option<PathBuf> {
     let replacement = expand_tilde_bytes(replacement);
     let path = path_from_bytes(&replacement)?;
-    if path.is_dir() || replacement.contains(&b'/') {
+    if path.is_dir() || replacement.iter().any(|byte| is_path_separator(*byte)) {
         return Some(path);
     }
-    if let Some(pos) = word.iter().rposition(|byte| *byte == b'/') {
+    if let Some(pos) = word.iter().rposition(|byte| is_path_separator(*byte)) {
         let mut joined = expand_tilde_bytes(&word[..=pos]);
         joined.extend_from_slice(&replacement);
         return path_from_bytes(&joined);
@@ -1027,6 +1037,103 @@ mod tests {
             utf8_locale: false,
             lc_ctype: None,
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_paths_preserve_separators_in_lookup_and_replacement() {
+        let dir = tempfile::tempdir().unwrap();
+        let nested = dir.path().join("nested");
+        fs::create_dir(&nested).unwrap();
+        fs::write(nested.join("report.txt"), b"").unwrap();
+        let native = nested.to_str().unwrap().replace('/', "\\");
+        let slash = native.replace('\\', "/");
+        let mixed = format!("{}/nested", dir.path().to_str().unwrap().replace('/', "\\"));
+        for (parent, separator) in [(native, "\\"), (slash, "/"), (mixed, "\\")] {
+            let expected = format!("{parent}{separator}report.txt").into_bytes();
+            // Check both a partial basename and a trailing directory separator.
+            for prefix in ["rep", ""] {
+                let word = format!("{parent}{separator}{prefix}").into_bytes();
+                let response = complete_filenames_bytes(&word, &test_options());
+                assert_eq!(response.candidates.len(), 1);
+                let candidate = &response.candidates[0];
+                assert_eq!(candidate.replacement_bytes(), expected);
+                assert_eq!(candidate.display.as_deref(), Some("report.txt"));
+                assert_eq!(filename_display_name(&expected), "report.txt");
+                assert_eq!(
+                    completion_replacement_path(&word, &expected).unwrap(),
+                    nested.join("report.txt")
+                );
+                assert!(!response.options.nospace);
+            }
+        }
+        for word in [b"C:\\rep".as_slice(), b"C:/rep"] {
+            let (lookup, prefix, display) = split_word_path_bytes(word);
+            assert_eq!(lookup, &word[..3]);
+            assert_eq!(display, &word[..3]);
+            assert_eq!(prefix, b"rep");
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_paths_reconstruct_and_mark_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("folder")).unwrap();
+        fs::write(dir.path().join("file.txt"), b"").unwrap();
+        let parent = dir.path().to_str().unwrap().replace('/', "\\");
+        let word = format!("{parent}\\fo").into_bytes();
+        let expected = format!("{parent}\\folder").into_bytes();
+        let mut opts = test_options();
+        let response = complete_directories_bytes(&word, &opts);
+        assert_eq!(response.candidates.len(), 1);
+        assert_eq!(response.candidates[0].replacement_bytes(), expected);
+        assert_eq!(response.candidates[0].display.as_deref(), Some("folder/"));
+        assert!(response.options.nospace);
+        // A full replacement must not be joined to the typed parent twice;
+        // a basename-only replacement must be resolved against that parent.
+        for replacement in [expected.as_slice(), b"folder"] {
+            assert_eq!(
+                completion_replacement_path(&word, replacement).unwrap(),
+                dir.path().join("folder")
+            );
+            let marking = filename_directory_completion(&word, replacement, &opts).unwrap();
+            assert!(marking.append_slash);
+            assert!(marking.display_slash);
+        }
+        assert!(filename_directory_completion(&word, b"file.txt", &opts).is_none());
+        assert_eq!(
+            filename_display_name(&format!("{parent}\\folder\\").into_bytes()),
+            "folder"
+        );
+        opts.mark_directories = false;
+        let response = complete_directories_bytes(&word, &opts);
+        assert_eq!(response.candidates[0].replacement_bytes(), expected);
+        assert_eq!(response.candidates[0].display.as_deref(), Some("folder"));
+        let marking = filename_directory_completion(&word, b"folder", &opts).unwrap();
+        assert!(!marking.append_slash);
+        assert!(!marking.display_slash);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn backslash_remains_a_literal_filename_byte() {
+        let dir = tempfile::tempdir().unwrap();
+        let name = b"part\\file";
+        fs::write(dir.path().join(path_from_bytes(name).unwrap()), b"").unwrap();
+        let mut word = os_str_to_completion_bytes(dir.path().as_os_str()).unwrap();
+        word.extend_from_slice(b"/part\\f");
+        let mut expected = os_str_to_completion_bytes(dir.path().as_os_str()).unwrap();
+        expected.push(b'/');
+        expected.extend_from_slice(name);
+        let response = complete_filenames_bytes(&word, &test_options());
+        assert_eq!(response.candidates.len(), 1);
+        assert_eq!(response.candidates[0].replacement_bytes(), expected);
+        assert_eq!(filename_display_name(&expected), "part\\file");
+        let (lookup, prefix, display) = split_word_path_bytes(b"part\\f");
+        assert_eq!(lookup, b".");
+        assert_eq!(prefix, b"part\\f");
+        assert!(display.is_empty());
     }
 
     #[test]

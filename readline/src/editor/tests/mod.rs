@@ -205,6 +205,7 @@ struct MemoryTerminal {
     meta_enabled: Vec<bool>,
     input_meta: bool,
     input_meta_on_raw_entry: Vec<bool>,
+    utf8_byte_io: bool,
     keypad_enabled: Vec<bool>,
     moved_columns: Vec<u16>,
     moved_up: Vec<u16>,
@@ -224,6 +225,7 @@ impl MemoryTerminal {
             meta_enabled: Vec::new(),
             input_meta: false,
             input_meta_on_raw_entry: Vec::new(),
+            utf8_byte_io: false,
             keypad_enabled: Vec::new(),
             moved_columns: Vec::new(),
             moved_up: Vec::new(),
@@ -236,9 +238,18 @@ impl MemoryTerminal {
         terminal.read_error = Some(error);
         terminal
     }
+
+    fn with_utf8_byte_io(mut self) -> Self {
+        self.utf8_byte_io = true;
+        self
+    }
 }
 
 impl TerminalIo for MemoryTerminal {
+    fn uses_utf8_io(&self) -> bool {
+        self.utf8_byte_io
+    }
+
     fn enter_raw_mode(&mut self) -> io::Result<()> {
         self.input_meta_on_raw_entry.push(self.input_meta);
         Ok(())

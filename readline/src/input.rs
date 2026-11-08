@@ -1075,11 +1075,13 @@ where
         bytes: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
-        // In the C/POSIX raw-meta configuration, a high-bit byte leaves
-        // search and is dispatched as ordinary input, not added to the query.
-        // Do not extend this byte rule to other encodings. Pending quoted
-        // input has already been consumed by handle_reverse_search_single.
-        let raw_meta = matches!(self.variables.lc_ctype(), Some("C" | "POSIX"))
+        // In a non-UTF-8 C/POSIX raw-meta configuration, a high-bit byte
+        // leaves search and is dispatched as ordinary input, not added to
+        // the query. An opted-in UTF-8 byte-I/O backend overrides the process
+        // locale here. Pending quoted input was already consumed by
+        // handle_reverse_search_single.
+        let raw_meta = !self.variables.utf8_locale()
+            && matches!(self.variables.lc_ctype(), Some("C" | "POSIX"))
             && !self.flag(BoolVariable::ConvertMeta)
             && self.flag(BoolVariable::InputMeta)
             && bytes.first().is_some_and(|byte| byte & 0x80 != 0);

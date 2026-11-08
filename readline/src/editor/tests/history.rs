@@ -466,6 +466,23 @@ fn reverse_incremental_search_matches_invalid_utf8_history_fixture() {
 }
 
 #[test]
+fn utf8_terminal_defaults_search_multibyte_history_under_c_locale() {
+    let terminal =
+        MemoryTerminal::with_events(vec![TerminalEvent::Bytes(b"\x12\xc3\xa9\r".to_vec())])
+            .with_utf8_byte_io();
+    let mut history = History::new();
+    history.push("café");
+    let mut editor = Editor::new_without_inputrc(Config::default(), terminal, history);
+
+    assert_eq!(
+        editor
+            .read_line(Prompt::new("> "), &mut TestHistoryHook)
+            .unwrap(),
+        ReadlineResult::Line("café".as_bytes().to_vec())
+    );
+}
+
+#[test]
 fn prefix_search_matches_invalid_utf8_history_fixture() {
     let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(b"alpha\x0f\r".to_vec())]);
     let mut history = History::new();

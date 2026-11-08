@@ -83,6 +83,10 @@ jobs:
         run: cargo test -p sushline-readline --lib --no-default-features --locked terminal::windows::tests -- --nocapture --test-threads=1
       - name: Preserve locale defaults for custom terminal backends
         run: cargo test -p sushline-readline --lib --no-default-features --locked editor::tests::signals::custom_terminal_keeps_locale_based_utf8_defaults -- --nocapture --test-threads=1
+      - name: Search UTF-8 history under the C locale on an opted-in terminal
+        run: cargo test -p sushline-readline --lib --no-default-features --locked editor::tests::history::utf8_terminal_defaults_search_multibyte_history_under_c_locale -- --nocapture --test-threads=1
+        env:
+          LC_ALL: C
 
   oracle:
     runs-on: ubuntu-latest

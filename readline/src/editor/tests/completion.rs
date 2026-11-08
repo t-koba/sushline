@@ -929,9 +929,33 @@ fn windows_paths_complete_repeatedly_through_editor_with_shell_escapes() {
                 .zip(&actual)
                 .position(|(expected, actual)| expected != actual)
                 .unwrap_or(expected.len().min(actual.len()));
+            let byte_class = |byte: Option<&u8>| match byte {
+                None => "end",
+                Some(b'\\') => "backslash",
+                Some(b'/') => "slash",
+                Some(b' ' | b'\t' | b'\n' | b'\r') => "whitespace",
+                Some(byte) if byte.is_ascii_alphanumeric() => "alphanumeric",
+                Some(_) => "other",
+            };
+            let expected_class = byte_class(expected.get(mismatch));
+            let actual_class = byte_class(actual.get(mismatch));
+            let expected_separators = expected[..mismatch]
+                .iter()
+                .filter(|&&byte| byte == b'\\')
+                .count();
+            let actual_separators = actual[..mismatch]
+                .iter()
+                .filter(|&&byte| byte == b'\\')
+                .count();
+            let common_suffix = expected
+                .iter()
+                .rev()
+                .zip(actual.iter().rev())
+                .take_while(|(expected, actual)| expected == actual)
+                .count();
             assert!(
                 actual == expected,
-                "wrong completed line (command case {command_case}, prefix case {prefix_case}, mismatch byte {mismatch}, expected length {}, actual length {})",
+                "wrong completed line (command case {command_case}, prefix case {prefix_case}, mismatch byte {mismatch}, expected length {}, actual length {}, expected class {expected_class}, actual class {actual_class}, separators before mismatch {expected_separators}/{actual_separators}, common suffix bytes {common_suffix})",
                 expected.len(),
                 actual.len()
             );

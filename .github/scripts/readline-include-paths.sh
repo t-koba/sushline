@@ -2200,7 +2200,7 @@ def setup_unreadable(base):
 try:
     if mode == "tilde-home-empty-filename-bare-off":
         run_tilde_home(home_empty=True, filename=True, bare=True, off=True)
-        return
+        sys.exit(0)
     if mode == "tilde-home-unset-filename-bare-off":
         run_tilde_home(filename=True, bare=True, off=True)
         sys.exit(0)

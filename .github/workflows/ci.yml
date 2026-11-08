@@ -3937,6 +3937,22 @@ jobs:
 
           run_empty_home_trial()
           PYPROBE
+      - name: Validate inputrc include-path probe Python syntax
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          driver = Path(".github/scripts/readline-include-paths.sh").read_text(encoding="utf-8")
+          start = "python3 - <<'PYPROBE' | tee \"$report\"\n"
+          end = "\nPYPROBE\n"
+          if driver.count(start) != 1 or driver.count(end) != 1:
+              raise SystemExit("include-path probe source markers are invalid")
+          probe = driver.split(start, 1)[1].split(end, 1)[0]
+          try:
+              compile(probe, "readline-include-paths.py", "exec")
+          except SyntaxError:
+              raise SystemExit("include-path probe Python syntax is invalid") from None
+          PY
       - name: Measure inputrc include path rules against the pinned release
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_measurements }}
         run: bash .github/scripts/readline-include-paths.sh

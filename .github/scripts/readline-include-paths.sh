@@ -1153,6 +1153,39 @@ def test_nonempty_vi_parser():
                    valid.replace(b"result_home=1", b"result_home=2"), valid + b"unexpected\n"):
         assert re.fullmatch(NONEMPTY_VI_FIELDS, unsafe) is None
 
+CONTROL_BYTE_CATEGORIES = {
+    0: "nul_byte_redacted",
+    1: "start_of_heading_byte_redacted",
+    2: "start_of_text_byte_redacted",
+    3: "end_of_text_byte_redacted",
+    4: "end_of_transmission_byte_redacted",
+    5: "enquiry_byte_redacted",
+    6: "acknowledge_byte_redacted",
+    7: "bell_byte_redacted",
+    8: "backspace_byte_redacted",
+    11: "vertical_tab_byte_redacted",
+    12: "form_feed_byte_redacted",
+    14: "shift_out_byte_redacted",
+    15: "shift_in_byte_redacted",
+    16: "data_link_escape_byte_redacted",
+    17: "device_control_1_byte_redacted",
+    18: "device_control_2_byte_redacted",
+    19: "device_control_3_byte_redacted",
+    20: "device_control_4_byte_redacted",
+    21: "negative_acknowledge_byte_redacted",
+    22: "synchronous_idle_byte_redacted",
+    23: "end_of_transmission_block_byte_redacted",
+    24: "cancel_byte_redacted",
+    25: "end_of_medium_byte_redacted",
+    26: "substitute_byte_redacted",
+    27: "escape_byte_redacted",
+    28: "file_separator_byte_redacted",
+    29: "group_separator_byte_redacted",
+    30: "record_separator_byte_redacted",
+    31: "unit_separator_byte_redacted",
+    127: "delete_byte_redacted",
+}
+
 def filename_stderr_category(stderr):
     # Inspect at most a bounded prefix and emit only fixed, path-free families.
     if not stderr:
@@ -1178,10 +1211,9 @@ def filename_stderr_category(stderr):
         return "filesystem_marker_redacted"
     if any(marker in lowered for marker in (b"completion", b"matches", b"filename", b"tilde")):
         return "completion_marker_redacted"
-    if b"\x1b" in stderr:
-        return "escape_byte_redacted"
-    if any(byte < 32 and byte not in (9, 10, 13) or byte == 127 for byte in stderr):
-        return "control_byte_redacted"
+    for byte in stderr:
+        if byte in CONTROL_BYTE_CATEGORIES:
+            return CONTROL_BYTE_CATEGORIES[byte]
     if any(byte > 126 for byte in stderr):
         return "nonascii_byte_redacted"
     if any(marker in stderr for marker in (b"/", b"\\", b"~")):
@@ -1233,6 +1265,12 @@ def test_filename_child_report():
         if match:
             assert output == valid
     check()
+    for byte, category in CONTROL_BYTE_CATEGORIES.items():
+        stderr = b"opaque" + bytes((byte,)) + b"secret-raw-stderr\n"
+        assert filename_stderr_category(stderr) == category
+        _, _, diagnostics = filename_child_report(valid, stderr, 0, pattern)
+        assert diagnostics[-1] == "stderr_category=" + category
+        assert all(b"secret-raw-stderr" not in value.encode("ascii") for value in diagnostics)
     for stderr, category in (
         (b"readline: warning: secret-raw-stderr\n", "readline_warning"),
         (b"readline: secret-raw-stderr\n", "readline_diagnostic"),
@@ -1240,9 +1278,9 @@ def test_filename_child_report():
         (b"terminal secret-raw-stderr\n", "terminal_marker_redacted"),
         (b"file not found secret-raw-stderr\n", "filesystem_marker_redacted"),
         (b"filename completion secret-raw-stderr\n", "completion_marker_redacted"),
-        (b"opaque\x07secret-raw-stderr\n", "control_byte_redacted"),
+        (b"opaque\x07secret-raw-stderr\n", "bell_byte_redacted"),
         (b"opaque\x1b[31msecret-raw-stderr\n", "escape_byte_redacted"),
-        (b"opaque\x7fsecret-raw-stderr\n", "control_byte_redacted"),
+        (b"opaque\x7fsecret-raw-stderr\n", "delete_byte_redacted"),
         (b"opaque\xffsecret-raw-stderr\n", "nonascii_byte_redacted"),
         (b"opaque/secret-raw-stderr\n", "path_marker_redacted"),
         (b"opaque: secret-raw-stderr\n", "colon_prefix_redacted"),

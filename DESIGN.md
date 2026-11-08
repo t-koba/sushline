@@ -139,16 +139,20 @@ from stdin or writing escape sequences directly throughout the command code.
 
 On Unix, the concrete `Terminal` handles raw-mode setup and restoration,
 terminal size, resize events, byte input, signal events, visible bell, keypad
-mode, and display clearing. `enable-meta-key` defaults on, but the built-in
+mode, and display clearing. On Windows, the built-in console backend saves and
+restores console modes, reads native key and resize records, converts Unicode
+input to UTF-8 bytes, writes UTF-8 text through UTF-16 console output, and uses
+VT output. It requires console standard input and output with VT output support;
+Ctrl-C is console input, not a POSIX signal, so the Windows default SIGINT
+policy is `Interrupted`. On targets that are neither Unix nor Windows, the
+built-in backend remains available for compilation but returns `Unsupported`
+for live terminal operations. `enable-meta-key` defaults on, but the built-in
 backend emits no meta-mode sequences. Bash 5.3 `bind -v` and PTY probes
 observed the same default and no meta-mode output; these are runtime
 observations, not source-level proof of GNU's implementation. The editor still
-notifies
-`TerminalIo::set_meta_key_enabled` during setup, cleanup, and signal recovery;
-custom `TerminalIo` implementations own whether and how to act on that
-notification. On non-Unix targets the built-in backend remains available for
-compilation but returns `Unsupported` for live terminal operations until a
-backend is provided. Tests and embedders can provide their own `TerminalIo`
+notifies `TerminalIo::set_meta_key_enabled` during setup, cleanup, and signal
+recovery; custom `TerminalIo` implementations own whether and how to act on
+that notification. Tests and embedders can provide their own `TerminalIo`
 implementation, including an in-memory terminal for editor behavior tests
 without a real TTY.
 

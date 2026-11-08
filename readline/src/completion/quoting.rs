@@ -230,6 +230,24 @@ pub(super) fn quote_filename_bytes(
     escape_leading_hash: bool,
     single_quote_line_feeds: bool,
 ) -> Vec<u8> {
+    quote_filename_bytes_with_separators(
+        bytes,
+        escape_leading_tilde,
+        escape_leading_hash,
+        single_quote_line_feeds,
+        false,
+    )
+}
+
+// Native separators are literal only in unquoted built-in Windows filenames.
+// Keep all other shell escaping shared with generic filename quoting.
+pub(super) fn quote_filename_bytes_with_separators(
+    bytes: &[u8],
+    escape_leading_tilde: bool,
+    escape_leading_hash: bool,
+    single_quote_line_feeds: bool,
+    native_separators: bool,
+) -> Vec<u8> {
     if single_quote_line_feeds && bytes.contains(&b'\n') {
         return quote_single_quoted_bytes(bytes);
     }
@@ -247,7 +265,6 @@ pub(super) fn quote_filename_bytes(
             byte,
             b' ' | b'\t'
                 | b'\n'
-                | b'\\'
                 | b'\''
                 | b'"'
                 | b'$'
@@ -264,7 +281,8 @@ pub(super) fn quote_filename_bytes(
                 | b'{'
                 | b'*'
                 | b'?'
-        ) || (*byte == b']' && escape_closing_brackets)
+        ) || (*byte == b'\\' && !native_separators)
+            || (*byte == b']' && escape_closing_brackets)
             || (escape_brace_expansion && matches!(*byte, b'}' | b','))
         {
             out.push(b'\\');
@@ -410,6 +428,35 @@ mod tests {
                 dequote_completion_word_bytes(raw).0,
             );
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_paths_unc_prefix_round_trips_with_shell_escapes() {
+        for (value, expected) in [
+            (
+                br"\\server\share\dir\".as_slice(),
+                br"\\server\share\dir\".as_slice(),
+            ),
+            (
+                br"\\server\share\dir name[x]\child&file",
+                br"\\server\share\dir\ name\[x\]\child\&file",
+            ),
+        ] {
+            let mut word = value.to_vec();
+            for _ in 0..2 {
+                let quoted =
+                    super::quote_filename_bytes_with_separators(&word, true, true, true, true);
+                assert_eq!(quoted, expected);
+                word = super::dequote_completion_word_with_opening(&quoted, true).0;
+                assert_eq!(word, value);
+            }
+        }
+        // Generic/application filenames still escape each backslash.
+        assert_eq!(
+            quote_filename_bytes(br"\\server\share", true, true, true),
+            br"\\\\server\\share",
+        );
     }
 
     #[test]

@@ -825,11 +825,12 @@ where
                 quoted
             }
             Some('"') => quote_double_quoted_bytes(value),
-            _ if options.quote_filename => quote_filename_bytes(
+            _ if options.quote_filename => quote_filename_bytes_with_separators(
                 value,
                 escape_leading_tilde,
                 escape_leading_hash,
                 single_quote_line_feeds,
+                cfg!(windows) && edit.builtin_filename_completion && options.filename_candidates,
             ),
             _ => value.to_vec(),
         };

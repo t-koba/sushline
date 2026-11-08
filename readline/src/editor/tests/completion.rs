@@ -750,7 +750,7 @@ fn visible_stats_marker_uses_raw_bytes_for_non_utf8_paths() {
 
 #[cfg(windows)]
 #[test]
-fn windows_paths_complete_through_editor_with_shell_escaped_spaces() {
+fn windows_paths_complete_repeatedly_through_editor_with_shell_escapes() {
     #[derive(Default)]
     struct Observe {
         words: Vec<Vec<u8>>,
@@ -790,11 +790,11 @@ fn windows_paths_complete_through_editor_with_shell_escaped_spaces() {
     let candidate = format!("{parent}\\report file.txt").into_bytes();
     // Leave native separators literal while shell-escaping spaces and any
     // metacharacters in the runner's temporary directory name.
-    let escape = |bytes: &[u8], native: bool| {
+    let escape = |bytes: &[u8]| {
         let mut out = Vec::new();
         for byte in bytes {
             if (byte.is_ascii_whitespace() || b"\\\"'`$!&|;<>()[]{}*?~#".contains(byte))
-                && !(native && *byte == b'\\')
+                && *byte != b'\\'
             {
                 out.push(b'\\');
             }
@@ -808,7 +808,7 @@ fn windows_paths_complete_through_editor_with_shell_escaped_spaces() {
         "possible-filename-completions",
     ] {
         for prefix in [b"rep".as_slice(), br"report\ f"] {
-            let mut typed = escape(parent.as_bytes(), true);
+            let mut typed = escape(parent.as_bytes());
             typed.push(b'\\');
             typed.extend_from_slice(prefix);
             let terminal = MemoryTerminal::with_events(vec![
@@ -835,7 +835,7 @@ fn windows_paths_complete_through_editor_with_shell_escaped_spaces() {
                     hooks.replacements.iter().any(|value| value == &candidate),
                     "wrong lookup candidate"
                 );
-                let mut expected = escape(&candidate, false);
+                let mut expected = escape(&candidate);
                 expected.push(b' ');
                 expected
             };
@@ -856,5 +856,44 @@ fn windows_paths_complete_through_editor_with_shell_escaped_spaces() {
                 assert!(hooks.defaults.is_empty());
             }
         }
+    }
+
+    let nested = dir.path().join("native space").join("nested dir[x]");
+    assert!(
+        std::fs::create_dir(&nested).is_ok(),
+        "create nested fixture"
+    );
+    assert!(
+        std::fs::write(nested.join("child file.txt"), b"").is_ok(),
+        "create nested file"
+    );
+    for command in ["complete", "complete-filename"] {
+        let mut typed = escape(parent.as_bytes());
+        typed.extend_from_slice(br"\nest");
+        let terminal = MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(typed),
+            // The first Tab must insert a directory and its slash, without
+            // a space. The second must look up the sole child from that line.
+            TerminalEvent::Bytes(b"\t\t\r".to_vec()),
+        ]);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        assert!(
+            line.load_inputrc_str(&format!("\"\\C-i\": {command}"))
+                .is_ok()
+        );
+        let mut hooks = Observe::default();
+        let result = line.read_line(Prompt::new("> "), &mut hooks);
+        let candidate = format!("{parent}\\nested dir[x]/child file.txt").into_bytes();
+        assert!(
+            hooks.replacements.iter().any(|value| value == &candidate),
+            "second completion did not look up the child"
+        );
+        let mut expected = escape(&candidate);
+        expected.push(b' ');
+        assert!(
+            matches!(result, Ok(ReadlineResult::Line(bytes)) if bytes == expected),
+            "wrong sequentially completed line"
+        );
+        assert_eq!(hooks.words.len(), 2);
     }
 }

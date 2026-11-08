@@ -219,6 +219,10 @@ int main(int argc, char **argv) {
                 result_home = 1;
                 candidate = 1;
             }
+            if (off && named && strcmp(line, "~sushline-audit-user/audit-candidate") == 0) {
+                result_passwd = 1;
+                candidate = 1;
+            }
             const char *literal_home = getenv("SUSHLINE_FILENAME_LITERAL_HOME");
             int relative = off && (strcmp(line, tilde_relative) == 0 ||
                 (literal_home && strncmp(line, literal_home, strlen(literal_home)) == 0 &&
@@ -1078,18 +1082,20 @@ def named_off_filename_comparison(rows):
     return stable, comparison, classified
 
 def test_named_off_filename_parser():
-    passwd = (b"1", b"0", b"1", b"1", b"0", b"0", b"0", b"0")
+    # A tilde-preserved result may still select the named passwd-home candidate;
+    # its basename distinguishes it from the literal CWD candidate below.
+    passwd_candidate = (b"1", b"0", b"1", b"1", b"0", b"0", b"0", b"0")
     relative = (b"0", b"0", b"0", b"1", b"0", b"0", b"0", b"1")
     prefix = (b"0", b"0", b"0", b"0", b"1", b"0", b"0", b"0")
     empty = (b"0", b"0", b"0", b"0", b"0", b"1", b"0", b"0")
     home_prefix = (b"0", b"1", b"0", b"0", b"0", b"0", b"0", b"0")
-    for row in (passwd, relative, prefix, empty, home_prefix):
+    for row in (passwd_candidate, relative, prefix, empty, home_prefix):
         assert named_off_filename_comparison([row] * 4) == (True, True, True)
-    count = (b"2", *passwd[1:])
-    assert named_off_filename_comparison([passwd, count] * 2) == (True, True, True)
-    assert named_off_filename_comparison([passwd, relative] * 2) == (True, False, True)
-    assert named_off_filename_comparison([passwd, passwd, count, passwd]) == (False, True, True)
-    for row in ((b"0",) * 8, (*passwd[:-1], b"1"),
+    count = (b"2", *passwd_candidate[1:])
+    assert named_off_filename_comparison([passwd_candidate, count] * 2) == (True, True, True)
+    assert named_off_filename_comparison([passwd_candidate, relative] * 2) == (True, False, True)
+    assert named_off_filename_comparison([passwd_candidate, passwd_candidate, count, passwd_candidate]) == (False, True, True)
+    for row in ((b"0",) * 8, (*passwd_candidate[:-1], b"1"),
                 (b"0", b"1", b"0", b"1", b"0", b"0", b"0", b"0"),
                 (b"0", b"0", b"0", b"0", b"0", b"0", b"1", b"0"),
                 (b"0", b"0", b"0", b"1", b"0", b"0", b"0", b"0"),
@@ -1100,7 +1106,7 @@ def test_named_off_filename_parser():
              b"result_home=0\nresult_passwd_home=1\nresult_candidate=1\n"
              b"result_literal_prefix=0\nresult_empty=0\nresult_other=0\n"
              b"result_relative=0\nguards_ok=1\n")
-    assert re.fullmatch(NAMED_OFF_FILENAME_FIELDS, valid).groups() == passwd
+    assert re.fullmatch(NAMED_OFF_FILENAME_FIELDS, valid).groups() == passwd_candidate
     for unsafe in (valid.replace(b"guards_ok=1", b"guards_ok=0"),
                    valid.replace(b"result_relative=0", b"result_relative=2"),
                    valid.replace(b"home_nonempty=1", b"home_nonempty=0"),

@@ -1847,6 +1847,10 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
                 classifications[0] = true;
                 candidate = true;
             }
+            if off && named && actual == b"~sushline-audit-user/audit-candidate" {
+                classifications[1] = true;
+                candidate = true;
+            }
             let relative = off
                 && (actual == tilde_relative
                     || std::env::var_os("SUSHLINE_FILENAME_LITERAL_HOME").is_some_and(|home| {

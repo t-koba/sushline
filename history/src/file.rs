@@ -569,7 +569,7 @@ impl History {
         // Count in fixed-size buffers, not physical lines: a single line may
         // itself be arbitrarily large. File offsets and counts use u64.
         let mut source =
-            io::BufReader::with_capacity(HISTORY_TRUNCATE_BUFFER_SIZE, fs::File::open(path)?);
+            io::BufReader::with_capacity(HISTORY_TRUNCATE_BUFFER_SIZE, fs::File::open(&dest)?);
         let mut lf_count = 0u64;
         loop {
             let buffer = loop {

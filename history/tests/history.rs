@@ -2917,6 +2917,42 @@ fn truncate_file_obeys_configured_symlink_hop_limit() {
 
 #[test]
 #[cfg_attr(not(unix), ignore = "requires Unix symlinks")]
+fn truncate_file_uses_resolved_path_beyond_os_symlink_limit() {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        use std::path::PathBuf;
+
+        const LINK_COUNT: usize = 41;
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target-history");
+        fs::write(&target, "one\ntwo\nthree\n").unwrap();
+
+        let mut next = PathBuf::from("target-history");
+        let mut links = Vec::with_capacity(LINK_COUNT);
+        for index in (0..LINK_COUNT).rev() {
+            let name = PathBuf::from(format!("link-{index}"));
+            let link = dir.path().join(&name);
+            symlink(&next, &link).unwrap();
+            links.push((link, next));
+            next = name;
+        }
+
+        let options = HistoryWriteOptions {
+            maximum_symlink_hops: NonZeroUsize::new(LINK_COUNT).unwrap(),
+            ..HistoryWriteOptions::default()
+        };
+        History::truncate_file_with_options(dir.path().join("link-0"), 2, options).unwrap();
+
+        assert_eq!(fs::read_to_string(&target).unwrap(), "two\nthree\n");
+        for (link, expected_target) in links {
+            assert_eq!(fs::read_link(link).unwrap(), expected_target);
+        }
+    }
+}
+
+#[test]
+#[cfg_attr(not(unix), ignore = "requires Unix symlinks")]
 fn truncate_preserves_relative_symlink_chain() {
     #[cfg(unix)]
     {

@@ -1540,6 +1540,7 @@ enum ControlledTildeHome {
     EmptyVi,
     NonemptyVi,
     NamedFilename,
+    NamedOffFilename,
     UnsetFilename,
     NonemptyFilename,
     NonemptyBareFilename,
@@ -1611,6 +1612,13 @@ fn complete_filename_named_user_fixture() {
 
 #[cfg(target_os = "linux")]
 #[test]
+#[ignore = "requires the controlled named-user expand-tilde off filename measurement driver"]
+fn complete_filename_named_user_tilde_off_fixture() {
+    tilde_expand_controlled_home_fixture(ControlledTildeHome::NamedOffFilename);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
 #[ignore = "requires the controlled HOME-unset filename measurement driver"]
 fn complete_filename_home_unset_fixture() {
     tilde_expand_controlled_home_fixture(ControlledTildeHome::UnsetFilename);
@@ -1660,6 +1668,7 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
             | ControlledTildeHome::NonemptyFilename
             | ControlledTildeHome::NonemptyBareFilename
             | ControlledTildeHome::NonemptyOffFilename
+            | ControlledTildeHome::NamedOffFilename
             | ControlledTildeHome::NonemptyVi
     );
     let named = matches!(
@@ -1667,10 +1676,12 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         ControlledTildeHome::NamedUser
             | ControlledTildeHome::NamedUserVi
             | ControlledTildeHome::NamedFilename
+            | ControlledTildeHome::NamedOffFilename
     );
     let filename = matches!(
         home_mode,
         ControlledTildeHome::NamedFilename
+            | ControlledTildeHome::NamedOffFilename
             | ControlledTildeHome::UnsetFilename
             | ControlledTildeHome::NonemptyFilename
             | ControlledTildeHome::NonemptyBareFilename
@@ -1680,7 +1691,10 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         std::env::var_os("SUSHLINE_FILENAME_PROBE").is_some(),
         filename
     );
-    let off = matches!(home_mode, ControlledTildeHome::NonemptyOffFilename);
+    let off = matches!(
+        home_mode,
+        ControlledTildeHome::NonemptyOffFilename | ControlledTildeHome::NamedOffFilename
+    );
     assert_eq!(
         std::env::var_os("SUSHLINE_FILENAME_TILDE_OFF").is_some(),
         off
@@ -1727,7 +1741,8 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
         | ControlledTildeHome::NonemptyOffFilename
         | ControlledTildeHome::NamedUser
         | ControlledTildeHome::NamedUserVi
-        | ControlledTildeHome::NamedFilename => {
+        | ControlledTildeHome::NamedFilename
+        | ControlledTildeHome::NamedOffFilename => {
             let expected = expected_home.as_ref().expect("synthetic HOME required");
             assert!(
                 home.as_ref()
@@ -1823,23 +1838,31 @@ fn tilde_expand_controlled_home_fixture(home_mode: ControlledTildeHome) {
                     candidate |= completed;
                 }
             }
-            if off && actual == b"~/audit-candidate" {
+            let tilde_relative = if named {
+                b"~sushline-audit-user/audit-cwd-candidate".as_slice()
+            } else {
+                b"~/audit-cwd-candidate".as_slice()
+            };
+            if off && !named && actual == b"~/audit-candidate" {
                 classifications[0] = true;
                 candidate = true;
             }
             let relative = off
-                && (actual == b"~/audit-cwd-candidate"
+                && (actual == tilde_relative
                     || std::env::var_os("SUSHLINE_FILENAME_LITERAL_HOME").is_some_and(|home| {
                         actual.strip_prefix(home.as_os_str().as_bytes())
                             == Some(b"/audit-cwd-candidate".as_slice())
                     }));
             candidate |= relative;
             println!("home_present=1\nhome_nonempty=1");
-            println!("passwd_home_lookup_hits={}", hits());
+            let lookup = if named { "named" } else { "passwd" };
+            println!("{lookup}_home_lookup_hits={}", hits());
             println!("result_home={}", u8::from(classifications[0]));
             println!("result_passwd_home={}", u8::from(classifications[1]));
             let literal_prefix = actual
-                == if bare {
+                == if named {
+                    b"~sushline-audit-user/audit-c".as_slice()
+                } else if bare {
                     b"~".as_slice()
                 } else {
                     b"~/audit-c".as_slice()

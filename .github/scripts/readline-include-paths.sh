@@ -1246,7 +1246,8 @@ def filename_child_report(stdout, stderr, returncode, pattern, harness=False, ti
     diagnostics = ("child_status=" + status, "guard_denied=" + category,
                    "stdout_shape=" + ("expected" if match else "unexpected"),
                    "stderr_nonempty=" + str(int(bool(stderr))),
-                   "stderr_category=" + filename_stderr_category(stderr or b""))
+                   "stderr_category=" + filename_stderr_category(stderr or b""),
+                   "stderr_single_bell=" + str(int(stderr == b"\x07")))
     return output, match, diagnostics
 
 def test_filename_child_report():
@@ -1260,16 +1261,21 @@ def test_filename_child_report():
         assert diagnostics == ("child_status=" + status, "guard_denied=" + guard,
                                "stdout_shape=" + shape,
                                "stderr_nonempty=" + str(int(bool(stderr))),
-                               "stderr_category=" + filename_stderr_category(stderr or b""))
+                               "stderr_category=" + filename_stderr_category(stderr or b""),
+                               "stderr_single_bell=" + str(int(stderr == b"\x07")))
         assert bool(match) == (shape == "expected")
         if match:
             assert output == valid
     check()
+    for stderr, single_bell in ((b"\x07", 1), (b"\x07\x07", 0),
+                                (b"opaque\x07", 0), (b"\x07opaque", 0), (b"", 0)):
+        _, _, diagnostics = filename_child_report(valid, stderr, 0, pattern)
+        assert diagnostics[-1] == "stderr_single_bell=" + str(single_bell)
     for byte, category in CONTROL_BYTE_CATEGORIES.items():
         stderr = b"opaque" + bytes((byte,)) + b"secret-raw-stderr\n"
         assert filename_stderr_category(stderr) == category
         _, _, diagnostics = filename_child_report(valid, stderr, 0, pattern)
-        assert diagnostics[-1] == "stderr_category=" + category
+        assert diagnostics[-2] == "stderr_category=" + category
         assert all(b"secret-raw-stderr" not in value.encode("ascii") for value in diagnostics)
     for stderr, category in (
         (b"readline: warning: secret-raw-stderr\n", "readline_warning"),
@@ -1291,7 +1297,7 @@ def test_filename_child_report():
     ):
         assert filename_stderr_category(stderr) == category
         _, _, diagnostics = filename_child_report(valid, stderr, 0, pattern)
-        assert diagnostics[-1] == "stderr_category=" + category
+        assert diagnostics[-2] == "stderr_category=" + category
         assert all(b"secret-raw-stderr" not in value.encode("ascii") for value in diagnostics)
     for category in (b"root", b"file", b"metadata", b"enumeration", b"nss"):
         check(stderr=b"guard_denied=" + category + b"\n", returncode=3,

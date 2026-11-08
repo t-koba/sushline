@@ -5,6 +5,7 @@
 use super::pty::*;
 use portable_pty::{CommandBuilder, PtySize};
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 
 #[test]
@@ -784,11 +785,19 @@ fn bash_readline_and_sushline_differ_on_crlf_condition_directives() {
 
 #[test]
 fn bash_readline_and_sushline_match_crlf_set_value_and_lf_control() {
-    assert_eq!(
-        super::host_readline::host_readline_identity()
-            .expect("Readline identity")
-            .release,
-        super::host_readline::MEASURED_RELEASE
+    let identity = super::host_readline::host_readline_identity().expect("Readline identity");
+    assert_eq!(identity.release, super::host_readline::MEASURED_RELEASE);
+    // Only the dedicated pinned-CI runner enables reporting. Normal oracle
+    // assertions (and their diagnostics) remain unchanged outside that mode.
+    let report_path = std::env::var_os("SUSHLINE_CRLF_SET_VALUE_REPORT");
+    if report_path.is_some() {
+        assert_eq!(std::env::var("GITHUB_ACTIONS").as_deref(), Ok("true"));
+        assert_eq!(identity.library_version.as_deref(), Some("8.3"));
+        assert!(identity.lists_83_commands);
+    }
+    let mut report = format!(
+        "fixture=inputrc-crlf-set-value-lf-control\nreadline_release={}\n",
+        identity.release
     );
     let keys = b"abc\x0fX\r";
     for (ending, expected_bash, expected_sushline) in
@@ -809,6 +818,31 @@ fn bash_readline_and_sushline_match_crlf_set_value_and_lf_control() {
             Some(expected_sushline),
             "ending={ending:?}: {sushline}"
         );
+        if report_path.is_some() {
+            let case = if ending == "\r\n" {
+                "crlf"
+            } else {
+                "lf_control"
+            };
+            for (implementation, output) in [("gnu", &bash), ("sushline", &sushline)] {
+                let branch = match accepted_line(output).as_deref() {
+                    Some("abc") => "not-selected",
+                    Some("abcMX") => "selected",
+                    _ => panic!("unexpected set-value branch outcome"),
+                };
+                report.push_str(&format!("{case}_{implementation}={branch}\n"));
+            }
+        }
+    }
+    if let Some(path) = report_path {
+        report.push_str("success=passed\n");
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+            .expect("create categorical set-value report");
+        file.write_all(report.as_bytes())
+            .expect("write categorical set-value report");
     }
 }
 

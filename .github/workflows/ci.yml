@@ -53,12 +53,12 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - name: Cache the cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cargo/registry
           key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
@@ -73,7 +73,7 @@ jobs:
   windows-terminal:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -97,22 +97,22 @@ jobs:
   oracle:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache the cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cargo/registry
           key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
       - name: Cache the pinned Readline release
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/sushline/readline-oracle
           key: readline-${{ runner.os }}-${{ env.READLINE_ORACLE_VERSION }}-${{ env.READLINE_ORACLE_SHA256 }}-${{ env.READLINE_ORACLE_CONFIGURE_FLAGS }}-configure-accepted-v1
       - name: Cache the pinned bash oracle host
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/sushline/bash-oracle
           key: bash-${{ runner.os }}-${{ env.BASH_ORACLE_VERSION }}-${{ env.BASH_ORACLE_SHA256 }}-${{ env.READLINE_ORACLE_VERSION }}-${{ env.READLINE_ORACLE_SHA256 }}-${{ env.READLINE_ORACLE_CONFIGURE_FLAGS }}-${{ env.BASH_ORACLE_READLINE }}
@@ -4641,7 +4641,7 @@ jobs:
     needs: oracle
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
       - name: Restore the exact pinned Readline release

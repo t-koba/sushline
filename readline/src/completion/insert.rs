@@ -729,14 +729,6 @@ where
             completion_type,
             quote_filename: options.quote_filename,
         }) {
-            #[cfg(windows)]
-            let quoted = if word_start > edit.start {
-                let mut full = edit.line[edit.start..word_start].to_vec();
-                full.extend_from_slice(&quoted);
-                full
-            } else {
-                quoted
-            };
             return (quoted, true);
         }
         let raw_start = edit

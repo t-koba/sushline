@@ -785,7 +785,13 @@ fn windows_paths_complete_repeatedly_through_editor_with_shell_escapes() {
             );
             assert!(context.word == request.word && context.quote.is_none());
             self.replacements.push(context.value.to_vec());
-            (self.override_quote && self.words.len() == 2).then(|| b"hook-result".to_vec())
+            if self.override_quote && self.words.len() == 2 {
+                let mut quoted = b"hook:".to_vec();
+                quoted.extend_from_slice(context.value);
+                Some(quoted)
+            } else {
+                None
+            }
         }
     }
 
@@ -916,9 +922,8 @@ fn windows_paths_complete_repeatedly_through_editor_with_shell_escapes() {
                     "second completion did not look up the child"
                 );
                 let mut expected = if override_quote {
-                    let request = hooks.request.as_ref().unwrap();
-                    let mut bytes = request.line[..request.word_start].to_vec();
-                    bytes.extend_from_slice(b"hook-result");
+                    let mut bytes = b"hook:".to_vec();
+                    bytes.extend_from_slice(&candidate);
                     bytes
                 } else {
                     escape(&candidate)

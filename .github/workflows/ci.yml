@@ -76,7 +76,7 @@ jobs:
           SUSHLINE_REQUIRE_NAMED_USER_INCLUDE_TEST: "1"
 
   windows-terminal:
-    runs-on: windows-latest
+    runs-on: windows-2025
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable

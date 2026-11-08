@@ -347,15 +347,18 @@ measurements; the vi command has its own fixture.
 | Current-user `~/`, child `HOME` present and nonempty, separate synthetic current-UID passwd home and literal-prefix CWD candidate; `complete-filename` with `expand-tilde off` | Both implementations resolved the test-owned HOME and its controlled candidate in both trials, not the literal relative candidate. | Zero current-UID passwd-home lookups per implementation per trial; pinned GNU 8.3 identity, stable matching classifications, guards, fixture-state checks, and cleanup passed. | `pinned-readline-8.3-home-nonempty-tilde-off-filename-completion-5384cfce415be711ac392fa5ae7cb616194de366/readline_tilde_home_nonempty_filename_off.out` |
 | Current-user bare `~` (no slash), child `HOME` present and nonempty; `complete-filename` with `expand-tilde on` | Both implementations retained the literal prefix in both trials; neither resolved HOME, passwd home, or the controlled candidate. | Zero current-UID passwd-home lookups per implementation per trial; GNU emitted exactly one BEL byte on stderr per trial while Sushline stderr was empty; pinned GNU 8.3 identity, stable matching result classifications, guards, fixture-state checks, and cleanup passed. | `pinned-readline-8.3-home-nonempty-bare-tilde-filename-completion-5384cfce415be711ac392fa5ae7cb616194de366/readline_tilde_home_nonempty_filename_bare.out` |
 | Current-user bare `~` (no slash), child `HOME` present but empty; `complete-filename` with `expand-tilde on` | Both implementations retained the literal prefix in both trials; neither resolved HOME, passwd home, or the controlled candidate. | Zero current-UID passwd-home lookups per implementation per trial; GNU emitted exactly one BEL byte on stderr per trial while Sushline stderr was empty; pinned GNU 8.3 identity, stable matching result classifications, guards, fixture-state checks, and cleanup passed. | `pinned-readline-8.3-home-empty-bare-tilde-filename-completion-1dc85c2089fcde6dc5768543969828fda1ab6f53/readline_tilde_home_empty_filename_bare.out` |
+| Current-user bare `~` (no slash), child `HOME` present and nonempty; `complete-filename` with `expand-tilde off` | Both implementations retained the unescaped literal prefix with trailing slash in both trials; neither selected the test-owned HOME, passwd-home, or literal-prefix CWD candidate. | Zero current-UID passwd-home lookups per implementation per trial; stderr was empty in both; pinned GNU 8.3 identity, stable matching classifications, guards, fixture-state checks, and cleanup passed. | `pinned-readline-8.3-home-nonempty-bare-tilde-off-filename-completion-f27f78a5a033dd30d55c2822e8f6e903b743aa1b/readline_tilde_home_nonempty_filename_bare_off.out` |
 
 Each filename-completion result is limited to its exact fixture. The named-user
 filename result does not establish behavior for other completion options, arbitrary
 account names, or broader NSS-provider behavior; the current-user rows do not
 generalize beyond their stated HOME states, prefixes, candidates, or completion
-options. The bare-`~` row establishes only its no-slash prefix and stated HOME/options;
-its result classifications match, but the measured stderr differs by one GNU BEL byte.
-The vi rows are likewise limited to their stated command, user class, and HOME state;
-they do not establish other combinations, prefixes, or NSS-provider behavior.
+options. The bare-`~` rows establish only their no-slash prefixes and stated
+HOME/options. In the two `expand-tilde on` rows, result classifications match, but
+GNU emits one BEL byte on stderr while Sushline stderr is empty; the separate
+HOME-nonempty `expand-tilde off` row matches both result classifications and stderr.
+The vi rows are likewise limited to their stated command, user class, and HOME
+state; they do not establish other combinations, prefixes, or NSS-provider behavior.
 
 Tests and sources for `tilde-expand` and the shared lookup/completion behavior:
 [`editing.rs`](readline/tests/editing.rs),

@@ -493,13 +493,22 @@ fn expand_tilde_word_with_home(
 }
 
 fn pwd_bytes() -> Option<Vec<u8>> {
-    std::env::var_os("PWD")
-        .and_then(|pwd| os_string_to_bytes(pwd.as_os_str()))
-        .or_else(|| {
-            std::env::current_dir()
-                .ok()
-                .and_then(|pwd| os_string_to_bytes(pwd.as_os_str()))
-        })
+    let pwd = std::env::var_os("PWD");
+    pwd_bytes_with_fallback(pwd.as_deref(), || {
+        std::env::current_dir()
+            .ok()
+            .map(|path| path.into_os_string())
+    })
+}
+
+fn pwd_bytes_with_fallback(
+    pwd: Option<&std::ffi::OsStr>,
+    current_directory: impl FnOnce() -> Option<std::ffi::OsString>,
+) -> Option<Vec<u8>> {
+    match pwd {
+        Some(pwd) => os_string_to_bytes(pwd),
+        None => current_directory().and_then(|path| os_string_to_bytes(path.as_os_str())),
+    }
 }
 
 fn oldpwd_bytes() -> Option<Vec<u8>> {
@@ -520,6 +529,31 @@ fn os_string_to_bytes(value: &std::ffi::OsStr) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn unrepresentable_pwd_does_not_fall_back_to_current_directory() {
+        use std::os::windows::ffi::OsStringExt;
+
+        let pwd = std::ffi::OsString::from_wide(&[0xd800]);
+        let fallback_called = std::cell::Cell::new(false);
+        let expanded = pwd_bytes_with_fallback(Some(pwd.as_os_str()), || {
+            fallback_called.set(true);
+            Some(std::ffi::OsString::from("C:/physical-current-directory"))
+        });
+
+        assert_eq!(expanded, None);
+        assert!(!fallback_called.get());
+    }
+
+    #[test]
+    fn missing_pwd_uses_current_directory_fallback() {
+        let expanded = pwd_bytes_with_fallback(None, || {
+            Some(std::ffi::OsString::from("/physical-current-directory"))
+        });
+
+        assert_eq!(expanded, Some(b"/physical-current-directory".to_vec()));
+    }
 
     #[cfg(windows)]
     #[test]

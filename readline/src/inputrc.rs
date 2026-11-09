@@ -4,6 +4,7 @@ use crate::keymap::{
     is_bindable_function_name_with_registers,
 };
 use crate::variables::Variables;
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -1043,12 +1044,16 @@ const READLINE_BOOLEAN_VARIABLES: &[&str] = &[
 mod tests;
 
 pub(crate) fn discover_inputrc_path() -> PathBuf {
-    if let Ok(path) = std::env::var("INPUTRC")
-        && !path.is_empty()
-    {
+    let inputrc = std::env::var_os("INPUTRC");
+    let home = std::env::var_os("HOME");
+    discover_inputrc_path_from_env(inputrc.as_deref(), home.as_deref())
+}
+
+fn discover_inputrc_path_from_env(inputrc: Option<&OsStr>, home: Option<&OsStr>) -> PathBuf {
+    if let Some(path) = inputrc.filter(|path| !path.is_empty()) {
         return PathBuf::from(path);
     }
-    let user_inputrc = std::env::var_os("HOME")
+    let user_inputrc = home
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".inputrc");

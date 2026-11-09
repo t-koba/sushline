@@ -1,6 +1,16 @@
 use super::*;
 use crate::config::Config;
 
+#[cfg(unix)]
+#[test]
+fn explicit_inputrc_path_preserves_non_utf8_bytes() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let path = std::ffi::OsStr::from_bytes(b"/tmp/inputrc-\xff");
+    let selected = discover_inputrc_path_from_env(Some(path), None);
+    assert_eq!(selected.as_os_str().as_bytes(), path.as_bytes());
+}
+
 #[test]
 fn reports_invalid_set_directives_like_gnu_readline() {
     let config = Config::default();

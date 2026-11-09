@@ -175,12 +175,15 @@ impl Variables {
         }
     }
 
-    /// Get.
+    /// Get the text view of a value.
+    ///
+    /// Values inserted with [`Self::insert_bytes`] are decoded lossily: invalid
+    /// UTF-8 sequences become U+FFFD. Use [`Self::get_bytes`] for exact bytes.
     pub fn get(&self, name: &str) -> Option<&String> {
         self.strings.get(storage_name(name))
     }
 
-    /// Get bytes.
+    /// Get the exact stored bytes, including invalid UTF-8.
     pub fn get_bytes(&self, name: &str) -> Option<&Vec<u8>> {
         self.bytes.get(storage_name(name))
     }
@@ -195,7 +198,10 @@ impl Variables {
         self.strings.insert(name, value)
     }
 
-    /// Insert bytes.
+    /// Insert exact bytes and update their lossy UTF-8 text view.
+    ///
+    /// Invalid sequences are replaced with U+FFFD in [`Self::get`];
+    /// [`Self::get_bytes`] returns the original bytes.
     pub fn insert_bytes(&mut self, name: String, value: Vec<u8>) {
         let name = storage_name(&name).to_owned();
         let rendered = String::from_utf8_lossy(&value).into_owned();

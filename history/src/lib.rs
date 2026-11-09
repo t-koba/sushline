@@ -27,7 +27,10 @@ pub struct HistoryEntry {
 }
 
 impl HistoryEntry {
-    /// Line.
+    /// Return a lossy UTF-8 view of the history line.
+    ///
+    /// Invalid UTF-8 sequences are replaced with U+FFFD. Use
+    /// [`Self::line_bytes`] to preserve the original bytes.
     pub fn line(&self) -> Cow<'_, str> {
         String::from_utf8_lossy(&self.line_bytes)
     }

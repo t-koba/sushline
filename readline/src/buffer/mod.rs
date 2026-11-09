@@ -55,7 +55,10 @@ impl LineBuffer {
         Self { bytes, point }
     }
 
-    /// As string.
+    /// Return a lossy UTF-8 view of the buffer's bytes.
+    ///
+    /// Invalid UTF-8 sequences are replaced with U+FFFD. Use [`Self::as_bytes`]
+    /// to preserve the original bytes.
     pub fn as_string(&self) -> String {
         String::from_utf8_lossy(&self.bytes).into_owned()
     }

@@ -1,6 +1,7 @@
 use readline::{
     Config, Editor, History, Hooks, Prompt, PromptEscapes, ReadlineResult, SigintPolicy, Terminal,
 };
+use std::ffi::OsString;
 use std::process::ExitCode;
 use std::{fs, path::Path};
 
@@ -35,13 +36,19 @@ impl Hooks for HarnessApplication {
     }
 
     fn variable_names(&mut self) -> Vec<Vec<u8>> {
-        let mut names = std::env::vars()
-            .map(|(name, _)| name.into_bytes())
-            .collect::<Vec<_>>();
-        names.sort();
-        names.dedup();
-        names
+        environment_variable_names(std::env::vars_os())
     }
+}
+
+fn environment_variable_names(
+    variables: impl Iterator<Item = (OsString, OsString)>,
+) -> Vec<Vec<u8>> {
+    let mut names = variables
+        .filter_map(|(name, _)| name.into_string().ok().map(String::into_bytes))
+        .collect::<Vec<_>>();
+    names.sort();
+    names.dedup();
+    names
 }
 
 fn is_executable_file(path: &Path) -> bool {
@@ -152,4 +159,32 @@ fn main() -> ExitCode {
         }
     }
     ExitCode::SUCCESS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::environment_variable_names;
+    use std::ffi::OsString;
+
+    #[cfg(unix)]
+    #[test]
+    fn invalid_environment_values_do_not_hide_names() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let variables = [
+            (
+                OsString::from("SUSHLINE_VALID_NAME"),
+                OsString::from_vec(vec![0xff]),
+            ),
+            (
+                OsString::from_vec(vec![0xfe]),
+                OsString::from("valid value"),
+            ),
+        ]
+        .into_iter();
+        assert_eq!(
+            environment_variable_names(variables),
+            vec![b"SUSHLINE_VALID_NAME".to_vec()]
+        );
+    }
 }

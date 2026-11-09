@@ -23,6 +23,7 @@ impl History {
     /// A nonempty `HOME` yields `$HOME/.history`. A present but empty `HOME`
     /// yields the relative `.history` path, while an unset `HOME` yields
     /// relative `./.history`; both relative paths target the current directory.
+    /// On Unix, non-UTF-8 bytes in `HOME` are preserved in the returned path.
     /// This is Sushline's Rust-helper behavior; no GNU path-equivalence claim
     /// is made for empty or unset `HOME`.
     pub fn default_file_path() -> PathBuf {

@@ -673,7 +673,8 @@ identify a fallback path or establish equivalence to this helper.
 
 The Rust default-path helper uses `$HOME/.history` for nonempty `HOME`; a present
 but empty `HOME` produces relative `.history`, while an unset `HOME` produces
-relative `./.history`. Both relative paths target the current directory. These are
+relative `./.history`. Both relative paths target the current directory. On Unix,
+non-UTF-8 bytes in `HOME` are preserved in the returned path. These are
 Sushline-specific path-selection behaviors; no GNU path-equivalence claim is made
 for empty or unset `HOME`.
 

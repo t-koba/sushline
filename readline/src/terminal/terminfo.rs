@@ -1,6 +1,7 @@
 #![cfg_attr(not(unix), allow(dead_code))]
 
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
@@ -83,9 +84,9 @@ fn load_terminfo_capabilities() -> Option<HashMap<&'static str, Vec<u8>>> {
 }
 
 fn find_terminfo_path(term: &str) -> Option<PathBuf> {
-    let terminfo = std::env::var("TERMINFO").ok();
-    let terminfo_dirs = std::env::var("TERMINFO_DIRS").ok();
-    let home = std::env::var("HOME").ok();
+    let terminfo = std::env::var_os("TERMINFO");
+    let terminfo_dirs = std::env::var_os("TERMINFO_DIRS");
+    let home = std::env::var_os("HOME");
     find_terminfo_path_with_env(
         term,
         terminfo.as_deref(),
@@ -96,9 +97,9 @@ fn find_terminfo_path(term: &str) -> Option<PathBuf> {
 
 fn find_terminfo_path_with_env(
     term: &str,
-    terminfo: Option<&str>,
-    terminfo_dirs: Option<&str>,
-    home: Option<&str>,
+    terminfo: Option<&OsStr>,
+    terminfo_dirs: Option<&OsStr>,
+    home: Option<&OsStr>,
 ) -> Option<PathBuf> {
     let first = term.as_bytes().first().copied()? as char;
     let mut roots = Vec::new();
@@ -111,12 +112,27 @@ fn find_terminfo_path_with_env(
         roots.push(PathBuf::from(home).join(".terminfo"));
     }
     if let Some(dirs) = terminfo_dirs {
-        for dir in dirs.split(':') {
-            roots.push(if dir.is_empty() {
-                PathBuf::from("/usr/share/terminfo")
-            } else {
-                PathBuf::from(dir)
-            });
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+
+            for dir in dirs.as_bytes().split(|byte| *byte == b':') {
+                roots.push(if dir.is_empty() {
+                    PathBuf::from("/usr/share/terminfo")
+                } else {
+                    PathBuf::from(OsStr::from_bytes(dir))
+                });
+            }
+        }
+        #[cfg(not(unix))]
+        if let Some(dirs) = dirs.to_str() {
+            for dir in dirs.split(':') {
+                roots.push(if dir.is_empty() {
+                    PathBuf::from("/usr/share/terminfo")
+                } else {
+                    PathBuf::from(dir)
+                });
+            }
         }
     }
     roots.extend([
@@ -323,6 +339,7 @@ mod tests {
         parse_terminfo,
     };
     use std::collections::HashMap;
+    use std::ffi::OsStr;
     use std::fs;
     use std::path::{Path, PathBuf};
 
@@ -374,9 +391,9 @@ mod tests {
 
     fn selected_capabilities(
         term: &str,
-        terminfo: Option<&str>,
-        terminfo_dirs: Option<&str>,
-        home: Option<&str>,
+        terminfo: Option<&OsStr>,
+        terminfo_dirs: Option<&OsStr>,
+        home: Option<&OsStr>,
     ) -> HashMap<&'static str, Vec<u8>> {
         let path = find_terminfo_path_with_env(term, terminfo, terminfo_dirs, home).unwrap();
         parse_terminfo(&fs::read(path).unwrap()).unwrap()
@@ -394,12 +411,8 @@ mod tests {
         write_entry(&dirs, term, b"DIRSKEY", b"DIRSEND");
         write_entry(&explicit, term, b"EXPLICITKEY", b"EXPLICITEND");
 
-        let home_caps = selected_capabilities(
-            term,
-            None,
-            Some(dirs.to_str().unwrap()),
-            Some(home.to_str().unwrap()),
-        );
+        let home_caps =
+            selected_capabilities(term, None, Some(dirs.as_os_str()), Some(home.as_os_str()));
         assert_eq!(
             home_caps.get("smkx").map(Vec::as_slice),
             Some(&b"HOMEKEY"[..])
@@ -411,9 +424,9 @@ mod tests {
 
         let explicit_caps = selected_capabilities(
             term,
-            Some(explicit.to_str().unwrap()),
-            Some(dirs.to_str().unwrap()),
-            Some(home.to_str().unwrap()),
+            Some(explicit.as_os_str()),
+            Some(dirs.as_os_str()),
+            Some(home.as_os_str()),
         );
         assert_eq!(
             explicit_caps.get("smkx").map(Vec::as_slice),
@@ -427,8 +440,8 @@ mod tests {
         let dirs_caps = selected_capabilities(
             term,
             None,
-            Some(dirs.to_str().unwrap()),
-            Some(missing_home.to_str().unwrap()),
+            Some(dirs.as_os_str()),
+            Some(missing_home.as_os_str()),
         );
         assert_eq!(
             dirs_caps.get("smkx").map(Vec::as_slice),
@@ -438,6 +451,35 @@ mod tests {
             dirs_caps.get("rmkx").map(Vec::as_slice),
             Some(&b"DIRSEND"[..])
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_utf8_terminfo_roots_and_search_directories_are_preserved() {
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+        let temp = tempfile::tempdir().unwrap();
+        let term = "auditbytes";
+        let explicit = temp.path().join(OsStr::from_bytes(b"explicit-\xff"));
+        write_entry(&explicit, term, b"EXPLICIT", b"EXPLICITEND");
+        let explicit_caps = selected_capabilities(term, Some(explicit.as_os_str()), None, None);
+        assert_eq!(
+            explicit_caps.get("smkx").map(Vec::as_slice),
+            Some(&b"EXPLICIT"[..])
+        );
+
+        let home = temp.path().join(OsStr::from_bytes(b"home-\xfe"));
+        write_entry(&home.join(".terminfo"), term, b"HOME", b"HOMEEND");
+        let home_caps = selected_capabilities(term, None, None, Some(home.as_os_str()));
+        assert_eq!(home_caps.get("smkx").map(Vec::as_slice), Some(&b"HOME"[..]));
+
+        let dirs = temp.path().join(OsStr::from_bytes(b"dirs-\xfd"));
+        write_entry(&dirs, term, b"DIRS", b"DIRSEND");
+        let mut dirs_bytes = dirs.as_os_str().as_bytes().to_vec();
+        dirs_bytes.extend_from_slice(b":/usr/share/terminfo");
+        let dirs_list = std::ffi::OsString::from_vec(dirs_bytes);
+        let dirs_caps = selected_capabilities(term, None, Some(dirs_list.as_os_str()), None);
+        assert_eq!(dirs_caps.get("smkx").map(Vec::as_slice), Some(&b"DIRS"[..]));
     }
 
     #[test]

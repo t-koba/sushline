@@ -92,8 +92,8 @@ fn main() -> ExitCode {
         eprintln!("SUSHLINE_INPUTRC_ERROR:{err:?}");
         return ExitCode::from(1);
     }
-    if let Ok(path) = std::env::var("SUSHLINE_INPUTRC_FILE")
-        && let Err(err) = line.load_inputrc_file(std::path::Path::new(&path))
+    if let Some(path) = std::env::var_os("SUSHLINE_INPUTRC_FILE")
+        && let Err(err) = line.load_inputrc_file(Path::new(&path))
     {
         eprintln!("SUSHLINE_INPUTRC_FILE_ERROR:{err:?}");
         return ExitCode::from(1);

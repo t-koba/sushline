@@ -19,14 +19,10 @@ impl Hooks for HarnessApplication {
             };
             for entry in entries.flatten() {
                 let path = entry.path();
-                if is_executable_file(&path) {
-                    names.push(
-                        entry
-                            .file_name()
-                            .to_string_lossy()
-                            .into_owned()
-                            .into_bytes(),
-                    );
+                if is_executable_file(&path)
+                    && let Some(name) = command_name_bytes(&entry.file_name())
+                {
+                    names.push(name);
                 }
             }
         }
@@ -37,6 +33,18 @@ impl Hooks for HarnessApplication {
 
     fn variable_names(&mut self) -> Vec<Vec<u8>> {
         environment_variable_names(std::env::vars_os())
+    }
+}
+
+fn command_name_bytes(name: &std::ffi::OsStr) -> Option<Vec<u8>> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        Some(name.as_bytes().to_vec())
+    }
+    #[cfg(not(unix))]
+    {
+        name.to_str().map(|name| name.as_bytes().to_vec())
     }
 }
 
@@ -165,6 +173,15 @@ fn main() -> ExitCode {
 mod tests {
     use super::environment_variable_names;
     use std::ffi::OsString;
+
+    #[cfg(unix)]
+    #[test]
+    fn command_names_preserve_non_utf8_bytes() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let name = OsString::from_vec(b"cmd-\xff".to_vec());
+        assert_eq!(super::command_name_bytes(&name), Some(b"cmd-\xff".to_vec()));
+    }
 
     #[cfg(unix)]
     #[test]

@@ -1276,6 +1276,16 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn default_file_path_preserves_non_utf8_home_bytes() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let home = std::ffi::OsStr::from_bytes(b"/home/sushline-\xff");
+        let path = default_file_path_from_home(Some(home));
+        assert_eq!(path.as_os_str().as_bytes(), b"/home/sushline-\xff/.history");
+    }
+
     fn assert_same_history(actual: &History, expected: &History) {
         assert_eq!(actual.entries, expected.entries);
         assert_eq!(actual.cursor, expected.cursor);

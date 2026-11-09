@@ -21,7 +21,10 @@ use std::time::Duration;
 /// Outcome of one [`Editor::read_line`] call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReadlineResult {
-    /// A line accepted by the user.
+    /// The accepted, edited line contents as bytes.
+    ///
+    /// No UTF-8 decoding is applied, so the bytes are not guaranteed to be
+    /// valid UTF-8; callers choose whether and how to decode them as text.
     Line(Vec<u8>),
     /// The active read was interrupted before accepting a line, such as by Ctrl-C.
     ///

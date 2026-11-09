@@ -84,6 +84,8 @@ jobs:
           components: clippy
       - name: Compile the Windows library and terminal tests
         run: cargo clippy -p sushline-readline --lib --no-default-features --locked -- -D warnings
+      - name: Preserve Unicode and reject unrepresentable tilde paths
+        run: cargo test -p sushline-readline --lib --no-default-features --locked command::editing::tests -- --test-threads=1
       - name: Exercise native console modes, events, Unicode output and cleanup
         run: cargo test -p sushline-readline --lib --no-default-features --locked terminal::windows::tests -- --nocapture --test-threads=1
       - name: Complete native Windows filename paths

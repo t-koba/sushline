@@ -161,12 +161,16 @@ impl From<&str> for Prompt {
 }
 
 impl From<Vec<u8>> for Prompt {
+    /// Decode bytes lossily as UTF-8; invalid sequences become U+FFFD and the
+    /// original bytes are not retained.
     fn from(value: Vec<u8>) -> Self {
         Self::new(String::from_utf8_lossy(&value).into_owned())
     }
 }
 
 impl From<&[u8]> for Prompt {
+    /// Decode bytes lossily as UTF-8; invalid sequences become U+FFFD and the
+    /// original bytes are not retained.
     fn from(value: &[u8]) -> Self {
         Self::new(String::from_utf8_lossy(value).into_owned())
     }

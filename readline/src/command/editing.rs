@@ -445,11 +445,11 @@ fn expand_tilde_word_with_home(
 ) -> Option<Vec<u8>> {
     if word == b"~" {
         return crate::home::resolve(home, None, lookup_home)
-            .map(|home| os_string_to_bytes(home.as_os_str()));
+            .and_then(|home| os_string_to_bytes(home.as_os_str()));
     }
     if let Some(rest) = word.strip_prefix(b"~/") {
         let mut home = crate::home::resolve(home, None, lookup_home)
-            .map(|home| os_string_to_bytes(home.as_os_str()))?;
+            .and_then(|home| os_string_to_bytes(home.as_os_str()))?;
         home.push(b'/');
         home.extend_from_slice(rest);
         return Some(home);
@@ -484,7 +484,7 @@ fn expand_tilde_word_with_home(
         return None;
     }
     let mut home = crate::home::resolve(home, Some(user.as_bytes()), lookup_home)
-        .map(|home| os_string_to_bytes(home.as_os_str()))?;
+        .and_then(|home| os_string_to_bytes(home.as_os_str()))?;
     if slash.is_some() {
         home.push(b'/');
         home.extend_from_slice(suffix);
@@ -494,32 +494,53 @@ fn expand_tilde_word_with_home(
 
 fn pwd_bytes() -> Option<Vec<u8>> {
     std::env::var_os("PWD")
-        .map(|pwd| os_string_to_bytes(pwd.as_os_str()))
+        .and_then(|pwd| os_string_to_bytes(pwd.as_os_str()))
         .or_else(|| {
             std::env::current_dir()
                 .ok()
-                .map(|pwd| os_string_to_bytes(pwd.as_os_str()))
+                .and_then(|pwd| os_string_to_bytes(pwd.as_os_str()))
         })
 }
 
 fn oldpwd_bytes() -> Option<Vec<u8>> {
-    std::env::var_os("OLDPWD").map(|oldpwd| os_string_to_bytes(oldpwd.as_os_str()))
+    std::env::var_os("OLDPWD").and_then(|oldpwd| os_string_to_bytes(oldpwd.as_os_str()))
 }
 
 #[cfg(unix)]
-fn os_string_to_bytes(value: &std::ffi::OsStr) -> Vec<u8> {
+fn os_string_to_bytes(value: &std::ffi::OsStr) -> Option<Vec<u8>> {
     use std::os::unix::ffi::OsStrExt;
-    value.as_bytes().to_vec()
+    Some(value.as_bytes().to_vec())
 }
 
 #[cfg(not(unix))]
-fn os_string_to_bytes(value: &std::ffi::OsStr) -> Vec<u8> {
-    value.to_string_lossy().as_bytes().to_vec()
+fn os_string_to_bytes(value: &std::ffi::OsStr) -> Option<Vec<u8>> {
+    value.to_str().map(|value| value.as_bytes().to_vec())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn unpaired_surrogate_home_is_not_lossily_expanded() {
+        use std::os::windows::ffi::OsStringExt;
+
+        let home = std::ffi::OsString::from_wide(&[0xd800]);
+        assert_eq!(
+            expand_tilde_word_with_home(b"~", Some(home.as_os_str()), |_| None),
+            None
+        );
+    }
+
+    #[test]
+    fn unicode_home_path_expands_to_utf8_bytes() {
+        let home = std::ffi::OsString::from("/home/naïve");
+        assert_eq!(
+            expand_tilde_word_with_home(b"~", Some(home.as_os_str()), |_| None),
+            Some("/home/naïve".as_bytes().to_vec())
+        );
+    }
 
     #[test]
     fn tilde_word_uses_current_uid_when_home_is_unset() {

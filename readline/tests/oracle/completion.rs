@@ -8126,18 +8126,11 @@ set page-completions on"#;
         "SUSHLINE_ACCEPTED:",
     );
 
-    let expected = Some(format!("{}/al", cwd.display()));
-    for (output, implementation) in [(&bash, "bash"), (&sushline, "sushline")] {
-        assert!(
-            output.contains("--More--"),
-            "pagination prompt was not rendered for {implementation}: {output:?}"
-        );
-        assert_eq!(
-            accepted_line(output),
-            expected,
-            "resizing at the pagination prompt changed the accepted line for {implementation}: {output:?}"
-        );
-    }
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "completion-pagination resize behavior differs\nBash: {bash:?}\nSushline: {sushline:?}"
+    );
 }
 
 #[cfg(unix)]

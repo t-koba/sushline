@@ -1340,6 +1340,16 @@ fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         .position(|window| window == needle)
 }
 
+/// Checks the byte sequence after ignoring carriage returns used for positioning.
+fn contains_bytes_ignoring_carriage_returns(haystack: &[u8], needle: &[u8]) -> bool {
+    let bytes: Vec<_> = haystack
+        .iter()
+        .copied()
+        .filter(|byte| *byte != b'\r')
+        .collect();
+    find_bytes(&bytes, needle).is_some()
+}
+
 fn stop_marker_line_complete(output: &[u8], marker: &str) -> bool {
     let Some(start) = find_bytes(output, marker.as_bytes()) else {
         return false;
@@ -1748,11 +1758,12 @@ pub(super) fn run_pty_checkpoints_raw(
 /// Resize an active ASCII read, then capture a causal clear-screen checkpoint.
 ///
 /// `partial` must fit in the initial viewport with `prompt`, contain no
-/// controls, and not contain the prompt. Seeing the full partial byte sequence
-/// proves its redisplay has reached the PTY, even when auto-wrap divides its
-/// cells across rows. Any remaining cursor-positioning tail cannot contain
-/// another prompt. A fresh prompt after master.resize is therefore evidence of
-/// automatic resize redisplay, before sending any redraw keys.
+/// controls, and not contain the prompt. Synchronization detects its complete
+/// byte sequence in PTY output while ignoring carriage returns used for
+/// terminal positioning at wrap boundaries. Any remaining cursor-positioning
+/// tail cannot contain another prompt. A fresh prompt after master.resize is
+/// therefore evidence of automatic resize redisplay, before sending redraw
+/// keys.
 /// Ctrl-L then resets the screen (avoiding terminal-specific window reflow),
 /// and the existing Ctrl-G/BEL barrier captures its settled line and cursor.
 /// Returns that resized checkpoint and the transcript through acceptance.
@@ -1786,6 +1797,7 @@ pub(super) fn run_pty_resize_checkpoint(
     }
     let mut stage = Stage::Prompt;
     let mut output = Vec::new();
+    let mut input_start = 0;
     let mut resize_start = 0;
     let mut redraw_start = 0;
     let mut checkpoint = None;
@@ -1796,10 +1808,13 @@ pub(super) fn run_pty_resize_checkpoint(
         }
         match stage {
             Stage::Prompt if find_bytes(&output, prompt.as_bytes()).is_some() => {
+                input_start = output.len();
                 session.write(partial);
                 stage = Stage::InitialInput;
             }
-            Stage::InitialInput if find_bytes(&output, partial).is_some() => {
+            Stage::InitialInput
+                if contains_bytes_ignoring_carriage_returns(&output[input_start..], partial) =>
+            {
                 resize_start = output.len();
                 session.master.resize(resized).expect("resize active PTY");
                 stage = Stage::AutomaticResize;

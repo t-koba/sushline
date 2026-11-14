@@ -47,7 +47,8 @@ pub enum TerminalEvent {
     Resize(TerminalSize),
     /// Signal.
     Signal(i32),
-    /// Timeout.
+    /// No event was reported before the wait ended; a backend may also use
+    /// this to yield so the editor can recheck external conditions.
     Timeout,
 }
 
@@ -107,7 +108,12 @@ pub trait TerminalIo {
     fn reraise_caught_sigint(&mut self) -> io::Result<()> {
         Ok(())
     }
-    /// Reads the next terminal event.
+    /// Reads the next terminal event, waiting up to `timeout` for one.
+    ///
+    /// `Some(Duration::ZERO)` requests an immediate check. A finite timeout
+    /// returns [`TerminalEvent::Timeout`] if no event is reported in time;
+    /// `None` requests no deadline. A backend may return `Timeout` early when
+    /// it yields so the editor can recheck external conditions such as signals.
     fn read_event(&mut self, timeout: Option<Duration>) -> io::Result<TerminalEvent>;
     /// Writes UTF-8 text to the terminal.
     fn write(&mut self, text: &str) -> io::Result<()>;

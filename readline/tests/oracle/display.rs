@@ -108,7 +108,7 @@ fn bash_and_sushline_redisplay_wrap_boundary_cursor_after_live_pty_shrink() {
         b"abcdefghijklmnop",
         &position_keys,
         &["P>abcdefghij", "klmnop"],
-        (0, 11),
+        (1, 0),
     );
 }
 

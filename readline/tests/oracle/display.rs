@@ -43,6 +43,83 @@ fn bash_readline_and_sushline_accept_same_edit_under_narrow_terminal() {
     );
 }
 
+// The required oracle CI job supplies the pinned Bash 5.3 / Readline 8.3
+// ELF host. This fixture checks one ASCII read, not general resize-byte parity.
+#[cfg(target_os = "linux")]
+#[test]
+fn bash_and_sushline_redisplay_partial_input_after_live_pty_resize() {
+    use super::host::require_oracle_host;
+    use super::host_readline::{MEASURED_RELEASE, host_carries};
+    use super::screen::Screen;
+    use portable_pty::CommandBuilder;
+
+    require_oracle_host();
+    assert!(
+        host_carries(MEASURED_RELEASE),
+        "resize fixture requires Readline 8.3"
+    );
+    let root = tempfile::tempdir().expect("resize PTY root");
+    let inputrc = "set editing-mode emacs\nset horizontal-scroll-mode off\nset enable-bracketed-paste off\nset bell-style audible\n";
+    let path = root.path().join("inputrc");
+    std::fs::write(&path, inputrc).expect("write resize inputrc");
+    let partial = b"abcdefghijklmnop";
+    let wide = PtySize {
+        rows: 8,
+        cols: 80,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let narrow = PtySize { cols: 12, ..wide };
+    let mut outcomes = Vec::new();
+    for bash in [true, false] {
+        let mut command = if bash {
+            let mut command = CommandBuilder::new("bash");
+            command.args([
+                "--noprofile",
+                "--norc",
+                "-i",
+                "-c",
+                "IFS= read -r -e -p 'P>' line; printf 'SUSHLINE_ACCEPTED:%s\\n' \"$line\"",
+            ]);
+            command
+        } else {
+            let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+            command.env("SUSHLINE_INPUTRC", inputrc);
+            command.env("SUSHLINE_PROMPT", "P>");
+            command.env("SUSHLINE_HISTORY", "");
+            command
+        };
+        command.env("INPUTRC", path.to_str().expect("inputrc path"));
+        command.env("HOME", root.path());
+        command.env("HISTFILE", root.path().join("history"));
+        command.env("LC_ALL", "C");
+        command.env_remove("COLUMNS");
+        command.env_remove("LINES");
+        let (frame, output) = run_pty_resize_checkpoint(command, "P>", partial, wide, narrow);
+        let mut screen = Screen::new(usize::from(narrow.rows), usize::from(narrow.cols));
+        screen.feed(&frame);
+        let rows = screen.rows_text();
+        assert_eq!(
+            &rows[..2],
+            &["P>abcdefghij", "klmnop"],
+            "bash={bash}: {output:?}"
+        );
+        assert!(
+            rows[2..].iter().all(String::is_empty),
+            "bash={bash}: {rows:?}"
+        );
+        assert_eq!(screen.cursor(), (1, 6), "bash={bash}: {output:?}");
+        let accepted = accepted_line(&output);
+        assert_eq!(
+            accepted.as_deref(),
+            Some("abcdefghijklmnop"),
+            "bash={bash}: {output:?}"
+        );
+        outcomes.push((rows, screen.cursor(), accepted));
+    }
+    assert_eq!(outcomes[0], outcomes[1]);
+}
+
 #[cfg(unix)]
 #[test]
 fn unwrapped_ansi_prompt_redisplay_counts_unmarked_escapes() {

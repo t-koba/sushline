@@ -84,6 +84,12 @@ impl Screen {
         (0..self.rows).map(|row| self.row_text(row)).collect()
     }
 
+    /// The zero-based rendered cursor position (row, column).
+    #[cfg(target_os = "linux")]
+    pub(super) fn cursor(&self) -> (usize, usize) {
+        (self.row, self.column)
+    }
+
     /// The rendered text of a row, without its trailing spaces.
     fn row_text(&self, row: usize) -> String {
         self.cells[row]
@@ -250,6 +256,16 @@ impl Screen {
 #[cfg(test)]
 mod tests {
     use super::Screen;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn clear_redraw_resets_wrapped_text_and_cursor() {
+        let mut screen = Screen::new(3, 4);
+        screen.feed(b"obsolete text");
+        screen.feed(b"\x1b[H\x1b[2J1234\r\n56");
+        assert_eq!(screen.rows_text(), ["1234", "56", ""]);
+        assert_eq!(screen.cursor(), (1, 2));
+    }
 
     #[test]
     fn deleted_characters_pull_the_row_left() {

@@ -1745,6 +1745,91 @@ pub(super) fn run_pty_checkpoints_raw(
     frames
 }
 
+/// Resize an active ASCII read, then capture a causal clear-screen checkpoint.
+///
+/// `partial` must fit on one wide row with `prompt`, contain no controls, and
+/// not contain the prompt. Seeing the whole partial input proves its wide
+/// redisplay has reached the PTY; any remaining cursor-positioning tail cannot
+/// contain another prompt. A fresh prompt after master.resize is therefore
+/// evidence of automatic resize redisplay, before sending any redraw keys.
+/// Ctrl-L then resets the screen (avoiding terminal-specific window reflow),
+/// and the existing Ctrl-G/BEL barrier captures its settled line and cursor.
+/// Returns that narrow checkpoint and the transcript through acceptance.
+#[cfg(target_os = "linux")]
+pub(super) fn run_pty_resize_checkpoint(
+    mut command: CommandBuilder,
+    prompt: &str,
+    partial: &[u8],
+    wide: PtySize,
+    narrow: PtySize,
+) -> (Vec<u8>, String) {
+    require_oracle_host();
+    assert!(partial.iter().all(u8::is_ascii_graphic));
+    assert!(!partial.is_empty() && !prompt.is_empty());
+    assert!(find_bytes(partial, prompt.as_bytes()).is_none());
+    assert!(prompt.len() + partial.len() < usize::from(wide.cols));
+    command.env("TERM", "xterm-256color");
+    command.cwd("/");
+    let mut session = PtySession::spawn(command, wide);
+    let deadline = Instant::now() + PTY_HANG_BOUND;
+    #[derive(Debug)]
+    enum Stage {
+        Prompt,
+        WideInput,
+        AutomaticResize,
+        Redraw,
+        Accepted,
+    }
+    let mut stage = Stage::Prompt;
+    let mut output = Vec::new();
+    let mut resize_start = 0;
+    let mut redraw_start = 0;
+    let mut checkpoint = None;
+    while Instant::now() < deadline {
+        match session.read(deadline.saturating_duration_since(Instant::now())) {
+            PtyOutput::Chunk(chunk) => output.extend_from_slice(&chunk),
+            PtyOutput::Timeout | PtyOutput::Closed => break,
+        }
+        match stage {
+            Stage::Prompt if find_bytes(&output, prompt.as_bytes()).is_some() => {
+                session.write(partial);
+                stage = Stage::WideInput;
+            }
+            Stage::WideInput if find_bytes(&output, partial).is_some() => {
+                resize_start = output.len();
+                session.master.resize(narrow).expect("resize active PTY");
+                stage = Stage::AutomaticResize;
+            }
+            Stage::AutomaticResize
+                if find_bytes(&output[resize_start..], prompt.as_bytes()).is_some() =>
+            {
+                redraw_start = output.len();
+                session.write(b"\x0c\x07");
+                stage = Stage::Redraw;
+            }
+            Stage::Redraw => {
+                if let Some(frame) = checkpoint_before_bell_raw(&mut output, redraw_start) {
+                    checkpoint = Some(frame[redraw_start..].to_vec());
+                    session.write(b"\r");
+                    stage = Stage::Accepted;
+                }
+            }
+            Stage::Accepted if stop_marker_line_complete(&output, "SUSHLINE_ACCEPTED:") => break,
+            _ => {}
+        }
+    }
+    session.finish();
+    assert!(
+        stop_marker_line_complete(&output, "SUSHLINE_ACCEPTED:"),
+        "resize PTY stopped at {stage:?}: {:?}",
+        lossy_output(&output)
+    );
+    (
+        checkpoint.expect("resize redraw barrier"),
+        lossy_output(&output),
+    )
+}
+
 // Remove the barrier itself but retain post-BEL output for the next frame.
 fn checkpoint_before_bell(output: &mut Vec<u8>, scan_start: usize) -> Option<String> {
     Some(lossy_output(&checkpoint_before_bell_raw(

@@ -136,6 +136,7 @@ mod terminal_signal_options {
     use std::time::Duration;
 
     const PROBE_ENV: &str = "SUSHLINE_SIGNAL_OPTIONS_PROBE";
+    const SIGINFO_PROBE_ENV: &str = "SUSHLINE_SIGWINCH_SIGINFO_PROBE";
     const SIGNALS: [i32; 9] = [
         libc::SIGINT,
         libc::SIGQUIT,
@@ -149,6 +150,11 @@ mod terminal_signal_options {
     ];
     static WINCH_CALLS: AtomicUsize = AtomicUsize::new(0);
     static WINCH_MASK_BLOCKED: AtomicBool = AtomicBool::new(false);
+    static WINCH_SIGINFO_CALLS: AtomicUsize = AtomicUsize::new(0);
+    static WINCH_SIGINFO_SIGNAL: AtomicUsize = AtomicUsize::new(0);
+    static WINCH_SIGINFO_INFO_SIGNAL: AtomicUsize = AtomicUsize::new(0);
+    static WINCH_SIGINFO_HAS_CONTEXT: AtomicBool = AtomicBool::new(false);
+    static WINCH_SIGINFO_MASK_BLOCKED: AtomicBool = AtomicBool::new(false);
 
     extern "C" fn application_handler(signal: i32) {
         if signal == libc::SIGWINCH {
@@ -160,6 +166,27 @@ mod terminal_signal_options {
             WINCH_MASK_BLOCKED.store(blocked, Ordering::SeqCst);
             WINCH_CALLS.fetch_add(1, Ordering::SeqCst);
         }
+    }
+
+    extern "C" fn application_siginfo_handler(
+        signal: i32,
+        info: *mut libc::siginfo_t,
+        context: *mut libc::c_void,
+    ) {
+        let info_signal = if info.is_null() {
+            0
+        } else {
+            unsafe { (*info).si_signo as usize }
+        };
+        let mut current: libc::sigset_t = unsafe { std::mem::zeroed() };
+        let queried =
+            unsafe { libc::sigprocmask(libc::SIG_SETMASK, std::ptr::null(), &mut current) == 0 };
+        let mask_blocked = queried && unsafe { libc::sigismember(&current, libc::SIGUSR1) == 1 };
+        WINCH_SIGINFO_SIGNAL.store(signal as usize, Ordering::SeqCst);
+        WINCH_SIGINFO_INFO_SIGNAL.store(info_signal, Ordering::SeqCst);
+        WINCH_SIGINFO_HAS_CONTEXT.store(!context.is_null(), Ordering::SeqCst);
+        WINCH_SIGINFO_MASK_BLOCKED.store(mask_blocked, Ordering::SeqCst);
+        WINCH_SIGINFO_CALLS.fetch_add(1, Ordering::SeqCst);
     }
 
     extern "C" fn replacement_handler(_: i32) {}
@@ -183,6 +210,17 @@ mod terminal_signal_options {
         }
     }
 
+    fn set_siginfo_action(signal: i32) {
+        unsafe {
+            let mut action: libc::sigaction = std::mem::zeroed();
+            action.sa_sigaction = application_siginfo_handler as *const () as usize;
+            action.sa_flags = libc::SA_RESTART | libc::SA_SIGINFO;
+            libc::sigemptyset(&mut action.sa_mask);
+            libc::sigaddset(&mut action.sa_mask, libc::SIGUSR1);
+            assert_eq!(libc::sigaction(signal, &action, std::ptr::null_mut()), 0);
+        }
+    }
+
     fn assert_same_action(signal: i32, expected: &libc::sigaction) {
         let actual = current_action(signal);
         assert_eq!(
@@ -200,6 +238,38 @@ mod terminal_signal_options {
                 );
             }
         }
+    }
+
+    fn run_pty_probe(test_name: &str, probe_env: &str) -> std::process::Output {
+        let mut master = -1;
+        let mut slave = -1;
+        let size = libc::winsize {
+            ws_row: 24,
+            ws_col: 80,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
+        assert_eq!(
+            unsafe {
+                libc::openpty(
+                    &mut master,
+                    &mut slave,
+                    std::ptr::null_mut(),
+                    std::ptr::null(),
+                    &size,
+                )
+            },
+            0,
+            "open PTY for isolated terminal probe"
+        );
+        let _master = unsafe { OwnedFd::from_raw_fd(master) };
+        let slave = unsafe { OwnedFd::from_raw_fd(slave) };
+        Command::new(std::env::current_exe().unwrap())
+            .args([test_name, "--exact", "--nocapture"])
+            .env(probe_env, "1")
+            .stdin(Stdio::from(slave))
+            .output()
+            .expect("spawn isolated terminal probe")
     }
 
     #[test]
@@ -394,43 +464,77 @@ mod terminal_signal_options {
     }
 
     #[test]
-    fn all_flag_combinations_restore_dispositions() {
-        let mut master = -1;
-        let mut slave = -1;
-        let size = libc::winsize {
-            ws_row: 24,
-            ws_col: 80,
-            ws_xpixel: 0,
-            ws_ypixel: 0,
-        };
+    fn siginfo_child_probe() {
+        if std::env::var(SIGINFO_PROBE_ENV).as_deref() != Ok("1") {
+            return;
+        }
+        unsafe {
+            let mut sigusr1: libc::sigset_t = std::mem::zeroed();
+            assert_eq!(libc::sigemptyset(&mut sigusr1), 0);
+            assert_eq!(libc::sigaddset(&mut sigusr1, libc::SIGUSR1), 0);
+            assert_eq!(
+                libc::sigprocmask(libc::SIG_UNBLOCK, &sigusr1, std::ptr::null_mut()),
+                0
+            );
+        }
+
+        set_siginfo_action(libc::SIGWINCH);
+        let original = current_action(libc::SIGWINCH);
+        let mut terminal = Terminal::new();
+        terminal.set_catch_signals(false);
+        terminal.enter_raw_mode().unwrap();
+        assert_eq!(unsafe { libc::raise(libc::SIGWINCH) }, 0);
+        assert!(matches!(
+            terminal.read_event(Some(Duration::ZERO)).unwrap(),
+            TerminalEvent::Resize(_)
+        ));
+
+        assert_eq!(WINCH_SIGINFO_CALLS.load(Ordering::SeqCst), 1);
         assert_eq!(
-            unsafe {
-                libc::openpty(
-                    &mut master,
-                    &mut slave,
-                    std::ptr::null_mut(),
-                    std::ptr::null(),
-                    &size,
-                )
-            },
-            0,
-            "open PTY for isolated terminal probe"
+            WINCH_SIGINFO_SIGNAL.load(Ordering::SeqCst),
+            libc::SIGWINCH as usize
         );
-        let _master = unsafe { OwnedFd::from_raw_fd(master) };
-        let slave = unsafe { OwnedFd::from_raw_fd(slave) };
-        let output = Command::new(std::env::current_exe().unwrap())
-            .args([
-                "terminal_signal_options::child_probe",
-                "--exact",
-                "--nocapture",
-            ])
-            .env(PROBE_ENV, "1")
-            .stdin(Stdio::from(slave))
-            .output()
-            .expect("spawn isolated signal probe");
+        assert_eq!(
+            WINCH_SIGINFO_INFO_SIGNAL.load(Ordering::SeqCst),
+            libc::SIGWINCH as usize
+        );
+        assert!(WINCH_SIGINFO_HAS_CONTEXT.load(Ordering::SeqCst));
+        assert!(WINCH_SIGINFO_MASK_BLOCKED.load(Ordering::SeqCst));
+        let mut current_mask: libc::sigset_t = unsafe { std::mem::zeroed() };
+        assert_eq!(
+            unsafe { libc::sigprocmask(libc::SIG_SETMASK, std::ptr::null(), &mut current_mask) },
+            0
+        );
+        assert_eq!(
+            unsafe { libc::sigismember(&current_mask, libc::SIGUSR1) },
+            0
+        );
+
+        terminal.restore_mode().unwrap();
+        assert_same_action(libc::SIGWINCH, &original);
+    }
+
+    #[test]
+    fn all_flag_combinations_restore_dispositions() {
+        let output = run_pty_probe("terminal_signal_options::child_probe", PROBE_ENV);
         assert!(
             output.status.success(),
             "signal probe failed: {:?}\n{}\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn siginfo_handler_is_chained_and_resize_event_is_reported() {
+        let output = run_pty_probe(
+            "terminal_signal_options::siginfo_child_probe",
+            SIGINFO_PROBE_ENV,
+        );
+        assert!(
+            output.status.success(),
+            "SIGWINCH SA_SIGINFO probe failed: {:?}\n{}\n{}",
             output.status,
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)

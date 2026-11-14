@@ -26,21 +26,24 @@ mod windows;
 pub(crate) use terminfo::{DefaultCapabilities, default_capabilities};
 use terminfo::{terminfo_keypad_sequence, terminfo_sequence};
 
+/// A terminal's raw dimensions, measured in character cells.
+///
+/// A backend can report zero for either dimension. The editor normalizes zero
+/// columns and rows independently for layout; see [`TerminalIo::size`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// TerminalSize.
 pub struct TerminalSize {
-    /// Columns.
+    /// Number of character-cell columns reported by the backend.
     pub columns: u16,
-    /// Rows.
+    /// Number of character-cell rows reported by the backend.
     pub rows: u16,
 }
 
+/// An input or terminal-state event reported by a [`TerminalIo`] backend.
 #[derive(Debug, Clone, PartialEq, Eq)]
-/// TerminalEvent.
 pub enum TerminalEvent {
-    /// Bytes.
+    /// Input bytes read from the terminal.
     Bytes(Vec<u8>),
-    /// Resize.
+    /// A resize notification carrying the backend's current raw dimensions.
     Resize(TerminalSize),
     /// Signal.
     Signal(i32),
@@ -134,7 +137,10 @@ pub trait TerminalIo {
     fn write_bytes(&mut self, bytes: &[u8]) -> io::Result<()>;
     /// Flushes pending terminal output.
     fn flush(&mut self) -> io::Result<()>;
-    /// Returns the terminal size.
+    /// Returns the backend's current terminal dimensions in character cells.
+    ///
+    /// The editor uses 80 columns and 24 rows if this returns an error, and
+    /// substitutes each zero dimension independently with the same default.
     fn size(&self) -> io::Result<TerminalSize>;
     /// Clears from the cursor to the end of the line.
     fn clear_after_cursor(&mut self) -> io::Result<()>;

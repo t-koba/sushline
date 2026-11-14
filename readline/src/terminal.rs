@@ -899,6 +899,37 @@ fn poll_timeout_millis(timeout: Option<Duration>) -> i32 {
     })
 }
 
+/// Polls until input is ready or the original finite deadline expires.
+/// The injected clock and poll make capped-wait rechecks deterministic to test.
+#[cfg(unix)]
+fn poll_for_input(
+    timeout: Option<Duration>,
+    mut elapsed: impl FnMut() -> Duration,
+    mut poll: impl FnMut(i32) -> i32,
+    mut pending_event: impl FnMut() -> io::Result<Option<TerminalEvent>>,
+) -> io::Result<Option<TerminalEvent>> {
+    loop {
+        if let Some(event) = pending_event()? {
+            return Ok(Some(event));
+        }
+        let remaining = timeout.map(|duration| duration.saturating_sub(elapsed()));
+        let ready = poll(poll_timeout_millis(remaining));
+        if ready < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if ready == 0 {
+            if timeout.is_some_and(|duration| elapsed() >= duration) {
+                if let Some(event) = pending_event()? {
+                    return Ok(Some(event));
+                }
+                return Ok(Some(TerminalEvent::Timeout));
+            }
+            continue;
+        }
+        return Ok(None);
+    }
+}
+
 /// Reads the available input as one batch.
 ///
 /// GNU Readline reads the input that is available, processes it character by
@@ -919,18 +950,23 @@ fn read_raw_event(timeout: Option<Duration>, pending: &mut Vec<u8>) -> io::Resul
         events: libc::POLLIN,
         revents: 0,
     };
-    loop {
-        if SIGWINCH_RECEIVED.swap(false, Ordering::SeqCst) {
-            return current_resize_event();
-        }
-        if let Some(event) = pending_signal_event() {
-            return Ok(event);
-        }
-        pollfd.revents = 0;
-        let remaining = timeout.map(|duration| duration.saturating_sub(started.elapsed()));
-        let ready = unsafe { libc::poll(&mut pollfd, 1, poll_timeout_millis(remaining)) };
-        if ready < 0 {
-            let err = io::Error::last_os_error();
+    match poll_for_input(
+        timeout,
+        || started.elapsed(),
+        |timeout_ms| {
+            pollfd.revents = 0;
+            unsafe { libc::poll(&mut pollfd, 1, timeout_ms) }
+        },
+        || {
+            if SIGWINCH_RECEIVED.swap(false, Ordering::SeqCst) {
+                return current_resize_event().map(Some);
+            }
+            Ok(pending_signal_event())
+        },
+    ) {
+        Ok(Some(event)) => return Ok(event),
+        Ok(None) => {}
+        Err(err) => {
             if err.kind() != io::ErrorKind::Interrupted
                 && let Some(event) = pending_signal_event()
             {
@@ -938,19 +974,6 @@ fn read_raw_event(timeout: Option<Duration>, pending: &mut Vec<u8>) -> io::Resul
             }
             return read_error_event(err);
         }
-        if ready == 0 {
-            if timeout.is_some_and(|duration| started.elapsed() >= duration) {
-                if SIGWINCH_RECEIVED.swap(false, Ordering::SeqCst) {
-                    return current_resize_event();
-                }
-                if let Some(event) = pending_signal_event() {
-                    return Ok(event);
-                }
-                return Ok(TerminalEvent::Timeout);
-            }
-            continue;
-        }
-        break;
     }
     let mut buf = Vec::new();
     let mut chunk = [0u8; 4096];
@@ -1110,7 +1133,7 @@ fn tty_special_bindings() -> Vec<(u8, &'static str)> {
 #[cfg(all(test, unix))]
 mod tests {
     use super::{
-        SIGWINCH_RECEIVED, TerminalEvent, TerminalSize, poll_timeout_millis,
+        SIGWINCH_RECEIVED, TerminalEvent, TerminalSize, poll_for_input, poll_timeout_millis,
         prepare_readline_termios, read_error_event,
     };
     use std::time::Duration;
@@ -1131,6 +1154,37 @@ mod tests {
             poll_timeout_millis(Some(Duration::from_millis(i32::MAX as u64 + 1))),
             i32::MAX
         );
+    }
+
+    #[test]
+    fn capped_poll_rechecks_the_original_deadline() {
+        use std::cell::Cell;
+
+        let timeout = Duration::from_secs(50 * 24 * 60 * 60);
+        let capped_poll = Duration::from_millis(i32::MAX as u64);
+        let elapsed = Cell::new(Duration::ZERO);
+        let poll_count = Cell::new(0);
+        let mut poll_timeouts = Vec::new();
+        let event = poll_for_input(
+            Some(timeout),
+            || elapsed.get(),
+            |poll_timeout| {
+                poll_timeouts.push(poll_timeout);
+                poll_count.set(poll_count.get() + 1);
+                elapsed.set(if poll_count.get() == 1 {
+                    capped_poll
+                } else {
+                    timeout
+                });
+                0
+            },
+            || Ok(None),
+        )
+        .unwrap();
+
+        assert_eq!(event, Some(TerminalEvent::Timeout));
+        assert_eq!(poll_count.get(), 2);
+        assert_eq!(poll_timeouts, [i32::MAX, i32::MAX]);
     }
 
     #[test]

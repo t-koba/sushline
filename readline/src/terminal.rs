@@ -1065,13 +1065,85 @@ fn tty_special_bindings() -> Vec<(u8, &'static str)> {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::{TerminalEvent, prepare_readline_termios, read_error_event};
+    use super::{
+        SIGWINCH_RECEIVED, TerminalEvent, TerminalSize, prepare_readline_termios, read_error_event,
+    };
+
+    const RESIZE_PROBE_ENV: &str = "SUSHLINE_READ_ERROR_RESIZE_PROBE";
+    const RESIZE_ROWS: u16 = 29;
+    const RESIZE_COLUMNS: u16 = 93;
+
+    #[test]
+    fn interrupted_resize_child_probe() {
+        if std::env::var(RESIZE_PROBE_ENV).as_deref() != Ok("1") {
+            return;
+        }
+        SIGWINCH_RECEIVED.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(
+            read_error_event(std::io::Error::from_raw_os_error(libc::EINTR)).unwrap(),
+            TerminalEvent::Resize(TerminalSize {
+                columns: RESIZE_COLUMNS,
+                rows: RESIZE_ROWS,
+            })
+        );
+        assert_eq!(
+            read_error_event(std::io::Error::from_raw_os_error(libc::EINTR)).unwrap(),
+            TerminalEvent::Timeout,
+            "the pending resize is consumed once"
+        );
+    }
+
+    #[test]
+    fn interrupted_read_reports_pending_resize_from_pty() {
+        use std::os::fd::{FromRawFd, OwnedFd};
+        use std::process::{Command, Stdio};
+
+        let mut master = -1;
+        let mut slave = -1;
+        let size = libc::winsize {
+            ws_row: RESIZE_ROWS,
+            ws_col: RESIZE_COLUMNS,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
+        assert_eq!(
+            unsafe {
+                libc::openpty(
+                    &mut master,
+                    &mut slave,
+                    std::ptr::null_mut(),
+                    std::ptr::null(),
+                    &size,
+                )
+            },
+            0,
+            "open PTY for isolated resize-error probe"
+        );
+        let _master = unsafe { OwnedFd::from_raw_fd(master) };
+        let slave = unsafe { OwnedFd::from_raw_fd(slave) };
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "terminal::tests::interrupted_resize_child_probe",
+                "--exact",
+                "--nocapture",
+            ])
+            .env(RESIZE_PROBE_ENV, "1")
+            .stdin(Stdio::from(slave))
+            .output()
+            .expect("spawn isolated resize-error probe");
+        assert!(
+            output.status.success(),
+            "resize-error probe failed: {:?}\n{}\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 
     #[test]
     fn interrupted_poll_or_read_without_caught_event_yields_timeout() {
-        // Both syscall EINTR branches use this fallback. Disposition/event
-        // tests run in isolated integration-test children, so this unit test
-        // needs neither a real signal nor process-global handler changes.
+        // Without a pending caught event, both syscall EINTR branches yield
+        // a timeout; the isolated child probe above covers pending SIGWINCH.
         assert_eq!(
             read_error_event(std::io::Error::from_raw_os_error(libc::EINTR)).unwrap(),
             TerminalEvent::Timeout

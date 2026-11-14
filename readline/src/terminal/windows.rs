@@ -34,6 +34,33 @@ fn unsupported() -> io::Error {
     )
 }
 
+fn wait_timeout_millis(timeout: Option<Duration>) -> u32 {
+    timeout.map_or(INFINITE, |duration| {
+        duration
+            .as_nanos()
+            .div_ceil(1_000_000)
+            .min(u128::from(INFINITE - 1)) as u32
+    })
+}
+
+fn wait_for_input(
+    timeout: Option<Duration>,
+    mut elapsed: impl FnMut() -> Duration,
+    mut wait: impl FnMut(u32) -> u32,
+) -> io::Result<bool> {
+    loop {
+        let remaining = timeout.map(|duration| duration.saturating_sub(elapsed()));
+        match wait(wait_timeout_millis(remaining)) {
+            WAIT_OBJECT_0 => return Ok(true),
+            WAIT_TIMEOUT if timeout.is_some_and(|duration| elapsed() >= duration) => {
+                return Ok(false);
+            }
+            WAIT_TIMEOUT => continue,
+            _ => return Err(io::Error::last_os_error()),
+        }
+    }
+}
+
 pub(super) fn stderr() -> HANDLE {
     unsafe { GetStdHandle(STD_ERROR_HANDLE) }
 }
@@ -182,21 +209,12 @@ impl Console {
             .as_raw_handle();
         let start = Instant::now();
         loop {
-            // Win32 reserves MAXDWORD for INFINITE. Round finite waits up to
-            // milliseconds and split larger durations without truncation.
-            let wait = timeout.map_or(INFINITE, |d| {
-                d.saturating_sub(start.elapsed())
-                    .as_nanos()
-                    .div_ceil(1_000_000)
-                    .min(u128::from(INFINITE - 1)) as u32
-            });
-            match unsafe { WaitForSingleObject(input, wait) } {
-                WAIT_TIMEOUT if timeout.is_some_and(|d| start.elapsed() >= d) => {
-                    return Ok(TerminalEvent::Timeout);
-                }
-                WAIT_TIMEOUT => continue,
-                WAIT_OBJECT_0 => {}
-                _ => return Err(io::Error::last_os_error()),
+            if !wait_for_input(
+                timeout,
+                || start.elapsed(),
+                |wait| unsafe { WaitForSingleObject(input, wait) },
+            )? {
+                return Ok(TerminalEvent::Timeout);
             }
             let mut record = INPUT_RECORD::default();
             let mut read = 0;

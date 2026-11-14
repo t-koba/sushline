@@ -14,6 +14,42 @@ fn key(unit: u16, code: u16, flags: u32, repeat: u16) -> KEY_EVENT_RECORD {
 }
 
 #[test]
+fn capped_finite_wait_rechecks_the_original_deadline() {
+    use std::cell::Cell;
+
+    let timeout = Duration::from_secs(60 * 24 * 60 * 60);
+    let capped_wait = Duration::from_millis(u64::from(INFINITE - 1));
+    let elapsed = Cell::new(Duration::ZERO);
+    let wait_count = Cell::new(0);
+    let mut requested_waits = Vec::new();
+    let ready = wait_for_input(
+        Some(timeout),
+        || elapsed.get(),
+        |wait_millis| {
+            requested_waits.push(wait_millis);
+            wait_count.set(wait_count.get() + 1);
+            elapsed.set(if wait_count.get() == 1 {
+                capped_wait
+            } else {
+                timeout
+            });
+            WAIT_TIMEOUT
+        },
+    )
+    .unwrap();
+
+    assert!(!ready);
+    assert_eq!(wait_count.get(), 2);
+    assert_eq!(
+        requested_waits,
+        [
+            INFINITE - 1,
+            timeout.saturating_sub(capped_wait).as_millis() as u32
+        ]
+    );
+}
+
+#[test]
 fn native_key_encoding() {
     let mut console = Console::default();
     for (unit, code, flags, repeat, expected) in [

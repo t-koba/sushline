@@ -437,8 +437,15 @@ fn assert_live_resize_redisplay_with_locale(
         command.env("LC_ALL", locale);
         command.env_remove("COLUMNS");
         command.env_remove("LINES");
-        let (frame, output) =
-            run_pty_resize_checkpoint(command, "P>", partial, initial, resizes, before_resize_keys);
+        let (frame, output) = run_pty_resize_checkpoint(
+            command,
+            "P>",
+            partial,
+            initial,
+            resizes,
+            before_resize_keys,
+            (expected_rows, expected_cursor),
+        );
         let resized = resizes.last().expect("at least one PTY resize");
         let mut screen = Screen::new(usize::from(resized.rows), usize::from(resized.cols));
         screen.feed(&frame);

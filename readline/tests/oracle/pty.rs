@@ -1781,11 +1781,10 @@ pub(super) fn run_pty_checkpoints_raw(
 /// proving those keys were processed. A fresh prompt after `master.resize` is
 /// evidence of automatic resize redisplay before each causal Ctrl-G/BEL barrier.
 /// The fresh prompt triggers the barrier after each resize. After the final BEL,
-/// Ctrl-L resets the screen (avoiding terminal-specific window reflow), followed
-/// by Enter. The accepted-line marker is printed by the shell only after the
-/// complete clear-screen redraw has finished; capture the frame before Enter's
-/// terminal newline so the observed cursor remains the editor's final position.
-/// Returns the final checkpoint and transcript through acceptance.
+/// Ctrl-L resets the screen (avoiding terminal-specific window reflow). Wait for
+/// the rendered rows and cursor to match the expected checkpoint before sending
+/// Enter; the accepted-line marker separately confirms acceptance. Return the
+/// pre-Enter frame and the transcript through acceptance.
 /// `resizes` must be nonempty; all steps share the session hang bound.
 #[cfg(target_os = "linux")]
 pub(super) fn run_pty_resize_checkpoint(
@@ -1795,7 +1794,10 @@ pub(super) fn run_pty_resize_checkpoint(
     initial: PtySize,
     resizes: &[PtySize],
     before_resize_keys: &[u8],
+    expected: (&[&str], (usize, usize)),
 ) -> (Vec<u8>, String) {
+    let (expected_rows, expected_cursor) = expected;
+    let final_size = *resizes.last().expect("at least one PTY resize");
     let mut resizes = resizes.iter().copied();
     let resized = resizes.next().expect("at least one PTY resize");
     require_oracle_host();
@@ -1831,6 +1833,7 @@ pub(super) fn run_pty_resize_checkpoint(
         AutomaticResize,
         Redraw,
         FinalRedraw,
+        Accepted,
     }
     let mut stage = Stage::Prompt;
     let mut output = Vec::new();
@@ -1900,13 +1903,19 @@ pub(super) fn run_pty_resize_checkpoint(
                     }
                 }
             }
-            Stage::FinalRedraw if stop_marker_line_complete(&output, "SUSHLINE_ACCEPTED:") => {
-                checkpoint = Some(
-                    checkpoint_before_accepted_marker(&output, redraw_start, accepted_marker)
-                        .expect("accepted-line checkpoint boundary"),
-                );
-                break;
+            Stage::FinalRedraw
+                if resize_screen_matches(
+                    &output[redraw_start..],
+                    final_size,
+                    expected_rows,
+                    expected_cursor,
+                ) =>
+            {
+                checkpoint = Some(output[redraw_start..].to_vec());
+                session.write(b"\r");
+                stage = Stage::Accepted;
             }
+            Stage::Accepted if stop_marker_line_complete(&output, "SUSHLINE_ACCEPTED:") => break,
             _ => {}
         }
     }
@@ -1922,47 +1931,46 @@ pub(super) fn run_pty_resize_checkpoint(
     )
 }
 
-// Use the shell's accepted-line output as the causal marker, excluding the
-// CR/LF emitted when Enter moves the terminal off the captured input frame.
 #[cfg(target_os = "linux")]
-fn checkpoint_before_accepted_marker(
-    output: &[u8],
-    start: usize,
-    marker: &[u8],
-) -> Option<Vec<u8>> {
-    let frame = output.get(start..)?;
-    let mut end = find_bytes(frame, marker)?;
-    while end > 0 && matches!(frame[end - 1], b'\r' | b'\n') {
-        end -= 1;
-    }
-    Some(frame[..end].to_vec())
+fn resize_screen_matches(
+    frame: &[u8],
+    size: PtySize,
+    expected_rows: &[&str],
+    expected_cursor: (usize, usize),
+) -> bool {
+    let mut screen = super::screen::Screen::new(usize::from(size.rows), usize::from(size.cols));
+    screen.feed(frame);
+    let rows = screen.rows_text();
+    rows.len() >= expected_rows.len()
+        && rows
+            .iter()
+            .zip(expected_rows)
+            .all(|(actual, expected)| actual == *expected)
+        && rows[expected_rows.len()..].iter().all(|row| row.is_empty())
+        && screen.cursor() == expected_cursor
 }
 
 #[test]
 #[cfg(target_os = "linux")]
-fn accepted_line_checkpoint_waits_for_redraw_and_excludes_enter_newline() {
-    let prefix = b"P>input\x07";
-    let redraw = b"\x1b[H\x1b[2JP>input\r\x1b[12C";
-    let mut transcript = prefix.to_vec();
-    transcript.extend_from_slice(redraw);
-    transcript.extend_from_slice(b"\r\r\nSUSHLINE_ACCEPTED:input\r\n");
-    let start = prefix.len();
-    let marker_start = start + redraw.len() + 3;
-    let marker_end = marker_start + b"SUSHLINE_ACCEPTED:".len();
-    // A split before the accepted marker cannot checkpoint. Once it arrives,
-    // return exactly the redraw even if the terminal emitted CRCRLF for Enter.
-    for split in start..marker_end {
-        assert_eq!(
-            checkpoint_before_accepted_marker(&transcript[..split], start, b"SUSHLINE_ACCEPTED:",),
-            None,
-        );
-    }
-    for split in marker_end..=transcript.len() {
-        assert_eq!(
-            checkpoint_before_accepted_marker(&transcript[..split], start, b"SUSHLINE_ACCEPTED:",),
-            Some(redraw.to_vec()),
-        );
-    }
+fn resize_checkpoint_waits_for_rendered_cursor_position() {
+    let size = PtySize {
+        rows: 8,
+        cols: 12,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let redraw = b"\x1b[H\x1b[2JP>abcdefghijklmnop";
+    let expected_rows = ["P>abcdefghij", "klmnop"];
+    assert!(!resize_screen_matches(redraw, size, &expected_rows, (1, 0),));
+
+    let mut restored = redraw.to_vec();
+    restored.extend_from_slice(b"\x1b[2;1H");
+    assert!(resize_screen_matches(
+        &restored,
+        size,
+        &expected_rows,
+        (1, 0),
+    ));
 }
 
 // Remove the barrier itself but retain post-BEL output for the next frame.

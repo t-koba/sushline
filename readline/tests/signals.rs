@@ -129,7 +129,7 @@ fn failed_raw_entry_preserves_prior_disposition() {
 
 #[cfg(unix)]
 mod terminal_signal_options {
-    use readline::{Terminal, TerminalEvent, TerminalIo};
+    use readline::{Terminal, TerminalEvent, TerminalIo, TerminalSize};
     use std::os::fd::{FromRawFd, OwnedFd};
     use std::process::{Command, Stdio};
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -137,6 +137,9 @@ mod terminal_signal_options {
 
     const PROBE_ENV: &str = "SUSHLINE_SIGNAL_OPTIONS_PROBE";
     const SIGINFO_PROBE_ENV: &str = "SUSHLINE_SIGWINCH_SIGINFO_PROBE";
+    const RESIZE_SIZE_PROBE_ENV: &str = "SUSHLINE_SIGWINCH_SIZE_PROBE";
+    const RESIZE_TEST_ROWS: u16 = 31;
+    const RESIZE_TEST_COLUMNS: u16 = 97;
     const SIGNALS: [i32; 9] = [
         libc::SIGINT,
         libc::SIGQUIT,
@@ -241,11 +244,20 @@ mod terminal_signal_options {
     }
 
     fn run_pty_probe(test_name: &str, probe_env: &str) -> std::process::Output {
+        run_pty_probe_with_size(test_name, probe_env, 24, 80)
+    }
+
+    fn run_pty_probe_with_size(
+        test_name: &str,
+        probe_env: &str,
+        rows: u16,
+        columns: u16,
+    ) -> std::process::Output {
         let mut master = -1;
         let mut slave = -1;
         let size = libc::winsize {
-            ws_row: 24,
-            ws_col: 80,
+            ws_row: rows,
+            ws_col: columns,
             ws_xpixel: 0,
             ws_ypixel: 0,
         };
@@ -464,6 +476,26 @@ mod terminal_signal_options {
     }
 
     #[test]
+    fn resize_size_child_probe() {
+        if std::env::var(RESIZE_SIZE_PROBE_ENV).as_deref() != Ok("1") {
+            return;
+        }
+
+        let mut terminal = Terminal::new();
+        terminal.set_catch_signals(false);
+        terminal.enter_raw_mode().unwrap();
+        assert_eq!(unsafe { libc::raise(libc::SIGWINCH) }, 0);
+        assert_eq!(
+            terminal.read_event(Some(Duration::ZERO)).unwrap(),
+            TerminalEvent::Resize(TerminalSize {
+                columns: RESIZE_TEST_COLUMNS,
+                rows: RESIZE_TEST_ROWS,
+            })
+        );
+        terminal.restore_mode().unwrap();
+    }
+
+    #[test]
     fn siginfo_child_probe() {
         if std::env::var(SIGINFO_PROBE_ENV).as_deref() != Ok("1") {
             return;
@@ -535,6 +567,23 @@ mod terminal_signal_options {
         assert!(
             output.status.success(),
             "SIGWINCH SA_SIGINFO probe failed: {:?}\n{}\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn sigwinch_resize_event_reports_pty_dimensions() {
+        let output = run_pty_probe_with_size(
+            "terminal_signal_options::resize_size_child_probe",
+            RESIZE_SIZE_PROBE_ENV,
+            RESIZE_TEST_ROWS,
+            RESIZE_TEST_COLUMNS,
+        );
+        assert!(
+            output.status.success(),
+            "SIGWINCH size probe failed: {:?}\n{}\n{}",
             output.status,
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)

@@ -8050,7 +8050,8 @@ fn bash_and_sushline_compare_resize_during_completion_pagination() {
     let root = tempfile::tempdir().expect("completion pagination resize root");
     let cwd = root.path().join("cwd");
     fs::create_dir(&cwd).expect("create completion pagination resize cwd");
-    for index in 1..=10 {
+    // Leave one candidate for a second page after the terminal shrinks.
+    for index in 1..=12 {
         fs::write(
             cwd.join(format!("alpha-long-completion-item-{index:02}")),
             b"",

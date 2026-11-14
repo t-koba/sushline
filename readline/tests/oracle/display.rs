@@ -44,8 +44,8 @@ fn bash_readline_and_sushline_accept_same_edit_under_narrow_terminal() {
 }
 
 // The required oracle CI job supplies the pinned Bash 5.3 / Readline 8.3
-// ELF host. These fixtures check three shrink and four ASCII growth cases,
-// not general resize-byte parity.
+// ELF host. These fixtures cover ASCII resize and one single-width C.UTF-8
+// shrink, not general resize-byte parity.
 #[cfg(target_os = "linux")]
 #[test]
 fn bash_and_sushline_redisplay_partial_input_after_live_pty_resize() {
@@ -108,6 +108,34 @@ fn bash_and_sushline_redisplay_wrap_boundary_cursor_after_live_pty_shrink() {
         b"abcdefghijklmnop",
         &position_keys,
         &["P>abcdefghij", "klmnop"],
+        (1, 0),
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn bash_and_sushline_redisplay_utf8_wrap_boundary_cursor_after_live_pty_shrink() {
+    assert!(
+        c_utf8_locale_available(),
+        "C.UTF-8 locale required for the live-resize fixture"
+    );
+    let wide = PtySize {
+        rows: 8,
+        cols: 80,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let narrow = PtySize { cols: 12, ..wide };
+    let mut position_keys = vec![0x01]; // C-a: beginning of line
+    position_keys.extend([0x06; 10]); // Move after nine ASCII chars and one UTF-8 char
+    position_keys.push(0x0c); // C-l: redraw to synchronize before resize
+    assert_live_resize_redisplay_with_locale(
+        "C.UTF-8",
+        wide,
+        narrow,
+        b"abcdefghi\xc3\xa9jklmno",
+        &position_keys,
+        &["P>abcdefghié", "jklmno"],
         (1, 0),
     );
 }
@@ -200,6 +228,27 @@ fn assert_live_resize_redisplay(
     expected_rows: &[&str],
     expected_cursor: (usize, usize),
 ) {
+    assert_live_resize_redisplay_with_locale(
+        "C",
+        initial,
+        resized,
+        partial,
+        before_resize_keys,
+        expected_rows,
+        expected_cursor,
+    );
+}
+
+#[cfg(target_os = "linux")]
+fn assert_live_resize_redisplay_with_locale(
+    locale: &str,
+    initial: PtySize,
+    resized: PtySize,
+    partial: &[u8],
+    before_resize_keys: &[u8],
+    expected_rows: &[&str],
+    expected_cursor: (usize, usize),
+) {
     use super::host::require_oracle_host;
     use super::host_readline::{MEASURED_RELEASE, host_carries};
     use super::screen::Screen;
@@ -236,7 +285,7 @@ fn assert_live_resize_redisplay(
         command.env("INPUTRC", path.to_str().expect("inputrc path"));
         command.env("HOME", root.path());
         command.env("HISTFILE", root.path().join("history"));
-        command.env("LC_ALL", "C");
+        command.env("LC_ALL", locale);
         command.env_remove("COLUMNS");
         command.env_remove("LINES");
         let (frame, output) =
@@ -258,7 +307,7 @@ fn assert_live_resize_redisplay(
         let accepted = accepted_line(&output);
         assert_eq!(
             accepted.as_deref(),
-            Some(std::str::from_utf8(partial).expect("ASCII resize input")),
+            Some(std::str::from_utf8(partial).expect("UTF-8 resize input")),
             "bash={bash}: {output:?}"
         );
         outcomes.push((rows, screen.cursor(), accepted));

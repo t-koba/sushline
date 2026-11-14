@@ -140,7 +140,7 @@ fn failed_raw_entry_preserves_prior_disposition() {
 mod terminal_signal_options {
     use super::termios_equal;
     use readline::{Terminal, TerminalEvent, TerminalIo, TerminalSize};
-    use std::os::fd::{FromRawFd, OwnedFd};
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
     use std::process::{Command, Stdio};
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::time::Duration;
@@ -148,6 +148,7 @@ mod terminal_signal_options {
     const PROBE_ENV: &str = "SUSHLINE_SIGNAL_OPTIONS_PROBE";
     const SIGINFO_PROBE_ENV: &str = "SUSHLINE_SIGWINCH_SIGINFO_PROBE";
     const RESIZE_SIZE_PROBE_ENV: &str = "SUSHLINE_SIGWINCH_SIZE_PROBE";
+    const CONTROLLING_TTY_SIZE_PROBE_ENV: &str = "SUSHLINE_CONTROLLING_TTY_SIZE_PROBE";
     const DROP_RESTORE_PROBE_ENV: &str = "SUSHLINE_DROP_RESTORE_PROBE";
     const RESIZE_TEST_ROWS: u16 = 31;
     const RESIZE_TEST_COLUMNS: u16 = 97;
@@ -569,6 +570,54 @@ mod terminal_signal_options {
     }
 
     #[test]
+    fn controlling_tty_size_child_probe() {
+        if std::env::var(CONTROLLING_TTY_SIZE_PROBE_ENV).as_deref() != Ok("1") {
+            return;
+        }
+
+        assert_eq!(unsafe { libc::isatty(libc::STDIN_FILENO) }, 0);
+        assert_eq!(unsafe { libc::isatty(libc::STDOUT_FILENO) }, 0);
+        let size = libc::winsize {
+            ws_row: RESIZE_TEST_ROWS,
+            ws_col: RESIZE_TEST_COLUMNS,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
+        let mut master = -1;
+        let mut slave = -1;
+        assert_eq!(
+            unsafe {
+                libc::openpty(
+                    &mut master,
+                    &mut slave,
+                    std::ptr::null_mut(),
+                    std::ptr::null(),
+                    &size,
+                )
+            },
+            0,
+            "open controlling PTY",
+        );
+        let _master = unsafe { OwnedFd::from_raw_fd(master) };
+        let slave = unsafe { OwnedFd::from_raw_fd(slave) };
+        assert!(unsafe { libc::setsid() } >= 0, "create a session");
+        unsafe { libc::signal(libc::SIGHUP, libc::SIG_IGN) };
+        assert_eq!(
+            unsafe { libc::ioctl(slave.as_raw_fd(), libc::TIOCSCTTY, 0) },
+            0,
+            "attach controlling PTY without connecting standard streams",
+        );
+
+        assert_eq!(
+            Terminal::new().size().unwrap(),
+            TerminalSize {
+                columns: RESIZE_TEST_COLUMNS,
+                rows: RESIZE_TEST_ROWS,
+            }
+        );
+    }
+
+    #[test]
     fn siginfo_child_probe() {
         if std::env::var(SIGINFO_PROBE_ENV).as_deref() != Ok("1") {
             return;
@@ -640,6 +689,27 @@ mod terminal_signal_options {
         assert!(
             output.status.success(),
             "SIGWINCH SA_SIGINFO probe failed: {:?}\n{}\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn terminal_size_falls_back_to_controlling_tty_with_redirected_stdio() {
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "terminal_signal_options::controlling_tty_size_child_probe",
+                "--exact",
+                "--nocapture",
+            ])
+            .env(CONTROLLING_TTY_SIZE_PROBE_ENV, "1")
+            .stdin(Stdio::null())
+            .output()
+            .expect("spawn controlling terminal size probe");
+        assert!(
+            output.status.success(),
+            "controlling terminal size probe failed: {:?}\n{}\n{}",
             output.status,
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)

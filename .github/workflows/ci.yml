@@ -67,7 +67,7 @@ jobs:
           key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
       - name: Check the CRLF set-value report sanitizer
         run: python3 .github/scripts/readline-crlf-set-value.py --self-test
-      - name: Check workflow action pins
+      - name: Check workflow action pins and oracle event routing
         run: python3 .github/scripts/check-action-pins.py --self-test
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings

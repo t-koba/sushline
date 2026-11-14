@@ -94,6 +94,12 @@ runs the mixed full-file late-timestamp Rust/GNU comparison. Its required
 `history_full_late_record.out`, `history_rust_full_late_record.out`, and
 `history_full_file_comparison.out`.
 
+The dependency-free workflow guard in `ci / check` validates action pins and
+these event routes, with positive and mutation-based negative self-tests. Run
+`python3 .github/scripts/check-action-pins.py --self-test` locally; it reads the
+workflow without running oracle probes. It supports the workflow's plain block
+mapping layout and checks measurement counts without a separate step inventory.
+
 The regular oracle check does not run all upstream measurements. Request the
 manual refresh to run the 55 upstream-only primary measurement/report steps
 and the raw full-file GNU probes, then the 35 fresh-runner replica measurement

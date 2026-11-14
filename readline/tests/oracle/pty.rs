@@ -1782,9 +1782,9 @@ pub(super) fn run_pty_checkpoints_raw(
 /// evidence of automatic resize redisplay before each causal Ctrl-G/BEL barrier.
 /// The fresh prompt triggers the barrier after each resize. After the final BEL,
 /// Ctrl-L resets the screen (avoiding terminal-specific window reflow), followed
-/// by a printable marker absent from prompt/input. Rendering that next input byte
-/// proves the clear-screen redisplay, including its cursor-positioning tail, has
-/// finished. Capture bytes before the marker, then delete it before Enter.
+/// by Enter. The accepted-line marker is printed by the shell only after the
+/// complete clear-screen redraw has finished; capture the frame before Enter's
+/// terminal newline so the observed cursor remains the editor's final position.
 /// Returns the final checkpoint and transcript through acceptance.
 /// `resizes` must be nonempty; all steps share the session hang bound.
 #[cfg(target_os = "linux")]
@@ -1813,9 +1813,12 @@ pub(super) fn run_pty_resize_checkpoint(
             <= usize::from(initial.cols) * usize::from(initial.rows),
         "prompt and partial input must fit in the initial PTY viewport"
     );
-    let marker = (b'!'..=b'~')
-        .find(|byte| !prompt.as_bytes().contains(byte) && !partial.contains(byte))
-        .expect("resize checkpoint needs a printable ASCII marker absent from prompt/input");
+    let accepted_marker = b"SUSHLINE_ACCEPTED:";
+    assert!(
+        find_bytes(prompt.as_bytes(), accepted_marker).is_none()
+            && find_bytes(partial, accepted_marker).is_none(),
+        "resize prompt/input must not contain the accepted-line marker"
+    );
     command.env("TERM", "xterm-256color");
     command.cwd("/");
     let mut session = PtySession::spawn(command, initial);
@@ -1828,7 +1831,6 @@ pub(super) fn run_pty_resize_checkpoint(
         AutomaticResize,
         Redraw,
         FinalRedraw,
-        Accepted,
     }
     let mut stage = Stage::Prompt;
     let mut output = Vec::new();
@@ -1890,23 +1892,21 @@ pub(super) fn run_pty_resize_checkpoint(
                         stage = Stage::AutomaticResize;
                     } else {
                         redraw_start = output.len();
-                        // BEL can precede abort's own cursor-positioning tail.
-                        // The next rendered input waits for Ctrl-L's whole frame.
-                        session.write(&[b'\x0c', marker]);
+                        // BEL can precede abort's cursor-positioning tail. Submit
+                        // only after Ctrl-L; the accepted-line output is a causal
+                        // barrier after the whole redraw, with no marker edit.
+                        session.write(b"\x0c\r");
                         stage = Stage::FinalRedraw;
                     }
                 }
             }
-            Stage::FinalRedraw => {
-                if let Some(frame) =
-                    checkpoint_before_rendered_marker(&output, redraw_start, marker)
-                {
-                    checkpoint = Some(frame);
-                    session.write(b"\x7f\r");
-                    stage = Stage::Accepted;
-                }
+            Stage::FinalRedraw if stop_marker_line_complete(&output, "SUSHLINE_ACCEPTED:") => {
+                checkpoint = Some(
+                    checkpoint_before_accepted_marker(&output, redraw_start, accepted_marker)
+                        .expect("accepted-line checkpoint boundary"),
+                );
+                break;
             }
-            Stage::Accepted if stop_marker_line_complete(&output, "SUSHLINE_ACCEPTED:") => break,
             _ => {}
         }
     }
@@ -1917,40 +1917,49 @@ pub(super) fn run_pty_resize_checkpoint(
         lossy_output(&output)
     );
     (
-        checkpoint.expect("resize rendered-input barrier"),
+        checkpoint.expect("resize accepted-line barrier"),
         lossy_output(&output),
     )
 }
 
-// Unlike BEL, the next input's rendered marker follows the preceding key's
-// complete redisplay. Do not include the marker's own redisplay in the frame.
+// Use the shell's accepted-line output as the causal marker, excluding the
+// CR/LF emitted when Enter moves the terminal off the captured input frame.
 #[cfg(target_os = "linux")]
-fn checkpoint_before_rendered_marker(output: &[u8], start: usize, marker: u8) -> Option<Vec<u8>> {
-    let frame = &output[start..];
-    let end = frame.iter().position(|byte| *byte == marker)?;
+fn checkpoint_before_accepted_marker(
+    output: &[u8],
+    start: usize,
+    marker: &[u8],
+) -> Option<Vec<u8>> {
+    let frame = output.get(start..)?;
+    let mut end = find_bytes(frame, marker)?;
+    while end > 0 && matches!(frame[end - 1], b'\r' | b'\n') {
+        end -= 1;
+    }
     Some(frame[..end].to_vec())
 }
 
 #[test]
 #[cfg(target_os = "linux")]
-fn rendered_marker_checkpoint_waits_for_cursor_tail_after_bell() {
+fn accepted_line_checkpoint_waits_for_redraw_and_excludes_enter_newline() {
     let prefix = b"P>input\x07";
     let redraw = b"\x1b[H\x1b[2JP>input\r\x1b[12C";
     let mut transcript = prefix.to_vec();
     transcript.extend_from_slice(redraw);
-    transcript.extend_from_slice(b"!marker redisplay tail");
-    let end = prefix.len() + redraw.len();
-    // Every read split before the marker must keep waiting, even after BEL
-    // or after the visible line but before its final cursor-position sequence.
-    for split in prefix.len()..=end {
+    transcript.extend_from_slice(b"\r\r\nSUSHLINE_ACCEPTED:input\r\n");
+    let start = prefix.len();
+    let marker_start = start + redraw.len() + 3;
+    let marker_end = marker_start + b"SUSHLINE_ACCEPTED:".len();
+    // A split before the accepted marker cannot checkpoint. Once it arrives,
+    // return exactly the redraw even if the terminal emitted CRCRLF for Enter.
+    for split in start..marker_end {
         assert_eq!(
-            checkpoint_before_rendered_marker(&transcript[..split], prefix.len(), b'!'),
+            checkpoint_before_accepted_marker(&transcript[..split], start, b"SUSHLINE_ACCEPTED:",),
             None,
         );
     }
-    for split in end + 1..=transcript.len() {
+    for split in marker_end..=transcript.len() {
         assert_eq!(
-            checkpoint_before_rendered_marker(&transcript[..split], prefix.len(), b'!'),
+            checkpoint_before_accepted_marker(&transcript[..split], start, b"SUSHLINE_ACCEPTED:",),
             Some(redraw.to_vec()),
         );
     }

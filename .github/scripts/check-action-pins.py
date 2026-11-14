@@ -86,6 +86,22 @@ REFRESH = "github.event_name == 'workflow_dispatch' && inputs.refresh_upstream_m
 REFRESH_IF = "${{ " + REFRESH + " }}"
 REFRESH_ALWAYS = "${{ always() && " + REFRESH + " }}"
 ORDINARY_IFS = (None, "always()", "${{ !cancelled() }}")
+# Exact identities prevent a copied comparison from hiding another agreement.
+REQUIRED_REPLICA_AGREEMENTS = frozenset(
+    {
+        "Require primary and fresh-replica History NUL query agreement",
+        "Require primary and fresh-replica shorter application-name prefix agreement",
+        "Require primary and fresh-replica inputrc application-name strict-prefix agreement",
+        "Require primary and fresh-replica reverse inputrc application-name casing agreement",
+        "Require primary and fresh-replica inputrc application-name casing agreement",
+        "Require primary and fresh-replica inputrc version inequality agreement",
+        "Require primary and fresh-replica inputrc version equality agreement",
+        "Require primary and fresh-replica inputrc version double-equality agreement",
+        "Require primary and fresh-replica inputrc vi-mode fixture agreement",
+        "Require primary and fresh-replica inputrc conditions agreement",
+        "Require primary and fresh-replica inputrc variable RHS agreement",
+    }
+)
 
 
 def require(condition, message):
@@ -194,9 +210,11 @@ def check_routes(text):
                     "Expected 35 required fresh-runner measurements")
             agreements = [step for step in steps
                           if step.get("name", "").startswith("Require primary and fresh-replica")]
-            require(len(agreements) == 11 and all("run" in step and "if" not in step
-                                                   for step in agreements),
-                    "Expected 11 unconditional primary/replica agreement checks")
+            names = [step.get("name") for step in agreements]
+            require(set(names) == REQUIRED_REPLICA_AGREEMENTS
+                    and len(names) == len(REQUIRED_REPLICA_AGREEMENTS)
+                    and all("run" in step and "if" not in step for step in agreements),
+                    "Expected each required replica agreement check once and unconditionally")
     # The mixed block stays ordinary; only its raw GNU probes are opt-in.
     require(text.count('          if [ "' + REFRESH_IF + '" = true ]; then\n') == 1,
             "Preserve the mixed full-file raw-probe refresh gate")
@@ -292,19 +310,30 @@ def route_self_test(text):
         else:
             raise ValueError(f"Accepted routing regression: {old} -> {new}")
 
-    title = "Require primary and fresh-replica History NUL query agreement"
     lines = text.splitlines(keepends=True)
-    start = next(i for i, line in enumerate(lines)
-                if line == f"      - name: {title}\n")
-    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("      - ")),
-               len(lines))
-    try:
-        check_routes("".join(lines[:start] + lines[end:]))
-    except ValueError as error:
-        require("11 unconditional primary/replica agreement checks" in str(error),
-                f"Unexpected agreement-deletion failure: {error}")
-    else:
-        raise ValueError(f"Accepted deletion of required agreement check: {title}")
+
+    def agreement_block(title):
+        start = next(i for i, line in enumerate(lines)
+                    if line == f"      - name: {title}\n")
+        end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("      - ")),
+                   len(lines))
+        return "".join(lines[start:end])
+
+    nul_check = "Require primary and fresh-replica History NUL query agreement"
+    shorter_check = "Require primary and fresh-replica shorter application-name prefix agreement"
+    nul_block = agreement_block(nul_check)
+    shorter_block = agreement_block(shorter_check)
+    for mutation, description in (
+        (text.replace(nul_block, "", 1), "deletion"),
+        (text.replace(nul_block, shorter_block, 1), "duplicate substitution"),
+    ):
+        try:
+            check_routes(mutation)
+        except ValueError as error:
+            require("Expected each required replica agreement check once" in str(error),
+                    f"Unexpected agreement {description} failure: {error}")
+        else:
+            raise ValueError(f"Accepted agreement-check {description}: {nul_check}")
 
 
 def main():

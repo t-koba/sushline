@@ -98,7 +98,8 @@ The dependency-free workflow guard in `ci / check` validates action pins and
 these event routes, with positive and mutation-based negative self-tests. Run
 `python3 .github/scripts/check-action-pins.py --self-test` locally; it reads the
 workflow without running oracle probes. It supports the workflow's plain block
-mapping layout and checks measurement counts without a separate step inventory.
+mapping layout, counts measurement steps without a parallel measurement
+inventory, and checks each required replica-agreement identity.
 
 The regular oracle check does not run all upstream measurements. Request the
 manual refresh to run the 55 upstream-only primary measurement/report steps

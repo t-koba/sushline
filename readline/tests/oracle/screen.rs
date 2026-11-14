@@ -3,11 +3,10 @@
 //! The model renders the bytes a program wrote to a PTY onto a grid of rows
 //! and columns, so an assertion can observe what a user sees on the terminal
 //! instead of what the program wrote to the stream. The model covers the
-//! control sequences the editor and GNU Readline use; it treats every
-//! character as one cell wide, so it observes the single-width cases the
-//! screen-level cases use. The insert and delete characters sequences are
-//! covered because GNU Readline uses them to draw the pending numeric
-//! argument over the prompt.
+//! control sequences the editor and GNU Readline use. Printable Unicode
+//! scalars occupy their `unicode-width` cell count, and zero-width scalars
+//! attach to the preceding cell when present. It does not simulate grapheme
+//! shaping or terminal reflow.
 
 use std::iter::Peekable;
 use std::str::Chars;
@@ -16,7 +15,7 @@ use std::str::Chars;
 pub(super) struct Screen {
     rows: usize,
     columns: usize,
-    cells: Vec<Vec<char>>,
+    cells: Vec<Vec<Option<String>>>,
     row: usize,
     column: usize,
     saved: (usize, usize),
@@ -28,7 +27,7 @@ impl Screen {
         Self {
             rows,
             columns,
-            cells: vec![vec![' '; columns]; rows],
+            cells: vec![vec![Some(" ".to_string()); columns]; rows],
             row: 0,
             column: 0,
             saved: (0, 0),
@@ -92,20 +91,39 @@ impl Screen {
 
     /// The rendered text of a row, without its trailing spaces.
     fn row_text(&self, row: usize) -> String {
-        self.cells[row]
-            .iter()
-            .collect::<String>()
-            .trim_end()
-            .to_string()
+        let mut text = String::new();
+        for value in self.cells[row].iter().flatten() {
+            text.push_str(value);
+        }
+        text.trim_end().to_string()
     }
 
     fn put(&mut self, character: char) {
-        if self.column >= self.columns {
+        if character.is_control() {
+            return;
+        }
+        let width = unicode_width::UnicodeWidthChar::width(character).unwrap_or(0);
+        if width == 0 {
+            if self.column > 0 {
+                let mut previous = self.column - 1;
+                if self.cells[self.row][previous].is_none() && previous > 0 {
+                    previous -= 1;
+                }
+                if let Some(value) = self.cells[self.row][previous].as_mut() {
+                    value.push(character);
+                }
+            }
+            return;
+        }
+        if self.column + width > self.columns {
             self.row = (self.row + 1).min(self.rows - 1);
             self.column = 0;
         }
-        self.cells[self.row][self.column] = character;
-        self.column += 1;
+        self.cells[self.row][self.column] = Some(character.to_string());
+        if width == 2 && self.column + 1 < self.columns {
+            self.cells[self.row][self.column + 1] = None;
+        }
+        self.column += width;
     }
 
     fn escape(&mut self, characters: &mut Peekable<Chars<'_>>) {
@@ -194,7 +212,7 @@ impl Screen {
     fn insert_characters(&mut self, count: usize) {
         let row = self.row;
         for _ in 0..count {
-            self.cells[row].insert(self.column, ' ');
+            self.cells[row].insert(self.column, Some(" ".to_string()));
         }
         self.cells[row].truncate(self.columns);
     }
@@ -206,7 +224,7 @@ impl Screen {
         for _ in 0..count {
             if self.column < self.cells[row].len() {
                 self.cells[row].remove(self.column);
-                self.cells[row].push(' ');
+                self.cells[row].push(Some(" ".to_string()));
             }
         }
     }
@@ -216,18 +234,18 @@ impl Screen {
             0 => {
                 self.erase_line(0);
                 for row in (self.row + 1)..self.rows {
-                    self.cells[row] = vec![' '; self.columns];
+                    self.cells[row] = vec![Some(" ".to_string()); self.columns];
                 }
             }
             1 => {
                 for row in 0..self.row {
-                    self.cells[row] = vec![' '; self.columns];
+                    self.cells[row] = vec![Some(" ".to_string()); self.columns];
                 }
                 self.erase_line(1);
             }
             _ => {
                 for row in 0..self.rows {
-                    self.cells[row] = vec![' '; self.columns];
+                    self.cells[row] = vec![Some(" ".to_string()); self.columns];
                 }
             }
         }
@@ -238,16 +256,16 @@ impl Screen {
         match mode {
             0 => {
                 for column in self.column..self.columns {
-                    self.cells[row][column] = ' ';
+                    self.cells[row][column] = Some(" ".to_string());
                 }
             }
             1 => {
                 for column in 0..=self.column.min(self.columns - 1) {
-                    self.cells[row][column] = ' ';
+                    self.cells[row][column] = Some(" ".to_string());
                 }
             }
             _ => {
-                self.cells[row] = vec![' '; self.columns];
+                self.cells[row] = vec![Some(" ".to_string()); self.columns];
             }
         }
     }
@@ -265,6 +283,17 @@ mod tests {
         screen.feed(b"\x1b[H\x1b[2J1234\r\n56");
         assert_eq!(screen.rows_text(), ["1234", "56", ""]);
         assert_eq!(screen.cursor(), (1, 2));
+    }
+
+    #[test]
+    fn wide_characters_occupy_two_cells_and_cursor_motion_uses_cells() {
+        let mut screen = Screen::new(2, 80);
+        screen.feed("P>abcdefghi中jklmno".as_bytes());
+        assert_eq!(screen.row_text(0), "P>abcdefghi中jklmno");
+        assert_eq!(screen.cursor(), (0, 19));
+
+        screen.feed(b"\x1b[6D");
+        assert_eq!(screen.cursor(), (0, 13));
     }
 
     #[test]

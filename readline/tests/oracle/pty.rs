@@ -1768,18 +1768,18 @@ pub(super) fn run_pty_checkpoints_raw(
     frames
 }
 
-/// Resize an active ASCII read, then capture a causal clear-screen checkpoint.
+/// Resize an active single-cell read, then capture a causal clear-screen checkpoint.
 ///
-/// `partial` must fit in the initial viewport with `prompt`, contain no
-/// controls, and not contain the prompt. Synchronization detects a unique suffix
-/// of the input while ignoring carriage returns; terminal output can repeat a
-/// byte at a wrapped row boundary, so matching the complete visual stream is
-/// too strict. Any remaining cursor-positioning
-/// tail cannot contain another prompt. `before_resize_keys` can position the
-/// cursor and request a redraw; its unique input suffix must arrive before the
-/// resize is applied, proving those keys were processed. A fresh prompt after
-/// master.resize is evidence of automatic resize redisplay, before the final
-/// checkpoint redraw.
+/// `partial` must be UTF-8, fit in the initial viewport with `prompt`, contain
+/// no controls or whitespace, and not contain the prompt. Every input and prompt
+/// character must occupy one cell in the selected locale. Synchronization detects
+/// a unique suffix of the input while ignoring carriage returns; terminal output
+/// can repeat a byte at a wrapped row boundary, so matching the complete visual
+/// stream is too strict. Any remaining cursor-positioning tail cannot contain
+/// another prompt. `before_resize_keys` can position the cursor and request a
+/// redraw; its unique input suffix must arrive before the resize is applied,
+/// proving those keys were processed. A fresh prompt after `master.resize` is
+/// evidence of automatic resize redisplay, before the final checkpoint redraw.
 /// Ctrl-L then resets the screen (avoiding terminal-specific window reflow),
 /// and the existing Ctrl-G/BEL barrier captures its settled line and cursor.
 /// Returns that resized checkpoint and the transcript through acceptance.
@@ -1793,11 +1793,18 @@ pub(super) fn run_pty_resize_checkpoint(
     before_resize_keys: &[u8],
 ) -> (Vec<u8>, String) {
     require_oracle_host();
-    assert!(partial.iter().all(u8::is_ascii_graphic));
-    assert!(!partial.is_empty() && !prompt.is_empty());
+    let partial_text = std::str::from_utf8(partial).expect("resize input must be UTF-8");
+    assert!(
+        partial_text
+            .chars()
+            .all(|character| !character.is_control() && !character.is_whitespace()),
+        "resize input must contain non-control, non-whitespace characters"
+    );
+    assert!(!partial_text.is_empty() && !prompt.is_empty());
     assert!(find_bytes(partial, prompt.as_bytes()).is_none());
     assert!(
-        prompt.len() + partial.len() <= usize::from(initial.cols) * usize::from(initial.rows),
+        prompt.chars().count() + partial_text.chars().count()
+            <= usize::from(initial.cols) * usize::from(initial.rows),
         "prompt and partial input must fit in the initial PTY viewport"
     );
     command.env("TERM", "xterm-256color");

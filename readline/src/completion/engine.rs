@@ -64,7 +64,7 @@ where
             | CompletionType::PossibleUsernameCompletions
             | CompletionType::PossibleVariableCompletions
             | CompletionType::GlobListExpansions => {
-                self.display_completions_for_word(state, &response, &edit.word_bytes)?;
+                self.display_completions_for_word(state, &response, &edit.word_bytes, hooks)?;
                 state.completion.last_completion = Some(response);
             }
             CompletionType::MenuComplete | CompletionType::MenuCompleteBackward => {

@@ -48,7 +48,7 @@ where
             return Ok(());
         }
         if response.options.action == Some(CompletionAction::DisplayOnly) {
-            self.display_completions_for_word(state, &response, &edit.word_bytes)?;
+            self.display_completions_for_word(state, &response, &edit.word_bytes, hooks)?;
             state.completion.last_completion = Some(response);
             return Ok(());
         }
@@ -225,6 +225,7 @@ where
             &context.edit.word_bytes,
             context.previous_match_index,
             next_index,
+            hooks,
         )?;
         let suffix_overlap = if (skip_completed_text && ansi_c_filename_completion)
             || preserves_existing_ansi_c_quote
@@ -362,10 +363,11 @@ where
         word_bytes: &[u8],
         previous_match_index: Option<usize>,
         next_index: usize,
+        hooks: &mut impl Hooks,
     ) -> Result<(), ReadlineError> {
         if previous_match_index.is_none() {
             if self.flag(BoolVariable::ShowAllIfAmbiguous) {
-                self.display_completions_for_word(state, response, word_bytes)?;
+                self.display_completions_for_word(state, response, word_bytes, hooks)?;
             }
             if self.flag(BoolVariable::MenuCompleteDisplayPrefix) && next_index == 0 {
                 self.ding()?;

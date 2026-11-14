@@ -92,6 +92,50 @@ fn timeout_rechecks_embedder_signal_hook() {
 }
 
 #[test]
+fn wakeup_preserves_pending_key_sequence_and_rechecks_hook() {
+    struct CountingHook(usize);
+
+    impl Hooks for CountingHook {
+        fn check_signals(&mut self) -> Option<i32> {
+            self.0 += 1;
+            None
+        }
+    }
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Wakeup,
+        TerminalEvent::Bytes(b"X".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\eX\": accept-line").unwrap();
+    let mut hooks = CountingHook(0);
+
+    assert_eq!(
+        line.read_line(Prompt::new("> "), &mut hooks).unwrap(),
+        ReadlineResult::Line(Vec::new())
+    );
+    assert_eq!(hooks.0, 3);
+}
+
+#[test]
+fn actual_timeout_still_resolves_a_pending_key_sequence() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Timeout,
+        TerminalEvent::Bytes(b"X".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\eX\": accept-line").unwrap();
+
+    assert_eq!(
+        line.read_line(Prompt::new("> "), &mut ()).unwrap(),
+        ReadlineResult::Line(b"X".to_vec())
+    );
+}
+
+#[test]
 fn sigint_policy_defaults_are_backend_specific() {
     let builtin = Editor::new(Config::default(), crate::Terminal::new(), History::new());
     #[cfg(unix)]

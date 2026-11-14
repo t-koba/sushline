@@ -415,7 +415,8 @@ where
                 continue;
             }
 
-            let event = match self.read_input_event(self.keyseq_timeout()) {
+            let timeout = self.keyseq_timeout();
+            let event = match self.read_input_event(timeout) {
                 Ok(event) => event,
                 Err(error)
                     if state.paste.bracketed_paste
@@ -446,8 +447,9 @@ where
             };
 
             match event {
+                TerminalEvent::Wakeup => continue,
                 TerminalEvent::Timeout => {
-                    if !state.input.pending_key.is_empty() {
+                    if timeout.is_some() && !state.input.pending_key.is_empty() {
                         let pending = std::mem::take(&mut state.input.pending_key);
                         let outcome = self.handle_unbound(&mut state, &pending, hooks)?;
                         if !matches!(outcome, EditorOutcome::Continue) {
@@ -779,15 +781,23 @@ where
         self.terminal.read_event(timeout)
     }
 
-    pub(crate) fn read_completion_response(&mut self) -> io::Result<TerminalEvent> {
-        let event = self.read_input_event(None)?;
-        match event {
-            TerminalEvent::Bytes(bytes) if bytes.len() > 1 => {
-                let first = bytes[0];
-                self.pending_input.extend(bytes[1..].iter().copied());
-                Ok(TerminalEvent::Bytes(vec![first]))
+    pub(crate) fn read_completion_response(
+        &mut self,
+        hooks: &mut impl Hooks,
+    ) -> io::Result<TerminalEvent> {
+        loop {
+            if let Some(signal) = hooks.check_signals() {
+                return Ok(TerminalEvent::Signal(signal));
             }
-            event => Ok(event),
+            match self.read_input_event(None)? {
+                TerminalEvent::Wakeup | TerminalEvent::Timeout => continue,
+                TerminalEvent::Bytes(bytes) if bytes.len() > 1 => {
+                    let first = bytes[0];
+                    self.pending_input.extend(bytes[1..].iter().copied());
+                    return Ok(TerminalEvent::Bytes(vec![first]));
+                }
+                event => return Ok(event),
+            }
         }
     }
 

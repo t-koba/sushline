@@ -1,4 +1,5 @@
 use crate::completion::{CompletionCandidate, CompletionResponse};
+use crate::hooks::Hooks;
 use crate::width::{rendered_rows_for_output, visible_width};
 use std::cmp::Ordering;
 use std::collections::HashSet;
@@ -281,7 +282,7 @@ where
         response: &CompletionResponse,
     ) -> Result<(), ReadlineError> {
         let mut state = EditorState::new(Prompt::new(""), None);
-        self.display_completions_for_word(&mut state, response, b"")
+        self.display_completions_for_word(&mut state, response, b"", &mut ())
     }
 
     pub(crate) fn display_completions_for_word(
@@ -289,6 +290,7 @@ where
         state: &mut EditorState,
         response: &CompletionResponse,
         word: &[u8],
+        hooks: &mut impl Hooks,
     ) -> Result<(), ReadlineError> {
         if response.candidates.is_empty() {
             self.ding()?;
@@ -312,7 +314,7 @@ where
                 ),
             )?;
             self.terminal.flush()?;
-            match self.read_completion_response()? {
+            match self.read_completion_response(hooks)? {
                 TerminalEvent::Bytes(bytes) if bytes.as_slice() == [0x03] => {
                     self.handle_input_interrupt(state)?;
                     return Ok(());
@@ -323,7 +325,10 @@ where
                     self.write_tracked_newline(state)?;
                     return Ok(());
                 }
-                TerminalEvent::Resize(_) | TerminalEvent::Timeout => {}
+                TerminalEvent::Resize(_) => {}
+                TerminalEvent::Timeout | TerminalEvent::Wakeup => {
+                    unreachable!("indefinite completion waits absorb wakeups")
+                }
                 TerminalEvent::Signal(signal) => {
                     if self.handle_terminal_signal(state, signal)?.is_some() {
                         state.input.interrupted = true;
@@ -466,7 +471,7 @@ where
                 let more_prompt = "--More--";
                 self.terminal.write(more_prompt)?;
                 self.terminal.flush()?;
-                match self.read_completion_response()? {
+                match self.read_completion_response(hooks)? {
                     TerminalEvent::Bytes(bytes) if bytes.as_slice() == [0x03] => {
                         self.handle_input_interrupt(state)?;
                         return Ok(());
@@ -481,8 +486,11 @@ where
                     TerminalEvent::Bytes(bytes) if matches!(bytes.as_slice(), b" " | b"\t") => {
                         page_remaining = page_rows;
                     }
-                    TerminalEvent::Bytes(_) | TerminalEvent::Resize(_) | TerminalEvent::Timeout => {
+                    TerminalEvent::Bytes(_) | TerminalEvent::Resize(_) => {
                         page_remaining = page_rows;
+                    }
+                    TerminalEvent::Timeout | TerminalEvent::Wakeup => {
+                        unreachable!("indefinite completion waits absorb wakeups")
                     }
                     TerminalEvent::Signal(signal) => {
                         if self.handle_terminal_signal(state, signal)?.is_some() {

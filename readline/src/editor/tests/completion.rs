@@ -637,6 +637,82 @@ fn possible_completions_uses_query_and_visible_stats() {
 }
 
 #[test]
+fn completion_query_wakeup_rechecks_hooks_without_answering_prompt() {
+    struct CountingHook(usize);
+
+    impl Hooks for CountingHook {
+        fn check_signals(&mut self) -> Option<i32> {
+            self.0 += 1;
+            None
+        }
+    }
+
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Wakeup,
+        TerminalEvent::Bytes(b"n".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set completion-query-items 1")
+        .unwrap();
+    let response = CompletionResponse {
+        candidates: [b"alpha".as_slice(), b"beta".as_slice()]
+            .into_iter()
+            .map(|replacement| crate::completion::CompletionCandidate {
+                replacement: replacement.to_vec(),
+                display: None,
+            })
+            .collect(),
+        options: Default::default(),
+    };
+    let mut state = EditorState::new(Prompt::new("> "), None);
+    let mut hooks = CountingHook(0);
+
+    line.display_completions_for_word(&mut state, &response, b"", &mut hooks)
+        .unwrap();
+
+    assert_eq!(hooks.0, 2);
+    assert!(line.terminal.out.contains("Display all 2 possibilities?"));
+    assert!(!line.terminal.out.contains("alpha"));
+    assert!(!line.terminal.out.contains("beta"));
+}
+
+#[test]
+fn completion_query_wakeup_delivers_hook_signal() {
+    struct AfterWakeHook(usize);
+
+    impl Hooks for AfterWakeHook {
+        fn check_signals(&mut self) -> Option<i32> {
+            self.0 += 1;
+            (self.0 == 2).then_some(libc::SIGINT)
+        }
+    }
+
+    let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Wakeup]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set completion-query-items 1")
+        .unwrap();
+    let response = CompletionResponse {
+        candidates: [b"alpha".as_slice(), b"beta".as_slice()]
+            .into_iter()
+            .map(|replacement| crate::completion::CompletionCandidate {
+                replacement: replacement.to_vec(),
+                display: None,
+            })
+            .collect(),
+        options: Default::default(),
+    };
+    let mut state = EditorState::new(Prompt::new("> "), None);
+    let mut hooks = AfterWakeHook(0);
+
+    line.display_completions_for_word(&mut state, &response, b"", &mut hooks)
+        .unwrap();
+
+    assert_eq!(hooks.0, 2);
+    assert!(state.input.interrupted);
+    assert!(line.terminal.out.contains("^C"));
+}
+
+#[test]
 fn completion_query_is_independent_of_page_completions() {
     let response = CompletionResponse {
         candidates: (0..24)

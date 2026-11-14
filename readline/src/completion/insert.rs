@@ -223,7 +223,7 @@ where
             return Ok(());
         }
         if response.options.action == Some(CompletionAction::DisplayOnly) {
-            self.display_completions_for_word(state, &response, edit.matching_word())?;
+            self.display_completions_for_word(state, &response, edit.matching_word(), hooks)?;
             return Ok(());
         }
         let raw_word = edit.line.get(edit.start..edit.end).unwrap_or_default();
@@ -590,7 +590,7 @@ where
                 self.ding()?;
             }
             if should_display {
-                self.display_completions_for_word(state, &response, edit.matching_word())?;
+                self.display_completions_for_word(state, &response, edit.matching_word(), hooks)?;
             }
             state.completion.last_attempt = Some(CompletionAttemptState {
                 completion_type,

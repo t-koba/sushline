@@ -48,9 +48,11 @@ pub enum TerminalEvent {
     /// A process signal represented by its platform signal number. The built-in
     /// Unix backend reports caught signals this way.
     Signal(i32),
-    /// No event was reported before the wait ended; a backend may also use
-    /// this to yield so the editor can recheck external conditions.
+    /// The requested finite wait expired without another event.
     Timeout,
+    /// The backend yielded so the editor can recheck external conditions
+    /// without expiring pending key sequences.
+    Wakeup,
 }
 
 /// How an editor handles SIGINT and unquoted Ctrl-C input bytes.
@@ -115,9 +117,10 @@ pub trait TerminalIo {
     /// Reads the next terminal event, waiting up to `timeout` for one.
     ///
     /// `Some(Duration::ZERO)` requests an immediate check. A finite timeout
-    /// returns [`TerminalEvent::Timeout`] if no event is reported in time;
-    /// `None` requests no deadline. A backend may return `Timeout` early when
-    /// it yields so the editor can recheck external conditions such as signals.
+    /// returns [`TerminalEvent::Timeout`] only after its deadline expires;
+    /// `None` requests no deadline. A backend that yields early so the editor
+    /// can recheck external conditions such as signals returns
+    /// [`TerminalEvent::Wakeup`] instead, which does not expire pending keys.
     fn read_event(&mut self, timeout: Option<Duration>) -> io::Result<TerminalEvent>;
     /// Writes UTF-8 text to the terminal.
     fn write(&mut self, text: &str) -> io::Result<()>;
@@ -1005,8 +1008,9 @@ fn read_error_event(err: io::Error) -> io::Result<TerminalEvent> {
         return Ok(event);
     }
     // An embedder-owned handler may have interrupted poll/read without
-    // setting our flags. Yield so the editor rechecks Hooks::check_signals.
-    Ok(TerminalEvent::Timeout)
+    // setting our flags. Wake the editor so it rechecks Hooks::check_signals
+    // without treating the interruption as a key-sequence timeout.
+    Ok(TerminalEvent::Wakeup)
 }
 
 #[cfg(unix)]
@@ -1104,7 +1108,7 @@ mod tests {
         );
         assert_eq!(
             read_error_event(std::io::Error::from_raw_os_error(libc::EINTR)).unwrap(),
-            TerminalEvent::Timeout,
+            TerminalEvent::Wakeup,
             "the pending resize is consumed once"
         );
     }
@@ -1157,12 +1161,12 @@ mod tests {
     }
 
     #[test]
-    fn interrupted_poll_or_read_without_caught_event_yields_timeout() {
-        // Without a pending caught event, both syscall EINTR branches yield
-        // a timeout; the isolated child probe above covers pending SIGWINCH.
+    fn interrupted_poll_or_read_without_caught_event_yields_wakeup() {
+        // Without a pending caught event, syscall EINTR yields an early wake;
+        // the isolated child probe above covers pending SIGWINCH.
         assert_eq!(
             read_error_event(std::io::Error::from_raw_os_error(libc::EINTR)).unwrap(),
-            TerminalEvent::Timeout
+            TerminalEvent::Wakeup
         );
         assert_eq!(
             read_error_event(std::io::Error::from_raw_os_error(libc::EIO))

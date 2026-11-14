@@ -1768,7 +1768,7 @@ pub(super) fn run_pty_checkpoints_raw(
     frames
 }
 
-/// Resize an active single-cell read, then capture a causal clear-screen checkpoint.
+/// Resize an active single-cell read sequentially, capturing causal clear-screen checkpoints.
 ///
 /// `partial` must be UTF-8, fit in the initial viewport with `prompt`, contain
 /// no controls or whitespace, and not contain the prompt. Every input and prompt
@@ -1782,16 +1782,20 @@ pub(super) fn run_pty_checkpoints_raw(
 /// evidence of automatic resize redisplay, before the final checkpoint redraw.
 /// Ctrl-L then resets the screen (avoiding terminal-specific window reflow),
 /// and the existing Ctrl-G/BEL barrier captures its settled line and cursor.
-/// Returns that resized checkpoint and the transcript through acceptance.
+/// Each resize waits for both its automatic redisplay and redraw barrier before
+/// applying the next size. Returns the final checkpoint and the transcript through
+/// acceptance. `resizes` must be nonempty; all steps share the session hang bound.
 #[cfg(target_os = "linux")]
 pub(super) fn run_pty_resize_checkpoint(
     mut command: CommandBuilder,
     prompt: &str,
     partial: &[u8],
     initial: PtySize,
-    resized: PtySize,
+    resizes: &[PtySize],
     before_resize_keys: &[u8],
 ) -> (Vec<u8>, String) {
+    let mut resizes = resizes.iter().copied();
+    let resized = resizes.next().expect("at least one PTY resize");
     require_oracle_host();
     let partial_text = std::str::from_utf8(partial).expect("resize input must be UTF-8");
     assert!(
@@ -1875,8 +1879,14 @@ pub(super) fn run_pty_resize_checkpoint(
             Stage::Redraw => {
                 if let Some(frame) = checkpoint_before_bell_raw(&mut output, redraw_start) {
                     checkpoint = Some(frame[redraw_start..].to_vec());
-                    session.write(b"\r");
-                    stage = Stage::Accepted;
+                    if let Some(resized) = resizes.next() {
+                        resize_start = output.len();
+                        session.master.resize(resized).expect("resize active PTY");
+                        stage = Stage::AutomaticResize;
+                    } else {
+                        session.write(b"\r");
+                        stage = Stage::Accepted;
+                    }
                 }
             }
             Stage::Accepted if stop_marker_line_complete(&output, "SUSHLINE_ACCEPTED:") => break,

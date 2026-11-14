@@ -58,7 +58,7 @@ fn bash_and_sushline_redisplay_partial_input_after_live_pty_resize() {
     let narrow = PtySize { cols: 12, ..wide };
     assert_live_resize_redisplay(
         wide,
-        narrow,
+        &[narrow],
         b"abcdefghijklmnop",
         &[],
         &["P>abcdefghij", "klmnop"],
@@ -81,7 +81,7 @@ fn bash_and_sushline_redisplay_wrapped_partial_input_with_interior_cursor_after_
     position_keys.push(0x0c); // C-l: redraw to synchronize before resize
     assert_live_resize_redisplay(
         wide,
-        narrow,
+        &[narrow],
         b"abcdefghijklmnop",
         &position_keys,
         &["P>abcdefghij", "klmnop"],
@@ -104,7 +104,7 @@ fn bash_and_sushline_redisplay_wrap_boundary_cursor_after_live_pty_shrink() {
     position_keys.push(0x0c); // C-l: redraw to synchronize before resize
     assert_live_resize_redisplay(
         wide,
-        narrow,
+        &[narrow],
         b"abcdefghijklmnop",
         &position_keys,
         &["P>abcdefghij", "klmnop"],
@@ -132,7 +132,7 @@ fn bash_and_sushline_redisplay_utf8_wrap_boundary_cursor_after_live_pty_shrink()
     assert_live_resize_redisplay_with_locale(
         "C.UTF-8",
         wide,
-        narrow,
+        &[narrow],
         b"abcdefghi\xc3\xa9jklmno",
         &position_keys,
         &["P>abcdefghié", "jklmno"],
@@ -150,7 +150,14 @@ fn bash_and_sushline_redisplay_partial_input_after_live_pty_growth() {
         pixel_height: 0,
     };
     let narrow = PtySize { cols: 12, ..wide };
-    assert_live_resize_redisplay(narrow, wide, b"abcdefghij", &[], &["P>abcdefghij"], (0, 12));
+    assert_live_resize_redisplay(
+        narrow,
+        &[wide],
+        b"abcdefghij",
+        &[],
+        &["P>abcdefghij"],
+        (0, 12),
+    );
 }
 
 #[cfg(target_os = "linux")]
@@ -165,7 +172,7 @@ fn bash_and_sushline_redisplay_wrapped_partial_input_after_live_pty_growth() {
     let narrow = PtySize { cols: 12, ..wide };
     assert_live_resize_redisplay(
         narrow,
-        wide,
+        &[wide],
         b"abcdefghijklmnop",
         &[],
         &["P>abcdefghijklmnop"],
@@ -188,7 +195,7 @@ fn bash_and_sushline_redisplay_wrapped_partial_input_with_interior_cursor_after_
     position_keys.push(0x0c); // C-l: redraw to synchronize before resize
     assert_live_resize_redisplay(
         narrow,
-        wide,
+        &[wide],
         b"abcdefghijklmnop",
         &position_keys,
         &["P>abcdefghijklmnop"],
@@ -211,7 +218,37 @@ fn bash_and_sushline_redisplay_wrap_boundary_cursor_after_live_pty_growth() {
     position_keys.push(0x0c); // C-l: redraw to synchronize before resize
     assert_live_resize_redisplay(
         narrow,
-        wide,
+        &[wide],
+        b"abcdefghijklmnop",
+        &position_keys,
+        &["P>abcdefghijklmnop"],
+        (0, 12),
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn bash_and_sushline_redisplay_wrap_boundary_cursor_after_live_pty_shrink_then_growth() {
+    let initial = PtySize {
+        rows: 8,
+        cols: 80,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let narrow = PtySize {
+        cols: 12,
+        ..initial
+    };
+    let grown = PtySize {
+        cols: 24,
+        ..initial
+    };
+    let mut position_keys = vec![0x01]; // C-a: beginning of line
+    position_keys.extend([0x06; 10]); // C-f: move point after byte 10
+    position_keys.push(0x0c); // C-l: redraw to synchronize before resize
+    assert_live_resize_redisplay(
+        initial,
+        &[narrow, grown],
         b"abcdefghijklmnop",
         &position_keys,
         &["P>abcdefghijklmnop"],
@@ -222,7 +259,7 @@ fn bash_and_sushline_redisplay_wrap_boundary_cursor_after_live_pty_growth() {
 #[cfg(target_os = "linux")]
 fn assert_live_resize_redisplay(
     initial: PtySize,
-    resized: PtySize,
+    resizes: &[PtySize],
     partial: &[u8],
     before_resize_keys: &[u8],
     expected_rows: &[&str],
@@ -231,7 +268,7 @@ fn assert_live_resize_redisplay(
     assert_live_resize_redisplay_with_locale(
         "C",
         initial,
-        resized,
+        resizes,
         partial,
         before_resize_keys,
         expected_rows,
@@ -243,7 +280,7 @@ fn assert_live_resize_redisplay(
 fn assert_live_resize_redisplay_with_locale(
     locale: &str,
     initial: PtySize,
-    resized: PtySize,
+    resizes: &[PtySize],
     partial: &[u8],
     before_resize_keys: &[u8],
     expected_rows: &[&str],
@@ -289,7 +326,8 @@ fn assert_live_resize_redisplay_with_locale(
         command.env_remove("COLUMNS");
         command.env_remove("LINES");
         let (frame, output) =
-            run_pty_resize_checkpoint(command, "P>", partial, initial, resized, before_resize_keys);
+            run_pty_resize_checkpoint(command, "P>", partial, initial, resizes, before_resize_keys);
+        let resized = resizes.last().expect("at least one PTY resize");
         let mut screen = Screen::new(usize::from(resized.rows), usize::from(resized.cols));
         screen.feed(&frame);
         let rows = screen.rows_text();

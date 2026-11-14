@@ -44,8 +44,8 @@ fn bash_readline_and_sushline_accept_same_edit_under_narrow_terminal() {
 }
 
 // The required oracle CI job supplies the pinned Bash 5.3 / Readline 8.3
-// ELF host. These fixtures check two ASCII resize directions, not general
-// resize-byte parity.
+// ELF host. These fixtures check one shrink and two ASCII growth cases, not
+// general resize-byte parity.
 #[cfg(target_os = "linux")]
 #[test]
 fn bash_and_sushline_redisplay_partial_input_after_live_pty_resize() {
@@ -76,6 +76,25 @@ fn bash_and_sushline_redisplay_partial_input_after_live_pty_growth() {
     };
     let narrow = PtySize { cols: 12, ..wide };
     assert_live_resize_redisplay(narrow, wide, b"abcdefghij", &["P>abcdefghij"], (0, 12));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn bash_and_sushline_redisplay_wrapped_partial_input_after_live_pty_growth() {
+    let wide = PtySize {
+        rows: 8,
+        cols: 80,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let narrow = PtySize { cols: 12, ..wide };
+    assert_live_resize_redisplay(
+        narrow,
+        wide,
+        b"abcdefghijklmnop",
+        &["P>abcdefghijklmnop"],
+        (0, 18),
+    );
 }
 
 #[cfg(target_os = "linux")]

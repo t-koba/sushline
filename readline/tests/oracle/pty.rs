@@ -1747,11 +1747,12 @@ pub(super) fn run_pty_checkpoints_raw(
 
 /// Resize an active ASCII read, then capture a causal clear-screen checkpoint.
 ///
-/// `partial` must fit on one initial row with `prompt`, contain no controls,
-/// and not contain the prompt. Seeing the whole partial input proves its
-/// redisplay has reached the PTY; any remaining cursor-positioning tail cannot
-/// contain another prompt. A fresh prompt after master.resize is therefore
-/// evidence of automatic resize redisplay, before sending any redraw keys.
+/// `partial` must fit in the initial viewport with `prompt`, contain no
+/// controls, and not contain the prompt. Seeing the full partial byte sequence
+/// proves its redisplay has reached the PTY, even when auto-wrap divides its
+/// cells across rows. Any remaining cursor-positioning tail cannot contain
+/// another prompt. A fresh prompt after master.resize is therefore evidence of
+/// automatic resize redisplay, before sending any redraw keys.
 /// Ctrl-L then resets the screen (avoiding terminal-specific window reflow),
 /// and the existing Ctrl-G/BEL barrier captures its settled line and cursor.
 /// Returns that resized checkpoint and the transcript through acceptance.
@@ -1767,7 +1768,10 @@ pub(super) fn run_pty_resize_checkpoint(
     assert!(partial.iter().all(u8::is_ascii_graphic));
     assert!(!partial.is_empty() && !prompt.is_empty());
     assert!(find_bytes(partial, prompt.as_bytes()).is_none());
-    assert!(prompt.len() + partial.len() <= usize::from(initial.cols));
+    assert!(
+        prompt.len() + partial.len() <= usize::from(initial.cols) * usize::from(initial.rows),
+        "prompt and partial input must fit in the initial PTY viewport"
+    );
     command.env("TERM", "xterm-256color");
     command.cwd("/");
     let mut session = PtySession::spawn(command, initial);

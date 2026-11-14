@@ -8041,6 +8041,107 @@ fn bash_readline_and_sushline_page_filename_completions_at_narrow_terminal_size(
 
 #[cfg(unix)]
 #[test]
+fn bash_and_sushline_compare_resize_during_completion_pagination() {
+    // The resize is synchronized on the rendered pager prompt; this fixture
+    // compares the accepted line, not general redraw-byte behavior.
+    use portable_pty::{CommandBuilder, PtySize};
+
+    require_oracle_host();
+    let root = tempfile::tempdir().expect("completion pagination resize root");
+    let cwd = root.path().join("cwd");
+    fs::create_dir(&cwd).expect("create completion pagination resize cwd");
+    for index in 1..=10 {
+        fs::write(
+            cwd.join(format!("alpha-long-completion-item-{index:02}")),
+            b"",
+        )
+        .expect("write pagination candidate");
+    }
+    let home = root.path().join("home");
+    fs::create_dir(&home).expect("create completion pagination resize HOME");
+    let inputrc = r#""\C-o": possible-filename-completions
+set completion-query-items 0
+set print-completions-horizontally off
+set page-completions on"#;
+    let inputrc_path = root.path().join("inputrc");
+    fs::write(&inputrc_path, inputrc).expect("write pagination resize inputrc");
+    let initial_size = PtySize {
+        rows: 8,
+        cols: 40,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let resized_size = PtySize {
+        rows: 5,
+        cols: 32,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let keys = format!("{}/al\x0f", cwd.display());
+    let steps = [(READY_PROMPT, keys.as_bytes())];
+
+    let mut bash = CommandBuilder::new("bash");
+    bash.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
+    bash.env("HOME", home.to_string_lossy().as_ref());
+    bash.env(
+        "HISTFILE",
+        root.path().join("history").to_string_lossy().as_ref(),
+    );
+    bash.args([
+        "--noprofile",
+        "--norc",
+        "-i",
+        "-c",
+        &format!(
+            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+        ),
+    ]);
+    let bash = run_pty_steps_then_resize_until(
+        bash,
+        &steps,
+        &cwd,
+        initial_size,
+        PtyResizeAction {
+            marker: "--More--",
+            size: resized_size,
+            after_keys: b"q\r",
+        },
+        "SUSHLINE_ACCEPTED:",
+    );
+
+    let mut sushline = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    sushline.env("SUSHLINE_INPUTRC", inputrc);
+    sushline.env("SUSHLINE_PROMPT", READY_PROMPT);
+    sushline.env("SUSHLINE_HISTORY", "");
+    let sushline = run_pty_steps_then_resize_until(
+        sushline,
+        &steps,
+        &cwd,
+        initial_size,
+        PtyResizeAction {
+            marker: "--More--",
+            size: resized_size,
+            after_keys: b"q\r",
+        },
+        "SUSHLINE_ACCEPTED:",
+    );
+
+    let expected = Some(format!("{}/al", cwd.display()));
+    for (output, implementation) in [(&bash, "bash"), (&sushline, "sushline")] {
+        assert!(
+            output.contains("--More--"),
+            "pagination prompt was not rendered for {implementation}: {output:?}"
+        );
+        assert_eq!(
+            accepted_line(output),
+            expected,
+            "resizing at the pagination prompt changed the accepted line for {implementation}: {output:?}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn bash_readline_and_sushline_abbreviate_normal_and_hidden_completion_prefixes() {
     // Bash 5.3 PTY runtime evidence for these four names and threshold 4 only;
     // this is not Readline source proof or a claim about other names/thresholds.

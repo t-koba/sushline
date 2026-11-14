@@ -72,7 +72,10 @@ pub enum SigintPolicy {
     Interrupted,
 }
 
-/// TerminalIo.
+/// Terminal input, output, and mode operations used by the editor.
+///
+/// Implement this trait to connect an editor to a custom terminal backend;
+/// [`Terminal`] provides the built-in backend.
 pub trait TerminalIo {
     /// Default SIGINT policy for editors constructed with this backend.
     ///

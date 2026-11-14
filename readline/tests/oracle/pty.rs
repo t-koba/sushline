@@ -1747,35 +1747,35 @@ pub(super) fn run_pty_checkpoints_raw(
 
 /// Resize an active ASCII read, then capture a causal clear-screen checkpoint.
 ///
-/// `partial` must fit on one wide row with `prompt`, contain no controls, and
-/// not contain the prompt. Seeing the whole partial input proves its wide
+/// `partial` must fit on one initial row with `prompt`, contain no controls,
+/// and not contain the prompt. Seeing the whole partial input proves its
 /// redisplay has reached the PTY; any remaining cursor-positioning tail cannot
 /// contain another prompt. A fresh prompt after master.resize is therefore
 /// evidence of automatic resize redisplay, before sending any redraw keys.
 /// Ctrl-L then resets the screen (avoiding terminal-specific window reflow),
 /// and the existing Ctrl-G/BEL barrier captures its settled line and cursor.
-/// Returns that narrow checkpoint and the transcript through acceptance.
+/// Returns that resized checkpoint and the transcript through acceptance.
 #[cfg(target_os = "linux")]
 pub(super) fn run_pty_resize_checkpoint(
     mut command: CommandBuilder,
     prompt: &str,
     partial: &[u8],
-    wide: PtySize,
-    narrow: PtySize,
+    initial: PtySize,
+    resized: PtySize,
 ) -> (Vec<u8>, String) {
     require_oracle_host();
     assert!(partial.iter().all(u8::is_ascii_graphic));
     assert!(!partial.is_empty() && !prompt.is_empty());
     assert!(find_bytes(partial, prompt.as_bytes()).is_none());
-    assert!(prompt.len() + partial.len() < usize::from(wide.cols));
+    assert!(prompt.len() + partial.len() <= usize::from(initial.cols));
     command.env("TERM", "xterm-256color");
     command.cwd("/");
-    let mut session = PtySession::spawn(command, wide);
+    let mut session = PtySession::spawn(command, initial);
     let deadline = Instant::now() + PTY_HANG_BOUND;
     #[derive(Debug)]
     enum Stage {
         Prompt,
-        WideInput,
+        InitialInput,
         AutomaticResize,
         Redraw,
         Accepted,
@@ -1793,11 +1793,11 @@ pub(super) fn run_pty_resize_checkpoint(
         match stage {
             Stage::Prompt if find_bytes(&output, prompt.as_bytes()).is_some() => {
                 session.write(partial);
-                stage = Stage::WideInput;
+                stage = Stage::InitialInput;
             }
-            Stage::WideInput if find_bytes(&output, partial).is_some() => {
+            Stage::InitialInput if find_bytes(&output, partial).is_some() => {
                 resize_start = output.len();
-                session.master.resize(narrow).expect("resize active PTY");
+                session.master.resize(resized).expect("resize active PTY");
                 stage = Stage::AutomaticResize;
             }
             Stage::AutomaticResize

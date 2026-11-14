@@ -44,10 +44,48 @@ fn bash_readline_and_sushline_accept_same_edit_under_narrow_terminal() {
 }
 
 // The required oracle CI job supplies the pinned Bash 5.3 / Readline 8.3
-// ELF host. This fixture checks one ASCII read, not general resize-byte parity.
+// ELF host. These fixtures check two ASCII resize directions, not general
+// resize-byte parity.
 #[cfg(target_os = "linux")]
 #[test]
 fn bash_and_sushline_redisplay_partial_input_after_live_pty_resize() {
+    let wide = PtySize {
+        rows: 8,
+        cols: 80,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let narrow = PtySize { cols: 12, ..wide };
+    assert_live_resize_redisplay(
+        wide,
+        narrow,
+        b"abcdefghijklmnop",
+        &["P>abcdefghij", "klmnop"],
+        (1, 6),
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn bash_and_sushline_redisplay_partial_input_after_live_pty_growth() {
+    let wide = PtySize {
+        rows: 8,
+        cols: 80,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let narrow = PtySize { cols: 12, ..wide };
+    assert_live_resize_redisplay(narrow, wide, b"abcdefghij", &["P>abcdefghij"], (0, 12));
+}
+
+#[cfg(target_os = "linux")]
+fn assert_live_resize_redisplay(
+    initial: PtySize,
+    resized: PtySize,
+    partial: &[u8],
+    expected_rows: &[&str],
+    expected_cursor: (usize, usize),
+) {
     use super::host::require_oracle_host;
     use super::host_readline::{MEASURED_RELEASE, host_carries};
     use super::screen::Screen;
@@ -62,14 +100,6 @@ fn bash_and_sushline_redisplay_partial_input_after_live_pty_resize() {
     let inputrc = "set editing-mode emacs\nset horizontal-scroll-mode off\nset enable-bracketed-paste off\nset bell-style audible\n";
     let path = root.path().join("inputrc");
     std::fs::write(&path, inputrc).expect("write resize inputrc");
-    let partial = b"abcdefghijklmnop";
-    let wide = PtySize {
-        rows: 8,
-        cols: 80,
-        pixel_width: 0,
-        pixel_height: 0,
-    };
-    let narrow = PtySize { cols: 12, ..wide };
     let mut outcomes = Vec::new();
     for bash in [true, false] {
         let mut command = if bash {
@@ -95,24 +125,25 @@ fn bash_and_sushline_redisplay_partial_input_after_live_pty_resize() {
         command.env("LC_ALL", "C");
         command.env_remove("COLUMNS");
         command.env_remove("LINES");
-        let (frame, output) = run_pty_resize_checkpoint(command, "P>", partial, wide, narrow);
-        let mut screen = Screen::new(usize::from(narrow.rows), usize::from(narrow.cols));
+        let (frame, output) = run_pty_resize_checkpoint(command, "P>", partial, initial, resized);
+        let mut screen = Screen::new(usize::from(resized.rows), usize::from(resized.cols));
         screen.feed(&frame);
         let rows = screen.rows_text();
+        assert!(rows.len() >= expected_rows.len(), "bash={bash}: {rows:?}");
         assert_eq!(
-            &rows[..2],
-            &["P>abcdefghij", "klmnop"],
+            &rows[..expected_rows.len()],
+            expected_rows,
             "bash={bash}: {output:?}"
         );
         assert!(
-            rows[2..].iter().all(String::is_empty),
+            rows[expected_rows.len()..].iter().all(String::is_empty),
             "bash={bash}: {rows:?}"
         );
-        assert_eq!(screen.cursor(), (1, 6), "bash={bash}: {output:?}");
+        assert_eq!(screen.cursor(), expected_cursor, "bash={bash}: {output:?}");
         let accepted = accepted_line(&output);
         assert_eq!(
             accepted.as_deref(),
-            Some("abcdefghijklmnop"),
+            Some(std::str::from_utf8(partial).expect("ASCII resize input")),
             "bash={bash}: {output:?}"
         );
         outcomes.push((rows, screen.cursor(), accepted));

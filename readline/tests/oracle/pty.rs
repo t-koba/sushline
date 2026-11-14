@@ -1771,20 +1771,15 @@ pub(super) fn run_pty_checkpoints_raw(
 /// Resize an active single-cell read sequentially, capturing causal clear-screen checkpoints.
 ///
 /// `partial` must be UTF-8, fit in the initial viewport with `prompt`, contain
-/// no controls or whitespace, and not contain the prompt. Every input and prompt
-/// character must occupy one cell in the selected locale. Synchronization detects
-/// a unique suffix of the input while ignoring carriage returns; terminal output
-/// can repeat a byte at a wrapped row boundary, so matching the complete visual
-/// stream is too strict. Any remaining cursor-positioning tail cannot contain
-/// another prompt. `before_resize_keys` can position the cursor and request a
-/// redraw; its unique input suffix must arrive before the resize is applied,
-/// proving those keys were processed. A fresh prompt after `master.resize` is
-/// evidence of automatic resize redisplay before each causal Ctrl-G/BEL barrier.
-/// The fresh prompt triggers the barrier after each resize. After the final BEL,
-/// Ctrl-L resets the screen (avoiding terminal-specific window reflow). Wait for
-/// the rendered rows and cursor to match the expected checkpoint before sending
-/// Enter; the accepted-line marker separately confirms acceptance. Return the
-/// pre-Enter frame and the transcript through acceptance.
+/// no controls or whitespace, and not contain the prompt. Its final three bytes
+/// must be ASCII graphics absent from the prompt, so synchronization does not
+/// depend on expected rows or cursor. Every input and prompt character must
+/// occupy one cell in the selected locale. Before each resize, a unique suffix
+/// of the input proves earlier keys were processed; carriage returns are ignored
+/// because wrapped output can repeat boundary bytes. A fresh prompt after each
+/// resize precedes the causal Ctrl-G/BEL barrier. After the final barrier, Ctrl-L
+/// resets the screen. The rendered three-byte suffix releases the final checkpoint
+/// before Enter; the accepted-line marker separately confirms acceptance.
 /// `resizes` must be nonempty; all steps share the session hang bound.
 #[cfg(target_os = "linux")]
 pub(super) fn run_pty_resize_checkpoint(
@@ -1794,9 +1789,7 @@ pub(super) fn run_pty_resize_checkpoint(
     initial: PtySize,
     resizes: &[PtySize],
     before_resize_keys: &[u8],
-    expected: (&[&str], (usize, usize)),
 ) -> (Vec<u8>, String) {
-    let (expected_rows, expected_cursor) = expected;
     let final_size = *resizes.last().expect("at least one PTY resize");
     let mut resizes = resizes.iter().copied();
     let resized = resizes.next().expect("at least one PTY resize");
@@ -1839,6 +1832,18 @@ pub(super) fn run_pty_resize_checkpoint(
     let mut output = Vec::new();
     let mut input_start = 0;
     let input_suffix = unique_suffix(partial);
+    assert!(
+        partial.len() >= 3
+            && partial[partial.len() - 3..]
+                .iter()
+                .all(u8::is_ascii_graphic),
+        "resize input must end in three ASCII graphic bytes for the rendered checkpoint"
+    );
+    let rendered_suffix = &partial[partial.len() - 3..];
+    assert!(
+        find_bytes(prompt.as_bytes(), rendered_suffix).is_none(),
+        "resize prompt must not contain the rendered-input suffix"
+    );
     let mut positioned_start = 0;
     let mut resize_start = 0;
     let mut redraw_start = 0;
@@ -1895,20 +1900,18 @@ pub(super) fn run_pty_resize_checkpoint(
                         stage = Stage::AutomaticResize;
                     } else {
                         redraw_start = output.len();
-                        // BEL can precede abort's cursor-positioning tail. Submit
-                        // only after Ctrl-L; the accepted-line output is a causal
-                        // barrier after the whole redraw, with no marker edit.
-                        session.write(b"\x0c\r");
+                        // BEL can precede abort's cursor-positioning tail. Clear
+                        // the screen and wait for rendered input before submitting.
+                        session.write(b"\x0c");
                         stage = Stage::FinalRedraw;
                     }
                 }
             }
             Stage::FinalRedraw
-                if resize_screen_matches(
+                if resize_screen_contains_input_suffix(
                     &output[redraw_start..],
                     final_size,
-                    expected_rows,
-                    expected_cursor,
+                    rendered_suffix,
                 ) =>
             {
                 checkpoint = Some(output[redraw_start..].to_vec());
@@ -1932,44 +1935,30 @@ pub(super) fn run_pty_resize_checkpoint(
 }
 
 #[cfg(target_os = "linux")]
-fn resize_screen_matches(
-    frame: &[u8],
-    size: PtySize,
-    expected_rows: &[&str],
-    expected_cursor: (usize, usize),
-) -> bool {
+fn resize_screen_contains_input_suffix(frame: &[u8], size: PtySize, suffix: &[u8]) -> bool {
+    let suffix = std::str::from_utf8(suffix).expect("resize suffix is ASCII");
     let mut screen = super::screen::Screen::new(usize::from(size.rows), usize::from(size.cols));
     screen.feed(frame);
-    let rows = screen.rows_text();
-    rows.len() >= expected_rows.len()
-        && rows
-            .iter()
-            .zip(expected_rows)
-            .all(|(actual, expected)| actual == *expected)
-        && rows[expected_rows.len()..].iter().all(|row| row.is_empty())
-        && screen.cursor() == expected_cursor
+    screen.rows_text().concat().contains(suffix)
 }
 
 #[test]
 #[cfg(target_os = "linux")]
-fn resize_checkpoint_waits_for_rendered_cursor_position() {
+fn resize_checkpoint_releases_on_rendered_suffix_without_expected_frame() {
     let size = PtySize {
         rows: 8,
-        cols: 12,
+        cols: 80,
         pixel_width: 0,
         pixel_height: 0,
     };
-    let redraw = b"\x1b[H\x1b[2JP>abcdefghijklmnop";
-    let expected_rows = ["P>abcdefghij", "klmnop"];
-    assert!(!resize_screen_matches(redraw, size, &expected_rows, (1, 0),));
-
-    let mut restored = redraw.to_vec();
-    restored.extend_from_slice(b"\x1b[2;1H");
-    assert!(resize_screen_matches(
-        &restored,
+    // This row deliberately differs from the nominal fixture shape: a rendered
+    // suffix still releases the checkpoint so the caller can report the mismatch.
+    let redraw = "\x1b[H\x1b[2JP>abcdefghi· jklmno".as_bytes();
+    assert!(resize_screen_contains_input_suffix(redraw, size, b"mno"));
+    assert!(!resize_screen_contains_input_suffix(
+        "\x1b[H\x1b[2JP>abcdefghi· jklm".as_bytes(),
         size,
-        &expected_rows,
-        (1, 0),
+        b"mno",
     ));
 }
 

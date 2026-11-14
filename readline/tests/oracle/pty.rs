@@ -1340,6 +1340,19 @@ fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         .position(|window| window == needle)
 }
 
+/// Finds the shortest suffix that occurs only at the end of `bytes`.
+fn unique_suffix(bytes: &[u8]) -> &[u8] {
+    assert!(!bytes.is_empty());
+    let prefix = &bytes[..bytes.len() - 1];
+    for start in (0..bytes.len()).rev() {
+        let suffix = &bytes[start..];
+        if find_bytes(prefix, suffix).is_none() {
+            return suffix;
+        }
+    }
+    unreachable!("the complete input cannot occur before its final position")
+}
+
 /// Checks the byte sequence after ignoring carriage returns used for positioning.
 fn contains_bytes_ignoring_carriage_returns(haystack: &[u8], needle: &[u8]) -> bool {
     let bytes: Vec<_> = haystack
@@ -1758,9 +1771,10 @@ pub(super) fn run_pty_checkpoints_raw(
 /// Resize an active ASCII read, then capture a causal clear-screen checkpoint.
 ///
 /// `partial` must fit in the initial viewport with `prompt`, contain no
-/// controls, and not contain the prompt. Synchronization detects its complete
-/// byte sequence in PTY output while ignoring carriage returns used for
-/// terminal positioning at wrap boundaries. Any remaining cursor-positioning
+/// controls, and not contain the prompt. Synchronization detects a unique suffix
+/// of the input while ignoring carriage returns; terminal output can repeat a
+/// byte at a wrapped row boundary, so matching the complete visual stream is
+/// too strict. Any remaining cursor-positioning
 /// tail cannot contain another prompt. A fresh prompt after master.resize is
 /// therefore evidence of automatic resize redisplay, before sending redraw
 /// keys.
@@ -1798,6 +1812,7 @@ pub(super) fn run_pty_resize_checkpoint(
     let mut stage = Stage::Prompt;
     let mut output = Vec::new();
     let mut input_start = 0;
+    let input_suffix = unique_suffix(partial);
     let mut resize_start = 0;
     let mut redraw_start = 0;
     let mut checkpoint = None;
@@ -1813,7 +1828,10 @@ pub(super) fn run_pty_resize_checkpoint(
                 stage = Stage::InitialInput;
             }
             Stage::InitialInput
-                if contains_bytes_ignoring_carriage_returns(&output[input_start..], partial) =>
+                if contains_bytes_ignoring_carriage_returns(
+                    &output[input_start..],
+                    input_suffix,
+                ) =>
             {
                 resize_start = output.len();
                 session.master.resize(resized).expect("resize active PTY");
@@ -1864,6 +1882,18 @@ fn checkpoint_before_bell_raw(output: &mut Vec<u8>, scan_start: usize) -> Option
     let frame = output[..bell].to_vec();
     output.remove(bell);
     Some(frame)
+}
+
+#[test]
+fn unique_suffix_synchronizes_wrapped_input_after_repeated_boundary_bytes() {
+    let partial = b"abcdefghijklmnop";
+    let suffix = unique_suffix(partial);
+    assert_eq!(suffix, b"p");
+    assert!(contains_bytes_ignoring_carriage_returns(
+        b"abcdefghijk\rklmnop",
+        suffix,
+    ));
+    assert_eq!(unique_suffix(b"abab"), b"bab");
 }
 
 #[test]

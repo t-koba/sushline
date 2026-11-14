@@ -192,9 +192,11 @@ def check_routes(text):
                             if step.get("run", "").startswith("bash .github/scripts/")]
             require(len(measurements) == 35 and all("if" not in step for step in measurements),
                     "Expected 35 required fresh-runner measurements")
-            require(all("if" not in step for step in steps if "run" in step
-                        and step.get("name", "").startswith("Require primary and fresh-replica")),
-                    "Refresh agreement checks must not be skipped")
+            agreements = [step for step in steps
+                          if step.get("name", "").startswith("Require primary and fresh-replica")]
+            require(len(agreements) == 11 and all("run" in step and "if" not in step
+                                                   for step in agreements),
+                    "Expected 11 unconditional primary/replica agreement checks")
     # The mixed block stays ordinary; only its raw GNU probes are opt-in.
     require(text.count('          if [ "' + REFRESH_IF + '" = true ]; then\n') == 1,
             "Preserve the mixed full-file raw-probe refresh gate")
@@ -289,6 +291,20 @@ def route_self_test(text):
             require(diagnostic in str(error), f"Unexpected mutation failure for {old!r}: {error}")
         else:
             raise ValueError(f"Accepted routing regression: {old} -> {new}")
+
+    title = "Require primary and fresh-replica History NUL query agreement"
+    lines = text.splitlines(keepends=True)
+    start = next(i for i, line in enumerate(lines)
+                if line == f"      - name: {title}\n")
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("      - ")),
+               len(lines))
+    try:
+        check_routes("".join(lines[:start] + lines[end:]))
+    except ValueError as error:
+        require("11 unconditional primary/replica agreement checks" in str(error),
+                f"Unexpected agreement-deletion failure: {error}")
+    else:
+        raise ValueError(f"Accepted deletion of required agreement check: {title}")
 
 
 def main():

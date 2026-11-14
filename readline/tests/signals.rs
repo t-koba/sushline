@@ -4,6 +4,15 @@ use common::MemoryTerminal;
 use readline::{Config, Editor, History, Hooks, Prompt, ReadlineResult};
 use std::cell::Cell;
 
+#[cfg(unix)]
+fn termios_equal(first: &libc::termios, second: &libc::termios) -> bool {
+    first.c_iflag == second.c_iflag
+        && first.c_oflag == second.c_oflag
+        && first.c_cflag == second.c_cflag
+        && first.c_lflag == second.c_lflag
+        && first.c_cc == second.c_cc
+}
+
 #[test]
 fn signal_cleanup_and_reset_restore_terminal_modes() {
     let terminal = MemoryTerminal::with_events(Vec::new());
@@ -129,6 +138,7 @@ fn failed_raw_entry_preserves_prior_disposition() {
 
 #[cfg(unix)]
 mod terminal_signal_options {
+    use super::termios_equal;
     use readline::{Terminal, TerminalEvent, TerminalIo, TerminalSize};
     use std::os::fd::{FromRawFd, OwnedFd};
     use std::process::{Command, Stdio};
@@ -138,6 +148,7 @@ mod terminal_signal_options {
     const PROBE_ENV: &str = "SUSHLINE_SIGNAL_OPTIONS_PROBE";
     const SIGINFO_PROBE_ENV: &str = "SUSHLINE_SIGWINCH_SIGINFO_PROBE";
     const RESIZE_SIZE_PROBE_ENV: &str = "SUSHLINE_SIGWINCH_SIZE_PROBE";
+    const DROP_RESTORE_PROBE_ENV: &str = "SUSHLINE_DROP_RESTORE_PROBE";
     const RESIZE_TEST_ROWS: u16 = 31;
     const RESIZE_TEST_COLUMNS: u16 = 97;
     const SIGNALS: [i32; 9] = [
@@ -282,6 +293,68 @@ mod terminal_signal_options {
             .stdin(Stdio::from(slave))
             .output()
             .expect("spawn isolated terminal probe")
+    }
+
+    #[test]
+    fn terminal_drop_unwind_child_probe() {
+        if std::env::var(DROP_RESTORE_PROBE_ENV).as_deref() != Ok("1") {
+            return;
+        }
+        struct ExpectedUnwind;
+
+        unsafe {
+            let mut initial: libc::termios = std::mem::zeroed();
+            assert_eq!(
+                libc::tcgetattr(libc::STDIN_FILENO, &mut initial),
+                0,
+                "record initial termios"
+            );
+            let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let mut terminal = Terminal::new();
+                terminal.enter_raw_mode().unwrap();
+                let mut raw: libc::termios = std::mem::zeroed();
+                assert_eq!(
+                    libc::tcgetattr(libc::STDIN_FILENO, &mut raw),
+                    0,
+                    "record raw termios"
+                );
+                assert!(
+                    !termios_equal(&initial, &raw),
+                    "raw mode must change termios"
+                );
+                std::panic::panic_any(ExpectedUnwind);
+            }));
+            assert!(
+                matches!(unwind, Err(payload) if payload.is::<ExpectedUnwind>()),
+                "probe must reach the deliberate unwind while raw mode is active"
+            );
+
+            let mut current: libc::termios = std::mem::zeroed();
+            assert_eq!(
+                libc::tcgetattr(libc::STDIN_FILENO, &mut current),
+                0,
+                "record termios after unwind"
+            );
+            assert!(
+                termios_equal(&initial, &current),
+                "dropping Terminal during unwind must restore the original mode"
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_drop_restores_mode_when_unwinding() {
+        let output = run_pty_probe(
+            "terminal_signal_options::terminal_drop_unwind_child_probe",
+            DROP_RESTORE_PROBE_ENV,
+        );
+        assert!(
+            output.status.success(),
+            "terminal drop unwind probe failed: {:?}\n{}\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     #[test]
@@ -598,14 +671,6 @@ fn failed_restore_retains_termios_child_probe() {
         return;
     }
     use readline::{Terminal, TerminalIo};
-
-    fn termios_equal(first: &libc::termios, second: &libc::termios) -> bool {
-        first.c_iflag == second.c_iflag
-            && first.c_oflag == second.c_oflag
-            && first.c_cflag == second.c_cflag
-            && first.c_lflag == second.c_lflag
-            && first.c_cc == second.c_cc
-    }
 
     unsafe {
         let mut initial: libc::termios = std::mem::zeroed();

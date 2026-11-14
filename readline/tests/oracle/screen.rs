@@ -98,6 +98,48 @@ impl Screen {
         text.trim_end().to_string()
     }
 
+    fn cell_width(cell: &Option<String>) -> usize {
+        cell.as_deref()
+            .map(|text| {
+                text.chars()
+                    .map(|character| unicode_width::UnicodeWidthChar::width(character).unwrap_or(0))
+                    .sum()
+            })
+            .unwrap_or(0)
+    }
+
+    fn clear_cell(&mut self, row: usize, column: usize) {
+        if column >= self.columns {
+            return;
+        }
+        if self.cells[row][column].is_none() {
+            if column > 0 && Self::cell_width(&self.cells[row][column - 1]) == 2 {
+                self.cells[row][column - 1] = Some(" ".to_string());
+            }
+        } else if Self::cell_width(&self.cells[row][column]) == 2
+            && column + 1 < self.columns
+            && self.cells[row][column + 1].is_none()
+        {
+            self.cells[row][column + 1] = Some(" ".to_string());
+        }
+        self.cells[row][column] = Some(" ".to_string());
+    }
+
+    fn normalize_row(&mut self, row: usize) {
+        let mut column = 0;
+        while column < self.columns {
+            let width = Self::cell_width(&self.cells[row][column]);
+            if width == 2 && column + 1 < self.columns && self.cells[row][column + 1].is_none() {
+                column += 2;
+            } else {
+                if width == 2 || self.cells[row][column].is_none() {
+                    self.cells[row][column] = Some(" ".to_string());
+                }
+                column += 1;
+            }
+        }
+    }
+
     fn put(&mut self, character: char) {
         if character.is_control() {
             return;
@@ -115,12 +157,18 @@ impl Screen {
             }
             return;
         }
+        if width > self.columns {
+            return;
+        }
         if self.column + width > self.columns {
             self.row = (self.row + 1).min(self.rows - 1);
             self.column = 0;
         }
+        for column in self.column..self.column + width {
+            self.clear_cell(self.row, column);
+        }
         self.cells[self.row][self.column] = Some(character.to_string());
-        if width == 2 && self.column + 1 < self.columns {
+        if width == 2 {
             self.cells[self.row][self.column + 1] = None;
         }
         self.column += width;
@@ -215,6 +263,7 @@ impl Screen {
             self.cells[row].insert(self.column, Some(" ".to_string()));
         }
         self.cells[row].truncate(self.columns);
+        self.normalize_row(row);
     }
 
     /// Deletes characters at the cursor, pulling the rest of the row to the
@@ -227,6 +276,7 @@ impl Screen {
                 self.cells[row].push(Some(" ".to_string()));
             }
         }
+        self.normalize_row(row);
     }
 
     fn erase_display(&mut self, mode: usize) {
@@ -256,12 +306,12 @@ impl Screen {
         match mode {
             0 => {
                 for column in self.column..self.columns {
-                    self.cells[row][column] = Some(" ".to_string());
+                    self.clear_cell(row, column);
                 }
             }
             1 => {
                 for column in 0..=self.column.min(self.columns - 1) {
-                    self.cells[row][column] = Some(" ".to_string());
+                    self.clear_cell(row, column);
                 }
             }
             _ => {
@@ -294,6 +344,32 @@ mod tests {
 
         screen.feed(b"\x1b[6D");
         assert_eq!(screen.cursor(), (0, 13));
+    }
+
+    #[test]
+    fn overwriting_wide_character_clears_its_continuation() {
+        let mut screen = Screen::new(2, 10);
+        screen.feed("中\rX\x1b[2CY".as_bytes());
+        assert_eq!(screen.row_text(0), "X  Y");
+        assert_eq!(screen.cursor(), (0, 4));
+    }
+
+    #[test]
+    fn erasing_from_wide_continuation_clears_the_character() {
+        let mut screen = Screen::new(2, 10);
+        screen.feed("中\r\x1b[2G\x1b[K".as_bytes());
+        assert_eq!(screen.row_text(0), "");
+    }
+
+    #[test]
+    fn character_shifts_preserve_wide_cell_pairs() {
+        let mut inserted = Screen::new(2, 12);
+        inserted.feed("aX中b\r\x1b[1@Z".as_bytes());
+        assert_eq!(inserted.row_text(0), "ZaX中b");
+
+        let mut deleted = Screen::new(2, 12);
+        deleted.feed("a中b\r\x1b[1P".as_bytes());
+        assert_eq!(deleted.row_text(0), "中b");
     }
 
     #[test]

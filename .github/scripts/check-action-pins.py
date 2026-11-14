@@ -102,6 +102,10 @@ REQUIRED_REPLICA_AGREEMENTS = frozenset(
         "Require primary and fresh-replica inputrc variable RHS agreement",
     }
 )
+REPLICA_COMPARISON_PREFIXES = (
+    "diff -u ",
+    'if observations(primary, b"primary") != observations(replica, b"replica"):',
+)
 
 
 def require(condition, message):
@@ -136,6 +140,21 @@ def required_step(steps, name):
     matches = [step for step in steps if step.get("name") == name]
     require(len(matches) == 1, f"Expected one step: {name}")
     return matches[0]
+
+
+def require_replica_comparison(text, name):
+    lines = text.splitlines()
+    starts = [i for i, line in enumerate(lines) if line == f"      - name: {name}"]
+    require(len(starts) == 1, f"Expected one replica agreement step: {name}")
+    start = starts[0]
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("      - ")),
+               len(lines))
+    comparisons = [
+        line.strip() for line in lines[start:end]
+        if any(line.strip().startswith(prefix) for prefix in REPLICA_COMPARISON_PREFIXES)
+    ]
+    require(len(comparisons) == 1,
+            f"Expected one primary/replica comparison command: {name}")
 
 
 def check_routes(text):
@@ -215,6 +234,8 @@ def check_routes(text):
                     and len(names) == len(REQUIRED_REPLICA_AGREEMENTS)
                     and all("run" in step and "if" not in step for step in agreements),
                     "Expected each required replica agreement check once and unconditionally")
+            for step in agreements:
+                require_replica_comparison(text, step["name"])
     # The mixed block stays ordinary; only its raw GNU probes are opt-in.
     require(text.count('          if [ "' + REFRESH_IF + '" = true ]; then\n') == 1,
             "Preserve the mixed full-file raw-probe refresh gate")
@@ -323,14 +344,19 @@ def route_self_test(text):
     shorter_check = "Require primary and fresh-replica shorter application-name prefix agreement"
     nul_block = agreement_block(nul_check)
     shorter_block = agreement_block(shorter_check)
+    no_op_block = f"      - name: {nul_check}\n        run: echo no-op\n"
     for mutation, description in (
         (text.replace(nul_block, "", 1), "deletion"),
         (text.replace(nul_block, shorter_block, 1), "duplicate substitution"),
+        (text.replace(nul_block, no_op_block, 1), "no-op command"),
     ):
         try:
             check_routes(mutation)
         except ValueError as error:
-            require("Expected each required replica agreement check once" in str(error),
+            expected = ("Expected one primary/replica comparison command"
+                        if description == "no-op command"
+                        else "Expected each required replica agreement check once")
+            require(expected in str(error),
                     f"Unexpected agreement {description} failure: {error}")
         else:
             raise ValueError(f"Accepted agreement-check {description}: {nul_check}")

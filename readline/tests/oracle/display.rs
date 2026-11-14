@@ -60,6 +60,7 @@ fn bash_and_sushline_redisplay_partial_input_after_live_pty_resize() {
         wide,
         narrow,
         b"abcdefghijklmnop",
+        &[],
         &["P>abcdefghij", "klmnop"],
         (1, 6),
     );
@@ -75,7 +76,7 @@ fn bash_and_sushline_redisplay_partial_input_after_live_pty_growth() {
         pixel_height: 0,
     };
     let narrow = PtySize { cols: 12, ..wide };
-    assert_live_resize_redisplay(narrow, wide, b"abcdefghij", &["P>abcdefghij"], (0, 12));
+    assert_live_resize_redisplay(narrow, wide, b"abcdefghij", &[], &["P>abcdefghij"], (0, 12));
 }
 
 #[cfg(target_os = "linux")]
@@ -92,8 +93,32 @@ fn bash_and_sushline_redisplay_wrapped_partial_input_after_live_pty_growth() {
         narrow,
         wide,
         b"abcdefghijklmnop",
+        &[],
         &["P>abcdefghijklmnop"],
         (0, 18),
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn bash_and_sushline_redisplay_wrapped_partial_input_with_interior_cursor_after_live_pty_growth() {
+    let wide = PtySize {
+        rows: 8,
+        cols: 80,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let narrow = PtySize { cols: 12, ..wide };
+    let mut position_keys = vec![0x01]; // C-a: beginning of line
+    position_keys.extend([0x06; 13]); // C-f: move point after byte 13
+    position_keys.push(0x0c); // C-l: redraw to synchronize before resize
+    assert_live_resize_redisplay(
+        narrow,
+        wide,
+        b"abcdefghijklmnop",
+        &position_keys,
+        &["P>abcdefghijklmnop"],
+        (0, 15),
     );
 }
 
@@ -102,6 +127,7 @@ fn assert_live_resize_redisplay(
     initial: PtySize,
     resized: PtySize,
     partial: &[u8],
+    before_resize_keys: &[u8],
     expected_rows: &[&str],
     expected_cursor: (usize, usize),
 ) {
@@ -144,7 +170,8 @@ fn assert_live_resize_redisplay(
         command.env("LC_ALL", "C");
         command.env_remove("COLUMNS");
         command.env_remove("LINES");
-        let (frame, output) = run_pty_resize_checkpoint(command, "P>", partial, initial, resized);
+        let (frame, output) =
+            run_pty_resize_checkpoint(command, "P>", partial, initial, resized, before_resize_keys);
         let mut screen = Screen::new(usize::from(resized.rows), usize::from(resized.cols));
         screen.feed(&frame);
         let rows = screen.rows_text();

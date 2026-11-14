@@ -1775,9 +1775,11 @@ pub(super) fn run_pty_checkpoints_raw(
 /// of the input while ignoring carriage returns; terminal output can repeat a
 /// byte at a wrapped row boundary, so matching the complete visual stream is
 /// too strict. Any remaining cursor-positioning
-/// tail cannot contain another prompt. A fresh prompt after master.resize is
-/// therefore evidence of automatic resize redisplay, before sending redraw
-/// keys.
+/// tail cannot contain another prompt. `before_resize_keys` can position the
+/// cursor and request a redraw; its unique input suffix must arrive before the
+/// resize is applied, proving those keys were processed. A fresh prompt after
+/// master.resize is evidence of automatic resize redisplay, before the final
+/// checkpoint redraw.
 /// Ctrl-L then resets the screen (avoiding terminal-specific window reflow),
 /// and the existing Ctrl-G/BEL barrier captures its settled line and cursor.
 /// Returns that resized checkpoint and the transcript through acceptance.
@@ -1788,6 +1790,7 @@ pub(super) fn run_pty_resize_checkpoint(
     partial: &[u8],
     initial: PtySize,
     resized: PtySize,
+    before_resize_keys: &[u8],
 ) -> (Vec<u8>, String) {
     require_oracle_host();
     assert!(partial.iter().all(u8::is_ascii_graphic));
@@ -1805,6 +1808,7 @@ pub(super) fn run_pty_resize_checkpoint(
     enum Stage {
         Prompt,
         InitialInput,
+        PositionedInput,
         AutomaticResize,
         Redraw,
         Accepted,
@@ -1813,6 +1817,7 @@ pub(super) fn run_pty_resize_checkpoint(
     let mut output = Vec::new();
     let mut input_start = 0;
     let input_suffix = unique_suffix(partial);
+    let mut positioned_start = 0;
     let mut resize_start = 0;
     let mut redraw_start = 0;
     let mut checkpoint = None;
@@ -1830,6 +1835,22 @@ pub(super) fn run_pty_resize_checkpoint(
             Stage::InitialInput
                 if contains_bytes_ignoring_carriage_returns(
                     &output[input_start..],
+                    input_suffix,
+                ) =>
+            {
+                if before_resize_keys.is_empty() {
+                    resize_start = output.len();
+                    session.master.resize(resized).expect("resize active PTY");
+                    stage = Stage::AutomaticResize;
+                } else {
+                    positioned_start = output.len();
+                    session.write(before_resize_keys);
+                    stage = Stage::PositionedInput;
+                }
+            }
+            Stage::PositionedInput
+                if contains_bytes_ignoring_carriage_returns(
+                    &output[positioned_start..],
                     input_suffix,
                 ) =>
             {

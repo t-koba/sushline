@@ -18,6 +18,8 @@ use std::os::fd::AsRawFd;
 #[cfg(unix)]
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::Duration;
+#[cfg(unix)]
+use std::time::Instant;
 
 pub(crate) mod escape;
 mod terminfo;
@@ -887,6 +889,16 @@ fn tty_special_bindings() -> Vec<(u8, &'static str)> {
     bindings
 }
 
+/// Rounds `poll`'s millisecond timeout up and caps its integer range. The
+/// caller rechecks the original deadline after each capped wait.
+#[cfg(unix)]
+fn poll_timeout_millis(timeout: Option<Duration>) -> i32 {
+    timeout.map_or(-1, |duration| {
+        let millis = duration.as_nanos().saturating_add(999_999) / 1_000_000;
+        millis.min(i32::MAX as u128) as i32
+    })
+}
+
 /// Reads the available input as one batch.
 ///
 /// GNU Readline reads the input that is available, processes it character by
@@ -901,32 +913,44 @@ fn tty_special_bindings() -> Vec<(u8, &'static str)> {
 /// first. The data waits in `pending` for the next read.
 #[cfg(unix)]
 fn read_raw_event(timeout: Option<Duration>, pending: &mut Vec<u8>) -> io::Result<TerminalEvent> {
-    if SIGWINCH_RECEIVED.swap(false, Ordering::SeqCst) {
-        return current_resize_event();
-    }
-    if let Some(event) = pending_signal_event() {
-        return Ok(event);
-    }
+    let started = Instant::now();
     let mut pollfd = libc::pollfd {
         fd: libc::STDIN_FILENO,
         events: libc::POLLIN,
         revents: 0,
     };
-    let timeout_ms = timeout
-        .map(|duration| duration.as_millis().min(i32::MAX as u128) as i32)
-        .unwrap_or(-1);
-    let ready = unsafe { libc::poll(&mut pollfd, 1, timeout_ms) };
-    if ready < 0 {
-        let err = io::Error::last_os_error();
-        if err.kind() != io::ErrorKind::Interrupted
-            && let Some(event) = pending_signal_event()
-        {
+    loop {
+        if SIGWINCH_RECEIVED.swap(false, Ordering::SeqCst) {
+            return current_resize_event();
+        }
+        if let Some(event) = pending_signal_event() {
             return Ok(event);
         }
-        return read_error_event(err);
-    }
-    if ready == 0 {
-        return Ok(TerminalEvent::Timeout);
+        pollfd.revents = 0;
+        let remaining = timeout.map(|duration| duration.saturating_sub(started.elapsed()));
+        let ready = unsafe { libc::poll(&mut pollfd, 1, poll_timeout_millis(remaining)) };
+        if ready < 0 {
+            let err = io::Error::last_os_error();
+            if err.kind() != io::ErrorKind::Interrupted
+                && let Some(event) = pending_signal_event()
+            {
+                return Ok(event);
+            }
+            return read_error_event(err);
+        }
+        if ready == 0 {
+            if timeout.is_some_and(|duration| started.elapsed() >= duration) {
+                if SIGWINCH_RECEIVED.swap(false, Ordering::SeqCst) {
+                    return current_resize_event();
+                }
+                if let Some(event) = pending_signal_event() {
+                    return Ok(event);
+                }
+                return Ok(TerminalEvent::Timeout);
+            }
+            continue;
+        }
+        break;
     }
     let mut buf = Vec::new();
     let mut chunk = [0u8; 4096];
@@ -1086,12 +1110,28 @@ fn tty_special_bindings() -> Vec<(u8, &'static str)> {
 #[cfg(all(test, unix))]
 mod tests {
     use super::{
-        SIGWINCH_RECEIVED, TerminalEvent, TerminalSize, prepare_readline_termios, read_error_event,
+        SIGWINCH_RECEIVED, TerminalEvent, TerminalSize, poll_timeout_millis,
+        prepare_readline_termios, read_error_event,
     };
+    use std::time::Duration;
 
     const RESIZE_PROBE_ENV: &str = "SUSHLINE_READ_ERROR_RESIZE_PROBE";
     const RESIZE_ROWS: u16 = 29;
     const RESIZE_COLUMNS: u16 = 93;
+
+    #[test]
+    fn poll_timeout_rounds_up_and_caps() {
+        assert_eq!(poll_timeout_millis(None), -1);
+        assert_eq!(poll_timeout_millis(Some(Duration::ZERO)), 0);
+        assert_eq!(poll_timeout_millis(Some(Duration::from_nanos(1))), 1);
+        assert_eq!(poll_timeout_millis(Some(Duration::from_micros(999))), 1);
+        assert_eq!(poll_timeout_millis(Some(Duration::from_millis(1))), 1);
+        assert_eq!(poll_timeout_millis(Some(Duration::from_micros(1001))), 2);
+        assert_eq!(
+            poll_timeout_millis(Some(Duration::from_millis(i32::MAX as u64 + 1))),
+            i32::MAX
+        );
+    }
 
     #[test]
     fn interrupted_resize_child_probe() {

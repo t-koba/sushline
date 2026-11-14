@@ -1779,12 +1779,12 @@ pub(super) fn run_pty_checkpoints_raw(
 /// another prompt. `before_resize_keys` can position the cursor and request a
 /// redraw; its unique input suffix must arrive before the resize is applied,
 /// proving those keys were processed. A fresh prompt after `master.resize` is
-/// evidence of automatic resize redisplay, before the final checkpoint redraw.
-/// Ctrl-L then resets the screen (avoiding terminal-specific window reflow),
-/// and the existing Ctrl-G/BEL barrier captures its settled line and cursor.
-/// Each resize waits for both its automatic redisplay and redraw barrier before
-/// applying the next size. Returns the final checkpoint and the transcript through
-/// acceptance. `resizes` must be nonempty; all steps share the session hang bound.
+/// evidence of automatic resize redisplay before each causal Ctrl-G/BEL barrier.
+/// The fresh prompt triggers the barrier after each resize; only the final resize
+/// also uses Ctrl-L to reset the screen (avoiding terminal-specific window reflow).
+/// Its barrier captures the settled line and cursor. Returns the final checkpoint
+/// and transcript through acceptance.
+/// `resizes` must be nonempty; all steps share the session hang bound.
 #[cfg(target_os = "linux")]
 pub(super) fn run_pty_resize_checkpoint(
     mut command: CommandBuilder,
@@ -1794,7 +1794,7 @@ pub(super) fn run_pty_resize_checkpoint(
     resizes: &[PtySize],
     before_resize_keys: &[u8],
 ) -> (Vec<u8>, String) {
-    let mut resizes = resizes.iter().copied();
+    let mut resizes = resizes.iter().copied().peekable();
     let resized = resizes.next().expect("at least one PTY resize");
     require_oracle_host();
     let partial_text = std::str::from_utf8(partial).expect("resize input must be UTF-8");
@@ -1873,17 +1873,21 @@ pub(super) fn run_pty_resize_checkpoint(
                 if find_bytes(&output[resize_start..], prompt.as_bytes()).is_some() =>
             {
                 redraw_start = output.len();
-                session.write(b"\x0c\x07");
+                session.write(if resizes.peek().is_some() {
+                    b"\x07"
+                } else {
+                    b"\x0c\x07"
+                });
                 stage = Stage::Redraw;
             }
             Stage::Redraw => {
                 if let Some(frame) = checkpoint_before_bell_raw(&mut output, redraw_start) {
-                    checkpoint = Some(frame[redraw_start..].to_vec());
                     if let Some(resized) = resizes.next() {
                         resize_start = output.len();
                         session.master.resize(resized).expect("resize active PTY");
                         stage = Stage::AutomaticResize;
                     } else {
+                        checkpoint = Some(frame[redraw_start..].to_vec());
                         session.write(b"\r");
                         stage = Stage::Accepted;
                     }

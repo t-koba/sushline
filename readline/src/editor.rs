@@ -16,7 +16,7 @@ use history::expansion::{
 use std::fmt;
 use std::io;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Outcome of one [`Editor::read_line`] call.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -387,6 +387,15 @@ where
         prompt: Prompt,
         hooks: &mut impl Hooks,
     ) -> Result<ReadlineResult, ReadlineError> {
+        self.read_line_raw_with_clock(prompt, hooks, Instant::now)
+    }
+
+    fn read_line_raw_with_clock(
+        &mut self,
+        prompt: Prompt,
+        hooks: &mut impl Hooks,
+        mut now: impl FnMut() -> Instant,
+    ) -> Result<ReadlineResult, ReadlineError> {
         self.reset_runtime_keymap_for_new_line();
         let mut state = EditorState::new(prompt, self.pending_initial_line.take());
         self.restore_persistent_state(&mut state);
@@ -405,6 +414,12 @@ where
             self.render(&mut state)?;
         }
 
+        let mut pending_key_timeout: Option<(Instant, Duration)> =
+            if state.input.pending_key.is_empty() {
+                None
+            } else {
+                self.keyseq_timeout().map(|timeout| (now(), timeout))
+            };
         loop {
             if let Some(signal) = hooks.check_signals() {
                 if let Some(result) = self.handle_checked_signal(&mut state, signal)? {
@@ -415,7 +430,31 @@ where
                 continue;
             }
 
-            let timeout = self.keyseq_timeout();
+            let timeout = if state.input.pending_key.is_empty() {
+                pending_key_timeout = None;
+                self.keyseq_timeout()
+            } else {
+                let read_started = now();
+                if pending_key_timeout.is_none() {
+                    pending_key_timeout =
+                        self.keyseq_timeout().map(|timeout| (read_started, timeout));
+                }
+                if pending_key_timeout.is_some_and(|(started, timeout)| {
+                    read_started.saturating_duration_since(started) >= timeout
+                }) {
+                    let pending = std::mem::take(&mut state.input.pending_key);
+                    pending_key_timeout = None;
+                    let outcome = self.handle_unbound(&mut state, &pending, hooks)?;
+                    if !matches!(outcome, EditorOutcome::Continue) {
+                        return self.finish_outcome(&mut state, outcome);
+                    }
+                    self.render(&mut state)?;
+                    continue;
+                }
+                pending_key_timeout.map(|(started, timeout)| {
+                    timeout.saturating_sub(read_started.saturating_duration_since(started))
+                })
+            };
             let event = match self.read_input_event(timeout) {
                 Ok(event) => event,
                 Err(error)
@@ -451,6 +490,7 @@ where
                 TerminalEvent::Timeout => {
                     if timeout.is_some() && !state.input.pending_key.is_empty() {
                         let pending = std::mem::take(&mut state.input.pending_key);
+                        pending_key_timeout = None;
                         let outcome = self.handle_unbound(&mut state, &pending, hooks)?;
                         if !matches!(outcome, EditorOutcome::Continue) {
                             return self.finish_outcome(&mut state, outcome);
@@ -486,6 +526,11 @@ where
                         self.save_persistent_state(&state);
                         return Ok(ReadlineResult::Interrupted);
                     }
+                    pending_key_timeout = if state.input.pending_key.is_empty() {
+                        None
+                    } else {
+                        self.keyseq_timeout().map(|timeout| (now(), timeout))
+                    };
                     if matches!(outcome, EditorOutcome::Continue) {
                         // The batch's text is drawn when the batch ends,
                         // unless a key already drew it.

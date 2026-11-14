@@ -119,6 +119,33 @@ fn wakeup_preserves_pending_key_sequence_and_rechecks_hook() {
 }
 
 #[test]
+fn wakeup_does_not_restart_pending_key_sequence_deadline() {
+    let start = Instant::now();
+    let mut times = [
+        start,
+        start + Duration::from_millis(5),
+        start + Duration::from_millis(11),
+    ]
+    .into_iter();
+    let clock = move || times.next().unwrap_or(start + Duration::from_millis(11));
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Wakeup,
+        TerminalEvent::Bytes(b"X".to_vec()),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set keyseq-timeout 10\n\"\\eX\": accept-line")
+        .unwrap();
+
+    assert_eq!(
+        line.read_line_raw_with_clock(Prompt::new("> "), &mut (), clock)
+            .unwrap(),
+        ReadlineResult::Line(b"X".to_vec())
+    );
+}
+
+#[test]
 fn actual_timeout_still_resolves_a_pending_key_sequence() {
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(vec![0x1b]),

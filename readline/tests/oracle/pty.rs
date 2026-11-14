@@ -1826,6 +1826,7 @@ pub(super) fn run_pty_resize_checkpoint(
         AutomaticResize,
         Redraw,
         FinalRedraw,
+        FinalBarrier,
         Accepted,
     }
     let mut stage = Stage::Prompt;
@@ -1847,6 +1848,7 @@ pub(super) fn run_pty_resize_checkpoint(
     let mut positioned_start = 0;
     let mut resize_start = 0;
     let mut redraw_start = 0;
+    let mut final_barrier_start = 0;
     let mut checkpoint = None;
     while Instant::now() < deadline {
         match session.read(deadline.saturating_duration_since(Instant::now())) {
@@ -1900,8 +1902,8 @@ pub(super) fn run_pty_resize_checkpoint(
                         stage = Stage::AutomaticResize;
                     } else {
                         redraw_start = output.len();
-                        // BEL can precede abort's cursor-positioning tail. Clear
-                        // the screen and wait for rendered input before submitting.
+                        // Start a fresh redraw, then use a later BEL as a causal
+                        // barrier after the complete Ctrl-L response.
                         session.write(b"\x0c");
                         stage = Stage::FinalRedraw;
                     }
@@ -1914,9 +1916,16 @@ pub(super) fn run_pty_resize_checkpoint(
                     rendered_suffix,
                 ) =>
             {
-                checkpoint = Some(output[redraw_start..].to_vec());
-                session.write(b"\r");
-                stage = Stage::Accepted;
+                final_barrier_start = output.len();
+                session.write(b"\x07");
+                stage = Stage::FinalBarrier;
+            }
+            Stage::FinalBarrier => {
+                if let Some(frame) = checkpoint_before_bell_raw(&mut output, final_barrier_start) {
+                    checkpoint = Some(frame[redraw_start..].to_vec());
+                    session.write(b"\r");
+                    stage = Stage::Accepted;
+                }
             }
             Stage::Accepted if stop_marker_line_complete(&output, "SUSHLINE_ACCEPTED:") => break,
             _ => {}
@@ -1944,15 +1953,15 @@ fn resize_screen_contains_input_suffix(frame: &[u8], size: PtySize, suffix: &[u8
 
 #[test]
 #[cfg(target_os = "linux")]
-fn resize_checkpoint_releases_on_rendered_suffix_without_expected_frame() {
+fn resize_checkpoint_waits_for_cursor_tail_after_rendered_suffix() {
     let size = PtySize {
         rows: 8,
         cols: 80,
         pixel_width: 0,
         pixel_height: 0,
     };
-    // This row deliberately differs from the nominal fixture shape: a rendered
-    // suffix still releases the checkpoint so the caller can report the mismatch.
+    // The row deliberately differs from the fixture, and its cursor-restoration
+    // escape arrives in a later PTY chunk after the visible suffix.
     let redraw = "\x1b[H\x1b[2JP>abcdefghi· jklmno".as_bytes();
     assert!(resize_screen_contains_input_suffix(redraw, size, b"mno"));
     assert!(!resize_screen_contains_input_suffix(
@@ -1960,6 +1969,20 @@ fn resize_checkpoint_releases_on_rendered_suffix_without_expected_frame() {
         size,
         b"mno",
     ));
+
+    let mut output = redraw.to_vec();
+    let barrier_start = output.len();
+    assert!(checkpoint_before_bell_raw(&mut output, barrier_start).is_none());
+    output.extend_from_slice(b"\x1b[2;1H\x07post-bell");
+    let frame = checkpoint_before_bell_raw(&mut output, barrier_start).unwrap();
+
+    assert_eq!(&frame[..redraw.len()], redraw);
+    assert!(frame.ends_with(b"\x1b[2;1H"));
+    assert_eq!(output, [redraw, &b"\x1b[2;1Hpost-bell"[..]].concat());
+    let mut screen = super::screen::Screen::new(usize::from(size.rows), usize::from(size.cols));
+    screen.feed(&frame);
+    assert!(screen.rows_text().concat().contains("abcdefghi· jklmno"));
+    assert_eq!(screen.cursor(), (1, 0));
 }
 
 // Remove the barrier itself but retain post-BEL output for the next frame.

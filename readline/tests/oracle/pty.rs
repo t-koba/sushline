@@ -1780,10 +1780,12 @@ pub(super) fn run_pty_checkpoints_raw(
 /// redraw; its unique input suffix must arrive before the resize is applied,
 /// proving those keys were processed. A fresh prompt after `master.resize` is
 /// evidence of automatic resize redisplay before each causal Ctrl-G/BEL barrier.
-/// The fresh prompt triggers the barrier after each resize; only the final resize
-/// also uses Ctrl-L to reset the screen (avoiding terminal-specific window reflow).
-/// Its barrier captures the settled line and cursor. Returns the final checkpoint
-/// and transcript through acceptance.
+/// The fresh prompt triggers the barrier after each resize. After the final BEL,
+/// Ctrl-L resets the screen (avoiding terminal-specific window reflow), followed
+/// by a printable marker absent from prompt/input. Rendering that next input byte
+/// proves the clear-screen redisplay, including its cursor-positioning tail, has
+/// finished. Capture bytes before the marker, then delete it before Enter.
+/// Returns the final checkpoint and transcript through acceptance.
 /// `resizes` must be nonempty; all steps share the session hang bound.
 #[cfg(target_os = "linux")]
 pub(super) fn run_pty_resize_checkpoint(
@@ -1794,7 +1796,7 @@ pub(super) fn run_pty_resize_checkpoint(
     resizes: &[PtySize],
     before_resize_keys: &[u8],
 ) -> (Vec<u8>, String) {
-    let mut resizes = resizes.iter().copied().peekable();
+    let mut resizes = resizes.iter().copied();
     let resized = resizes.next().expect("at least one PTY resize");
     require_oracle_host();
     let partial_text = std::str::from_utf8(partial).expect("resize input must be UTF-8");
@@ -1811,6 +1813,9 @@ pub(super) fn run_pty_resize_checkpoint(
             <= usize::from(initial.cols) * usize::from(initial.rows),
         "prompt and partial input must fit in the initial PTY viewport"
     );
+    let marker = (b'!'..=b'~')
+        .find(|byte| !prompt.as_bytes().contains(byte) && !partial.contains(byte))
+        .expect("resize checkpoint needs a printable ASCII marker absent from prompt/input");
     command.env("TERM", "xterm-256color");
     command.cwd("/");
     let mut session = PtySession::spawn(command, initial);
@@ -1822,6 +1827,7 @@ pub(super) fn run_pty_resize_checkpoint(
         PositionedInput,
         AutomaticResize,
         Redraw,
+        FinalRedraw,
         Accepted,
     }
     let mut stage = Stage::Prompt;
@@ -1873,24 +1879,31 @@ pub(super) fn run_pty_resize_checkpoint(
                 if find_bytes(&output[resize_start..], prompt.as_bytes()).is_some() =>
             {
                 redraw_start = output.len();
-                session.write(if resizes.peek().is_some() {
-                    b"\x07"
-                } else {
-                    b"\x0c\x07"
-                });
+                session.write(b"\x07");
                 stage = Stage::Redraw;
             }
             Stage::Redraw => {
-                if let Some(frame) = checkpoint_before_bell_raw(&mut output, redraw_start) {
+                if checkpoint_before_bell_raw(&mut output, redraw_start).is_some() {
                     if let Some(resized) = resizes.next() {
                         resize_start = output.len();
                         session.master.resize(resized).expect("resize active PTY");
                         stage = Stage::AutomaticResize;
                     } else {
-                        checkpoint = Some(frame[redraw_start..].to_vec());
-                        session.write(b"\r");
-                        stage = Stage::Accepted;
+                        redraw_start = output.len();
+                        // BEL can precede abort's own cursor-positioning tail.
+                        // The next rendered input waits for Ctrl-L's whole frame.
+                        session.write(&[b'\x0c', marker]);
+                        stage = Stage::FinalRedraw;
                     }
+                }
+            }
+            Stage::FinalRedraw => {
+                if let Some(frame) =
+                    checkpoint_before_rendered_marker(&output, redraw_start, marker)
+                {
+                    checkpoint = Some(frame);
+                    session.write(b"\x7f\r");
+                    stage = Stage::Accepted;
                 }
             }
             Stage::Accepted if stop_marker_line_complete(&output, "SUSHLINE_ACCEPTED:") => break,
@@ -1904,9 +1917,43 @@ pub(super) fn run_pty_resize_checkpoint(
         lossy_output(&output)
     );
     (
-        checkpoint.expect("resize redraw barrier"),
+        checkpoint.expect("resize rendered-input barrier"),
         lossy_output(&output),
     )
+}
+
+// Unlike BEL, the next input's rendered marker follows the preceding key's
+// complete redisplay. Do not include the marker's own redisplay in the frame.
+#[cfg(target_os = "linux")]
+fn checkpoint_before_rendered_marker(output: &[u8], start: usize, marker: u8) -> Option<Vec<u8>> {
+    let frame = &output[start..];
+    let end = frame.iter().position(|byte| *byte == marker)?;
+    Some(frame[..end].to_vec())
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn rendered_marker_checkpoint_waits_for_cursor_tail_after_bell() {
+    let prefix = b"P>input\x07";
+    let redraw = b"\x1b[H\x1b[2JP>input\r\x1b[12C";
+    let mut transcript = prefix.to_vec();
+    transcript.extend_from_slice(redraw);
+    transcript.extend_from_slice(b"!marker redisplay tail");
+    let end = prefix.len() + redraw.len();
+    // Every read split before the marker must keep waiting, even after BEL
+    // or after the visible line but before its final cursor-position sequence.
+    for split in prefix.len()..=end {
+        assert_eq!(
+            checkpoint_before_rendered_marker(&transcript[..split], prefix.len(), b'!'),
+            None,
+        );
+    }
+    for split in end + 1..=transcript.len() {
+        assert_eq!(
+            checkpoint_before_rendered_marker(&transcript[..split], prefix.len(), b'!'),
+            Some(redraw.to_vec()),
+        );
+    }
 }
 
 // Remove the barrier itself but retain post-BEL output for the next frame.

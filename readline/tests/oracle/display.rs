@@ -198,6 +198,34 @@ fn bash_and_sushline_redisplay_cjk_wrap_boundary_cursor_after_live_pty_growth() 
 
 #[cfg(target_os = "linux")]
 #[test]
+fn bash_and_sushline_redisplay_decomposed_accent_after_live_pty_growth() {
+    assert!(
+        c_utf8_locale_available(),
+        "C.UTF-8 locale required for the live-resize fixture"
+    );
+    let wide = PtySize {
+        rows: 8,
+        cols: 80,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let narrow = PtySize { cols: 12, ..wide };
+    let mut position_keys = vec![0x05]; // C-e: end of line
+    position_keys.extend([0x02; 6]); // C-b over six ASCII suffix characters
+    position_keys.push(0x0c); // C-l: redraw to synchronize before resize
+    assert_live_resize_redisplay_with_locale(
+        "C.UTF-8",
+        narrow,
+        &[wide],
+        b"abcdefghie\xcc\x81jklmno",
+        &position_keys,
+        &["P>abcdefghie\u{301}jklmno"],
+        (0, 12),
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
 fn bash_and_sushline_redisplay_partial_input_after_live_pty_growth() {
     let wide = PtySize {
         rows: 8,

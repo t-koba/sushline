@@ -347,6 +347,14 @@ mod tests {
     }
 
     #[test]
+    fn zero_width_scalar_attaches_to_previous_cell() {
+        let mut screen = Screen::new(2, 12);
+        screen.feed("e\u{301}X".as_bytes());
+        assert_eq!(screen.row_text(0), "e\u{301}X");
+        assert_eq!(screen.cursor(), (0, 2));
+    }
+
+    #[test]
     fn overwriting_wide_character_clears_its_continuation() {
         let mut screen = Screen::new(2, 10);
         screen.feed("中\rX\x1b[2CY".as_bytes());

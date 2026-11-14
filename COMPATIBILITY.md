@@ -87,25 +87,24 @@ not extend the compatibility claims beyond the evidence cited below.
 tested Bash 5.3 host and the Readline release it carries, not GNU source proof,
 and establish only the tested fixture scope.
 
-Redisplay checkpoints for ordinary complete Emacs keys use a causal Ctrl-G
-abort/BEL barrier in both PTYs, capturing output strictly before BEL rather
-than waiting for silence. Steps must not themselves ring or leave pending
-input state; the fixtures use the default Emacs abort binding and explicitly enable audible bells.
-Sushline's built-in terminal reads the input the terminal holds as one batch,
-and the editor dispatches the batch character by character and redraws it
-once, like GNU Readline, which processes the available input character by
-character and redisplays once. A key that changes the display without running
-a command, like the query of an incremental search, redraws as well: GNU
-Readline redraws the search display for every query key, and a Bash 5.3 PTY
-observation shows that the host's batched write and its split write of a
-search key with its query produce the same output. The editor draws the
-pending text before a key that interrupts it, so the redisplay still precedes
-the abort bell and the barrier holds. An unfinished paste cannot use this
-barrier because it consumes Ctrl-G as payload. Paste PTY tests therefore checkpoint only after
-the terminator and wait for an explicit completion marker after Enter.
-Synchronous Sushline editor tests cover partial-payload buffering and split or
-truncated terminators; absence of intermediate Bash output is no longer
-claimed from timing-based checkpoints. Deadlines only bound hangs.
+For ordinary complete Emacs-key checkpoints, the PTY helper uses a causal
+Ctrl-G/BEL barrier in Bash and Sushline; [`oracle/pty.rs`](readline/tests/oracle/pty.rs)
+captures only bytes before BEL, never after silence. The fixtures use the
+default Emacs abort binding and audible bells, and avoid belling commands or
+pending-input states. Sushline's built-in terminal reads the input it holds as
+a batch ([`terminal.rs`](readline/src/terminal.rs)); the editor dispatches it
+byte by byte and redraws after the batch ([`input.rs`](readline/src/input.rs)).
+This describes Sushline's input path, not GNU's internal processing. Current
+pinned oracle fixtures do not establish GNU incremental-search query-redraw
+cadence or batched-versus-split output parity. Sushline draws pending text
+before an interrupting key, so redisplay precedes the abort bell. An unfinished
+paste cannot use Ctrl-G as a barrier because the key is payload until the
+terminator. Paste PTY tests in [`oracle/editing.rs`](readline/tests/oracle/editing.rs)
+checkpoint after the terminator and wait for an explicit completion marker
+after Enter. Synchronous Sushline editor tests in
+[`editor/tests/lifecycle.rs`](readline/src/editor/tests/lifecycle.rs) cover
+partial-payload buffering and split or truncated terminators; no intermediate
+Bash-output claim is inferred from timing or silence. Deadlines only bound hangs.
 
 ## Explicitly Out Of Scope
 

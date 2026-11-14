@@ -1,5 +1,20 @@
 use super::*;
 
+#[test]
+fn terminal_size_query_error_uses_default_dimensions() {
+    let mut terminal = MemoryTerminal::with_events(Vec::new());
+    terminal.size_error = true;
+    let line = Editor::new(Config::default(), terminal, History::new());
+
+    assert_eq!(
+        line.usable_terminal_size(),
+        TerminalSize {
+            columns: 80,
+            rows: 24,
+        }
+    );
+}
+
 /// The display model follows the diagnostic sink.
 ///
 /// A diagnostic that reaches the terminal's own screen moves the terminal

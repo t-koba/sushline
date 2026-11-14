@@ -201,6 +201,7 @@ struct MemoryTerminal {
     /// reach the screen the display model tracks.
     diagnostics_on_screen: bool,
     columns: u16,
+    size_error: bool,
     tty_special: Vec<(u8, &'static str)>,
     meta_enabled: Vec<bool>,
     input_meta: bool,
@@ -221,6 +222,7 @@ impl MemoryTerminal {
             diagnostics: String::new(),
             diagnostics_on_screen: false,
             columns: 80,
+            size_error: false,
             tty_special: Vec::new(),
             meta_enabled: Vec::new(),
             input_meta: false,
@@ -297,6 +299,9 @@ impl TerminalIo for MemoryTerminal {
     }
 
     fn size(&self) -> io::Result<TerminalSize> {
+        if self.size_error {
+            return Err(io::Error::other("test size failure"));
+        }
         Ok(TerminalSize {
             columns: self.columns,
             rows: 24,

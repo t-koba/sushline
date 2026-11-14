@@ -45,7 +45,8 @@ pub enum TerminalEvent {
     Bytes(Vec<u8>),
     /// A resize notification carrying the backend's current raw dimensions.
     Resize(TerminalSize),
-    /// Signal.
+    /// A process signal represented by its platform signal number. The built-in
+    /// Unix backend reports caught signals this way.
     Signal(i32),
     /// No event was reported before the wait ended; a backend may also use
     /// this to yield so the editor can recheck external conditions.

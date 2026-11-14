@@ -442,3 +442,26 @@ where
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod terminal_size_tests {
+    use super::{TerminalSize, normalize_terminal_size};
+
+    #[test]
+    fn zero_dimensions_use_defaults_independently() {
+        for (columns, rows, expected_columns, expected_rows) in [
+            (0, 0, 80, 24),
+            (0, 37, 80, 37),
+            (91, 0, 91, 24),
+            (91, 37, 91, 37),
+        ] {
+            assert_eq!(
+                normalize_terminal_size(TerminalSize { columns, rows }),
+                TerminalSize {
+                    columns: expected_columns,
+                    rows: expected_rows,
+                }
+            );
+        }
+    }
+}

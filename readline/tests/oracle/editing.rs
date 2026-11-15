@@ -1506,17 +1506,43 @@ fn sushline_prefix_meta_inputrc_extension_preserves_literal_fallback() {
 }
 
 #[test]
-fn bash_readline_and_sushline_accept_same_lowercase_version_command() {
-    let inputrc = r#""A": do-lowercase-version"#;
-    let keys = b"A\r";
-    let bash = run_bash_readline_with_bindings(keys, inputrc);
-    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+fn bash_readline_and_sushline_match_lowercase_version_cases() {
+    for (case, inputrc, keys, expected, expected_bells) in [
+        (
+            "case_variant",
+            r#""A": do-lowercase-version"#,
+            b"A\r".as_slice(),
+            "a",
+            0,
+        ),
+        (
+            "no_case_variant",
+            r#""1": do-lowercase-version"#,
+            b"1\r".as_slice(),
+            "",
+            1,
+        ),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
 
-    assert_eq!(
-        accepted_line(&sushline),
-        accepted_line(&bash),
-        "bash={bash}\nsushline={sushline}"
-    );
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "Bash {case}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "Sushline {case}: {sushline}"
+        );
+        assert_eq!(bell_count(&bash), expected_bells, "Bash {case}: {bash}");
+        assert_eq!(
+            bell_count(&sushline),
+            expected_bells,
+            "Sushline {case}: {sushline}"
+        );
+    }
 }
 
 #[test]

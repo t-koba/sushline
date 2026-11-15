@@ -677,19 +677,19 @@ fn completion_query_wakeup_rechecks_hooks_without_answering_prompt() {
 }
 
 #[test]
-fn completion_pager_resize_dismisses_page_without_consuming_next_input() {
+fn completion_pager_resize_keeps_paging_and_consumes_quit() {
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Resize(TerminalSize {
             columns: 32,
             rows: 5,
         }),
-        TerminalEvent::Bytes(b"q".to_vec()),
+        TerminalEvent::Bytes(b"q\r".to_vec()),
     ]);
     let mut line = Editor::new(Config::default(), terminal, History::new());
     line.load_inputrc_str("set completion-query-items 0\nset page-completions on")
         .unwrap();
     let response = CompletionResponse {
-        candidates: (0..24)
+        candidates: (0..48)
             .map(|index| crate::completion::CompletionCandidate {
                 replacement: format!("candidate-{index:02}-{}", "x".repeat(90)).into_bytes(),
                 display: None,
@@ -700,13 +700,16 @@ fn completion_pager_resize_dismisses_page_without_consuming_next_input() {
 
     line.display_completions(&response).unwrap();
 
-    assert!(line.terminal.out.contains("--More--"));
-    assert!(line.terminal.out.contains("candidate-22-"));
-    assert!(!line.terminal.out.contains("candidate-23-"));
-    assert!(matches!(
-        line.terminal.events.front(),
-        Some(TerminalEvent::Bytes(bytes)) if bytes == b"q"
-    ));
+    // Resize advances a page rather than dismissing paging. The next q quits
+    // at the second pager prompt, leaving Enter for normal line input.
+    assert_eq!(line.terminal.out.matches("--More--").count(), 2);
+    assert!(line.terminal.out.contains("candidate-45-"));
+    assert!(!line.terminal.out.contains("candidate-46-"));
+    assert_eq!(
+        line.read_input_event(None).unwrap(),
+        TerminalEvent::Bytes(b"\r".to_vec())
+    );
+    assert!(line.terminal.events.is_empty());
 }
 
 #[test]

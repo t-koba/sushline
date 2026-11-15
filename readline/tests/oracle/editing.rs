@@ -2591,6 +2591,30 @@ fn bash_readline_and_sushline_accept_same_vi_completion_bindings() {
 }
 
 #[test]
+fn bash_readline_and_sushline_accept_same_direct_vi_complete_binding() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::write(dir.path().join("alpha"), "").expect("write alpha fixture");
+    fs::write(dir.path().join("alpine"), "").expect("write alpine fixture");
+    let inputrc = "set editing-mode vi\nset completion-query-items 999\nset keymap vi-command\n\"*\": vi-complete";
+    let typed = format!("{}/al\x1b*\r", dir.path().display());
+    let bash = run_bash_readline_with_inputrc_file(typed.as_bytes(), inputrc);
+    let sushline = run_sushline_harness_with_inputrc(typed.as_bytes(), inputrc);
+    let path = dir.path().display();
+    let expected = format!("{path}/alpha {path}/alpine ");
+
+    assert_eq!(
+        accepted_line(&bash).as_deref(),
+        Some(expected.as_str()),
+        "Bash: {bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline).as_deref(),
+        Some(expected.as_str()),
+        "Sushline: {sushline}"
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_vi_character_search() {
     let keys = b"abcabc\x1b0fcix\r";
     let inputrc = "set editing-mode vi";

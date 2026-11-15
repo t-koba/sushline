@@ -1043,9 +1043,14 @@ fn bash_readline_and_sushline_re_read_init_file_reload_same_bindings() {
     let sushline = run_sushline_harness_with_reloaded_inputrc(keys, initial, reloaded);
 
     assert_eq!(
-        accepted_line(&sushline),
         accepted_line(&bash),
-        "bash={bash}\nsushline={sushline}"
+        Some("Xabc".to_string()),
+        "Bash: {bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        Some("Xabc".to_string()),
+        "Sushline: {sushline}"
     );
 }
 

@@ -470,7 +470,7 @@ where
             self.variable_is_on("print-completions-horizontally"),
             false,
         );
-        let page_rows = self.terminal_screen_rows().saturating_sub(1).max(1);
+        let mut page_rows = self.terminal_screen_rows().saturating_sub(1).max(1);
         let mut idx = 0;
         let mut page_remaining = page_rows;
         while idx < lines.len() {
@@ -493,7 +493,12 @@ where
                     TerminalEvent::Bytes(bytes) if matches!(bytes.as_slice(), b" " | b"\t") => {
                         page_remaining = page_rows;
                     }
-                    TerminalEvent::Bytes(_) | TerminalEvent::Resize(_) => {
+                    TerminalEvent::Bytes(_) => {
+                        page_remaining = page_rows;
+                    }
+                    TerminalEvent::Resize(size) => {
+                        state.display.last_terminal_size = Some(size);
+                        page_rows = usize::from(size.rows.max(1)).saturating_sub(1).max(1);
                         page_remaining = page_rows;
                     }
                     TerminalEvent::Timeout | TerminalEvent::Wakeup => {

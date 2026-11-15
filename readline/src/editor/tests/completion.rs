@@ -700,11 +700,11 @@ fn completion_pager_resize_keeps_paging_and_consumes_quit() {
 
     line.display_completions(&response).unwrap();
 
-    // Resize advances a page rather than dismissing paging. The next q quits
-    // at the second pager prompt, leaving Enter for normal line input.
+    // Resize uses the new four-row page budget rather than the original 23;
+    // q quits at the second pager prompt, leaving Enter for normal line input.
     assert_eq!(line.terminal.out.matches("--More--").count(), 2);
-    assert!(line.terminal.out.contains("candidate-45-"));
-    assert!(!line.terminal.out.contains("candidate-46-"));
+    assert!(line.terminal.out.contains("candidate-26-"));
+    assert!(!line.terminal.out.contains("candidate-27-"));
     assert_eq!(
         line.read_input_event(None).unwrap(),
         TerminalEvent::Bytes(b"\r".to_vec())

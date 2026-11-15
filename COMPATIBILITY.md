@@ -237,7 +237,7 @@ Sushline-only extensions use the `Sushline extension` status.
 | `history-expand-line` | Compatible | Built-in expansion uses GNU-default policy; custom characters/policy are direct-API only. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
 | `history-and-alias-expand-line`, `alias-expand-line` | Hook-backed | Alias expansion uses `Hooks::expand_aliases`. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
 | `yank-nth-arg`, `yank-last-arg`, `insert-last-argument` | Hook-backed | Shell words; exact application lexer words may come from `Hooks::shell_words`. Yanking with nothing to yank rings once; an out-of-range or explicitly negative word number rings instead of clamping, and 0 yanks the command word. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
-| `fetch-history` | Compatible | Numbered fetch; an out-of-range number (including 0) silently fetches the first entry, and an empty history stays put. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
+| `fetch-history` | Compatible | With three entries, arguments 0, 4 and 6 fetch the first without a bell; argument 1 on empty history leaves the line empty without a bell. Test: `fetch_history_out_of_range_fetches_first_entry_like_bash` in [`oracle/history.rs`](readline/tests/oracle/history.rs). |
 | `operate-and-get-next` | Compatible | Multi-read prefill including numeric arguments. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
 
 ### Text Editing

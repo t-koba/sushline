@@ -677,6 +677,39 @@ fn completion_query_wakeup_rechecks_hooks_without_answering_prompt() {
 }
 
 #[test]
+fn completion_pager_resize_dismisses_page_without_consuming_next_input() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Resize(TerminalSize {
+            columns: 32,
+            rows: 5,
+        }),
+        TerminalEvent::Bytes(b"q".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set completion-query-items 0\nset page-completions on")
+        .unwrap();
+    let response = CompletionResponse {
+        candidates: (0..24)
+            .map(|index| crate::completion::CompletionCandidate {
+                replacement: format!("candidate-{index:02}-{}", "x".repeat(90)).into_bytes(),
+                display: None,
+            })
+            .collect(),
+        options: Default::default(),
+    };
+
+    line.display_completions(&response).unwrap();
+
+    assert!(line.terminal.out.contains("--More--"));
+    assert!(line.terminal.out.contains("candidate-22-"));
+    assert!(!line.terminal.out.contains("candidate-23-"));
+    assert!(matches!(
+        line.terminal.events.front(),
+        Some(TerminalEvent::Bytes(bytes)) if bytes == b"q"
+    ));
+}
+
+#[test]
 fn completion_query_resize_does_not_answer_prompt() {
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Resize(TerminalSize {

@@ -479,6 +479,10 @@ where
                 self.terminal.write(more_prompt)?;
                 self.terminal.flush()?;
                 match self.read_completion_response(hooks)? {
+                    TerminalEvent::Resize(_) => {
+                        self.write_tracked_newline(state)?;
+                        return Ok(());
+                    }
                     TerminalEvent::Bytes(bytes) if bytes.as_slice() == [0x03] => {
                         self.handle_input_interrupt(state)?;
                         return Ok(());
@@ -493,7 +497,7 @@ where
                     TerminalEvent::Bytes(bytes) if matches!(bytes.as_slice(), b" " | b"\t") => {
                         page_remaining = page_rows;
                     }
-                    TerminalEvent::Bytes(_) | TerminalEvent::Resize(_) => {
+                    TerminalEvent::Bytes(_) => {
                         page_remaining = page_rows;
                     }
                     TerminalEvent::Timeout | TerminalEvent::Wakeup => {

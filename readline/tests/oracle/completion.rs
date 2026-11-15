@@ -8044,8 +8044,9 @@ fn bash_readline_and_sushline_page_filename_completions_at_narrow_terminal_size(
 #[cfg(unix)]
 #[test]
 fn bash_and_sushline_compare_resize_during_completion_pagination() {
-    // Wait for the next pager prompt after resize before sending q, so the
-    // response cannot race the resize. Compare accepted lines, not redraw bytes.
+    // The pinned Bash fixture redraws the input prompt after this resize. Wait
+    // for that fresh prompt before sending q, so the response cannot race the
+    // resize. Compare accepted lines, not redraw bytes.
     use portable_pty::{CommandBuilder, PtySize};
 
     require_oracle_host();
@@ -8107,7 +8108,7 @@ set page-completions on"#;
         PtyResizeAction {
             marker: "--More--",
             size: resized_size,
-            post_resize_marker: Some("--More--"),
+            post_resize_marker: Some(READY_PROMPT),
             after_keys: b"q\r",
         },
         "SUSHLINE_ACCEPTED:",
@@ -8125,7 +8126,7 @@ set page-completions on"#;
         PtyResizeAction {
             marker: "--More--",
             size: resized_size,
-            post_resize_marker: Some("--More--"),
+            post_resize_marker: Some(READY_PROMPT),
             after_keys: b"q\r",
         },
         "SUSHLINE_ACCEPTED:",

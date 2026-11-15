@@ -220,7 +220,7 @@ Sushline-only extensions use the `Sushline extension` status.
 
 | Command(s) | Status | Notes |
 | --- | --- | --- |
-| `beginning-of-line`, `end-of-line`, `forward-char`, `backward-char`, `forward-word`, `backward-word` | Compatible | A character move that cannot move (including an excessive count) rings once, while a zero or fully satisfied count stays silent. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
+| `beginning-of-line`, `end-of-line`, `forward-char`, `backward-char`, `forward-word`, `backward-word` | Compatible | The paired `char_move_edges_ring_like_bash` fixture checks forward-at-end/over-count and backward-at-start/over-count failures (one bell each); backward count 0 and exact count 2 are silent, while a sign-only negative backward argument rings. The separate word-motion fixture compares one accepted-line edit only; no word-movement count or bell rule is claimed. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `forward-byte`, `backward-byte` | Compatible | Includes movement inside UTF-8 byte sequences. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `shell-forward-word`, `shell-backward-word` | Hook-backed | Built-in parser covers common cases; exact spans can come from `Hooks::shell_word_spans`. Tests: [`oracle/completion.rs`](readline/tests/oracle/completion.rs). |
 | `previous-screen-line`, `next-screen-line` | Compatible | Narrow-terminal movement. Tests: [`oracle/display.rs`](readline/tests/oracle/display.rs). |

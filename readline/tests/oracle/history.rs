@@ -122,24 +122,18 @@ set history-preserve-point on
     );
 }
 
-#[test]
-fn bash_readline_and_sushline_prefix_search_saves_edited_history() {
+fn assert_saved_history_projection(
+    keys: &[u8],
+    inputrc: &str,
+    history: &[&str],
+    expected_accepted: &str,
+    expected_history: &[u8],
+) {
     let dir = tempfile::tempdir().expect("history projection tempdir");
-    let inputrc = r#"set editing-mode emacs
-set keymap emacs-standard
-set revert-all-at-newline off
-"\e[5~": history-search-backward
-"#;
     let inputrc_path = dir.path().join("inputrc");
     fs::write(&inputrc_path, inputrc).expect("write history projection inputrc");
     let bash_path = dir.path().join("bash.history");
     let sushline_path = dir.path().join("sushline.history");
-    let history = ["alpha old", "beta", "alpha new"];
-    // Recall the newest entry, append an edit, move point after `alp`, and
-    // PageUp to the older prefix match before accepting it. This checks the
-    // saved entry we left behind, not just the accepted buffer. Neither host
-    // adds the accepted `read -e` buffer as a new history entry here.
-    let keys = b"\x10\x05 EDIT\x01\x06\x06\x06\x1b[5~\r";
 
     let mut bash_command = portable_pty::CommandBuilder::new("bash");
     bash_command.env("INPUTRC", inputrc_path.as_os_str());
@@ -180,20 +174,68 @@ set revert-all-at-newline off
     );
     assert_eq!(
         accepted_line(&bash).as_deref(),
-        Some("alpha old"),
-        "{context}"
+        Some(expected_accepted),
+        "unexpected Bash accepted buffer: {context}"
     );
-    assert_eq!(accepted_line(&sushline), accepted_line(&bash), "{context}");
+    assert_eq!(
+        accepted_line(&sushline).as_deref(),
+        Some(expected_accepted),
+        "unexpected Sushline accepted buffer: {context}"
+    );
     let bash_history =
         bash_history.unwrap_or_else(|err| panic!("read Bash history: {err}; {context}"));
     let sushline_history =
         sushline_history.unwrap_or_else(|err| panic!("read Sushline history: {err}; {context}"));
     assert_eq!(
         bash_history.as_slice(),
-        b"alpha old\nbeta\nalpha new EDIT\n",
+        expected_history,
         "unexpected Bash saved-history projection: {context}"
     );
-    assert_eq!(sushline_history, bash_history, "{context}");
+    assert_eq!(
+        sushline_history.as_slice(),
+        expected_history,
+        "unexpected Sushline saved-history projection: {context}"
+    );
+}
+
+#[test]
+fn bash_readline_and_sushline_prefix_search_saves_edited_history() {
+    let inputrc = r#"set editing-mode emacs
+set keymap emacs-standard
+set revert-all-at-newline off
+"\e[5~": history-search-backward
+"#;
+    let history = ["alpha old", "beta", "alpha new"];
+    // Recall the newest entry, append an edit, move point after `alp`, and
+    // PageUp to the older prefix match before accepting it. This checks the
+    // saved entry we left behind, not just the accepted buffer. Neither host
+    // adds the accepted `read -e` buffer as a new history entry here.
+    let keys = b"\x10\x05 EDIT\x01\x06\x06\x06\x1b[5~\r";
+    assert_saved_history_projection(
+        keys,
+        inputrc,
+        &history,
+        "alpha old",
+        b"alpha old\nbeta\nalpha new EDIT\n",
+    );
+}
+
+#[test]
+fn bash_readline_and_sushline_prefix_search_saves_partial_edit() {
+    let inputrc = r#""\e[5~": history-search-backward"#;
+    // Seed the history state of the report's second prompt: the final
+    // `echo hello` entry is recalled, edited to `echo w`, then PageUp searches
+    // backward to `echo world`. The read harness does not execute the accepted
+    // buffer, so its file isolates the partial entry before shell execution.
+    let history = ["echo hello", "echo world", "echo hello"];
+    let keys = b"\x10\x1bb\x0bw\x1b[5~\r";
+    assert_saved_history_projection(
+        keys,
+        inputrc,
+        &history,
+        "echo world",
+        b"echo hello\necho world\necho w\n",
+    );
 }
 
 #[test]

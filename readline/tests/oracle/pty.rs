@@ -1515,12 +1515,13 @@ fn stop_marker_count_line_complete(output: &[u8], marker: &str, count: usize) ->
         .any(|byte| matches!(byte, b'\r' | b'\n'))
 }
 
-/// Runs ordered PTY input steps, then resizes after a rendered marker and
-/// sends the next keys. Both checkpoints are output-causal; the deadline only
-/// bounds a hung child.
+/// Runs ordered PTY input steps, then resizes after a rendered marker. When
+/// configured, a fresh post-resize marker gates the follow-up keys; the deadline
+/// only bounds a hung child.
 pub(super) struct PtyResizeAction<'a> {
     pub(super) marker: &'a str,
     pub(super) size: PtySize,
+    pub(super) post_resize_marker: Option<&'a str>,
     pub(super) after_keys: &'a [u8],
 }
 
@@ -1537,6 +1538,9 @@ pub(super) fn run_pty_steps_then_resize_until(
         "at least one pre-resize input step is required"
     );
     assert!(!resize.marker.is_empty(), "resize marker must not be empty");
+    if let Some(marker) = resize.post_resize_marker {
+        assert!(!marker.is_empty(), "post-resize marker must not be empty");
+    }
     require_oracle_host();
     command.env("TERM", "xterm-256color");
     command.cwd(cwd);
@@ -1546,6 +1550,8 @@ pub(super) fn run_pty_steps_then_resize_until(
     let mut next_step = 0;
     let mut scan_start = 0;
     let mut resized = false;
+    let mut response_start = None;
+    let mut response_sent = false;
     let mut stopped = false;
 
     while Instant::now() < deadline {
@@ -1559,14 +1565,26 @@ pub(super) fn run_pty_steps_then_resize_until(
                     && next_step == steps.len()
                     && find_bytes(&output[scan_start..], resize.marker.as_bytes()).is_some()
                 {
+                    response_start = Some(output.len());
                     session
                         .master
                         .resize(resize.size)
                         .expect("resize PTY at rendered marker");
-                    session.write(resize.after_keys);
                     resized = true;
+                    if resize.post_resize_marker.is_none() {
+                        session.write(resize.after_keys);
+                        response_sent = true;
+                    }
                 }
-                if resized && stop_marker_count_line_complete(&output, stop_marker, 1) {
+                if resized
+                    && !response_sent
+                    && let (Some(start), Some(marker)) = (response_start, resize.post_resize_marker)
+                    && find_bytes(&output[start..], marker.as_bytes()).is_some()
+                {
+                    session.write(resize.after_keys);
+                    response_sent = true;
+                }
+                if response_sent && stop_marker_count_line_complete(&output, stop_marker, 1) {
                     stopped = true;
                     break;
                 }

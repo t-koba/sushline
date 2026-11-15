@@ -73,6 +73,7 @@ set page-completions off"#;
         PtyResizeAction {
             marker: "Display all 2 possibilities?",
             size: resized_size,
+            post_resize_marker: None,
             after_keys: b"n\r",
         },
         "SUSHLINE_ACCEPTED:",
@@ -90,6 +91,7 @@ set page-completions off"#;
         PtyResizeAction {
             marker: "Display all 2 possibilities?",
             size: resized_size,
+            post_resize_marker: None,
             after_keys: b"n\r",
         },
         "SUSHLINE_ACCEPTED:",
@@ -8042,8 +8044,8 @@ fn bash_readline_and_sushline_page_filename_completions_at_narrow_terminal_size(
 #[cfg(unix)]
 #[test]
 fn bash_and_sushline_compare_resize_during_completion_pagination() {
-    // The resize is synchronized on the rendered pager prompt; this fixture
-    // compares the accepted line, not general redraw-byte behavior.
+    // Wait for the next pager prompt after resize before sending q, so the
+    // response cannot race the resize. Compare accepted lines, not redraw bytes.
     use portable_pty::{CommandBuilder, PtySize};
 
     require_oracle_host();
@@ -8105,6 +8107,7 @@ set page-completions on"#;
         PtyResizeAction {
             marker: "--More--",
             size: resized_size,
+            post_resize_marker: Some("--More--"),
             after_keys: b"q\r",
         },
         "SUSHLINE_ACCEPTED:",
@@ -8122,6 +8125,7 @@ set page-completions on"#;
         PtyResizeAction {
             marker: "--More--",
             size: resized_size,
+            post_resize_marker: Some("--More--"),
             after_keys: b"q\r",
         },
         "SUSHLINE_ACCEPTED:",

@@ -162,9 +162,10 @@ character and redisplays once. The editor dispatches a batch character by
 character, draws the pending text before a key that interrupts it, and keeps
 the bytes that follow an accepted line in the input stream, so the next read
 continues with them. A key that changes the display without running a command,
-like the query of an incremental search, redraws at once, like GNU Readline's
-search display, which is redrawn for every query key. A custom `TerminalIo` implementation owns its own read
-granularity; the editor draws the text of an event once, when the event ends.
+like an incremental-search query, redraws at once in Sushline. Current pinned
+oracle fixtures do not establish GNU incremental-search query-redraw cadence.
+A custom `TerminalIo` implementation owns its own read granularity; the editor
+draws the text of an event once, when the event ends.
 
 Every error text the editor writes goes through `TerminalIo::write_diagnostic`:
 the inputrc diagnostics, the readline error messages, and the history

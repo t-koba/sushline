@@ -1531,9 +1531,7 @@ fn run_pty_input_steps_in_dir_with_size_raw_until_count(
         match session.read(Duration::from_millis(20)) {
             PtyOutput::Chunk(chunk) => {
                 out.extend_from_slice(&chunk);
-                if let Some(keys) =
-                    take_pty_input_step(&out, steps, &mut next_step, &mut scan_start)
-                {
+                if let Some(keys) = take_pty_step(&out, steps, &mut next_step, &mut scan_start) {
                     session.write(keys);
                 }
                 if next_step == steps.len()
@@ -1551,7 +1549,8 @@ fn run_pty_input_steps_in_dir_with_size_raw_until_count(
     out
 }
 
-fn take_pty_input_step<'a>(
+// Keep byte and rendered-row gates on the same step-selection path.
+fn take_pty_step<'a>(
     output: &[u8],
     steps: &[PtyInputStep<'a>],
     next_step: &mut usize,
@@ -1576,20 +1575,6 @@ fn screen_shows_row(output: &[u8], row_marker: &str) -> bool {
     let mut screen = super::screen::Screen::new(24, 80);
     screen.feed(output);
     screen.rows_text().iter().any(|row| row == row_marker)
-}
-
-// Isolate step selection so framing can be tested with exact PTY read chunks.
-fn take_pty_step<'a>(
-    output: &[u8],
-    steps: &[(&str, &'a [u8])],
-    next_step: &mut usize,
-    scan_start: &mut usize,
-) -> Option<&'a [u8]> {
-    let (marker, keys) = steps.get(*next_step)?;
-    find_bytes(&output[*scan_start..], marker.as_bytes())?;
-    *next_step += 1;
-    *scan_start = output.len();
-    Some(keys)
 }
 
 fn stop_marker_count_line_complete(output: &[u8], marker: &str, count: usize) -> bool {
@@ -1648,6 +1633,7 @@ pub(super) fn run_pty_steps_then_resize_until(
         assert!(!marker.is_empty(), "post-resize marker must not be empty");
     }
     require_oracle_host();
+    let steps = byte_steps(steps);
     command.env("TERM", "xterm-256color");
     command.cwd(cwd);
     let mut session = PtySession::spawn(command, initial_size);
@@ -1664,7 +1650,8 @@ pub(super) fn run_pty_steps_then_resize_until(
         match session.read(Duration::from_millis(20)) {
             PtyOutput::Chunk(chunk) => {
                 output.extend_from_slice(&chunk);
-                if let Some(keys) = take_pty_step(&output, steps, &mut next_step, &mut scan_start) {
+                if let Some(keys) = take_pty_step(&output, &steps, &mut next_step, &mut scan_start)
+                {
                     session.write(keys);
                 }
                 if !resized
@@ -2236,10 +2223,11 @@ fn checkpoint_barrier_excludes_post_bell_bytes_and_survives_split_output() {
 #[test]
 fn numbered_step_markers_ignore_redisplay_and_split_accepted_hex() {
     require_oracle_host();
-    let steps = [
+    let raw_steps = [
         ("SUSHLINE_READY>1:", b"first\r".as_slice()),
         ("SUSHLINE_READY>2:", b"second\r".as_slice()),
     ];
+    let steps = byte_steps(&raw_steps);
     let next_read = b"\r\nSUSHLINE_READY>2:";
     // Exercise every boundary, including CR/LF and inside the next prompt.
     for split in 0..=next_read.len() {
@@ -2247,7 +2235,7 @@ fn numbered_step_markers_ignore_redisplay_and_split_accepted_hex() {
         let (mut step, mut start) = (0, 0);
         assert_eq!(
             take_pty_step(&output, &steps, &mut step, &mut start),
-            Some(steps[0].1)
+            Some(steps[0].keys)
         );
         // A redraw arrives separately, followed by an accepted hex payload
         // whose newline has not arrived yet. A shared prompt would send the
@@ -2261,11 +2249,11 @@ fn numbered_step_markers_ignore_redisplay_and_split_accepted_hex() {
         }
         output.extend_from_slice(&next_read[..split]);
         let sent = take_pty_step(&output, &steps, &mut step, &mut start);
-        assert_eq!(sent, (split == next_read.len()).then_some(steps[1].1));
+        assert_eq!(sent, (split == next_read.len()).then_some(steps[1].keys));
         output.extend_from_slice(&next_read[split..]);
         assert_eq!(
             take_pty_step(&output, &steps, &mut step, &mut start),
-            (split != next_read.len()).then_some(steps[1].1)
+            (split != next_read.len()).then_some(steps[1].keys)
         );
         assert_eq!(take_pty_step(&output, &steps, &mut step, &mut start), None);
         assert_eq!(step, steps.len());

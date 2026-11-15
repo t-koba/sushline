@@ -1434,8 +1434,83 @@ pub(super) fn run_pty_steps_until_with_timeout(
 /// final occurrence line-complete. The hang bound is the one the other
 /// drivers use.
 pub(super) fn run_pty_steps_in_dir_with_size_raw_until_count(
-    mut command: CommandBuilder,
+    command: CommandBuilder,
     steps: &[(&str, &[u8])],
+    cwd: &std::path::Path,
+    size: PtySize,
+    stop_marker: &str,
+    stop_count: usize,
+    timeout: Duration,
+) -> Vec<u8> {
+    run_pty_input_steps_in_dir_with_size_raw_until_count(
+        command,
+        &byte_steps(steps),
+        cwd,
+        size,
+        stop_marker,
+        stop_count,
+        timeout,
+    )
+}
+
+#[derive(Clone, Copy)]
+enum PtyStepMarker<'a> {
+    Bytes(&'a str),
+    ScreenRow(&'a str),
+}
+
+#[derive(Clone, Copy)]
+struct PtyInputStep<'a> {
+    marker: PtyStepMarker<'a>,
+    keys: &'a [u8],
+}
+
+fn byte_steps<'a>(steps: &'a [(&'a str, &'a [u8])]) -> Vec<PtyInputStep<'a>> {
+    steps
+        .iter()
+        .map(|(marker, keys)| PtyInputStep {
+            marker: PtyStepMarker::Bytes(marker),
+            keys,
+        })
+        .collect()
+}
+
+/// Sends an input step only after the current terminal screen shows an exact row.
+/// The row is parsed through the screen model, so terminal attributes do not
+/// split the marker and earlier text in the transcript cannot satisfy it.
+pub(super) fn run_pty_steps_until_screen_row(
+    command: CommandBuilder,
+    steps_before_row: &[(&str, &[u8])],
+    row_marker: &str,
+    after_row_keys: &[u8],
+    steps_after_row: &[(&str, &[u8])],
+    stop_marker: &str,
+) -> String {
+    let mut steps = byte_steps(steps_before_row);
+    steps.push(PtyInputStep {
+        marker: PtyStepMarker::ScreenRow(row_marker),
+        keys: after_row_keys,
+    });
+    steps.extend(byte_steps(steps_after_row));
+    lossy_output(&run_pty_input_steps_in_dir_with_size_raw_until_count(
+        command,
+        &steps,
+        std::path::Path::new("/"),
+        PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        },
+        stop_marker,
+        1,
+        PTY_HANG_BOUND,
+    ))
+}
+
+fn run_pty_input_steps_in_dir_with_size_raw_until_count(
+    mut command: CommandBuilder,
+    steps: &[PtyInputStep<'_>],
     cwd: &std::path::Path,
     size: PtySize,
     stop_marker: &str,
@@ -1456,10 +1531,14 @@ pub(super) fn run_pty_steps_in_dir_with_size_raw_until_count(
         match session.read(Duration::from_millis(20)) {
             PtyOutput::Chunk(chunk) => {
                 out.extend_from_slice(&chunk);
-                if let Some(keys) = take_pty_step(&out, steps, &mut next_step, &mut scan_start) {
+                if let Some(keys) =
+                    take_pty_input_step(&out, steps, &mut next_step, &mut scan_start)
+                {
                     session.write(keys);
                 }
-                if stop_marker_count_line_complete(&out, stop_marker, stop_count) {
+                if next_step == steps.len()
+                    && stop_marker_count_line_complete(&out, stop_marker, stop_count)
+                {
                     break;
                 }
             }
@@ -1470,6 +1549,33 @@ pub(super) fn run_pty_steps_in_dir_with_size_raw_until_count(
 
     session.finish();
     out
+}
+
+fn take_pty_input_step<'a>(
+    output: &[u8],
+    steps: &[PtyInputStep<'a>],
+    next_step: &mut usize,
+    scan_start: &mut usize,
+) -> Option<&'a [u8]> {
+    let step = *steps.get(*next_step)?;
+    let matched = match step.marker {
+        PtyStepMarker::Bytes(marker) => {
+            find_bytes(&output[*scan_start..], marker.as_bytes()).is_some()
+        }
+        PtyStepMarker::ScreenRow(row) => screen_shows_row(output, row),
+    };
+    if !matched {
+        return None;
+    }
+    *next_step += 1;
+    *scan_start = output.len();
+    Some(step.keys)
+}
+
+fn screen_shows_row(output: &[u8], row_marker: &str) -> bool {
+    let mut screen = super::screen::Screen::new(24, 80);
+    screen.feed(output);
+    screen.rows_text().iter().any(|row| row == row_marker)
 }
 
 // Isolate step selection so framing can be tested with exact PTY read chunks.
@@ -2164,4 +2270,14 @@ fn numbered_step_markers_ignore_redisplay_and_split_accepted_hex() {
         assert_eq!(take_pty_step(&output, &steps, &mut step, &mut start), None);
         assert_eq!(step, steps.len());
     }
+}
+
+#[test]
+fn screen_row_marker_waits_for_nonempty_search_and_ignores_highlighting() {
+    let query_row = "(reverse-i-search)`a': alpha two";
+    let mut output = b"\r(reverse-i-search)`': alpha two".to_vec();
+    assert!(!screen_shows_row(&output, query_row));
+
+    output.extend_from_slice(b"\r(reverse-i-search)`a': alph\x1b[7ma\x1b[27m two");
+    assert!(screen_shows_row(&output, query_row));
 }

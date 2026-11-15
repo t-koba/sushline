@@ -519,7 +519,7 @@ fn bash_readline_and_sushline_accept_same_case_word_edits() {
 #[test]
 fn bash_readline_and_sushline_transpose_chars_numeric_arguments() {
     // These paired Bash 5.3 PTY cases assert accepted lines only; they do not
-    // claim redisplay or bell parity beyond the separate no-op fixtures.
+    // claim redisplay or bell parity.
     let inputrc = r#""\C-o": transpose-chars"#;
     type Case = (
         &'static str,

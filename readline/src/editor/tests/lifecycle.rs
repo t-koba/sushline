@@ -405,10 +405,8 @@ fn batched_non_incremental_query_plus_enter_matches_fragmented_reads() {
 
 #[test]
 fn batched_search_query_draws_like_split_reads() {
-    // GNU Readline redraws the search display for every query key, so a
-    // batch that carries the query with the search key draws the same
-    // screen as the split reads. A Bash 5.3 PTY observation: the batched
-    // write and the split write produce the same output.
+    // Sushline should render the same search display whether the search
+    // key and query arrive in one input batch or in separate reads.
     fn run(events: Vec<TerminalEvent>) -> (String, Vec<u16>) {
         let terminal = super::MemoryTerminal::with_events(events);
         let mut line = Editor::new(Config::default(), terminal, History::new());

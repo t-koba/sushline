@@ -46,18 +46,21 @@ list for both 8.3 additions. The suite reads the same identity signals from
 the pinned library and reports them in the job log, so another release
 cannot pass as the pinned one.
 
-The 8.3 baseline is supported by successful pinned CI measurements as well
-as reference-host observations. CI evidence includes:
+The 8.3 baseline is supported by required pinned CI assertions, manual-refresh
+direct-library measurements, and reference-host observations. Direct-library
+measurements listed here run only on `workflow_dispatch` with
+`refresh_upstream_measurements=true` (default false); they are not part of the
+required push/pull-request checks. Evidence includes:
 
-- The oracle suite against the pinned Bash/Readline host and the
-  output-stream probe against the pinned Readline release, checking the
-  output-stream row on 8.3 rather than only the runner's 8.2 library.
-- The history range measurement linked to the pinned history library. Its
+- The required oracle suite against the pinned Bash/Readline host.
+- A direct output-stream probe against the pinned Readline release, checking
+  the output-stream row on 8.3 rather than only the runner's 8.2 library.
+- A direct history range measurement linked to the pinned history library. Its
   loader guard reported the pinned prefix for every loaded Readline and
   History library, establishing that the pinned 8.3 range call produced the
   file-range row's fixture entries, including the two cases where GNU and
   Sushline read the file differently.
-- The history timestamp measurement linked to the pinned history library,
+- A direct history timestamp measurement linked to the pinned history library,
   with the same library-naming loader guard, measuring the list-information
   row's rule against the target release rather than only the runner's
   library.
@@ -695,9 +698,14 @@ empty entry. `HistoryReadOptions::range_policy` defaults to
 `HistoryRangePolicy::Sushline`: equal bounds select one physical position and reversed
 bounds select through EOF. Convenience methods retain that default.
 
-Opt-in `GnuReadline83` matches the pinned GNU Readline 8.3 range matrix asserted in CI:
-timestamped/plain forward ranges, late markers, blank-line edges in both grouping modes,
-no-blank equal/reversed per-line edges, and per-line out-of-range bounds.
+Opt-in `GnuReadline83` is checked against stored projections of the pinned GNU
+Readline 8.3 range matrix. Ordinary workspace CI runs the Rust assertions in
+[`history/tests/history.rs`](history/tests/history.rs); the direct
+`read_history_range` probe that measured those GNU projections runs only for
+`workflow_dispatch` with `refresh_upstream_measurements=true` (default false).
+The matrix covers timestamped/plain forward ranges, late markers, blank-line
+edges in both grouping modes, no-blank equal/reversed per-line edges, and
+per-line out-of-range bounds.
 
 - In the no-blank timestamped fixture, (0,0), (2,2) and (2,1) yield no entries; in the
   plain fixture they yield {C0}, {C2} and {C2}.

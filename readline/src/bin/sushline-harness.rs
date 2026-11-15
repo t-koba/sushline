@@ -132,6 +132,14 @@ fn main() -> ExitCode {
         };
         match line.read_line(read_prompt, &mut hooks) {
             Ok(ReadlineResult::Line(bytes)) => {
+                // Write before the marker so PTY callers can read a complete
+                // history projection as soon as acceptance is observed.
+                if let Some(path) = std::env::var_os("SUSHLINE_HISTORY_OUT")
+                    && let Err(err) = line.history().write_file(Path::new(&path))
+                {
+                    eprintln!("SUSHLINE_HISTORY_OUT_ERROR:{err:?}");
+                    return ExitCode::from(1);
+                }
                 if reads == 1 {
                     println!("SUSHLINE_ACCEPTED:{}", String::from_utf8_lossy(&bytes));
                 } else {

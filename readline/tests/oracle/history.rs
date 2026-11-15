@@ -95,6 +95,75 @@ set history-preserve-point on
 }
 
 #[test]
+fn bash_readline_and_sushline_prefix_search_saves_edited_history() {
+    let dir = tempfile::tempdir().expect("history projection tempdir");
+    let inputrc = r#"set editing-mode emacs
+set keymap emacs-standard
+set revert-all-at-newline off
+"\e[5~": history-search-backward
+"#;
+    let inputrc_path = dir.path().join("inputrc");
+    fs::write(&inputrc_path, inputrc).expect("write history projection inputrc");
+    let bash_path = dir.path().join("bash.history");
+    let sushline_path = dir.path().join("sushline.history");
+    let history = ["alpha old", "beta", "alpha new"];
+    // Recall the newest entry, append an edit, move point after `alp`, and
+    // PageUp to the older prefix match before accepting it. This checks the
+    // saved entry we left behind, not just the accepted buffer. Neither host
+    // adds the accepted `read -e` buffer as a new history entry here.
+    let keys = b"\x10\x05 EDIT\x01\x06\x06\x06\x1b[5~\r";
+
+    let mut bash_command = portable_pty::CommandBuilder::new("bash");
+    bash_command.env("INPUTRC", inputrc_path.as_os_str());
+    bash_command.env("SUSHLINE_HISTORY_OUT", bash_path.as_os_str());
+    bash_command.env("HISTFILE", bash_path.as_os_str());
+    bash_command.env("HISTSIZE", "100");
+    bash_command.env("HISTFILESIZE", "100");
+    let seed = history
+        .iter()
+        .map(|entry| format!("history -s {}", shell_single_quote(entry)))
+        .collect::<Vec<_>>()
+        .join("; ");
+    bash_command.args([
+        "--noprofile",
+        "--norc",
+        "-i",
+        "-c",
+        &format!(
+            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; unset HISTTIMEFORMAT HISTCONTROL HISTIGNORE; history -c; {seed}; IFS= read -r -e -p "{READY_PROMPT}" line && history -w "$SUSHLINE_HISTORY_OUT" && printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+        ),
+    ]);
+    let bash = run_pty_until(bash_command, keys, "SUSHLINE_ACCEPTED:");
+
+    let mut sushline_command =
+        portable_pty::CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    sushline_command.env("SUSHLINE_INPUTRC", inputrc);
+    sushline_command.env("SUSHLINE_PROMPT", READY_PROMPT);
+    sushline_command.env("SUSHLINE_HISTORY", history.join("\n"));
+    sushline_command.env("SUSHLINE_HISTORY_OUT", sushline_path.as_os_str());
+    let sushline = run_pty_until(sushline_command, keys, "SUSHLINE_ACCEPTED:");
+
+    let bash_history = fs::read(&bash_path);
+    let sushline_history = fs::read(&sushline_path);
+    let context = format!(
+        "keys={keys:?}\ninputrc={inputrc}\nseed={history:?}\n\
+         bash={bash}\nsushline={sushline}\n\
+         bash history={bash_history:?}\nsushline history={sushline_history:?}"
+    );
+    assert_eq!(
+        accepted_line(&bash).as_deref(),
+        Some("alpha old"),
+        "{context}"
+    );
+    assert_eq!(accepted_line(&sushline), accepted_line(&bash), "{context}");
+    let bash_history =
+        bash_history.unwrap_or_else(|err| panic!("read Bash history: {err}; {context}"));
+    let sushline_history =
+        sushline_history.unwrap_or_else(|err| panic!("read Sushline history: {err}; {context}"));
+    assert_eq!(sushline_history, bash_history, "{context}");
+}
+
+#[test]
 fn bash_readline_and_sushline_prefix_search_steps_past_current_entry() {
     let inputrc = r#""\C-]": history-search-backward
 "\C-^": history-search-forward"#;

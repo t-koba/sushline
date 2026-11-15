@@ -738,16 +738,11 @@ fn bash_and_sushline_horizontal_scroll_matches_geometry_for_bytewise_wide_tail_u
     // accepted text must retain the full UTF-8 input in each editor.
     let mut keys = text.as_bytes().to_vec();
     keys.push(b'\r');
-    let size = PtySize {
-        rows: 24,
-        cols: 80,
-        pixel_width: 0,
-        pixel_height: 0,
-    };
+    let accepted_steps = [("P>", keys.as_slice())];
     for bash in [true, false] {
         let dir = tempfile::tempdir().expect("tempdir");
         let command = horizontal_scroll_command(bash, "P>", dir.path(), "C.UTF-8");
-        let output = run_pty_with_size(command, &keys, size);
+        let output = run_pty_steps_until(command, &accepted_steps, "SUSHLINE_ACCEPTED:");
         assert_eq!(
             accepted_line(&output).as_deref(),
             Some(text.as_str()),

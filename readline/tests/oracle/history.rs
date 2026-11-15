@@ -130,7 +130,7 @@ set revert-all-at-newline off
         "-i",
         "-c",
         &format!(
-            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; unset HISTTIMEFORMAT HISTCONTROL HISTIGNORE; history -c; {seed}; IFS= read -r -e -p "{READY_PROMPT}" line && history -w "$SUSHLINE_HISTORY_OUT" && printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; unset HISTTIMEFORMAT HISTCONTROL HISTIGNORE; history -c; {seed}; IFS= read -r -e -p "{READY_PROMPT}" line && history -w "$SUSHLINE_HISTORY_OUT" && unset HISTFILE && printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
         ),
     ]);
     let bash = run_pty_until(bash_command, keys, "SUSHLINE_ACCEPTED:");
@@ -160,6 +160,11 @@ set revert-all-at-newline off
         bash_history.unwrap_or_else(|err| panic!("read Bash history: {err}; {context}"));
     let sushline_history =
         sushline_history.unwrap_or_else(|err| panic!("read Sushline history: {err}; {context}"));
+    assert_eq!(
+        bash_history.as_slice(),
+        b"alpha old\nbeta\nalpha new EDIT\n",
+        "unexpected Bash saved-history projection: {context}"
+    );
     assert_eq!(sushline_history, bash_history, "{context}");
 }
 

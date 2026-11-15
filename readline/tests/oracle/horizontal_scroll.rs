@@ -130,7 +130,10 @@ fn horizontal_scroll_command(
             "--norc",
             "-i",
             "-c",
-            &format!("IFS= read -r -e -p {} line", shell_single_quote(prompt)),
+            &format!(
+                "IFS= read -r -e -p {} line; printf 'SUSHLINE_ACCEPTED:%s\\n' \"$line\"",
+                shell_single_quote(prompt)
+            ),
         ]);
         command
     } else {
@@ -667,6 +670,16 @@ fn bash_horizontal_scroll_starts_the_window_on_the_byte_edge() {
     }
 }
 
+fn bytewise_wide_tail_frames(text: &str) -> ((String, usize), (String, usize)) {
+    let steps: Vec<Vec<u8>> = text.as_bytes().iter().map(|byte| vec![*byte]).collect();
+    let bash = checkpoints_with_locale(true, 80, "P>", &steps, "C.UTF-8");
+    let sushline = checkpoints_with_locale(false, 80, "P>", &steps, "C.UTF-8");
+    (
+        bash.last().expect("GNU frame").clone(),
+        sushline.last().expect("Sushline frame").clone(),
+    )
+}
+
 #[test]
 fn bash_and_sushline_horizontal_scroll_matches_geometry_for_bytewise_wide_tail() {
     if !c_utf8_locale_available() {
@@ -678,15 +691,12 @@ fn bash_and_sushline_horizontal_scroll_matches_geometry_for_bytewise_wide_tail()
     // valid glyph intact, so this fixture compares geometry separately.
     let base = "0123456789".repeat(10);
     let text = format!("{base}\u{4e2d}");
-    let steps: Vec<Vec<u8>> = text.as_bytes().iter().map(|byte| vec![*byte]).collect();
-    let bash = checkpoints_with_locale(true, 80, "P>", &steps, "C.UTF-8");
-    let sushline = checkpoints_with_locale(false, 80, "P>", &steps, "C.UTF-8");
-    let (bash_screen, bash_column) = bash.last().expect("GNU frame");
-    let (sushline_screen, sushline_column) = sushline.last().expect("Sushline frame");
+    let ((bash_screen, bash_column), (sushline_screen, sushline_column)) =
+        bytewise_wide_tail_frames(&text);
     let visible_digits = |screen: &str| screen.chars().filter(char::is_ascii_digit).count();
-    assert_eq!((visible_digits(bash_screen), *bash_column), (46, 49), "GNU");
+    assert_eq!((visible_digits(&bash_screen), bash_column), (46, 49), "GNU");
     assert_eq!(
-        (visible_digits(sushline_screen), *sushline_column),
+        (visible_digits(&sushline_screen), sushline_column),
         (46, 49),
         "Sushline"
     );
@@ -698,6 +708,52 @@ fn bash_and_sushline_horizontal_scroll_matches_geometry_for_bytewise_wide_tail()
         sushline_screen.ends_with("中"),
         "Sushline row: {sushline_screen:?}"
     );
+}
+
+#[test]
+fn bash_and_sushline_horizontal_scroll_matches_geometry_for_bytewise_wide_tail_u754c() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+    let text = format!("{}界", "0123456789".repeat(10));
+    let ((bash_screen, bash_column), (sushline_screen, sushline_column)) =
+        bytewise_wide_tail_frames(&text);
+    let visible_digits = |screen: &str| screen.chars().filter(char::is_ascii_digit).count();
+    assert_eq!(
+        (visible_digits(&bash_screen), bash_column),
+        (46, 49),
+        "GNU geometry"
+    );
+    assert_eq!(
+        (visible_digits(&sushline_screen), sushline_column),
+        (46, 49),
+        "Sushline geometry"
+    );
+    assert!(
+        sushline_screen.ends_with('界'),
+        "Sushline row: {sushline_screen:?}"
+    );
+
+    // Keep acceptance separate from the bytewise redisplay checkpoints: the
+    // accepted text must retain the full UTF-8 input in each editor.
+    let mut keys = text.as_bytes().to_vec();
+    keys.push(b'\r');
+    let size = PtySize {
+        rows: 24,
+        cols: 80,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    for bash in [true, false] {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let command = horizontal_scroll_command(bash, "P>", dir.path(), "C.UTF-8");
+        let output = run_pty_with_size(command, &keys, size);
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some(text.as_str()),
+            "bash={bash}"
+        );
+    }
 }
 
 #[test]

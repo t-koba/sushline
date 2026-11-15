@@ -1463,9 +1463,14 @@ fn bash_readline_and_sushline_accept_same_execute_named_command() {
     let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
 
     assert_eq!(
-        accepted_line(&sushline),
         accepted_line(&bash),
-        "bash={bash}\nsushline={sushline}"
+        Some("Xabc".to_string()),
+        "Bash: {bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        Some("Xabc".to_string()),
+        "Sushline: {sushline}"
     );
 }
 

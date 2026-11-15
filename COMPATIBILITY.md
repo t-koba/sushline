@@ -251,7 +251,7 @@ Sushline-only extensions use the `Sushline extension` status.
 | `transpose-words` | Compatible | Numeric behavior. Tests: [`editing.rs`](readline/tests/editing.rs), [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `shell-transpose-words` | Hook-backed | Quoted-word and numeric behavior with accepted-line cursor placement; exact spans may come from hooks. Tests: [`editing.rs`](readline/tests/editing.rs), [`oracle/completion.rs`](readline/tests/oracle/completion.rs). |
 | `upcase-word`, `downcase-word`, `capitalize-word` | Hook-backed | Numeric behavior with hookable word classes via `Hooks::editing_word_breaks`. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
-| `overwrite-mode` | Compatible | Editor tests. Tests: [`editing.rs`](readline/tests/editing.rs). |
+| `overwrite-mode` | Compatible | One paired Bash PTY sanity case types `abcd`, moves to the start, toggles overwrite mode with Ctrl-P, inserts `X`, and accepts `Xbcd` in both editors. This establishes only that toggle/insertion case; the fixture’s other cases cover `forward-backward-delete-char` in overwrite mode. Test: [`bash_readline_and_sushline_forward_backward_delete_char_deletes_backward_in_overwrite_mode`](readline/tests/oracle/editing.rs). |
 
 ### Killing And Yanking
 

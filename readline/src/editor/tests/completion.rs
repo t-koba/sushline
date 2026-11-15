@@ -677,6 +677,36 @@ fn completion_query_wakeup_rechecks_hooks_without_answering_prompt() {
 }
 
 #[test]
+fn completion_query_resize_does_not_answer_prompt() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Resize(TerminalSize {
+            columns: 32,
+            rows: 12,
+        }),
+        TerminalEvent::Bytes(b"n".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set completion-query-items 1")
+        .unwrap();
+    let response = CompletionResponse {
+        candidates: [b"alpha".as_slice(), b"beta".as_slice()]
+            .into_iter()
+            .map(|replacement| crate::completion::CompletionCandidate {
+                replacement: replacement.to_vec(),
+                display: None,
+            })
+            .collect(),
+        options: Default::default(),
+    };
+
+    line.display_completions(&response).unwrap();
+
+    assert!(line.terminal.out.contains("Display all 2 possibilities?"));
+    assert!(!line.terminal.out.contains("alpha"));
+    assert!(!line.terminal.out.contains("beta"));
+}
+
+#[test]
 fn completion_query_wakeup_delivers_hook_signal() {
     struct AfterWakeHook(usize);
 

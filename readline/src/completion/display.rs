@@ -314,7 +314,14 @@ where
                 ),
             )?;
             self.terminal.flush()?;
-            match self.read_completion_response(hooks)? {
+            // A resize changes the display, not the answer to this prompt.
+            let answer = loop {
+                match self.read_completion_response(hooks)? {
+                    TerminalEvent::Resize(_) => continue,
+                    event => break event,
+                }
+            };
+            match answer {
                 TerminalEvent::Bytes(bytes) if bytes.as_slice() == [0x03] => {
                     self.handle_input_interrupt(state)?;
                     return Ok(());
@@ -325,7 +332,6 @@ where
                     self.write_tracked_newline(state)?;
                     return Ok(());
                 }
-                TerminalEvent::Resize(_) => {}
                 TerminalEvent::Timeout | TerminalEvent::Wakeup => {
                     unreachable!("indefinite completion waits absorb wakeups")
                 }
@@ -335,6 +341,7 @@ where
                     }
                     return Ok(());
                 }
+                TerminalEvent::Resize(_) => unreachable!("resize handled while waiting"),
             }
         }
 

@@ -58,6 +58,65 @@ fn bash_readline_and_sushline_revert_line_after_prefix_history_search() {
 }
 
 #[test]
+fn bash_readline_and_sushline_render_same_reverse_isearch_query_display() {
+    let history = ["alpha one", "alpha two"];
+    let query_marker = "(reverse-i-search)`a': alpha two";
+    // Every key follows a visible-output marker; Ctrl-G follows the query
+    // byte, and the screen model recovers the last search row from the full
+    // transcript without relying on an idle interval.
+    let steps = [
+        (READY_PROMPT, &b"\x12"[..]),
+        ("reverse-i-search", &b"a"[..]),
+        ("a", &b"\x07"[..]),
+        (READY_PROMPT, &b"\r"[..]),
+    ];
+
+    let dir = tempfile::tempdir().expect("isearch display tempdir");
+    let inputrc_path = dir.path().join("inputrc");
+    fs::write(&inputrc_path, "").expect("write isearch display inputrc");
+    let seed = history
+        .iter()
+        .map(|entry| format!("history -s {}", shell_single_quote(entry)))
+        .collect::<Vec<_>>()
+        .join("; ");
+    let mut bash_command = portable_pty::CommandBuilder::new("bash");
+    bash_command.env("INPUTRC", inputrc_path.as_os_str());
+    bash_command.args([
+        "--noprofile",
+        "--norc",
+        "-i",
+        "-c",
+        &format!(
+            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; unset HISTTIMEFORMAT HISTCONTROL HISTIGNORE; history -c; {seed}; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+        ),
+    ]);
+    let bash = run_pty_steps_until(bash_command, &steps, "SUSHLINE_ACCEPTED:");
+
+    let mut sushline_command =
+        portable_pty::CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    sushline_command.env("SUSHLINE_PROMPT", READY_PROMPT);
+    sushline_command.env("SUSHLINE_HISTORY", history.join("\n"));
+    let sushline = run_pty_steps_until(sushline_command, &steps, "SUSHLINE_ACCEPTED:");
+
+    let screen = super::screen::Screen::new(24, 80);
+    let bash_rows = screen.last_rows_starting_with(bash.as_bytes(), "(");
+    let sushline_rows = screen.last_rows_starting_with(sushline.as_bytes(), "(");
+    let bash_search = bash_rows.and_then(|rows| {
+        rows.into_iter()
+            .find(|row| row.contains("reverse-i-search"))
+    });
+    let sushline_search = sushline_rows.and_then(|rows| {
+        rows.into_iter()
+            .find(|row| row.contains("reverse-i-search"))
+    });
+
+    assert_eq!(bash_search.as_deref(), Some(query_marker), "{bash}");
+    assert_eq!(sushline_search.as_deref(), Some(query_marker), "{sushline}");
+    assert_eq!(accepted_line(&bash).as_deref(), Some(""), "{bash}");
+    assert_eq!(accepted_line(&sushline).as_deref(), Some(""), "{sushline}");
+}
+
+#[test]
 fn bash_readline_and_sushline_history_search_forward_restores_edit() {
     let keys = b"alp\x1d\x1e\r";
     let backward = r#""\C-]": history-search-backward"#;

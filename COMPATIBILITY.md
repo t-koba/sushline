@@ -239,7 +239,7 @@ Sushline-only extensions use the `Sushline extension` status.
 | `history-and-alias-expand-line`, `alias-expand-line` | Hook-backed | Alias expansion uses `Hooks::expand_aliases`. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
 | `yank-nth-arg`, `yank-last-arg`, `insert-last-argument` | Hook-backed | Exact shell words may come from `Hooks::shell_words`. Cited Bash fixtures cover `yank-last-arg` on empty/wordless history (one bell); `yank-nth-arg` on `cmd one two` (5 and negative 1/2 ring, 2 yields `two`, and 0 yields `cmd`); and `yank-last-arg` with negative 2 (one bell). They do not separately assert the `insert-last-argument` name. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
 | `fetch-history` | Compatible | With three entries, arguments 0, 4 and 6 fetch the first without a bell; argument 1 on empty history leaves the line empty without a bell. Test: `fetch_history_out_of_range_fetches_first_entry_like_bash` in [`oracle/history.rs`](readline/tests/oracle/history.rs). |
-| `operate-and-get-next` | Compatible | Multi-read prefill including numeric arguments. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
+| `operate-and-get-next` | Compatible | One paired two-read PTY fixture seeds `one`, `two`, `three` and binds Ctrl-O; it compares both accepted lines with Bash after Ctrl-P Ctrl-P Ctrl-O Enter and Ctrl-P Meta-1 Ctrl-O Enter. It establishes equality only for those two sequences, not specific prefilled strings or general numeric behavior. Test: [`bash_readline_and_sushline_operate_and_get_next_prefill_same_next_read`](readline/tests/oracle/history.rs). |
 
 ### Text Editing
 

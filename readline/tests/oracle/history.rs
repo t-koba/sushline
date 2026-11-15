@@ -30,6 +30,34 @@ fn bash_readline_and_sushline_history_search_backward_by_prefix() {
 }
 
 #[test]
+fn bash_readline_and_sushline_revert_line_after_prefix_history_search() {
+    let keys = b"alp\x1d\x1br\r";
+    let inputrc = r#""\C-]": history-search-backward
+"\er": revert-line"#;
+    let history = ["alpha one", "beta", "gamma"];
+    // The 8.3-alpha report supplied no reproducer. This fixture checks only
+    // typing `alp`, recalling the sole prefix match, reverting, and accepting;
+    // pinned final-8.3 CI must establish the expected accepted buffer below.
+    let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &history);
+    let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+    let context = format!(
+        "keys={keys:?}\ninputrc={inputrc}\nseed={history:?}\n\
+         bash={bash}\nsushline={sushline}"
+    );
+
+    assert_eq!(
+        accepted_line(&bash).as_deref(),
+        Some("alpha one"),
+        "unexpected Bash accepted buffer: {context}"
+    );
+    assert_eq!(
+        accepted_line(&sushline).as_deref(),
+        Some("alpha one"),
+        "unexpected Sushline accepted buffer: {context}"
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_history_search_forward_restores_edit() {
     let keys = b"alp\x1d\x1e\r";
     let backward = r#""\C-]": history-search-backward"#;

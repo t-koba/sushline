@@ -1839,19 +1839,20 @@ pub(super) fn run_pty_checkpoints_raw(
     frames
 }
 
-/// Resize an active single-cell read sequentially, capturing causal clear-screen checkpoints.
+/// Resize an active PTY sequentially and capture causally delimited redraw frames.
 ///
-/// `partial` must be UTF-8, fit in the initial viewport with `prompt`, contain
-/// no controls or whitespace, and not contain the prompt. Its final three bytes
-/// must be ASCII graphics absent from the prompt, so synchronization does not
-/// depend on expected rows or cursor. Every input and prompt character must
-/// occupy one cell in the selected locale. Before each resize, a unique suffix
-/// of the input proves earlier keys were processed; carriage returns are ignored
-/// because wrapped output can repeat boundary bytes. A fresh prompt after each
-/// resize precedes the causal Ctrl-G/BEL barrier. After the final barrier, Ctrl-L
-/// resets the screen. The rendered three-byte suffix releases the final checkpoint
-/// before Enter; the accepted-line marker separately confirms acceptance.
-/// `resizes` must be nonempty; all steps share the session hang bound.
+/// `partial` must be nonempty UTF-8 without control or whitespace characters,
+/// and must not contain `prompt`. The helper's initial-viewport guard counts
+/// Unicode scalar values, not terminal cells, so callers must choose a prompt
+/// and input that actually fit. Fixtures may include wide and combining
+/// characters. The final three input bytes must be ASCII graphics absent from
+/// the prompt; a unique input suffix synchronizes phases without relying on
+/// expected rows or cursor, ignoring carriage returns that wrapping may repeat.
+/// After each resize, the fresh prompt triggers a Ctrl-G/BEL checkpoint. For the
+/// final frame, Ctrl-L starts a fresh redraw; the rendered three-byte suffix
+/// triggers Ctrl-G, and the later BEL closes the checkpoint before Enter. The
+/// accepted-line marker separately confirms acceptance. `resizes` must be
+/// nonempty; all steps share the session hang bound.
 #[cfg(target_os = "linux")]
 pub(super) fn run_pty_resize_checkpoint(
     mut command: CommandBuilder,

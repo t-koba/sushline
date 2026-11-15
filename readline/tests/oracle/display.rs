@@ -294,6 +294,83 @@ fn bash_and_sushline_redisplay_wrapped_partial_input_after_live_pty_growth() {
 
 #[cfg(target_os = "linux")]
 #[test]
+fn bash_and_sushline_redisplay_wrapped_prompt_with_invisible_runs_after_live_pty_growth() {
+    use super::host::require_oracle_host;
+    use super::host_readline::{MEASURED_RELEASE, host_carries};
+    use super::screen::Screen;
+    use portable_pty::CommandBuilder;
+
+    require_oracle_host();
+    assert!(
+        host_carries(MEASURED_RELEASE),
+        "resize fixture requires Readline 8.3"
+    );
+    let wide = PtySize {
+        rows: 8,
+        cols: 40,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let narrow = PtySize { cols: 12, ..wide };
+    // Two invisible-marker runs surround the color and reset escapes. The
+    // 16-cell prompt itself wraps at 12 columns; prompt plus input fits at 40.
+    let prompt = "\x01\x1b[31m\x02colored-prompt> \x01\x1b[0m\x02";
+    let partial = b"abcdefghijklmnop";
+    let root = tempfile::tempdir().expect("marked prompt resize PTY root");
+    let inputrc = "set editing-mode emacs\nset horizontal-scroll-mode off\nset enable-bracketed-paste off\nset bell-style audible\n";
+    let path = root.path().join("inputrc");
+    std::fs::write(&path, inputrc).expect("write resize inputrc");
+    for bash in [true, false] {
+        let mut command = if bash {
+            let mut command = CommandBuilder::new("bash");
+            command.args([
+                "--noprofile",
+                "--norc",
+                "-i",
+                "-c",
+                "IFS= read -r -e -p \"$PROMPT\" line; printf 'SUSHLINE_ACCEPTED:%s\\n' \"$line\"",
+            ]);
+            command
+        } else {
+            let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+            command.env("SUSHLINE_INPUTRC", inputrc);
+            command.env("SUSHLINE_HISTORY", "");
+            command
+        };
+        command.env("PROMPT", prompt);
+        command.env("SUSHLINE_PROMPT", prompt);
+        command.env("INPUTRC", path.to_str().expect("inputrc path"));
+        command.env("HOME", root.path());
+        command.env("HISTFILE", root.path().join("history"));
+        command.env("LC_ALL", "C");
+        command.env_remove("COLUMNS");
+        command.env_remove("LINES");
+        // Synchronize on the emitted reset, not the stripped invisible markers
+        // or visible prompt text that the initial narrow terminal wraps.
+        let (frame, output) =
+            run_pty_resize_checkpoint(command, "\x1b[0m", partial, narrow, &[wide], &[]);
+        let mut screen = Screen::new(usize::from(wide.rows), usize::from(wide.cols));
+        screen.feed(&frame);
+        let rows = screen.rows_text();
+        assert_eq!(
+            rows[0], "colored-prompt> abcdefghijklmnop",
+            "bash={bash}: {output:?}"
+        );
+        assert!(
+            rows[1..].iter().all(String::is_empty),
+            "bash={bash}: {rows:?}"
+        );
+        assert_eq!(screen.cursor(), (0, 32), "bash={bash}: {output:?}");
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some("abcdefghijklmnop"),
+            "bash={bash}: {output:?}"
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
 fn bash_and_sushline_redisplay_wrapped_partial_input_with_interior_cursor_after_live_pty_growth() {
     let wide = PtySize {
         rows: 8,

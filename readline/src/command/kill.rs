@@ -78,6 +78,9 @@ where
                 state.record_undo();
                 if state.take_numeric_arg().unwrap_or(1) < 0 {
                     let killed = state.buffer.kill_to_start();
+                    if killed.is_empty() {
+                        self.ding()?;
+                    }
                     state.push_kill(killed, KillDirection::Backward, self.kill_append_allowed());
                 } else {
                     let killed = state.buffer.kill_to_end();

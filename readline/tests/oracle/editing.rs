@@ -469,6 +469,29 @@ fn bash_readline_and_sushline_accept_same_kill_line_edit() {
 }
 
 #[test]
+fn bash_readline_and_sushline_negative_kill_line_bell_parity() {
+    for (keys, expected, bells) in [
+        (b"\x1b-\x0b\r".as_slice(), "", 1),
+        (b"abc\x01\x1b-\x0bX\r".as_slice(), "Xabc", 1),
+        (b"abc\x1b-\x0bX\r".as_slice(), "X", 0),
+        (b"abc\x01\x0bX\r".as_slice(), "X", 0),
+        (b"abc\x01\x18\x7fX\r".as_slice(), "Xabc", 1),
+    ] {
+        let bash = run_bash_readline(keys);
+        let sushline = run_sushline_harness(keys);
+
+        for (name, output) in [("bash", &bash), ("sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "keys={keys:?} {name}: {output}"
+            );
+            assert_eq!(bell_count(output), bells, "keys={keys:?} {name}: {output}");
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_transpose_edit() {
     let keys = b"ab\x18\x01\r";
     let inputrc = r#""\C-x\C-a": transpose-chars"#;

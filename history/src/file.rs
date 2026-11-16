@@ -541,7 +541,8 @@ impl History {
     /// If the number of LF bytes is at most `max_len`, the exact bytes and
     /// existing file mode are preserved. Otherwise, a rewrite uses mode
     /// `0600` on Unix for history privacy.
-    /// A zero limit empties the file, and a nonzero limit keeps
+    /// A zero limit empties the file when a rewrite is needed; a file with no
+    /// LF bytes is preserved by the no-op rule above. A nonzero limit keeps
     /// the bytes after the first (LF count - `max_len`) LF bytes, including
     /// any unterminated tail. Timestamp records and blank lines count as
     /// physical lines. The byte results match the tested GNU History 8.3 fixtures.

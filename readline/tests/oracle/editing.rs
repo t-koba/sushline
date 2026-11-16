@@ -4585,14 +4585,19 @@ fn bash_readline_and_sushline_vi_mark_names_are_lowercase_letters_like_bash() {
 
 #[test]
 fn bash_readline_and_sushline_byte_motions_land_on_utf8_boundaries() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    let locale_env = [("LC_ALL", "C.UTF-8")];
     let forward = r#""\C-o": forward-byte"#;
     let backward = r#""\C-o": backward-byte"#;
     for (inputrc, keys, expected) in [
         (forward, "αβγ\u{1}\u{f}\u{f}X\r".as_bytes(), "αXβγ"),
         (backward, "αβγ\u{2}\u{f}\u{f}Y\r".as_bytes(), "αYβγ"),
     ] {
-        let bash = run_bash_readline_with_bindings(keys, inputrc);
-        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        let bash = run_bash_readline_with_bindings_and_env(keys, inputrc, &locale_env);
+        let sushline = run_sushline_harness_with_inputrc_and_env(keys, inputrc, &locale_env);
         let context = format!("keys={keys:?}\nbash={bash}\nsushline={sushline}");
         assert_eq!(accepted_line(&bash).as_deref(), Some(expected), "{context}");
         assert_eq!(accepted_line(&sushline), accepted_line(&bash), "{context}");

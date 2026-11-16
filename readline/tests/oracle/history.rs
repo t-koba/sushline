@@ -3285,3 +3285,22 @@ fn bash_readline_and_sushline_magic_space_expands_on_space() {
         assert_eq!(bell_count(&sushline), 0, "{typed}: {sushline}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_history_search_abort_keeps_the_selected_line() {
+    let backward = r#""\C-]": history-search-backward"#;
+    let history = ["alpha one", "beta", "alpha two"];
+    for (keys, expected) in [
+        (&b"alp\x1d\x07\r"[..], "alpha two"),
+        (&b"missing\x1d\x07\r"[..], "missing"),
+        (&b"alp\x1d\x1d\x07\r"[..], "alpha one"),
+        (&b"\x1d\x07\r"[..], "alpha two"),
+    ] {
+        let bash = run_bash_readline_with_bindings_and_history(keys, backward, &history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, backward, &history);
+        let context =
+            format!("keys={keys:?} history={history:?}\nbash={bash}\nsushline={sushline}");
+        assert_eq!(accepted_line(&bash).as_deref(), Some(expected), "{context}");
+        assert_eq!(accepted_line(&sushline), accepted_line(&bash), "{context}");
+    }
+}

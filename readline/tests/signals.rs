@@ -854,6 +854,92 @@ fn failed_restore_can_be_retried() {
 }
 
 #[cfg(unix)]
+#[test]
+fn failed_final_restore_child_probe() {
+    if std::env::var("SUSHLINE_FINAL_RESTORE_PROBE").as_deref() != Ok("1") {
+        return;
+    }
+    use readline::{Terminal, TerminalIo};
+
+    let pty_copy = unsafe { libc::dup(libc::STDIN_FILENO) };
+    assert!(pty_copy >= 0, "dup PTY stdin");
+    {
+        let mut terminal = Terminal::new();
+        terminal.enter_raw_mode().unwrap();
+        let null_fd = unsafe { libc::open(c"/dev/null".as_ptr(), libc::O_RDWR) };
+        assert!(null_fd >= 0, "open /dev/null");
+        assert_eq!(
+            unsafe { libc::dup2(null_fd, libc::STDIN_FILENO) },
+            libc::STDIN_FILENO,
+            "redirect stdin to /dev/null"
+        );
+        unsafe { libc::close(null_fd) };
+        assert!(
+            terminal.restore_mode().is_err(),
+            "restore on /dev/null must fail"
+        );
+    }
+
+    assert_eq!(
+        unsafe { libc::dup2(pty_copy, libc::STDIN_FILENO) },
+        libc::STDIN_FILENO,
+        "restore PTY stdin"
+    );
+    unsafe { libc::close(pty_copy) };
+    let mut fresh = Terminal::new();
+    fresh
+        .enter_raw_mode()
+        .expect("fresh terminal must acquire raw mode after failed final restore");
+    fresh.restore_mode().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn failed_final_restore_releases_raw_mode_lease() {
+    use std::os::fd::{FromRawFd, OwnedFd};
+
+    if std::env::var("SUSHLINE_FINAL_RESTORE_PROBE").as_deref() == Ok("1") {
+        return;
+    }
+    let mut master = -1;
+    let mut slave = -1;
+    let size = libc::winsize {
+        ws_row: 24,
+        ws_col: 80,
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    };
+    assert_eq!(
+        unsafe {
+            libc::openpty(
+                &mut master,
+                &mut slave,
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                &size,
+            )
+        },
+        0,
+        "open PTY for isolated final-restore probe"
+    );
+    let _master = unsafe { OwnedFd::from_raw_fd(master) };
+    let slave = unsafe { OwnedFd::from_raw_fd(slave) };
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["failed_final_restore_child_probe", "--exact", "--nocapture"])
+        .env("SUSHLINE_FINAL_RESTORE_PROBE", "1")
+        .stdin(std::process::Stdio::from(slave))
+        .output()
+        .expect("spawn isolated final-restore probe");
+    assert!(
+        output.status.success(),
+        "final-restore probe failed: {:?}\n{}\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[cfg(unix)]
 mod builtin_sigint_policy {
     use super::*;
     use readline::{SigintPolicy, Terminal};

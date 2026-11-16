@@ -341,7 +341,37 @@ impl Default for Terminal {
 
 impl Drop for Terminal {
     fn drop(&mut self) {
-        let _ = self.restore_mode();
+        #[cfg(unix)]
+        {
+            // A live owner can retry a failed restore, but destruction cannot.
+            // Release the process-global lease and handlers even when the
+            // terminal itself could not be restored.
+            if self.restore_mode().is_err() {
+                self.release_raw_lease();
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = self.restore_mode();
+        }
+    }
+}
+
+impl Terminal {
+    #[cfg(unix)]
+    fn release_raw_lease(&mut self) {
+        if !self.raw {
+            return;
+        }
+        restore_signal_handlers();
+        // A hook may report the caught SIGINT before read_event has consumed
+        // it. Retain it for re-delivery, but not as a second terminal event on
+        // the continuing read.
+        self.caught_sigint |= READLINE_SIGNAL_RECEIVED
+            .compare_exchange(libc::SIGINT, 0, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok();
+        self.raw = false;
+        RAW_TERMINAL_ACTIVE.store(false, Ordering::SeqCst);
     }
 }
 
@@ -420,16 +450,11 @@ impl TerminalIo for Terminal {
         if self.raw {
             #[cfg(unix)]
             {
-                restore_readline_mode(&mut self.saved_termios)?;
-                restore_signal_handlers();
-                // A hook may report the caught SIGINT before read_event has
-                // consumed it. Retain it for re-delivery, but not as a second
-                // terminal event on the continuing read.
-                self.caught_sigint |= READLINE_SIGNAL_RECEIVED
-                    .compare_exchange(libc::SIGINT, 0, Ordering::SeqCst, Ordering::SeqCst)
-                    .is_ok();
-                self.raw = false;
-                RAW_TERMINAL_ACTIVE.store(false, Ordering::SeqCst);
+                let result = restore_readline_mode(&mut self.saved_termios);
+                if result.is_ok() {
+                    self.release_raw_lease();
+                }
+                return result;
             }
             #[cfg(windows)]
             {

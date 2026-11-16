@@ -4512,6 +4512,37 @@ fn history_expansion_matches_readline_search_and_substitution_failures() {
 }
 
 #[test]
+fn history_expansion_bare_percent_uses_last_matched_word() {
+    let mut history = History::new();
+    let histchars = HistoryChars::parse("!^#");
+    let policy = HistoryExpansionPolicy::default();
+
+    assert_eq!(
+        expand_history(b"!%", &history, histchars, &policy, |_| false),
+        Err(HistoryExpansionError::EventNotFound("!%".to_string()))
+    );
+
+    history.push("alpha beta");
+    history.push("gamma delta");
+    for (typed, expected) in [
+        ("!%", ""),
+        ("!%:h", ""),
+        ("!%:q", "''"),
+        ("!?alpha? !%", "alpha beta alpha"),
+        ("!?alpha? !%:h", "alpha beta alpha"),
+        ("!?alpha? !%:q", "alpha beta 'alpha'"),
+        ("!!:%", ""),
+        ("!?alpha?:%", "alpha"),
+    ] {
+        assert_eq!(
+            expand_history(typed.as_bytes(), &history, histchars, &policy, |_| false).unwrap(),
+            expected.as_bytes(),
+            "{typed}"
+        );
+    }
+}
+
+#[test]
 fn history_expansion_only_allows_readline_colonless_word_designators() {
     let mut history = History::new();
     history.push("echo zero one two three");

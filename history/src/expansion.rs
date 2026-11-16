@@ -505,6 +505,17 @@ fn parse_history_event(
                 })
                 .ok_or_else(|| HistoryExpansionError::EventNotFound("!!".to_string()))
         }
+        Some(b'%') => {
+            if history.entries().is_empty() {
+                return Err(HistoryExpansionError::EventNotFound("!%".to_string()));
+            }
+            let matched_word = state.last_matched_word.clone().unwrap_or_default();
+            Ok(Some(HistoryEvent {
+                line: matched_word.clone(),
+                next_index: idx + 1,
+                matched_word: Some(matched_word),
+            }))
+        }
         Some(b'*') => {
             idx += 1;
             let words = history

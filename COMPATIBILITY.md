@@ -596,7 +596,8 @@ Readline command. The status column gives the editor's behavior for each name.
 
 | Command(s) | Status | Notes |
 | --- | --- | --- |
-| `history-expand-line`, `magic-space` | Compatible | GNU-default policy; Editor-owned expansion state persists across reads; custom policy is direct-API only. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
+| `history-expand-line` | Compatible | GNU-default policy; Editor-owned expansion state persists across reads; custom policy is direct-API only. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
+| `magic-space` | Implemented | Uses built-in history expansion, but no paired Bash PTY fixture exercises `magic-space`; GNU command equivalence is not established. Implementation: [`history_nav.rs`](readline/src/command/history_nav.rs). |
 | `history-and-alias-expand-line` | Hook-backed | History built in; aliases use `Hooks::expand_aliases`. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
 | `alias-expand-line` | Hook-backed | Aliases are embedder-owned. Tests: [`oracle/history.rs`](readline/tests/oracle/history.rs). |
 

@@ -53,6 +53,28 @@ where
         if !continues_history_search {
             state.search.history_navigation_needle = None;
         }
+        // Only consecutive history-argument yanks share a replacement range.
+        // Prefixes and macro wrappers leave that decision to their command.
+        let continues_yank_arg = match &binding {
+            KeyBinding::Command(
+                EditCommand::DigitArgument
+                | EditCommand::UniversalArgument
+                | EditCommand::PrefixMeta,
+            )
+            | KeyBinding::Macro(_) => true,
+            KeyBinding::NamedCommand(command) => matches!(
+                command.as_str(),
+                "insert-last-argument"
+                    | "yank-last-arg"
+                    | "yank-nth-arg"
+                    | "vi-yank-arg"
+                    | "vi-arg-digit"
+            ),
+            _ => false,
+        };
+        if !continues_yank_arg {
+            state.completion.last_yank_arg = None;
+        }
         state.record_macro_binding(key, &binding);
         state.input.applied_command =
             !matches!(binding, KeyBinding::Command(EditCommand::SelfInsert));

@@ -2252,6 +2252,52 @@ fn bash_readline_and_sushline_yank_last_arg_repeats_same_history_cycle() {
 }
 
 #[test]
+fn bash_and_sushline_insert_last_argument_alias_repeats_and_resets_like_bash() {
+    let inputrc = "\"\\C-o\": insert-last-argument";
+    for (desc, history, keys, expected, bells) in [
+        (
+            "alias",
+            &["cmd one two"][..],
+            b"\x0f\r".as_slice(),
+            "two",
+            0,
+        ),
+        (
+            "repeat_at_oldest",
+            &["cmd one two"][..],
+            b"\x0f\x0f\r".as_slice(),
+            "",
+            1,
+        ),
+        (
+            "self_insert_resets",
+            &["cmd one two", "cmd alpha beta"][..],
+            b"\x0f \x0f\r".as_slice(),
+            "beta beta",
+            0,
+        ),
+        (
+            "movement_resets",
+            &["cmd one two", "cmd alpha beta"][..],
+            b"\x0f\x01\x0f\r".as_slice(),
+            "betabeta",
+            0,
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, history);
+        for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output),
+                Some(expected.to_string()),
+                "{desc}: {editor}: {output}"
+            );
+            assert_eq!(bell_count(output), bells, "{desc}: {editor}: {output}");
+        }
+    }
+}
+
+#[test]
 fn bash_history_timestamp_file_records_load_as_sushline_timestamps() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("history");

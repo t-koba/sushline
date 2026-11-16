@@ -269,9 +269,15 @@ where
         let repeated = cycle_history
             .then(|| state.completion.last_yank_arg.clone())
             .flatten();
-        let (history_index, n) = if let Some(previous) = repeated {
+        let (history_index, n) = if let Some(mut previous) = repeated {
             if let Some((start, end)) = previous.range {
                 state.buffer.replace_range(start, end, "");
+            }
+            if previous.history_index == 0 && !matches!(arg, Some(n) if n < 0) {
+                previous.range = None;
+                state.completion.last_yank_arg = Some(previous);
+                self.ding()?;
+                return Ok(());
             }
             match arg {
                 Some(arg) if arg < 0 => (

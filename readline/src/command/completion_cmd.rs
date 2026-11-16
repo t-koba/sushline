@@ -284,8 +284,7 @@ where
                     (previous.history_index + 1).min(entries.len().saturating_sub(1)),
                     previous.arg,
                 ),
-                Some(arg) => (previous.history_index.saturating_sub(1), arg),
-                None => (previous.history_index.saturating_sub(1), previous.arg),
+                _ => (previous.history_index.saturating_sub(1), previous.arg),
             }
         } else {
             // An explicitly negative word number rings like an out-of-range

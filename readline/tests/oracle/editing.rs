@@ -1506,29 +1506,39 @@ fn sushline_prefix_meta_inputrc_extension_preserves_literal_fallback() {
 }
 
 #[test]
-fn bash_readline_and_sushline_bell_style_controls_bells() {
-    for (style, expected_bells) in [("audible", 1), ("none", 0)] {
-        let inputrc = format!("set bell-style {style}\n\"1\": do-lowercase-version\n");
+fn bash_readline_and_sushline_match_bell_style_preference_matrix() {
+    for (style, prefer, expected_visible, expected_bells) in [
+        ("audible", "on", true, 0),
+        ("audible", "off", false, 1),
+        ("visible", "on", true, 0),
+        ("visible", "off", false, 1),
+        ("none", "on", true, 0),
+        ("none", "off", false, 1),
+    ] {
+        let inputrc = format!(
+            "set bell-style {style}\nset prefer-visible-bell {prefer}\n\"1\": do-lowercase-version\n"
+        );
         let keys = b"1\r";
         let bash = run_bash_readline_with_inputrc_file(keys, &inputrc);
         let sushline = run_sushline_harness_with_inputrc(keys, &inputrc);
 
-        assert_eq!(
-            accepted_line(&bash),
-            Some(String::new()),
-            "Bash {style}: {bash}"
-        );
-        assert_eq!(bell_count(&bash), expected_bells, "Bash {style}: {bash}");
-        assert_eq!(
-            accepted_line(&sushline),
-            accepted_line(&bash),
-            "style={style}: bash={bash}\nsushline={sushline}"
-        );
-        assert_eq!(
-            bell_count(&sushline),
-            expected_bells,
-            "Sushline {style}: {sushline}"
-        );
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output),
+                Some(String::new()),
+                "{editor} style={style} prefer={prefer}: {output}"
+            );
+            assert_eq!(
+                output.contains("\x1b[?5h"),
+                expected_visible,
+                "{editor} style={style} prefer={prefer}: {output}"
+            );
+            assert_eq!(
+                bell_count(output),
+                expected_bells,
+                "{editor} style={style} prefer={prefer}: {output}"
+            );
+        }
     }
 }
 

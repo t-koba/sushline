@@ -730,17 +730,10 @@ where
     }
 
     pub(crate) fn ding(&mut self) -> Result<(), ReadlineError> {
-        match self
-            .variables
-            .get("bell-style")
-            .map(String::as_str)
-            .unwrap_or("audible")
-        {
-            "none" => {}
-            "visible" => self.terminal.visible_bell()?,
-            "audible" => self.terminal.write("\x07")?,
-            _ if self.variable_is_on("prefer-visible-bell") => self.terminal.visible_bell()?,
-            _ => self.terminal.write("\x07")?,
+        if self.variable_is_on("prefer-visible-bell") {
+            self.terminal.visible_bell()?;
+        } else {
+            self.terminal.write("\x07")?;
         }
         Ok(())
     }

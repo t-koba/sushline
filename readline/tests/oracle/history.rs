@@ -1500,6 +1500,42 @@ fn bash_readline_and_sushline_expand_bare_percent_last_match() {
 }
 
 #[test]
+fn bash_readline_and_sushline_keep_short_form_history_suffixes_literal() {
+    // Bash 5.3 runtime fixture, not a claim about other GNU releases.
+    let inputrc = r#""\C-x\C-a": history-expand-line"#;
+    let history = ["alpha beta", "gamma delta"];
+
+    for (typed, expected) in [
+        ("!%$", "$"),
+        ("!%*", "*"),
+        ("!%^", "^"),
+        ("!%-1", "-1"),
+        ("!$*", "delta*"),
+        ("!$^", "delta^"),
+        ("!*$", "delta$"),
+        ("!*%", "delta%"),
+        ("!^*$", "delta$"),
+        ("!!$", "delta"),
+        ("!!*", "delta"),
+        ("!%:h", ""),
+        ("!$:h", "delta"),
+        ("!?alpha? !%*", "alpha beta alpha*"),
+    ] {
+        let keys = format!("{typed}\x18\x01\r");
+        let bash = run_bash_history_expand(typed, &history);
+        let sushline =
+            run_sushline_harness_with_inputrc_and_history(keys.as_bytes(), inputrc, &history);
+
+        assert_eq!(bash, expected, "{typed}");
+        assert_eq!(
+            accepted_line(&sushline),
+            Some(expected.to_string()),
+            "{typed}: {sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_expand_prefixed_paths_with_punctuation() {
     // GNU scans a `!string` prefix until a delimiter, so dots and slashes
     // belong to the event; a dash terminates it with `-` applying the

@@ -4543,6 +4543,40 @@ fn history_expansion_bare_percent_uses_last_matched_word() {
 }
 
 #[test]
+fn history_expansion_short_form_events_keep_colonless_suffixes_literal() {
+    // Exact Bash 5.3 measurements: short forms already selected their words,
+    // but ordinary events still accept colonless designators and modifiers.
+    let mut history = History::new();
+    history.push("alpha beta");
+    history.push("gamma delta");
+    let histchars = HistoryChars::parse("!^#");
+    let policy = HistoryExpansionPolicy::default();
+
+    for (typed, expected) in [
+        ("!%$", "$"),
+        ("!%*", "*"),
+        ("!%^", "^"),
+        ("!%-1", "-1"),
+        ("!$*", "delta*"),
+        ("!$^", "delta^"),
+        ("!*$", "delta$"),
+        ("!*%", "delta%"),
+        ("!^*$", "delta$"),
+        ("!!$", "delta"),
+        ("!!*", "delta"),
+        ("!%:h", ""),
+        ("!$:h", "delta"),
+        ("!?alpha? !%*", "alpha beta alpha*"),
+    ] {
+        assert_eq!(
+            expand_history(typed.as_bytes(), &history, histchars, &policy, |_| false).unwrap(),
+            expected.as_bytes(),
+            "{typed}"
+        );
+    }
+}
+
+#[test]
 fn history_expansion_only_allows_readline_colonless_word_designators() {
     let mut history = History::new();
     history.push("echo zero one two three");

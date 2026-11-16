@@ -166,6 +166,10 @@ pub struct HistoryExpansionState {
     last_substitution: Option<HistorySubstitution>,
     last_search: Option<Vec<u8>>,
     last_matched_word: Option<Vec<u8>>,
+    // The short-form events (`!$`, `!*`, `!^`, `!%`) select their word in
+    // the parser. This event-local marker tells the expansion loop not to
+    // apply a second colonless designator to that same event.
+    word_specifier_consumed: bool,
 }
 
 impl HistoryExpansionState {
@@ -340,6 +344,7 @@ pub fn expand_history_with_status_with_state(
         // suffix through the same word-designator/modifier handling as
         // other events; without a suffix it re-emits the prefix unchanged.
         let (mut event, mut next, matched_word) = if line.get(idx + 1) == Some(&b'#') {
+            state.word_specifier_consumed = false;
             (out.clone(), idx + 2, None)
         } else {
             let Some(parsed_event) =
@@ -355,6 +360,7 @@ pub fn expand_history_with_status_with_state(
                 parsed_event.matched_word,
             )
         };
+        let word_specifier_consumed = state.word_specifier_consumed;
         did_expand = true;
         modifier_status.quote_mode = None;
         if line.get(next) == Some(&b':') {
@@ -380,9 +386,10 @@ pub fn expand_history_with_status_with_state(
                 event = modified;
                 next = next_after_modifier;
             }
-        } else if line
-            .get(next)
-            .is_some_and(|byte| matches!(byte, b'^' | b'$' | b'*' | b'%' | b'-'))
+        } else if !word_specifier_consumed
+            && line
+                .get(next)
+                .is_some_and(|byte| matches!(byte, b'^' | b'$' | b'*' | b'%' | b'-'))
         {
             let (designator, next_after_designator) = read_history_designator(line, next);
             next = next_after_designator;
@@ -490,6 +497,7 @@ fn parse_history_event(
     policy: &HistoryExpansionPolicy,
     state: &mut HistoryExpansionState,
 ) -> Result<Option<HistoryEvent>, HistoryExpansionError> {
+    state.word_specifier_consumed = false;
     match line.get(idx).copied() {
         Some(byte) if Some(byte) == ascii_marker(histchars.expansion) => {
             idx += 1;
@@ -506,6 +514,7 @@ fn parse_history_event(
                 .ok_or_else(|| HistoryExpansionError::EventNotFound("!!".to_string()))
         }
         Some(b'%') => {
+            state.word_specifier_consumed = true;
             if history.entries().is_empty() {
                 return Err(HistoryExpansionError::EventNotFound("!%".to_string()));
             }
@@ -517,6 +526,7 @@ fn parse_history_event(
             }))
         }
         Some(b'*') => {
+            state.word_specifier_consumed = true;
             idx += 1;
             let words = history
                 .entries()
@@ -540,6 +550,7 @@ fn parse_history_event(
             }))
         }
         Some(b'$') => {
+            state.word_specifier_consumed = true;
             idx += 1;
             let last_arg = history
                 .entries()
@@ -556,11 +567,19 @@ fn parse_history_event(
                 .ok_or_else(|| HistoryExpansionError::EventNotFound("!$".to_string()))
         }
         Some(b'^') => {
+            state.word_specifier_consumed = true;
             idx += 1;
+            // `^*` is one range specifier; bytes after it are literal suffixes.
+            let designator = if line.get(idx) == Some(&b'*') {
+                idx += 1;
+                b"^*".as_slice()
+            } else {
+                b"^".as_slice()
+            };
             let first_arg = history
                 .entries()
                 .last()
-                .and_then(|entry| command_words(&entry.line_bytes, policy).get(1).cloned());
+                .and_then(|entry| select_history_words(&entry.line_bytes, designator, policy).ok());
             first_arg
                 .map(|event| {
                     Some(HistoryEvent {

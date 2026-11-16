@@ -2960,19 +2960,27 @@ fn bash_readline_and_sushline_complete_same_filenames_into_braces() {
     fs::write(dir.path().join("alpine"), "").expect("write alpine fixture");
     let inputrc = r#""\C-o": complete-into-braces"#;
 
-    for typed in [
-        format!("{}/al\x0f\r", dir.path().display()),
-        format!("cat \"{}/al\x0f\r", dir.path().display()),
-        format!("cat '{}/al\x0f\r", dir.path().display()),
+    let path = dir.path().display();
+    for (typed, expected) in [
+        (format!("{path}/al\x0f\r"), format!("{path}/alp{{ha,ine}} ")),
+        (
+            format!("cat \"{path}/al\x0f\r"),
+            format!("cat \"{path}/alp{{ha,ine}}\" "),
+        ),
+        (
+            format!("cat '{path}/al\x0f\r"),
+            format!("cat '{path}/alp{{ha,ine}}' "),
+        ),
     ] {
         let bash = run_bash_readline_with_bindings(typed.as_bytes(), inputrc);
         let sushline = run_sushline_harness_with_inputrc(typed.as_bytes(), inputrc);
-
+        let context = format!("typed={typed:?}\nbash={bash}\nsushline={sushline}");
         assert_eq!(
-            accepted_line(&sushline),
-            accepted_line(&bash),
-            "typed={typed:?}\nbash={bash}\nsushline={sushline}"
+            accepted_line(&bash).as_deref(),
+            Some(expected.as_str()),
+            "{context}"
         );
+        assert_eq!(accepted_line(&sushline), accepted_line(&bash), "{context}");
     }
 }
 

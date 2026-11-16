@@ -111,6 +111,19 @@ impl BoolVariable {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BellPreferenceWriter {
+    BellStyle,
+    PreferVisibleBell,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BellKind {
+    None,
+    Audible,
+    Visible,
+}
+
 /// Variables.
 pub struct Variables {
     strings: BTreeMap<String, String>,
@@ -118,6 +131,7 @@ pub struct Variables {
     flags: [bool; BoolVariable::COUNT],
     utf8_locale: bool,
     lc_ctype: Option<String>,
+    bell_preference_writer: Option<BellPreferenceWriter>,
 }
 
 impl Variables {
@@ -161,6 +175,7 @@ impl Variables {
             flags: [false; BoolVariable::COUNT],
             utf8_locale: lc_ctype.as_deref().is_some_and(locale_is_utf8),
             lc_ctype,
+            bell_preference_writer: None,
         };
         this.rebuild_flags();
         this
@@ -195,7 +210,51 @@ impl Variables {
         if let Some(variable) = BoolVariable::from_name(&name) {
             self.flags[variable.index()] = bool_value_is_on(&value);
         }
-        self.strings.insert(name, value)
+        let previous = self.strings.insert(name.clone(), value.clone());
+        self.note_bell_preference(&name, &value);
+        previous
+    }
+
+    // GNU Readline derives both bell variable names from one preference: the
+    // most recently written name decides what `ding` does. Writing the
+    // preference name also updates the derived `bell-style` view.
+    fn note_bell_preference(&mut self, name: &str, value: &str) {
+        if name == "bell-style" {
+            self.bell_preference_writer = Some(BellPreferenceWriter::BellStyle);
+        } else if name == "prefer-visible-bell" {
+            self.bell_preference_writer = Some(BellPreferenceWriter::PreferVisibleBell);
+            let derived = if bool_value_is_on(value) {
+                "visible"
+            } else {
+                "audible"
+            };
+            self.strings
+                .insert("bell-style".to_owned(), derived.to_owned());
+            self.bytes
+                .insert("bell-style".to_owned(), derived.as_bytes().to_vec());
+        }
+    }
+
+    /// The effective bell behavior after all `set` directives seen so far.
+    pub(crate) fn effective_bell(&self) -> BellKind {
+        match self.bell_preference_writer {
+            Some(BellPreferenceWriter::PreferVisibleBell) => {
+                if self.is_on("prefer-visible-bell") {
+                    BellKind::Visible
+                } else {
+                    BellKind::Audible
+                }
+            }
+            _ => match self
+                .get("bell-style")
+                .map(String::as_str)
+                .unwrap_or("audible")
+            {
+                "none" | "off" => BellKind::None,
+                "visible" => BellKind::Visible,
+                _ => BellKind::Audible,
+            },
+        }
     }
 
     /// Insert exact bytes and update their lossy UTF-8 text view.
@@ -209,7 +268,8 @@ impl Variables {
             self.flags[variable.index()] = bool_value_is_on(&rendered);
         }
         self.bytes.insert(name.clone(), value);
-        self.strings.insert(name, rendered);
+        self.strings.insert(name.clone(), rendered.clone());
+        self.note_bell_preference(&name, &rendered);
     }
 
     /// Contains key.

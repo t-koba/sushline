@@ -1506,18 +1506,52 @@ fn sushline_prefix_meta_inputrc_extension_preserves_literal_fallback() {
 }
 
 #[test]
-fn bash_readline_and_sushline_match_bell_style_preference_matrix() {
-    for (style, prefer, expected_visible, expected_bells) in [
-        ("audible", "on", true, 0),
-        ("audible", "off", false, 1),
-        ("visible", "on", true, 0),
-        ("visible", "off", false, 1),
-        ("none", "on", true, 0),
-        ("none", "off", false, 1),
+fn bash_readline_and_sushline_match_bell_preference_directives() {
+    for (case, directives, expected_visible, expected_bells) in [
+        ("defaults", "", false, 1),
+        ("style_none", "set bell-style none\n", false, 0),
+        ("style_audible", "set bell-style audible\n", false, 1),
+        ("style_visible", "set bell-style visible\n", true, 0),
+        ("prefer_on", "set prefer-visible-bell on\n", true, 0),
+        ("prefer_off", "set prefer-visible-bell off\n", false, 1),
+        (
+            "none_then_on",
+            "set bell-style none\nset prefer-visible-bell on\n",
+            true,
+            0,
+        ),
+        (
+            "on_then_none",
+            "set prefer-visible-bell on\nset bell-style none\n",
+            false,
+            0,
+        ),
+        (
+            "none_then_off",
+            "set bell-style none\nset prefer-visible-bell off\n",
+            false,
+            1,
+        ),
+        (
+            "off_then_none",
+            "set prefer-visible-bell off\nset bell-style none\n",
+            false,
+            0,
+        ),
+        (
+            "visible_then_off",
+            "set bell-style visible\nset prefer-visible-bell off\n",
+            false,
+            1,
+        ),
+        (
+            "off_then_visible",
+            "set prefer-visible-bell off\nset bell-style visible\n",
+            true,
+            0,
+        ),
     ] {
-        let inputrc = format!(
-            "set bell-style {style}\nset prefer-visible-bell {prefer}\n\"1\": do-lowercase-version\n"
-        );
+        let inputrc = [directives, "\"1\": do-lowercase-version\n"].concat();
         let keys = b"1\r";
         let bash = run_bash_readline_with_inputrc_file(keys, &inputrc);
         let sushline = run_sushline_harness_with_inputrc(keys, &inputrc);
@@ -1526,17 +1560,17 @@ fn bash_readline_and_sushline_match_bell_style_preference_matrix() {
             assert_eq!(
                 accepted_line(output),
                 Some(String::new()),
-                "{editor} style={style} prefer={prefer}: {output}"
+                "{editor} {case}: {output}"
             );
             assert_eq!(
                 output.contains("\x1b[?5h"),
                 expected_visible,
-                "{editor} style={style} prefer={prefer}: {output}"
+                "{editor} {case}: {output}"
             );
             assert_eq!(
                 bell_count(output),
                 expected_bells,
-                "{editor} style={style} prefer={prefer}: {output}"
+                "{editor} {case}: {output}"
             );
         }
     }

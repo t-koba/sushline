@@ -7,7 +7,7 @@ use crate::keymap::{EditCommand, KeyBinding, KeyMap, KeyMapName};
 use crate::prompt::Prompt;
 use crate::state::*;
 use crate::terminal::{SigintPolicy, TerminalEvent, TerminalIo, escape};
-use crate::variables::{BoolVariable, Variables};
+use crate::variables::{BellKind, BoolVariable, Variables};
 use history::History;
 use history::expansion::{
     HistoryChars, HistoryExpansion, HistoryExpansionPolicy, HistoryExpansionState,
@@ -730,10 +730,10 @@ where
     }
 
     pub(crate) fn ding(&mut self) -> Result<(), ReadlineError> {
-        if self.variable_is_on("prefer-visible-bell") {
-            self.terminal.visible_bell()?;
-        } else {
-            self.terminal.write("\x07")?;
+        match self.variables.effective_bell() {
+            BellKind::None => {}
+            BellKind::Audible => self.terminal.write("\x07")?,
+            BellKind::Visible => self.terminal.visible_bell()?,
         }
         Ok(())
     }

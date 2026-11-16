@@ -4175,6 +4175,53 @@ fn bash_readline_and_sushline_numeric_kill_line_matches_like_bash() {
 }
 
 #[test]
+fn bash_readline_and_sushline_numeric_backward_kill_line_parity() {
+    for (desc, keys, expected) in [
+        (
+            "negative_one_eol",
+            b"abc def\x1b-1\x18\x7fX\r".as_slice(),
+            "abc defX",
+        ),
+        (
+            "negative_one_midline",
+            b"abc def\x1bb\x1b-1\x18\x7fX\r".as_slice(),
+            "abc X",
+        ),
+        (
+            "negative_one_bol",
+            b"abc def\x01\x1b-1\x18\x7fX\r".as_slice(),
+            "X",
+        ),
+        (
+            "negative_two_eol",
+            b"abc def\x1b-2\x18\x7fX\r".as_slice(),
+            "abc defX",
+        ),
+        (
+            "negative_two_midline",
+            b"abc def\x1bb\x1b-2\x18\x7fX\r".as_slice(),
+            "abc X",
+        ),
+        (
+            "negative_two_bol",
+            b"abc def\x01\x1b-2\x18\x7fX\r".as_slice(),
+            "X",
+        ),
+    ] {
+        let bash = run_bash_readline(keys);
+        let sushline = run_sushline_harness(keys);
+        for (host, output) in [("bash", &bash), ("sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output),
+                Some(expected.to_string()),
+                "{desc}: {host}={output}"
+            );
+            assert_eq!(bell_count(output), 0, "{desc}: {host}={output}");
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_unbound_esc_matches_like_bash() {
     let vi = "set editing-mode vi";
     let em_pair: &[u8] = b"\x1b\x1babc\r";

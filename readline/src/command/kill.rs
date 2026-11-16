@@ -14,12 +14,13 @@ where
         match command {
             EditCommand::BackwardKillLine => {
                 state.record_undo();
-                let (killed, direction) = if state.take_numeric_arg().unwrap_or(1) < 0 {
+                let negative = state.take_numeric_arg().unwrap_or(1) < 0;
+                let (killed, direction) = if negative {
                     (state.buffer.kill_to_end(), KillDirection::Forward)
                 } else {
                     (state.buffer.kill_to_start(), KillDirection::Backward)
                 };
-                if killed.is_empty() {
+                if killed.is_empty() && !negative {
                     self.ding()?;
                 }
                 state.push_kill(killed, direction, self.kill_append_allowed());

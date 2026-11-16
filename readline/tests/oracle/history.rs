@@ -3229,6 +3229,27 @@ fn history_search_preserves_origin_edit_after_overlay_navigation_like_bash() {
 }
 
 #[test]
+fn bash_and_sushline_end_of_history_returns_to_the_empty_current_line() {
+    let inputrc = "";
+    let history = ["AAA", "BBB"];
+    for (case, keys) in [
+        ("two previous entries", &b"\x10\x10\x1b>\r"[..]),
+        ("one previous entry", &b"\x10\x1b>\r"[..]),
+        ("edited previous entry", &b"\x10 EDIT\x1b>\r"[..]),
+        ("beginning then end", &b"\x10\x10\x1b<\x1b>\r"[..]),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+        assert_eq!(accepted_line(&bash), Some(String::new()), "{case}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{case}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
 fn incremental_history_search_keeps_the_edit_when_matching_its_own_entry_like_bash() {
     let inputrc = "set revert-all-at-newline off";
     for terminator in *b"\n\x06\r" {

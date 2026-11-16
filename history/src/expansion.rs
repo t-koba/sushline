@@ -575,17 +575,7 @@ fn parse_history_event(
             if line.get(idx) == Some(&b'*') {
                 idx += 1;
             } else if line.get(idx) == Some(&b'-') {
-                idx += 1;
-                if line
-                    .get(idx)
-                    .is_some_and(|byte| matches!(byte, b'$' | b'^'))
-                {
-                    idx += 1;
-                } else {
-                    while line.get(idx).is_some_and(u8::is_ascii_digit) {
-                        idx += 1;
-                    }
-                }
+                idx = read_word_range_end(line, idx + 1);
             }
             let designator = &line[start..idx];
             let entry = history

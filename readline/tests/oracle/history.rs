@@ -1591,6 +1591,56 @@ fn bash_readline_and_sushline_expand_short_form_caret_ranges() {
 }
 
 #[test]
+fn bash_readline_and_sushline_expand_colon_form_caret_ranges() {
+    let inputrc = r#""\C-x\C-a": history-expand-line"#;
+    for (entry, cases, failures) in [
+        (
+            "cmd a b c d",
+            vec![
+                ("!:^-", "a b c"),
+                ("!:^-1", "a"),
+                ("!:^-2", "a b"),
+                ("!:^-4", "a b c d"),
+                ("!:^-$", "a b c d"),
+                ("!:^-^", "a"),
+                ("!:^-^^", "a^"),
+                ("!:^-x", "a b cx"),
+                ("!:^-*", "a b c*"),
+                ("!:^-$x", "a b c dx"),
+            ],
+            vec!["!:^-5"],
+        ),
+        (
+            "gamma delta",
+            vec![("!:^-", ""), ("!:^-1", "delta"), ("!:^-$", "delta")],
+            vec!["!:^-2"],
+        ),
+    ] {
+        let history = [entry];
+        for (typed, expected) in cases {
+            let keys = format!("{typed}\x18\x01\r");
+            let bash = run_bash_history_expand(typed, &history);
+            let sushline =
+                run_sushline_harness_with_inputrc_and_history(keys.as_bytes(), inputrc, &history);
+            assert_eq!(bash, expected, "{entry}: {typed}");
+            assert_eq!(
+                accepted_line(&sushline),
+                Some(expected.to_string()),
+                "{entry}: {typed}: {sushline}"
+            );
+        }
+        for typed in failures {
+            let (stdout, stderr) = run_bash_history_expand_failure(typed, &history);
+            assert!(stdout.is_empty(), "{entry}: {typed}: {stdout}");
+            assert!(
+                stderr.contains(&format!("{typed}: history expansion failed")),
+                "{entry}: {typed}: {stderr}"
+            );
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_expand_prefixed_paths_with_punctuation() {
     // GNU scans a `!string` prefix until a delimiter, so dots and slashes
     // belong to the event; a dash terminates it with `-` applying the

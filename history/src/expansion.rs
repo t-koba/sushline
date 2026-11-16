@@ -809,7 +809,12 @@ fn read_history_word_designator(input: &[u8], idx: usize) -> (Vec<u8>, usize) {
     let mut end = idx;
     let mut range = false;
     match input.get(idx).copied() {
-        // A named position stands alone; no range follows it.
+        // `$` and `*` stand alone; `^` starts a range when followed by `-`,
+        // just as in the short-form `!^-` event.
+        Some(b'^') if input.get(idx + 1) == Some(&b'-') => {
+            end = read_word_range_end(input, idx + 2);
+            range = true;
+        }
         Some(b'^' | b'$' | b'*') => return (vec![input[idx]], idx + 1),
         // A range that starts at the beginning of the event.
         Some(b'-') => {

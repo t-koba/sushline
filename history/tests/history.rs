@@ -4633,6 +4633,52 @@ fn history_expansion_short_form_caret_ranges() {
 }
 
 #[test]
+fn history_expansion_colon_form_caret_ranges() {
+    let histchars = HistoryChars::parse("!^#");
+    let policy = HistoryExpansionPolicy::default();
+    for (entry, cases, failures) in [
+        (
+            "cmd a b c d",
+            vec![
+                ("!!:^-", "a b c"),
+                ("!!:^-1", "a"),
+                ("!!:^-2", "a b"),
+                ("!!:^-4", "a b c d"),
+                ("!!:^-$", "a b c d"),
+                ("!!:^-^", "a"),
+                ("!!:^-^^", "a^"),
+                ("!!:^-x", "a b cx"),
+                ("!!:^-*", "a b c*"),
+                ("!!:^-$x", "a b c dx"),
+            ],
+            vec![("!!:^-5", "^-5")],
+        ),
+        (
+            "gamma delta",
+            vec![("!!:^-", ""), ("!!:^-1", "delta"), ("!!:^-$", "delta")],
+            vec![("!!:^-2", "^-2")],
+        ),
+    ] {
+        let mut history = History::new();
+        history.push(entry);
+        for (typed, expected) in cases {
+            assert_eq!(
+                expand_history(typed.as_bytes(), &history, histchars, &policy, |_| false).unwrap(),
+                expected.as_bytes(),
+                "{entry}: {typed}"
+            );
+        }
+        for (typed, spec) in failures {
+            assert_eq!(
+                expand_history(typed.as_bytes(), &history, histchars, &policy, |_| false),
+                Err(HistoryExpansionError::BadWordSpecifier(spec.to_string())),
+                "{entry}: {typed}"
+            );
+        }
+    }
+}
+
+#[test]
 fn history_expansion_only_allows_readline_colonless_word_designators() {
     let mut history = History::new();
     history.push("echo zero one two three");

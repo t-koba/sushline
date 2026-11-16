@@ -1641,6 +1641,69 @@ fn bash_readline_and_sushline_expand_colon_form_caret_ranges() {
 }
 
 #[test]
+fn bash_readline_and_sushline_select_default_policy_word_designators() {
+    let inputrc = r#""\C-x\C-a": history-expand-line"#;
+    for (entry, cases) in [
+        (
+            r#"echo "a b" c"#,
+            vec![
+                ("!!:1", r#""a b""#),
+                ("!!:2", "c"),
+                ("!!:$", "c"),
+                ("!!:*", r#""a b" c"#),
+                ("!!:1-2", r#""a b" c"#),
+            ],
+        ),
+        (
+            "echo 'a b' c",
+            vec![
+                ("!!:1", "'a b'"),
+                ("!!:2", "c"),
+                ("!!:$", "c"),
+                ("!!:*", "'a b' c"),
+            ],
+        ),
+        (
+            r"echo a\ b c",
+            vec![
+                ("!!:1", r"a\ b"),
+                ("!!:2", "c"),
+                ("!!:$", "c"),
+                ("!!:*", r"a\ b c"),
+            ],
+        ),
+        (
+            "echo a|b c",
+            vec![
+                ("!!:1", "a"),
+                ("!!:2", "|"),
+                ("!!:$", "c"),
+                ("!!:*", "a | b c"),
+                ("!!:1-2", "a |"),
+            ],
+        ),
+        (
+            r"echo a\;b c",
+            vec![("!!:1", r"a\;b"), ("!!:2", "c"), ("!!:$", "c")],
+        ),
+    ] {
+        let history = [entry];
+        for (typed, expected) in cases {
+            let keys = format!("{typed}\x18\x01\r");
+            let bash = run_bash_history_expand(typed, &history);
+            let sushline =
+                run_sushline_harness_with_inputrc_and_history(keys.as_bytes(), inputrc, &history);
+            assert_eq!(bash, expected, "{entry}: {typed}");
+            assert_eq!(
+                accepted_line(&sushline),
+                Some(expected.to_string()),
+                "{entry}: {typed}: {sushline}"
+            );
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_expand_prefixed_paths_with_punctuation() {
     // GNU scans a `!string` prefix until a delimiter, so dots and slashes
     // belong to the event; a dash terminates it with `-` applying the

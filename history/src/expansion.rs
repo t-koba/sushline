@@ -582,19 +582,16 @@ fn parse_history_event(
                 }
             }
             let designator = &line[start..idx];
-            let first_arg = history
+            let entry = history
                 .entries()
                 .last()
-                .and_then(|entry| select_history_words(&entry.line_bytes, designator, policy).ok());
-            first_arg
-                .map(|event| {
-                    Some(HistoryEvent {
-                        line: event,
-                        next_index: idx,
-                        matched_word: None,
-                    })
-                })
-                .ok_or_else(|| HistoryExpansionError::EventNotFound("!^".to_string()))
+                .ok_or_else(|| HistoryExpansionError::EventNotFound("!^".to_string()))?;
+            let line = select_history_words(&entry.line_bytes, designator, policy)?;
+            Ok(Some(HistoryEvent {
+                line,
+                next_index: idx,
+                matched_word: None,
+            }))
         }
         Some(b'-') | Some(b'0'..=b'9') => {
             let start = idx;

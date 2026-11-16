@@ -4593,9 +4593,13 @@ fn history_expansion_short_form_caret_ranges() {
                 ("!^*", "a b c d"),
                 ("!^*$", "a b c d$"),
             ],
-            vec!["!^-0"],
+            vec![("!^-0", "^-0")],
         ),
-        ("gamma delta", vec![("!^-1", "delta")], vec!["!^-2"]),
+        (
+            "gamma delta",
+            vec![("!^-1", "delta")],
+            vec![("!^-2", "^-2")],
+        ),
     ] {
         let mut history = History::new();
         history.push(entry);
@@ -4606,14 +4610,20 @@ fn history_expansion_short_form_caret_ranges() {
                 "{entry}: {typed}"
             );
         }
-        for typed in failures {
+        for (typed, spec) in failures {
             assert_eq!(
                 expand_history(typed.as_bytes(), &history, histchars, &policy, |_| false),
-                Err(HistoryExpansionError::EventNotFound("!^".to_string())),
+                Err(HistoryExpansionError::BadWordSpecifier(spec.to_string())),
                 "{entry}: {typed}"
             );
         }
     }
+
+    let empty = History::new();
+    assert_eq!(
+        expand_history(b"!^-1", &empty, histchars, &policy, |_| false),
+        Err(HistoryExpansionError::EventNotFound("!^".to_string()))
+    );
 }
 
 #[test]

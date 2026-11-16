@@ -3903,6 +3903,23 @@ fn bash_readline_and_sushline_region_without_mark_uses_line_start_like_bash() {
 }
 
 #[test]
+fn bash_readline_and_sushline_set_mark_region_matches() {
+    let inputrc = "\"\\C-o\": set-mark\n\"\\C-w\": kill-region";
+    let keys = b"abc\x01\x0f\x06\x17\r";
+    let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+    assert_eq!(accepted_line(&bash), Some("bc".to_string()), "{bash}");
+    assert_eq!(bell_count(&bash), 0, "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(bell_count(&sushline), 0, "{sushline}");
+}
+
+#[test]
 fn bash_readline_and_sushline_mark_bells_match_like_bash() {
     // exchange-point-and-mark with no mark set stays silent while
     // vi-goto-mark with no mark rings once in the tested Bash 5.3 PTY

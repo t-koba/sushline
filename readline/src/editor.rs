@@ -115,6 +115,27 @@ where
     pending_input: Vec<u8>,
 }
 
+// Restore promptly even when a hook unwinds while the caller retains the editor.
+struct ReadLineCleanup<'a, T: TerminalIo> {
+    editor: &'a mut Editor<T>,
+    armed: bool,
+}
+
+impl<T: TerminalIo> ReadLineCleanup<'_, T> {
+    fn finish(mut self) -> Result<(), ReadlineError> {
+        self.armed = false;
+        self.editor.cleanup_after_signal()
+    }
+}
+
+impl<T: TerminalIo> Drop for ReadLineCleanup<'_, T> {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = self.editor.cleanup_after_signal();
+        }
+    }
+}
+
 impl<T> Editor<T>
 where
     T: TerminalIo,
@@ -373,8 +394,12 @@ where
             let _ = self.cleanup_after_signal();
             return Err(setup_err);
         }
-        let result = self.read_line_raw(prompt, hooks);
-        let restore_result = self.cleanup_after_signal();
+        let cleanup = ReadLineCleanup {
+            editor: self,
+            armed: true,
+        };
+        let result = cleanup.editor.read_line_raw(prompt, hooks);
+        let restore_result = cleanup.finish();
         match (result, restore_result) {
             (Ok(value), Ok(())) => Ok(value),
             (Err(err), _) => Err(err),

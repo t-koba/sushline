@@ -26,6 +26,113 @@ fn signal_cleanup_and_reset_restore_terminal_modes() {
     assert_eq!(line.terminal().meta_enabled, vec![true, false]);
 }
 
+#[test]
+fn hook_panic_restores_terminal_while_editor_remains_alive() {
+    use readline::{TerminalEvent, TerminalIo, TerminalSize};
+    use std::io;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+    use std::time::Duration;
+
+    #[derive(Default)]
+    struct TrackingTerminal {
+        inner: MemoryTerminal,
+        raw: bool,
+        entries: usize,
+        restores: usize,
+        bracketed_paste: bool,
+    }
+
+    impl TerminalIo for TrackingTerminal {
+        fn enter_raw_mode(&mut self) -> io::Result<()> {
+            self.raw = true;
+            self.entries += 1;
+            Ok(())
+        }
+
+        fn restore_mode(&mut self) -> io::Result<()> {
+            self.raw = false;
+            self.restores += 1;
+            Ok(())
+        }
+
+        fn read_event(&mut self, timeout: Option<Duration>) -> io::Result<TerminalEvent> {
+            self.inner.read_event(timeout)
+        }
+
+        fn write(&mut self, text: &str) -> io::Result<()> {
+            match text {
+                "\x1b[?2004h" => self.bracketed_paste = true,
+                "\x1b[?2004l" => self.bracketed_paste = false,
+                _ => {}
+            }
+            self.inner.write(text)
+        }
+
+        fn write_bytes(&mut self, bytes: &[u8]) -> io::Result<()> {
+            self.inner.write_bytes(bytes)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.inner.flush()
+        }
+
+        fn size(&self) -> io::Result<TerminalSize> {
+            self.inner.size()
+        }
+
+        fn clear_after_cursor(&mut self) -> io::Result<()> {
+            self.inner.clear_after_cursor()
+        }
+
+        fn move_to_column(&mut self, column: u16) -> io::Result<()> {
+            self.inner.move_to_column(column)
+        }
+
+        fn set_meta_key_enabled(&mut self, enabled: bool) -> io::Result<()> {
+            self.inner.set_meta_key_enabled(enabled)
+        }
+
+        fn set_application_keypad_enabled(&mut self, enabled: bool) -> io::Result<()> {
+            self.inner.set_application_keypad_enabled(enabled)
+        }
+    }
+
+    struct PanickingHook;
+
+    impl Hooks for PanickingHook {
+        fn check_signals(&mut self) -> Option<i32> {
+            std::panic::panic_any("application hook panic");
+        }
+    }
+
+    let terminal = TrackingTerminal {
+        inner: MemoryTerminal::with_events(Vec::new()),
+        ..TrackingTerminal::default()
+    };
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str(
+        "set enable-bracketed-paste on\nset enable-keypad on\nset enable-meta-key on",
+    )
+    .unwrap();
+
+    let panic = catch_unwind(AssertUnwindSafe(|| {
+        line.read_line(Prompt::new("> "), &mut PanickingHook)
+    }))
+    .expect_err("hook panic must propagate");
+    assert_eq!(
+        panic.downcast_ref::<&str>(),
+        Some(&"application hook panic")
+    );
+    let terminal = line.terminal();
+    assert_eq!(terminal.entries, 1);
+    assert!(!terminal.raw);
+    assert_eq!(terminal.restores, 1);
+    assert!(terminal.inner.out.contains("\x1b[?2004h"));
+    assert!(!terminal.bracketed_paste);
+    assert_eq!(terminal.inner.keypad_enabled, [true, false]);
+    assert_eq!(terminal.inner.meta_enabled, [true, false]);
+}
+
 #[cfg(unix)]
 #[test]
 fn hooks_can_report_pending_sigint() {

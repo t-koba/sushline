@@ -1615,6 +1615,31 @@ fn bash_readline_and_sushline_accept_same_editing_mode_switch_commands() {
 }
 
 #[test]
+fn bash_readline_and_sushline_csi_skip_commands_consume_the_sequence() {
+    // GNU binds `\e[` to skip-csi-sequence and `\eO` to arrow-key-prefix by
+    // default. Feed each editor a full escape sequence under those defaults:
+    // both must discard it and accept the following text.
+    for (name, keys) in [
+        ("skip-csi-sequence", &b"\x1b[1;5CX\r"[..]),
+        ("arrow-key-prefix", &b"\x1bOAX\r"[..]),
+    ] {
+        let bash = run_bash_readline(keys);
+        let sushline = run_sushline_harness(keys);
+
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some("X"),
+            "Bash {name}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some("X"),
+            "Sushline {name}: {sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_forward_backward_delete_char_numeric_arguments_match_bash_5_3() {
     // Bash 5.3 PTY accepted-line observations at an interior point and EOL.
     let inputrc = r#""\C-o": forward-backward-delete-char"#;

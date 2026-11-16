@@ -762,6 +762,29 @@ fn bash_readline_and_sushline_accept_same_kill_whole_line_edit() {
 }
 
 #[test]
+fn bash_readline_and_sushline_kill_whole_line_ignores_numeric_prefix() {
+    let inputrc = r#""\C-o": kill-whole-line"#;
+    for keys in [
+        b"abc def\x1b2\x0fX\r".as_slice(),
+        b"abc def\x1b0\x0fX\r".as_slice(),
+        b"abc def\x1b-1\x0fX\r".as_slice(),
+        b"abc def\x1b2\x0f\x0bX\r".as_slice(),
+        b"abc def\x1b2\x0f\x01\x0bX\r".as_slice(),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        for (name, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some("X"),
+                "{name} keys={keys:?}: {output:?}"
+            );
+            assert_eq!(bell_count(output), 0, "{name} keys={keys:?}: {output:?}");
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_revert_line_edit() {
     let keys = b"abc\x1brX\r";
     let bash = run_bash_readline(keys);

@@ -4582,3 +4582,19 @@ fn bash_readline_and_sushline_vi_mark_names_are_lowercase_letters_like_bash() {
         assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_byte_motions_land_on_utf8_boundaries() {
+    let forward = r#""\C-o": forward-byte"#;
+    let backward = r#""\C-o": backward-byte"#;
+    for (inputrc, keys, expected) in [
+        (forward, "αβγ\u{1}\u{f}\u{f}X\r".as_bytes(), "αXβγ"),
+        (backward, "αβγ\u{2}\u{f}\u{f}Y\r".as_bytes(), "αYβγ"),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        let context = format!("keys={keys:?}\nbash={bash}\nsushline={sushline}");
+        assert_eq!(accepted_line(&bash).as_deref(), Some(expected), "{context}");
+        assert_eq!(accepted_line(&sushline), accepted_line(&bash), "{context}");
+    }
+}

@@ -1587,9 +1587,14 @@ fn bash_readline_and_sushline_accept_same_editing_mode_switch_commands() {
     let bash = run_bash_readline_with_bindings(vi_keys, vi_inputrc);
     let sushline = run_sushline_harness_with_inputrc(vi_keys, vi_inputrc);
     assert_eq!(
-        accepted_line(&sushline),
         accepted_line(&bash),
-        "vi switch\nbash={bash}\nsushline={sushline}"
+        Some("Xabc".to_string()),
+        "Bash vi switch: {bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        Some("Xabc".to_string()),
+        "Sushline vi switch: {sushline}"
     );
 
     let emacs_inputrc = r#"set editing-mode vi
@@ -1598,9 +1603,14 @@ fn bash_readline_and_sushline_accept_same_editing_mode_switch_commands() {
     let bash = run_bash_readline_with_inputrc_file(emacs_keys, emacs_inputrc);
     let sushline = run_sushline_harness_with_inputrc(emacs_keys, emacs_inputrc);
     assert_eq!(
-        accepted_line(&sushline),
         accepted_line(&bash),
-        "emacs switch\nbash={bash}\nsushline={sushline}"
+        Some("Xabc".to_string()),
+        "Bash emacs switch: {bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        Some("Xabc".to_string()),
+        "Sushline emacs switch: {sushline}"
     );
 }
 

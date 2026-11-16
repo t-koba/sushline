@@ -570,15 +570,21 @@ fn parse_history_event(
             state.word_specifier_consumed = true;
             let start = idx;
             idx += 1;
-            // `^*` and `^-N` are complete ranges; later bytes are literal suffixes.
+            // `^*`, `^-`, `^-N`, `^-$` and `^-^` are complete ranges; bytes
+            // after a completed range are literal suffixes.
             if line.get(idx) == Some(&b'*') {
                 idx += 1;
-            } else if line.get(idx) == Some(&b'-')
-                && line.get(idx + 1).is_some_and(u8::is_ascii_digit)
-            {
+            } else if line.get(idx) == Some(&b'-') {
                 idx += 1;
-                while line.get(idx).is_some_and(u8::is_ascii_digit) {
+                if line
+                    .get(idx)
+                    .is_some_and(|byte| matches!(byte, b'$' | b'^'))
+                {
                     idx += 1;
+                } else {
+                    while line.get(idx).is_some_and(u8::is_ascii_digit) {
+                        idx += 1;
+                    }
                 }
             }
             let designator = &line[start..idx];
@@ -893,7 +899,8 @@ fn select_history_words(
     }
     if let Some(dash) = spec.iter().position(|byte| *byte == b'-') {
         let start = idx_for(&spec[..dash])?;
-        let end = if dash + 1 == spec.len() {
+        let open_ended = dash + 1 == spec.len();
+        let end = if open_ended {
             // Open-ended `x-` keeps every word but the last; a single-word
             // entry therefore selects nothing instead of itself.
             if last == 0 {
@@ -904,6 +911,11 @@ fn select_history_words(
             idx_for(&spec[dash + 1..])?
         };
         if start > end {
+            // An open-ended range whose start is one past the last selectable
+            // word selects nothing, as GNU does for `!^-` on a two-word entry.
+            if open_ended && start == last {
+                return Ok(Vec::new());
+            }
             return Err(HistoryExpansionError::BadWordSpecifier(
                 String::from_utf8_lossy(spec).into_owned(),
             ));

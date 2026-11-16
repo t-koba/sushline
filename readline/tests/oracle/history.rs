@@ -1542,18 +1542,28 @@ fn bash_readline_and_sushline_expand_short_form_caret_ranges() {
         (
             "cmd a b c d",
             vec![
+                ("!^-", "a b c"),
                 ("!^-1", "a"),
                 ("!^-2", "a b"),
                 ("!^-3", "a b c"),
                 ("!^-4", "a b c d"),
                 ("!^-2$", "a b$"),
+                ("!^-$", "a b c d"),
+                ("!^-^", "a"),
+                ("!^-^^", "a^"),
+                ("!^-^aa", "aaa"),
+                ("!^-x", "a b cx"),
                 ("!^", "a"),
                 ("!^*", "a b c d"),
                 ("!^*$", "a b c d$"),
             ],
             vec!["!^-0"],
         ),
-        ("gamma delta", vec![("!^-1", "delta")], vec!["!^-2"]),
+        (
+            "gamma delta",
+            vec![("!^-", ""), ("!^-$", "delta"), ("!^-1", "delta")],
+            vec!["!^-2"],
+        ),
     ] {
         let history = [entry];
         for (typed, expected) in cases {

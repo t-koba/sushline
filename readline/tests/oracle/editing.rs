@@ -1506,6 +1506,33 @@ fn sushline_prefix_meta_inputrc_extension_preserves_literal_fallback() {
 }
 
 #[test]
+fn bash_readline_and_sushline_bell_style_controls_bells() {
+    for (style, expected_bells) in [("audible", 1), ("none", 0)] {
+        let inputrc = format!("set bell-style {style}\n\"1\": do-lowercase-version\n");
+        let keys = b"1\r";
+        let bash = run_bash_readline_with_inputrc_file(keys, &inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, &inputrc);
+
+        assert_eq!(
+            accepted_line(&bash),
+            Some(String::new()),
+            "Bash {style}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), expected_bells, "Bash {style}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "style={style}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            expected_bells,
+            "Sushline {style}: {sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_match_lowercase_version_cases() {
     for (case, inputrc, keys, expected, expected_bells) in [
         (

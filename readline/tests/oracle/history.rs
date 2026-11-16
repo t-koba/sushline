@@ -3229,6 +3229,31 @@ fn history_search_preserves_origin_edit_after_overlay_navigation_like_bash() {
 }
 
 #[test]
+fn bash_and_sushline_beginning_of_history_selects_the_oldest_entry() {
+    let history = ["AAA", "BBB"];
+    for (case, keys, expected) in [
+        ("from current line", &b"\x1b<\r"[..], "AAA"),
+        ("after one Ctrl-P", &b"\x10\x1b<\r"[..], "AAA"),
+        ("after two Ctrl-P", &b"\x10\x10\x1b<\r"[..], "AAA"),
+        ("edited oldest entry", &b"\x1b< EDIT\r"[..], "AAA EDIT"),
+        ("edit before beginning", &b"\x10 EDIT\x1b<\r"[..], "AAA"),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_history(keys, "", &history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, "", &history);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{case}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{case}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_and_sushline_end_of_history_returns_to_the_empty_current_line() {
     let inputrc = "";
     let history = ["AAA", "BBB"];

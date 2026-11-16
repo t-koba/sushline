@@ -1429,6 +1429,7 @@ fn bash_readline_and_sushline_expand_same_history_words_and_modifiers() {
         ("!!:^", "/tmp/foo.txt"),
         ("!!:$", "beta"),
         ("!!:*", "/tmp/foo.txt alpha beta"),
+        ("!*", "/tmp/foo.txt alpha beta"),
         ("!!:1-2", "/tmp/foo.txt alpha"),
         ("!!:1-", "/tmp/foo.txt alpha"),
         // The designator ends where its grammar ends; the text that
@@ -2943,5 +2944,47 @@ fn incremental_history_search_keeps_the_edit_when_matching_its_own_entry_like_ba
             accepted_line(&bash),
             "bash={bash}\nsushline={sushline}"
         );
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_magic_space_expands_on_space() {
+    // The shared `read -e -c` harness does not engage Bash's history
+    // expansion, so this fixture drives a real interactive shell. It covers
+    // a bound Space that inserts a literal space, expands common event and
+    // word forms, and preserves text typed after the expansion. Failing
+    // expansions and quoted designators are outside this fixture.
+    let inputrc = r#"" ": magic-space"#;
+    let history = ["echo alpha", "beta gamma"];
+    for (typed, expected) in [
+        ("abc ", "abc "),
+        ("!! ", "beta gamma "),
+        ("!!:1 ", "gamma "),
+        ("echo !$ ", "echo gamma "),
+        ("!ec ", "echo alpha "),
+        ("!! more", "beta gamma more"),
+        ("!!  ", "beta gamma  "),
+        ("! ", "! "),
+        ("\\!! ", "\\!! "),
+        ("!?beta? ", "beta gamma "),
+        ("!-1 ", "beta gamma "),
+        ("!* ", "gamma "),
+    ] {
+        let bash = run_bash_interactive_magic_space(typed.as_bytes(), inputrc, &history);
+        let keys = format!("{typed}\r");
+        let sushline =
+            run_sushline_harness_with_inputrc_and_history(keys.as_bytes(), inputrc, &history);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{typed}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{typed}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{typed}: {bash}");
+        assert_eq!(bell_count(&sushline), 0, "{typed}: {sushline}");
     }
 }

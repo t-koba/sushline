@@ -558,6 +558,44 @@ pub(super) fn run_bash_readline_with_inputrc_file_and_history_and_env(
     run_pty(command, keys)
 }
 
+/// Runs `magic-space` in a real interactive Bash session.
+///
+/// The shared `read -e -c` harness does not engage Bash's history expansion,
+/// so it cannot observe this command. The wrapper prints the accepted line
+/// with a marker assembled from two literals; the echoed command therefore
+/// never contains the marker that `accepted_line` parses.
+pub(super) fn run_bash_interactive_magic_space(
+    keys: &[u8],
+    inputrc: &str,
+    history: &[&str],
+) -> String {
+    require_oracle_host();
+    let dir = tempfile::tempdir().expect("magic-space tempdir");
+    let path = dir.path().join("inputrc");
+    fs::write(&path, inputrc).expect("write magic-space inputrc");
+    let history_commands = history
+        .iter()
+        .map(|entry| format!("history -s {}", shell_single_quote(entry)))
+        .collect::<Vec<_>>()
+        .join("; ");
+    let seed = format!("{history_commands}\r");
+    let command_text = String::from_utf8_lossy(keys);
+    let wrapped = format!("{command_text}\x01printf 'SUSHLINE_AC%s:%s\\n' CEPTED '\x05'\r");
+    let mut command = CommandBuilder::new("bash");
+    command.env("INPUTRC", path.to_string_lossy().as_ref());
+    command.env("PS1", READY_PROMPT);
+    command.env("TERM", "xterm-256color");
+    command.args(["--noprofile", "--norc", "-i"]);
+    run_pty_steps_until(
+        command,
+        &[
+            (READY_PROMPT, seed.as_bytes()),
+            (READY_PROMPT, wrapped.as_bytes()),
+        ],
+        "SUSHLINE_ACCEPTED:",
+    )
+}
+
 pub(super) fn run_bash_readline_with_reloaded_inputrc(
     keys: &[u8],
     initial_inputrc: &str,

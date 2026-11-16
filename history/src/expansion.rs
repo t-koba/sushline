@@ -505,6 +505,29 @@ fn parse_history_event(
                 })
                 .ok_or_else(|| HistoryExpansionError::EventNotFound("!!".to_string()))
         }
+        Some(b'*') => {
+            idx += 1;
+            let words = history
+                .entries()
+                .last()
+                .map(|entry| command_words(&entry.line_bytes, policy));
+            let Some(words) = words else {
+                return Err(HistoryExpansionError::EventNotFound("!*".to_string()));
+            };
+            // GNU expands a bare `!*` to every argument of the previous
+            // event, not to a prefix search. A single-word event has no
+            // arguments and therefore expands to an empty string.
+            let arguments = if words.len() > 1 {
+                join_words(&words[1..])
+            } else {
+                Vec::new()
+            };
+            Ok(Some(HistoryEvent {
+                line: arguments,
+                next_index: idx,
+                matched_word: None,
+            }))
+        }
         Some(b'$') => {
             idx += 1;
             let last_arg = history

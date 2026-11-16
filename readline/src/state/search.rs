@@ -1,10 +1,12 @@
 use crate::locale::LocaleLowercase;
 use history::{History, HistoryDirection, HistorySearchMatch};
 
-use super::UndoState;
+use super::{EditorState, UndoState};
 
 #[derive(Debug, Default)]
 pub(crate) struct SearchState {
+    /// Original prefix for a consecutive run of history navigation searches.
+    pub(crate) history_navigation_needle: Option<Vec<u8>>,
     pub(crate) reverse_search: Option<ReverseSearchState>,
     pub(crate) non_incremental_search: Option<NonIncrementalSearchState>,
     pub(crate) last_incremental_search: Option<Vec<u8>>,
@@ -13,6 +15,15 @@ pub(crate) struct SearchState {
     pub(crate) last_non_incremental_search_direction: Option<SearchDirection>,
     pub(crate) last_non_incremental_search_match_index: Option<usize>,
     pub(crate) quoted_pending: bool,
+}
+
+impl EditorState {
+    pub(crate) fn history_navigation_needle(&mut self) -> Vec<u8> {
+        self.search
+            .history_navigation_needle
+            .get_or_insert_with(|| self.buffer.range_bytes(0, self.buffer.point()))
+            .clone()
+    }
 }
 
 #[derive(Debug, Clone, Default)]

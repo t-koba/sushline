@@ -500,3 +500,33 @@ fn prefix_search_matches_invalid_utf8_history_fixture() {
         ReadlineResult::Line(b"ALPHA\xfftail".to_vec())
     );
 }
+
+#[test]
+fn history_navigation_search_needle_lasts_until_the_next_edit() {
+    for (tail, expected) in [
+        (&b"\x1b1\x1d\r"[..], &b"alpha one"[..]),
+        (&b"X\x1d\r"[..], &b"alpha twoX"[..]),
+    ] {
+        let terminal = MemoryTerminal::with_events(vec![
+            TerminalEvent::Bytes(b"alp\x1d".to_vec()),
+            TerminalEvent::Bytes(tail.to_vec()),
+        ]);
+        let mut history = History::new();
+        for line in ["alpha one", "beta", "alpha two"] {
+            history.push(line);
+        }
+        assert!(history.set_pos(history.len()));
+        let mut editor = Editor::new_without_inputrc(Config::default(), terminal, history);
+        editor
+            .load_inputrc_str(r#""\C-]": history-search-backward"#)
+            .unwrap();
+
+        // Argument prefixes keep the needle; literal insertion (including the
+        // coalesced-input path) starts a new search from the edited buffer.
+        assert_eq!(
+            editor.read_line(Prompt::new("> "), &mut ()).unwrap(),
+            ReadlineResult::Line(expected.to_vec()),
+            "tail={tail:?}"
+        );
+    }
+}

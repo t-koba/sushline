@@ -30,6 +30,73 @@ fn bash_readline_and_sushline_history_search_backward_by_prefix() {
 }
 
 #[test]
+fn bash_readline_and_sushline_repeated_history_search_keeps_original_needle() {
+    let backward = r#""\C-]": history-search-backward"#;
+    let forward = r#""\C-^": history-search-forward"#;
+    let substring_backward = r#""\C-o": history-substring-search-backward"#;
+    let substring_forward = r#""\C-o": history-substring-search-forward"#;
+    for (inputrc, history, keys, expected) in [
+        (
+            backward,
+            ["alpha one", "beta", "alpha two"],
+            &b"alp\x1d\x1d\r"[..],
+            "alpha one",
+        ),
+        (
+            backward,
+            ["alpha one", "beta", "alpha two"],
+            &b"\x1d\x1d\r"[..],
+            "beta",
+        ),
+        (
+            backward,
+            ["alpha one", "alphabet two", "alpha two"],
+            &b"alpha \x1d\x1d\r"[..],
+            "alpha one",
+        ),
+        (
+            backward,
+            ["alpha one", "alphabet two", "alpha two"],
+            &b"alpha\x1d\x1d\r"[..],
+            "alphabet two",
+        ),
+        // Select the oldest entry, replace it with the needle, then search forward twice.
+        (
+            forward,
+            ["alpha one", "alphabet two", "alpha two"],
+            &b"\x10\x10\x10\x01\x0balpha\x1e\x1e\r"[..],
+            "alpha two",
+        ),
+        (
+            substring_backward,
+            ["old alp one", "beta", "new alp two"],
+            &b"alp\x0f\x0f\r"[..],
+            "old alp one",
+        ),
+        (
+            substring_forward,
+            ["old alp one", "mid alp", "new alp two"],
+            &b"\x10\x10\x10\x01\x0balp\x0f\x0f\r"[..],
+            "new alp two",
+        ),
+        // Editing the recalled line must start a new search, not reuse `alp`.
+        (
+            backward,
+            ["alpha one", "beta", "alpha two"],
+            &b"alp\x1d\x01\x0bb\x1d\r"[..],
+            "beta",
+        ),
+    ] {
+        let bash = run_bash_readline_with_bindings_and_history(keys, inputrc, &history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+        let context =
+            format!("keys={keys:?} history={history:?}\nbash={bash}\nsushline={sushline}");
+        assert_eq!(accepted_line(&bash).as_deref(), Some(expected), "{context}");
+        assert_eq!(accepted_line(&sushline), accepted_line(&bash), "{context}");
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_revert_line_after_prefix_history_search() {
     let keys = b"alp\x1d\x1br\r";
     let inputrc = r#""\C-]": history-search-backward

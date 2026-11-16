@@ -30,6 +30,29 @@ where
         key: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
+        // Navigation searches keep the original needle until another command
+        // runs. Argument/key prefixes and macro wrappers are not commands that
+        // end the sequence; their eventual dispatched command decides that.
+        let continues_history_search = match &binding {
+            KeyBinding::Command(
+                EditCommand::HistorySearchBackward
+                | EditCommand::HistorySearchForward
+                | EditCommand::DigitArgument
+                | EditCommand::UniversalArgument
+                | EditCommand::PrefixMeta,
+            )
+            | KeyBinding::Macro(_) => true,
+            KeyBinding::NamedCommand(command) => matches!(
+                command.as_str(),
+                "history-substring-search-backward"
+                    | "history-substring-search-forward"
+                    | "vi-arg-digit"
+            ),
+            _ => false,
+        };
+        if !continues_history_search {
+            state.search.history_navigation_needle = None;
+        }
         state.record_macro_binding(key, &binding);
         state.input.applied_command =
             !matches!(binding, KeyBinding::Command(EditCommand::SelfInsert));

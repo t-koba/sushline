@@ -30,7 +30,7 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::HistorySearchBackward => {
-                let prefix = state.buffer.range_bytes(0, state.buffer.point());
+                let prefix = state.history_navigation_needle();
                 let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
                 let locale_lowercase = self.search_locale_lowercase(ignore_case);
                 let arg = state.take_numeric_arg().unwrap_or(1);
@@ -90,7 +90,7 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::HistorySearchForward => {
-                let prefix = state.buffer.range_bytes(0, state.buffer.point());
+                let prefix = state.history_navigation_needle();
                 let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
                 let locale_lowercase = self.search_locale_lowercase(ignore_case);
                 let arg = state.take_numeric_arg().unwrap_or(1);
@@ -275,7 +275,7 @@ where
                 state.kill.last_yank = None;
             }
             "history-substring-search-forward" => {
-                let needle = state.buffer.range_bytes(0, state.buffer.point());
+                let needle = state.history_navigation_needle();
                 let current = state.buffer.as_bytes().to_vec();
                 let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
                 let locale_lowercase = self.search_locale_lowercase(ignore_case);
@@ -313,7 +313,7 @@ where
                 state.after_non_kill_command();
             }
             "history-substring-search-backward" => {
-                let needle = state.buffer.range_bytes(0, state.buffer.point());
+                let needle = state.history_navigation_needle();
                 let current = state.buffer.as_bytes().to_vec();
                 let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
                 let locale_lowercase = self.search_locale_lowercase(ignore_case);

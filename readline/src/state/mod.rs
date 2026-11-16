@@ -132,6 +132,8 @@ impl EditorState {
     }
 
     pub(crate) fn after_self_insert(&mut self) {
+        // Coalesced typed input can bypass command dispatch.
+        self.search.history_navigation_needle = None;
         self.kill.last_yank = None;
         self.search.reverse_search = None;
         self.undo.last_undo_was_insert = true;

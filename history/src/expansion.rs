@@ -568,14 +568,20 @@ fn parse_history_event(
         }
         Some(b'^') => {
             state.word_specifier_consumed = true;
+            let start = idx;
             idx += 1;
-            // `^*` is one range specifier; bytes after it are literal suffixes.
-            let designator = if line.get(idx) == Some(&b'*') {
+            // `^*` and `^-N` are complete ranges; later bytes are literal suffixes.
+            if line.get(idx) == Some(&b'*') {
                 idx += 1;
-                b"^*".as_slice()
-            } else {
-                b"^".as_slice()
-            };
+            } else if line.get(idx) == Some(&b'-')
+                && line.get(idx + 1).is_some_and(u8::is_ascii_digit)
+            {
+                idx += 1;
+                while line.get(idx).is_some_and(u8::is_ascii_digit) {
+                    idx += 1;
+                }
+            }
+            let designator = &line[start..idx];
             let first_arg = history
                 .entries()
                 .last()

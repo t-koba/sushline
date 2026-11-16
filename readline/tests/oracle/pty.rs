@@ -311,6 +311,11 @@ pub(super) fn run_bash_history_expand_failure(
     history: &[&str],
 ) -> (String, String) {
     let output = bash_history_expand_output(expansion, history);
+    assert!(
+        !output.status.success(),
+        "{expansion}: expected history expansion failure, got {}",
+        output.status
+    );
     (
         String::from_utf8_lossy(&output.stdout).to_string(),
         String::from_utf8_lossy(&output.stderr).to_string(),

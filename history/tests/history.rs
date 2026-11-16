@@ -4577,6 +4577,46 @@ fn history_expansion_short_form_events_keep_colonless_suffixes_literal() {
 }
 
 #[test]
+fn history_expansion_short_form_caret_ranges() {
+    let histchars = HistoryChars::parse("!^#");
+    let policy = HistoryExpansionPolicy::default();
+    for (entry, cases, failures) in [
+        (
+            "cmd a b c d",
+            vec![
+                ("!^-1", "a"),
+                ("!^-2", "a b"),
+                ("!^-3", "a b c"),
+                ("!^-4", "a b c d"),
+                ("!^-2$", "a b$"),
+                ("!^", "a"),
+                ("!^*", "a b c d"),
+                ("!^*$", "a b c d$"),
+            ],
+            vec!["!^-0"],
+        ),
+        ("gamma delta", vec![("!^-1", "delta")], vec!["!^-2"]),
+    ] {
+        let mut history = History::new();
+        history.push(entry);
+        for (typed, expected) in cases {
+            assert_eq!(
+                expand_history(typed.as_bytes(), &history, histchars, &policy, |_| false).unwrap(),
+                expected.as_bytes(),
+                "{entry}: {typed}"
+            );
+        }
+        for typed in failures {
+            assert_eq!(
+                expand_history(typed.as_bytes(), &history, histchars, &policy, |_| false),
+                Err(HistoryExpansionError::EventNotFound("!^".to_string())),
+                "{entry}: {typed}"
+            );
+        }
+    }
+}
+
+#[test]
 fn history_expansion_only_allows_readline_colonless_word_designators() {
     let mut history = History::new();
     history.push("echo zero one two three");

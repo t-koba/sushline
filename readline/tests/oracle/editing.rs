@@ -4091,6 +4091,74 @@ fn bash_readline_and_sushline_set_mark_region_matches() {
 }
 
 #[test]
+fn bash_readline_and_sushline_numeric_mark_prefix_parity() {
+    // Pin only these numeric prefixes before exchange-point-and-mark and
+    // set-mark. Runtime observation, not a general numeric rule.
+    for (desc, keys, expected) in [
+        (
+            "exchange_uncounted",
+            b"abcdef\x01\x06\x06\x00\x05\x18\x18X\r".as_slice(),
+            "abXcdef",
+        ),
+        (
+            "exchange_m1",
+            b"abcdef\x01\x06\x06\x00\x05\x1b1\x18\x18X\r".as_slice(),
+            "abXcdef",
+        ),
+        (
+            "exchange_m2",
+            b"abcdef\x01\x06\x06\x00\x05\x1b2\x18\x18X\r".as_slice(),
+            "abXcdef",
+        ),
+        (
+            "exchange_m0",
+            b"abcdef\x01\x06\x06\x00\x05\x1b0\x18\x18X\r".as_slice(),
+            "abXcdef",
+        ),
+        (
+            "exchange_negative_m1",
+            b"abcdef\x01\x06\x06\x00\x05\x1b-\x31\x18\x18X\r".as_slice(),
+            "abXcdef",
+        ),
+        (
+            "set_mark_uncounted",
+            b"abcdef\x01\x06\x06\x00\x18\x18X\r".as_slice(),
+            "abXcdef",
+        ),
+        (
+            "set_mark_m2",
+            b"abcdef\x01\x06\x06\x1b2\x00\x18\x18X\r".as_slice(),
+            "abXcdef",
+        ),
+        (
+            "set_mark_m0",
+            b"abcdef\x01\x06\x06\x1b0\x00\x18\x18X\r".as_slice(),
+            "Xabcdef",
+        ),
+        (
+            "set_mark_negative_m1",
+            b"abcdef\x01\x06\x06\x1b-\x31\x00\x18\x18X\r".as_slice(),
+            "Xabcdef",
+        ),
+    ] {
+        let bash = run_bash_readline(keys);
+        let sushline = run_sushline_harness(keys);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            Some(expected.to_string()),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), 0, "{desc}: {sushline}");
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_mark_bells_match_like_bash() {
     // exchange-point-and-mark with no mark set stays silent while
     // vi-goto-mark with no mark rings once in the tested Bash 5.3 PTY

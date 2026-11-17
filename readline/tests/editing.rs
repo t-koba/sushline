@@ -2076,23 +2076,25 @@ fn tilde_expand_preserves_named_user_trailing_slash() {
 #[test]
 fn ignored_prefix_commands_consume_numeric_argument() {
     // One probe per ignored-argument class (movement/kill/history/editing):
-    // each command is a no-op here and must consume M-2 so the following
-    // backward-char moves one step and Q lands before f.
-    let cases: &[(&str, Vec<u8>, Option<&str>)] = &[
-        // C-x C-x exchange-point-and-mark with no mark (movement).
-        ("exchange", b"\x1b2\x18\x18".to_vec(), None),
+    // each command must consume M-2 so the following backward-char moves
+    // one step, regardless of whether the command itself moves point.
+    type Case<'a> = (&'a str, Vec<u8>, Option<&'a str>, &'a [u8]);
+    let cases: &[Case<'_>] = &[
+        // C-x C-x with no explicit mark defaults the mark to buffer start.
+        ("exchange", b"\x1b2\x18\x18".to_vec(), None, b"Qabcdef"),
         // M-& tilde-expand with no tilde word (editing).
-        ("tilde", b"\x1b2\x1b&".to_vec(), None),
+        ("tilde", b"\x1b2\x1b&".to_vec(), None, b"abcdeQf"),
         // M-< history-beginning with empty history (history nav).
-        ("history", b"\x1b2\x1b<".to_vec(), None),
+        ("history", b"\x1b2\x1b<".to_vec(), None, b"abcdeQf"),
         // M-w copy-region-as-kill with no region (kill).
         (
             "copy-region",
             b"\x1b2\x1bw".to_vec(),
             Some("\"\\ew\": copy-region-as-kill"),
+            b"abcdeQf",
         ),
     ];
-    for (name, prefix, inputrc) in cases {
+    for (name, prefix, inputrc, expected) in cases {
         let terminal = MemoryTerminal::with_events(vec![
             TerminalEvent::Bytes(b"abcdef".to_vec()),
             TerminalEvent::Bytes(prefix.clone()),
@@ -2106,7 +2108,7 @@ fn ignored_prefix_commands_consume_numeric_argument() {
         let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
         assert_eq!(
             result,
-            ReadlineResult::Line(b"abcdeQf".to_vec()),
+            ReadlineResult::Line(expected.to_vec()),
             "case {name} leaked its numeric argument"
         );
     }

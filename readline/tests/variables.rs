@@ -322,8 +322,7 @@ fn bracketed_paste_off_still_pastes_without_terminal_mode() {
 #[test]
 fn bracketed_paste_off_guards_mark_hold_and_lone_end() {
     // Pasted text sets the mark: C-x C-x exchanges point with the paste
-    // start, so `X` lands before the pasted `a` (without a mark the
-    // exchange is a no-op and the line would be `aX`).
+    // start, so `X` lands before the pasted `a`.
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"\x1b[200~".to_vec()),
         TerminalEvent::Bytes(b"a".to_vec()),

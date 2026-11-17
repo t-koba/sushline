@@ -2631,6 +2631,39 @@ fn bash_readline_and_sushline_yank_ignores_numeric_argument() {
 }
 
 #[test]
+fn bash_readline_and_sushline_yank_pop_ignores_numeric_argument() {
+    // With three killed words, the tested Bash 5.3 PTY fixtures produce
+    // the same accepted line for every prefix; no count rule is inferred.
+    for (desc, prefix) in [
+        ("uncounted", b"".as_slice()),
+        ("zero", b"\x1b0".as_slice()),
+        ("one", b"\x1b1".as_slice()),
+        ("two", b"\x1b2".as_slice()),
+        ("three", b"\x1b3".as_slice()),
+        ("negative_one", b"\x1b-\x1b1".as_slice()),
+    ] {
+        let mut keys = b"one\x15two\x15three\x15X\x19".to_vec();
+        keys.extend_from_slice(prefix);
+        keys.extend_from_slice(b"\x1by\r");
+        let bash = run_bash_readline(&keys);
+        let sushline = run_sushline_harness(&keys);
+
+        assert_eq!(
+            accepted_line(&bash),
+            Some("Xthreetwoone".to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), 0, "{desc}: {sushline}");
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_yank_pop_edit() {
     let keys = b"one\x15two\x15X\x19\x1d\r";
     let inputrc = r#""\C-]": yank-pop"#;

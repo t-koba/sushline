@@ -3945,3 +3945,61 @@ fn bash_readline_and_sushline_numeric_prefix_search_point_and_mark() {
         }
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_preserve_point_substring_search_point_and_mark() {
+    let history = ["xxneedle old", "xxneedle mid", "xxneedle new"];
+    for (setting, binding) in [("off", ""), ("on", "set history-preserve-point on\n")] {
+        for (direction, inputrc, key, prefix, first, second) in [
+            (
+                "backward",
+                format!("{binding}\"\\C-]\": history-substring-search-backward"),
+                0x1du8,
+                &b""[..],
+                "xxXneedle new",
+                "xxXneedle mid",
+            ),
+            (
+                "forward",
+                format!("{binding}\"\\C-^\": history-substring-search-forward"),
+                0x1eu8,
+                &b"\x10\x10\x10\x01\x0b"[..],
+                "xxXneedle mid",
+                "xxXneedle new",
+            ),
+        ] {
+            for (count, arg, expected) in [("one", "", first), ("two", "\x1b2", second)] {
+                for (finish, line_end) in [(&b"X\r"[..], false), (&b"\x18\x18X\r"[..], true)] {
+                    let keys = [
+                        prefix,
+                        b"needle".as_slice(),
+                        arg.as_bytes(),
+                        &[key][..],
+                        finish,
+                    ]
+                    .concat();
+                    let bash =
+                        run_bash_readline_with_inputrc_file_and_history(&keys, &inputrc, &history);
+                    let sushline =
+                        run_sushline_harness_with_inputrc_and_history(&keys, &inputrc, &history);
+                    let expected = if line_end {
+                        expected.replacen("xxX", "xx", 1) + "X"
+                    } else {
+                        expected.to_string()
+                    };
+                    for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+                        let context = format!(
+                            "{editor} setting={setting} direction={direction} count={count} finish={finish:?} keys={keys:?}\n{output}"
+                        );
+                        assert_eq!(
+                            accepted_line(output).as_deref(),
+                            Some(expected.as_str()),
+                            "{context}"
+                        );
+                        assert_eq!(bell_count(output), 0, "{context}");
+                    }
+                }
+            }
+        }
+    }
+}

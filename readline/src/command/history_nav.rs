@@ -87,7 +87,9 @@ where
                 }
                 // Successful nonempty prefix recalls set mark at the line end;
                 // preserve-point controls only point, not mark.
-                if matched && !prefix.is_empty() && self.history.current_index().is_some() {
+                if arg == 0 && !prefix.is_empty() {
+                    state.mark = Some(0);
+                } else if matched && !prefix.is_empty() && self.history.current_index().is_some() {
                     if !self.flag(BoolVariable::HistoryPreservePoint) {
                         state.buffer.set_point(prefix.len());
                     }
@@ -162,7 +164,9 @@ where
                 }
                 // Successful nonempty prefix recalls set mark at the line end;
                 // preserve-point controls only point, not mark.
-                if matched && !prefix.is_empty() && self.history.current_index().is_some() {
+                if arg == 0 && !prefix.is_empty() {
+                    state.mark = Some(0);
+                } else if matched && !prefix.is_empty() && self.history.current_index().is_some() {
                     if !self.flag(BoolVariable::HistoryPreservePoint) {
                         state.buffer.set_point(prefix.len());
                     }

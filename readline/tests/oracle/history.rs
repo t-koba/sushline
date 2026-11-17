@@ -4264,3 +4264,55 @@ fn bash_readline_and_sushline_preserve_point_numeric_prefix_search() {
         }
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_ignore_case_negative_numeric_prefix_search() {
+    let history = ["Alpha aa old", "ALPHA bb mid", "alpha cc new"];
+    let oldest = &b"\x10\x10\x10\x01\x0b"[..];
+    for (setting, on) in [("off", ""), ("on", "set search-ignore-case on\n")] {
+        let inputrc =
+            format!("{on}\"\\C-o\": history-search-backward\n\"\\C-^\": history-search-forward\n");
+        for (direction, key, negative_prefix) in
+            [("backward", 0x0fu8, oldest), ("forward", 0x1eu8, &b""[..])]
+        {
+            for (count, arg) in [(-1, "\x1b-1"), (-2, "\x1b-2"), (-3, "\x1b-3"), (0, "\x1b0")] {
+                // Negative counts reverse direction; zero uses the oldest edit
+                // in both directions to keep the starting mark identical.
+                let prefix = if count == 0 { oldest } else { negative_prefix };
+                let (point, mark) = match (setting, direction, count) {
+                    (_, _, 0) => ("alphaX", "Xalpha"),
+                    ("on", "backward", -1) | ("on", "forward", -2) => {
+                        ("ALPHAX bb mid", "ALPHA bb midX")
+                    }
+                    ("on", "forward", -3) => ("AlphaX aa old", "Alpha aa oldX"),
+                    _ => ("alphaX cc new", "alpha cc newX"),
+                };
+                for (finish, expected) in [(&b"X\r"[..], point), (&b"\x18\x18X\r"[..], mark)] {
+                    let keys = [
+                        prefix,
+                        b"alpha".as_slice(),
+                        arg.as_bytes(),
+                        &[key][..],
+                        finish,
+                    ]
+                    .concat();
+                    let bash =
+                        run_bash_readline_with_inputrc_file_and_history(&keys, &inputrc, &history);
+                    let sushline =
+                        run_sushline_harness_with_inputrc_and_history(&keys, &inputrc, &history);
+                    for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+                        let context = format!(
+                            "{editor} setting={setting} direction={direction} count={count} finish={finish:?} keys={keys:?}\n{output}"
+                        );
+                        assert_eq!(
+                            accepted_line(output).as_deref(),
+                            Some(expected),
+                            "{context}"
+                        );
+                        assert_eq!(bell_count(output), 0, "{context}");
+                    }
+                }
+            }
+        }
+    }
+}

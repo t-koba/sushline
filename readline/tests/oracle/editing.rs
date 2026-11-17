@@ -4409,6 +4409,63 @@ fn bash_readline_and_sushline_numeric_unix_line_discard_parity() {
 }
 
 #[test]
+fn bash_readline_and_sushline_numeric_word_kill_prefix_parity() {
+    for (desc, keys, expected) in [
+        (
+            "kill_word_two",
+            b"abc def\x01\x1b2\x1b\x64X\r".as_slice(),
+            "X",
+        ),
+        (
+            "kill_word_zero",
+            b"abc def\x01\x1b0\x1b\x64X\r".as_slice(),
+            "Xabc def",
+        ),
+        (
+            "kill_word_negative_one",
+            b"abc def\x01\x1b-\x31\x1b\x64X\r".as_slice(),
+            "Xabc def",
+        ),
+        (
+            "backward_kill_word_two",
+            b"abc def\x1b2\x1b\x7fX\r".as_slice(),
+            "X",
+        ),
+        (
+            "backward_kill_word_zero",
+            b"abc def\x1b0\x1b\x7fX\r".as_slice(),
+            "abc defX",
+        ),
+        (
+            "backward_kill_word_negative_one",
+            b"abc def\x1b-\x31\x1b\x7fX\r".as_slice(),
+            "abc defX",
+        ),
+        (
+            "kill_word_uncounted",
+            b"abc def\x01\x1b\x64X\r".as_slice(),
+            "X def",
+        ),
+        (
+            "backward_kill_word_uncounted",
+            b"abc def\x1b\x7fX\r".as_slice(),
+            "abc X",
+        ),
+    ] {
+        let bash = run_bash_readline(keys);
+        let sushline = run_sushline_harness(keys);
+        for (host, output) in [("bash", &bash), ("sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output),
+                Some(expected.to_string()),
+                "{desc}: {host}={output}"
+            );
+            assert_eq!(bell_count(output), 0, "{desc}: {host}={output}");
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_unbound_esc_matches_like_bash() {
     let vi = "set editing-mode vi";
     let em_pair: &[u8] = b"\x1b\x1babc\r";

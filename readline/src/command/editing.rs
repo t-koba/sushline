@@ -112,8 +112,11 @@ where
             EditCommand::SelfInsert => {
                 state.display.pending_text = true;
                 let raw = state.take_numeric_arg().unwrap_or(1);
-                // GNU inserts nothing for a negative repeat count (tested
-                // M-- M-1 M-0); only non-negative counts repeat the insert.
+                // Sushline treats a negative repeat count as zero inserts;
+                // the pinned negative self-insert fixture accepts the empty
+                // line. Only sign-only and zero-then-negative quoted-insert
+                // forms matched GNU in paired PTY runs, so no general
+                // negative-count rule is inferred (see COMPATIBILITY.md).
                 let count: u32 = if raw < 0 { 0 } else { raw as u32 };
                 state.record_insert_undo(count == 1 && key.len() == 1);
                 if key.iter().any(|byte| byte.is_ascii_control()) {

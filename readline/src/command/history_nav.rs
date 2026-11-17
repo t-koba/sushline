@@ -35,8 +35,8 @@ where
                 let locale_lowercase = self.search_locale_lowercase(ignore_case);
                 let arg = state.take_numeric_arg().unwrap_or(1);
                 let count = arg.unsigned_abs() as usize;
+                let mut matched = false;
                 if arg < 0 {
-                    let mut matched = false;
                     for _ in 0..count {
                         let before_buffer = state.buffer.clone();
                         let before_pos = self.history.where_history();
@@ -67,7 +67,6 @@ where
                     }
                 } else {
                     let current = state.buffer.as_bytes().to_vec();
-                    let mut matched = false;
                     for _ in 0..count {
                         if let Some(line) = history_prefix_backward_with_locale(
                             &mut self.history,
@@ -86,6 +85,16 @@ where
                         }
                     }
                 }
+                // Only successful nonempty prefix recalls change point and mark;
+                // keep saved-edit restoration and preserve-point policy unchanged.
+                if matched
+                    && !prefix.is_empty()
+                    && self.history.current_index().is_some()
+                    && !self.flag(BoolVariable::HistoryPreservePoint)
+                {
+                    state.buffer.set_point(prefix.len());
+                    state.mark = Some(state.buffer.len_chars());
+                }
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
             }
@@ -95,9 +104,9 @@ where
                 let locale_lowercase = self.search_locale_lowercase(ignore_case);
                 let arg = state.take_numeric_arg().unwrap_or(1);
                 let count = arg.unsigned_abs() as usize;
+                let mut matched = false;
                 if arg < 0 {
                     let current = state.buffer.as_bytes().to_vec();
-                    let mut matched = false;
                     for _ in 0..count {
                         if let Some(line) = history_prefix_backward_with_locale(
                             &mut self.history,
@@ -116,7 +125,6 @@ where
                         }
                     }
                 } else {
-                    let mut matched = false;
                     for _ in 0..count {
                         let before_pos = self.history.where_history();
                         if let Some(line) = history_prefix_forward_with_locale(
@@ -153,6 +161,16 @@ where
                             break;
                         }
                     }
+                }
+                // Only successful nonempty prefix recalls change point and mark;
+                // keep saved-edit restoration and preserve-point policy unchanged.
+                if matched
+                    && !prefix.is_empty()
+                    && self.history.current_index().is_some()
+                    && !self.flag(BoolVariable::HistoryPreservePoint)
+                {
+                    state.buffer.set_point(prefix.len());
+                    state.mark = Some(state.buffer.len_chars());
                 }
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)

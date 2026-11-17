@@ -238,6 +238,29 @@ fn bash_readline_and_sushline_history_search_backward_by_prefix() {
 }
 
 #[test]
+fn bash_readline_and_sushline_prefix_history_search_point_and_mark() {
+    let inputrc = r#""\C-]": history-search-backward"#;
+    let history = ["alpha one", "beta", "alpha two"];
+    for (keys, expected) in [
+        (&b"alp\x01\x00\x05\x1dX\r"[..], "alpXha two"),
+        (&b"alp\x01\x00\x05\x1d\x18\x18X\r"[..], "alpha twoX"),
+        (&b"alp\x01\x00\x05\x10\x18\x18X\r"[..], "Xalpha two"),
+    ] {
+        let bash = run_bash_readline_with_bindings_and_history(keys, inputrc, &history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+        for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+            let context = format!("{editor} keys={keys:?}\n{output}");
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{context}"
+            );
+            assert_eq!(bell_count(output), 0, "{context}");
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_repeated_history_search_keeps_original_needle() {
     let backward = r#""\C-]": history-search-backward"#;
     let forward = r#""\C-^": history-search-forward"#;

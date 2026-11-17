@@ -304,6 +304,31 @@ fn bash_readline_and_sushline_substring_history_search_point_and_mark() {
 }
 
 #[test]
+fn bash_readline_and_sushline_backward_substring_search_uses_last_occurrence() {
+    let inputrc = r#""\C-o": history-substring-search-backward"#;
+    let history = ["echo alpha-first alpha-last"];
+    let keys = b"alpha\x0fX\r";
+    for (editor, output) in [
+        (
+            "bash",
+            run_bash_readline_with_bindings_and_history(keys, inputrc, &history),
+        ),
+        (
+            "sushline",
+            run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history),
+        ),
+    ] {
+        let context = format!("{editor} history={history:?} keys={keys:?}\n{output}");
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some("echo alpha-first Xalpha-last"),
+            "{context}"
+        );
+        assert_eq!(bell_count(&output), 0, "{context}");
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_repeated_history_search_keeps_original_needle() {
     let backward = r#""\C-]": history-search-backward"#;
     let forward = r#""\C-^": history-search-forward"#;

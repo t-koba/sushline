@@ -397,7 +397,7 @@ where
                         break;
                     }
                 }
-                // Place point at the nonempty match and mark at the recalled line end.
+                // Backward search selects the last occurrence; forward search uses the first.
                 if matched
                     && !needle.is_empty()
                     && let Some(offset) = search_bytes_offset(
@@ -405,7 +405,7 @@ where
                         &needle,
                         ignore_case,
                         locale_lowercase.as_ref(),
-                        false,
+                        true,
                     )
                 {
                     state.buffer.set_point(offset);

@@ -4153,3 +4153,58 @@ fn bash_readline_and_sushline_ignore_case_numeric_substring_search() {
         }
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_ignore_case_numeric_prefix_search() {
+    let history = ["Alpha aa old", "ALPHA bb mid", "alpha cc new"];
+    for setting in ["off", "on"] {
+        for (direction, command, key, prefix) in [
+            ("backward", "history-search-backward", 0x0fu8, &b""[..]),
+            (
+                "forward",
+                "history-search-forward",
+                0x1eu8,
+                &b"\x10\x10\x10\x01\x0b"[..],
+            ),
+        ] {
+            let inputrc = format!(
+                "set search-ignore-case {setting}\n\"\\C-{}\": {command}",
+                if key == 0x0f { "o" } else { "^" }
+            );
+            for (count, arg) in [("one", ""), ("two", "\x1b2"), ("three", "\x1b3")] {
+                let (point, mark) = match (setting, direction, count) {
+                    ("on", "backward", "three") => ("AlphaX aa old", "Alpha aa oldX"),
+                    ("on", "backward", "two") | ("on", "forward", "one") => {
+                        ("ALPHAX bb mid", "ALPHA bb midX")
+                    }
+                    _ => ("alphaX cc new", "alpha cc newX"),
+                };
+                for (finish, expected) in [(&b"X\r"[..], point), (&b"\x18\x18X\r"[..], mark)] {
+                    let keys = [
+                        prefix,
+                        b"alpha".as_slice(),
+                        arg.as_bytes(),
+                        &[key][..],
+                        finish,
+                    ]
+                    .concat();
+                    let bash =
+                        run_bash_readline_with_inputrc_file_and_history(&keys, &inputrc, &history);
+                    let sushline =
+                        run_sushline_harness_with_inputrc_and_history(&keys, &inputrc, &history);
+                    for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+                        let context = format!(
+                            "{editor} setting={setting} direction={direction} count={count} finish={finish:?} keys={keys:?}\n{output}"
+                        );
+                        assert_eq!(
+                            accepted_line(output).as_deref(),
+                            Some(expected),
+                            "{context}"
+                        );
+                        assert_eq!(bell_count(output), 0, "{context}");
+                    }
+                }
+            }
+        }
+    }
+}

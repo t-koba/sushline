@@ -118,7 +118,6 @@ where
                 } else {
                     let mut matched = false;
                     for _ in 0..count {
-                        let before_buffer = state.buffer.clone();
                         let before_pos = self.history.where_history();
                         if let Some(line) = history_prefix_forward_with_locale(
                             &mut self.history,
@@ -126,14 +125,23 @@ where
                             ignore_case,
                             locale_lowercase.as_ref(),
                         ) {
-                            // An excessive repeat past the newest entry restores the
-                            // saved edit; after prior successes in this command,
-                            // stay at the newest match instead (Bash 5.3 PTY).
-                            if matched
-                                && self.history.where_history() >= self.history.entries().len()
+                            // Do not load a nonmatching saved edit as a search
+                            // result. After prior successes, stop at the newest
+                            // match silently even if the saved edit matches.
+                            if self.history.where_history() >= self.history.entries().len()
+                                && (matched
+                                    || (state.history_entry_index.is_some()
+                                        && !search_prefix_matches(
+                                            &line,
+                                            &prefix,
+                                            ignore_case,
+                                            locale_lowercase.as_ref(),
+                                        )))
                             {
                                 self.history.set_pos(before_pos);
-                                state.buffer = before_buffer;
+                                if !matched {
+                                    self.ding()?;
+                                }
                                 break;
                             }
                             self.replace_from_history(state, &line);

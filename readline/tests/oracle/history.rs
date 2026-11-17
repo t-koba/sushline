@@ -380,6 +380,30 @@ fn bash_readline_and_sushline_render_same_reverse_isearch_query_display() {
 }
 
 #[test]
+fn bash_readline_and_sushline_history_search_forward_newest_failure() {
+    let inputrc = r#""\C-t": history-search-forward"#;
+    let history = ["alpha one", "beta", "alpha two", "alpha three"];
+    for (keys, expected, bells) in [
+        (&b"\x10\x14\r"[..], "alpha three", 1),
+        (&b"\x10\x1b1\x14\r"[..], "alpha three", 1),
+        (&b"\x10\x1b0\x14\r"[..], "alpha three", 0),
+        (&b"al\x14\r"[..], "al", 1),
+    ] {
+        let bash = run_bash_readline_with_bindings_and_history(keys, inputrc, &history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+        for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+            let context = format!("{editor}: keys={keys:?}: {output}");
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{context}"
+            );
+            assert_eq!(bell_count(output), bells, "{context}");
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_history_search_forward_restores_edit() {
     let keys = b"alp\x1d\x1e\r";
     let backward = r#""\C-]": history-search-backward"#;

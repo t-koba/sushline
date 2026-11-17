@@ -70,7 +70,7 @@ impl EditorState {
             self.kill.last_yank = None;
             return false;
         };
-        self.yank_from_index(index);
+        self.yank_from_index(index, false);
         true
     }
 
@@ -100,12 +100,16 @@ impl EditorState {
         true
     }
 
-    pub(crate) fn yank_from_index(&mut self, index: usize) {
+    pub(crate) fn yank_from_index(&mut self, index: usize, repeat_yank: bool) {
         let text = self.kill.kill_ring[index].clone();
         let start = self.buffer.point();
-        repeat(self, |state| {
-            state.buffer.insert_bytes(&text);
-        });
+        if repeat_yank {
+            repeat(self, |state| {
+                state.buffer.insert_bytes(&text);
+            });
+        } else {
+            self.buffer.insert_bytes(&text);
+        }
         self.kill.last_yank = Some(YankState {
             start,
             end: self.buffer.point(),
@@ -128,7 +132,7 @@ impl EditorState {
             self.kill.last_yank = None;
             return true;
         }
-        self.yank()
+        self.put_from_kill_ring()
     }
 
     pub(crate) fn vi_put_before(&mut self) -> bool {
@@ -146,11 +150,15 @@ impl EditorState {
             self.kill.last_yank = None;
             return true;
         }
+        self.put_from_kill_ring()
+    }
+
+    fn put_from_kill_ring(&mut self) -> bool {
         let Some(index) = self.kill.kill_ring.len().checked_sub(1) else {
             self.kill.last_yank = None;
             return false;
         };
-        self.yank_from_index(index);
+        self.yank_from_index(index, true);
         true
     }
 }

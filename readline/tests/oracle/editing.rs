@@ -2597,6 +2597,40 @@ fn bash_readline_and_sushline_accept_same_undo_after_midline_insert() {
 }
 
 #[test]
+fn bash_readline_and_sushline_yank_ignores_numeric_argument() {
+    // With two killed words, the tested Bash 5.3 PTY fixtures yank the
+    // newest entry once for every tested prefix; the count is consumed
+    // but does not repeat or skip kill-ring entries.
+    for (desc, prefix) in [
+        ("uncounted", b"".as_slice()),
+        ("zero", b"\x1b0".as_slice()),
+        ("one", b"\x1b1".as_slice()),
+        ("two", b"\x1b2".as_slice()),
+        ("negative_one", b"\x1b-\x1b1".as_slice()),
+    ] {
+        let mut keys = b"one\x15two\x15".to_vec();
+        keys.extend_from_slice(prefix);
+        keys.push(0x19);
+        keys.push(b'\r');
+        let bash = run_bash_readline(&keys);
+        let sushline = run_sushline_harness(&keys);
+
+        assert_eq!(
+            accepted_line(&bash),
+            Some("twoone".to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), 0, "{desc}: {sushline}");
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_yank_pop_edit() {
     let keys = b"one\x15two\x15X\x19\x1d\r";
     let inputrc = r#""\C-]": yank-pop"#;
@@ -3163,6 +3197,42 @@ fn bash_readline_and_sushline_accept_same_vi_put_after_yank() {
         accepted_line(&sushline),
         accepted_line(&bash),
         "bash={bash}\nsushline={sushline}"
+    );
+}
+
+#[test]
+fn bash_readline_and_sushline_vi_put_honors_numeric_argument() {
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, expected) in [
+        ("put_two", b"abc\x1b0yy2p\r".as_slice(), "aabcabcbc"),
+        ("put_three", b"abc\x1b0yy3p\r".as_slice(), "aabcabcabcbc"),
+        (
+            "put_word_two",
+            b"abc def\x1b0dw2p\r".as_slice(),
+            "dabc abc ef",
+        ),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+    let keys = b"abc\x1b0yy2P\r";
+    let bash = run_bash_readline_with_bindings(keys, inputrc);
+    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "put_before_two: bash={bash}\nsushline={sushline}"
     );
 }
 

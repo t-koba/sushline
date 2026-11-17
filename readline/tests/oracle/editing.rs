@@ -626,17 +626,37 @@ fn bash_readline_and_sushline_accept_same_transpose_edit() {
 }
 
 #[test]
-fn bash_readline_and_sushline_accept_same_delete_horizontal_space_edit() {
-    let keys = b"one   two\x1bb\x1b\\\r";
-    let bash = run_bash_readline(keys);
-    let sushline = run_sushline_harness(keys);
+fn bash_readline_and_sushline_delete_horizontal_space_ignores_numeric_argument() {
+    for (desc, prefix) in [
+        ("uncounted", b"".as_slice()),
+        ("zero", b"\x1b0".as_slice()),
+        ("one", b"\x1b1".as_slice()),
+        ("two", b"\x1b2".as_slice()),
+        ("negative_one", b"\x1b-\x1b1".as_slice()),
+    ] {
+        let mut keys = b"one   two\x1bb".to_vec();
+        keys.extend_from_slice(prefix);
+        keys.extend_from_slice(b"\x1b\\X\r");
+        let bash = run_bash_readline(&keys);
+        let sushline = run_sushline_harness(&keys);
 
-    assert_eq!(accepted_line(&bash), Some("onetwo".to_string()), "{bash}");
-    assert_eq!(
-        accepted_line(&sushline),
-        Some("onetwo".to_string()),
-        "{sushline}"
-    );
+        assert_eq!(
+            accepted_line(&bash),
+            Some("oneXtwo".to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        assert_eq!(
+            bell_count(&sushline),
+            bell_count(&bash),
+            "{desc}: {sushline}"
+        );
+    }
 }
 
 #[test]

@@ -345,7 +345,8 @@ where
                         break;
                     }
                 }
-                // Place point at the nonempty match and mark at the recalled line end.
+                // A negative argument makes the forward command search backward.
+                let from_end = arg < 0;
                 if matched
                     && !needle.is_empty()
                     && let Some(offset) = search_bytes_offset(
@@ -353,7 +354,7 @@ where
                         &needle,
                         ignore_case,
                         locale_lowercase.as_ref(),
-                        false,
+                        from_end,
                     )
                 {
                     state.buffer.set_point(offset);
@@ -397,7 +398,8 @@ where
                         break;
                     }
                 }
-                // Backward search selects the last occurrence; forward search uses the first.
+                // A negative argument makes the backward command search forward.
+                let from_end = arg >= 0;
                 if matched
                     && !needle.is_empty()
                     && let Some(offset) = search_bytes_offset(
@@ -405,7 +407,7 @@ where
                         &needle,
                         ignore_case,
                         locale_lowercase.as_ref(),
-                        true,
+                        from_end,
                     )
                 {
                     state.buffer.set_point(offset);

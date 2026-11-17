@@ -329,6 +329,48 @@ fn bash_readline_and_sushline_backward_substring_search_uses_last_occurrence() {
 }
 
 #[test]
+fn bash_readline_and_sushline_substring_search_point_follows_effective_direction() {
+    let history = [
+        "alpha aa alpha old",
+        "alpha bb alpha mid",
+        "alpha cc alpha new",
+    ];
+    for (command, ups, expected) in [
+        (
+            "history-substring-search-forward",
+            0,
+            "alpha cc Xalpha new",
+        ),
+        (
+            "history-substring-search-backward",
+            2,
+            "Xalpha cc alpha new",
+        ),
+    ] {
+        let inputrc = format!("\"\\C-o\": {command}");
+        let keys = [
+            &b"\x10".repeat(ups)[..],
+            b"\x01\x0balpha\x01\x00\x05\x1b-1\x0fX\r".as_slice(),
+        ]
+        .concat();
+        for (editor, output) in [
+            (
+                "bash",
+                run_bash_readline_with_bindings_and_history(&keys, &inputrc, &history),
+            ),
+            (
+                "sushline",
+                run_sushline_harness_with_inputrc_and_history(&keys, &inputrc, &history),
+            ),
+        ] {
+            let context = format!("{editor} command={command} ups={ups} keys={keys:?}\n{output}");
+            assert_eq!(accepted_line(&output).as_deref(), Some(expected), "{context}");
+            assert_eq!(bell_count(&output), 0, "{context}");
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_repeated_history_search_keeps_original_needle() {
     let backward = r#""\C-]": history-search-backward"#;
     let forward = r#""\C-^": history-search-forward"#;

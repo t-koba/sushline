@@ -3864,3 +3864,84 @@ fn bash_readline_and_sushline_history_search_abort_keeps_the_selected_line() {
         assert_eq!(accepted_line(&sushline), accepted_line(&bash), "{context}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_numeric_prefix_search_point_and_mark() {
+    let history = ["alpha aa", "alpha bb", "alpha cc"];
+    for (desc, inputrc, keys, expected_prefix, expected_mark) in [
+        (
+            "back2",
+            "\"\\C-o\": history-search-backward",
+            &b"alpha\x1b2\x0f"[..],
+            "alphaX bb",
+            "alpha bbX",
+        ),
+        (
+            "back3",
+            "\"\\C-o\": history-search-backward",
+            &b"alpha\x1b3\x0f"[..],
+            "alphaX aa",
+            "alpha aaX",
+        ),
+        (
+            "back4",
+            "\"\\C-o\": history-search-backward",
+            &b"alpha\x1b4\x0f"[..],
+            "alphaX aa",
+            "alpha aaX",
+        ),
+        (
+            "backneg1",
+            "\"\\C-o\": history-search-backward",
+            &b"\x10\x10\x10\x01\x0balpha\x1b-1\x0f"[..],
+            "alphaX bb",
+            "alpha bbX",
+        ),
+        (
+            "fwd2",
+            "\"\\C-^\": history-search-forward",
+            &b"\x10\x10\x10\x01\x0balpha\x1b2\x1e"[..],
+            "alphaX cc",
+            "alpha ccX",
+        ),
+        (
+            "fwd3",
+            "\"\\C-^\": history-search-forward",
+            &b"\x10\x10\x10\x01\x0balpha\x1b3\x1e"[..],
+            "alphaX cc",
+            "alpha ccX",
+        ),
+        (
+            "fwd4",
+            "\"\\C-^\": history-search-forward",
+            &b"\x10\x10\x10\x01\x0balpha\x1b4\x1e"[..],
+            "alphaX cc",
+            "alpha ccX",
+        ),
+        (
+            "fwdneg1",
+            "\"\\C-^\": history-search-forward",
+            &b"alpha\x1b-1\x1e"[..],
+            "alphaX cc",
+            "alpha ccX",
+        ),
+    ] {
+        for (finish, expected) in [
+            (&b"X\r"[..], expected_prefix),
+            (&b"\x18\x18X\r"[..], expected_mark),
+        ] {
+            let keys = [keys, finish].concat();
+            let bash = run_bash_readline_with_bindings_and_history(&keys, inputrc, &history);
+            let sushline = run_sushline_harness_with_inputrc_and_history(&keys, inputrc, &history);
+            for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+                let context = format!("{editor} {desc} finish={finish:?} keys={keys:?}\n{output}");
+                assert_eq!(
+                    accepted_line(output).as_deref(),
+                    Some(expected),
+                    "{context}"
+                );
+                assert_eq!(bell_count(output), 0, "{context}");
+            }
+        }
+    }
+}

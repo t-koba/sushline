@@ -4429,6 +4429,7 @@ fn bash_readline_and_sushline_zero_prefix_delete_bell_parity() {
             "Xabcdef",
             0,
         ),
+        ("delete_zero_empty", b"\x1b0\x04X\r".as_slice(), "X", 1),
         (
             "delete_negative_one",
             b"abcdef\x01\x1b-\x31\x04X\r".as_slice(),
@@ -4452,6 +4453,18 @@ fn bash_readline_and_sushline_zero_prefix_delete_bell_parity() {
             b"abcdef\x1b0\x7fX\r".as_slice(),
             "abcdefX",
             0,
+        ),
+        (
+            "backward_delete_zero_empty",
+            b"\x1b0\x7fX\r".as_slice(),
+            "X",
+            1,
+        ),
+        (
+            "backward_delete_zero_at_beginning",
+            b"abc\x01\x1b0\x7fX\r".as_slice(),
+            "Xabc",
+            1,
         ),
         (
             "backward_delete_negative_one",

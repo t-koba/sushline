@@ -18,6 +18,9 @@ where
                 state.record_undo();
                 if let Some(arg) = state.take_numeric_arg() {
                     if arg == 0 {
+                        if state.buffer.point() == 0 {
+                            self.ding()?;
+                        }
                         state.after_non_kill_command();
                     } else {
                         self.delete_chars_with_numeric_argument(state, arg, false)?;
@@ -55,6 +58,9 @@ where
                 state.record_undo();
                 if let Some(arg) = state.take_numeric_arg() {
                     if arg == 0 {
+                        if state.buffer.point() >= state.buffer.len_chars() {
+                            self.ding()?;
+                        }
                         state.after_non_kill_command();
                     } else {
                         self.delete_chars_with_numeric_argument(state, arg, true)?;

@@ -4550,6 +4550,77 @@ fn bash_readline_and_sushline_numeric_word_kill_prefix_parity() {
 }
 
 #[test]
+fn bash_readline_and_sushline_numeric_transpose_prefix_parity() {
+    for (desc, keys, expected, bells) in [
+        (
+            "transpose_chars_two",
+            b"abcdef\x01\x06\x06\x1b2\x14X\r".as_slice(),
+            "acdbXef",
+            0,
+        ),
+        (
+            "transpose_chars_three",
+            b"abcdef\x01\x06\x06\x1b3\x14X\r".as_slice(),
+            "acdebXf",
+            0,
+        ),
+        (
+            "transpose_chars_zero",
+            b"abcdef\x01\x06\x06\x1b0\x14X\r".as_slice(),
+            "abXcdef",
+            0,
+        ),
+        (
+            "transpose_chars_negative_one",
+            b"abcdef\x01\x06\x06\x1b-\x31\x14X\r".as_slice(),
+            "abXcdef",
+            0,
+        ),
+        (
+            "transpose_chars_uncounted",
+            b"abcdef\x01\x06\x06\x14X\r".as_slice(),
+            "acbXdef",
+            0,
+        ),
+        (
+            "transpose_words_two",
+            b"abc def ghi\x1b2\x1b\x74X\r".as_slice(),
+            "ghi def abcX",
+            0,
+        ),
+        (
+            "transpose_words_zero",
+            b"abc def ghi\x1b0\x1b\x74X\r".as_slice(),
+            "abc def ghiX",
+            0,
+        ),
+        (
+            "transpose_words_negative_one",
+            b"abc def ghi\x1b-\x31\x1b\x74X\r".as_slice(),
+            "abc def ghiX",
+            1,
+        ),
+        (
+            "transpose_words_uncounted",
+            b"abc def ghi\x1b\x74X\r".as_slice(),
+            "abc ghi defX",
+            0,
+        ),
+    ] {
+        let bash = run_bash_readline(keys);
+        let sushline = run_sushline_harness(keys);
+        for (host, output) in [("bash", &bash), ("sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output),
+                Some(expected.to_string()),
+                "{desc}: {host}={output}"
+            );
+            assert_eq!(bell_count(output), bells, "{desc}: {host}={output}");
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_unbound_esc_matches_like_bash() {
     let vi = "set editing-mode vi";
     let em_pair: &[u8] = b"\x1b\x1babc\r";

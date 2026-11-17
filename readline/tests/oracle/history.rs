@@ -335,7 +335,7 @@ fn bash_readline_and_sushline_substring_search_point_follows_effective_direction
         "alpha bb alpha mid",
         "alpha cc alpha new",
     ];
-    for (command, ups, expected) in [
+    for (command, ups, point) in [
         ("history-substring-search-forward", 0, "alpha cc Xalpha new"),
         (
             "history-substring-search-backward",
@@ -344,28 +344,35 @@ fn bash_readline_and_sushline_substring_search_point_follows_effective_direction
         ),
     ] {
         let inputrc = format!("\"\\C-o\": {command}");
-        let keys = [
-            &b"\x10".repeat(ups)[..],
-            b"\x01\x0balpha\x01\x00\x05\x1b-1\x0fX\r".as_slice(),
-        ]
-        .concat();
-        for (editor, output) in [
-            (
-                "bash",
-                run_bash_readline_with_bindings_and_history(&keys, &inputrc, &history),
-            ),
-            (
-                "sushline",
-                run_sushline_harness_with_inputrc_and_history(&keys, &inputrc, &history),
-            ),
+        for (finish, expected) in [
+            (&b"X\r"[..], point),
+            (&b"\x18\x18X\r"[..], "alpha cc alpha newX"),
         ] {
-            let context = format!("{editor} command={command} ups={ups} keys={keys:?}\n{output}");
-            assert_eq!(
-                accepted_line(&output).as_deref(),
-                Some(expected),
-                "{context}"
-            );
-            assert_eq!(bell_count(&output), 0, "{context}");
+            let keys = [
+                &b"\x10".repeat(ups)[..],
+                b"\x01\x0balpha\x01\x00\x05\x1b-1\x0f".as_slice(),
+                finish,
+            ]
+            .concat();
+            for (editor, output) in [
+                (
+                    "bash",
+                    run_bash_readline_with_bindings_and_history(&keys, &inputrc, &history),
+                ),
+                (
+                    "sushline",
+                    run_sushline_harness_with_inputrc_and_history(&keys, &inputrc, &history),
+                ),
+            ] {
+                let context =
+                    format!("{editor} command={command} ups={ups} keys={keys:?}\n{output}");
+                assert_eq!(
+                    accepted_line(&output).as_deref(),
+                    Some(expected),
+                    "{context}"
+                );
+                assert_eq!(bell_count(&output), 0, "{context}");
+            }
         }
     }
 }

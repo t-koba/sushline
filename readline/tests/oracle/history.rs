@@ -143,6 +143,30 @@ fn bash_readline_and_sushline_numeric_undo_parity() {
             "",
             0,
         ),
+        (
+            "unix_word_rubout_then_undo_1",
+            &b"abc\x01X\x05Y\x17\x1b1\x1f\r"[..],
+            "XabcY",
+            0,
+        ),
+        (
+            "unix_word_rubout_then_undo_uncounted",
+            &b"abc\x01X\x05Y\x17\x1f\r"[..],
+            "XabcY",
+            0,
+        ),
+        (
+            "backward_kill_word_then_undo_1",
+            &b"abc\x01X\x05Y\x1b\x7f\x1b1\x1f\r"[..],
+            "XabcY",
+            0,
+        ),
+        (
+            "backward_kill_word_then_undo_uncounted",
+            &b"abc\x01X\x05Y\x1b\x7f\x1f\r"[..],
+            "XabcY",
+            0,
+        ),
     ] {
         let bash = run_bash_readline_with_bindings_and_history(keys, "", &[]);
         let sushline = run_sushline_harness_with_inputrc_and_history(keys, "", &[]);

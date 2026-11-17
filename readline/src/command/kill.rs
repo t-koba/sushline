@@ -1,5 +1,10 @@
 use super::*;
 
+fn record_kill_undo(state: &mut EditorState) {
+    state.commit_pending_undo();
+    state.record_undo();
+}
+
 impl<T> Editor<T>
 where
     T: TerminalIo,
@@ -13,7 +18,7 @@ where
     ) -> Result<EditorOutcome, ReadlineError> {
         match command {
             EditCommand::BackwardKillLine => {
-                state.record_undo();
+                record_kill_undo(state);
                 let negative = state.take_numeric_arg().unwrap_or(1) < 0;
                 let (killed, direction) = if negative {
                     (state.buffer.kill_to_end(), KillDirection::Forward)
@@ -30,7 +35,7 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::UnixWordRubout => {
-                state.record_undo();
+                record_kill_undo(state);
                 let argument = state.take_numeric_arg().unwrap_or(1);
                 let count = if argument > 0 { argument as u32 } else { 1 };
                 let mut killed = Vec::new();
@@ -48,7 +53,7 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::BackwardKillWord => {
-                state.record_undo();
+                record_kill_undo(state);
                 let mut killed = Vec::new();
                 let word_breaks = self.editing_word_breaks(hooks);
                 let direction = repeat_signed_collect_bytes(
@@ -78,7 +83,7 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::KillLine => {
-                state.record_undo();
+                record_kill_undo(state);
                 if state.take_numeric_arg().unwrap_or(1) < 0 {
                     let killed = state.buffer.kill_to_start();
                     if killed.is_empty() {
@@ -94,7 +99,7 @@ where
             }
             EditCommand::KillRegion => {
                 if let Some((start, end)) = state.region_bounds() {
-                    state.record_undo();
+                    record_kill_undo(state);
                     let killed = state.buffer.delete_range_bytes(start, end);
                     state.mark = None;
                     state.push_kill(killed, KillDirection::Forward, self.kill_append_allowed());
@@ -104,13 +109,13 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::KillWholeLine => {
-                state.record_undo();
+                record_kill_undo(state);
                 let killed = state.buffer.kill_whole_line();
                 state.push_kill(killed, KillDirection::Forward, self.kill_append_allowed());
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::KillWord => {
-                state.record_undo();
+                record_kill_undo(state);
                 let mut killed = Vec::new();
                 let word_breaks = self.editing_word_breaks(hooks);
                 let direction = repeat_signed_collect_bytes(
@@ -128,8 +133,7 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::UnixLineDiscard => {
-                state.commit_pending_undo();
-                state.record_undo();
+                record_kill_undo(state);
                 let killed = state.buffer.kill_to_start();
                 if killed.is_empty() {
                     self.ding()?;
@@ -140,14 +144,14 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::Yank => {
-                state.record_undo();
+                record_kill_undo(state);
                 if !state.yank() {
                     self.ding()?;
                 }
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::YankPop => {
-                state.record_undo();
+                record_kill_undo(state);
                 if !state.yank_pop() {
                     self.ding()?;
                 }
@@ -193,19 +197,19 @@ where
                 state.push_kill(text, direction, self.kill_append_allowed());
             }
             "insert-last-argument" | "yank-last-arg" => {
-                state.record_undo();
+                record_kill_undo(state);
                 let arg = state.take_numeric_arg();
                 self.yank_history_arg(state, arg, hooks, true)?;
                 state.after_non_kill_command();
             }
             "yank-nth-arg" => {
-                state.record_undo();
+                record_kill_undo(state);
                 let n = state.take_numeric_arg().unwrap_or(1);
                 self.yank_history_arg(state, Some(n), hooks, false)?;
                 state.after_non_kill_command();
             }
             "vi-yank-arg" => {
-                state.record_undo();
+                record_kill_undo(state);
                 let n = state
                     .numeric_arg
                     .take()
@@ -214,7 +218,7 @@ where
                 state.after_non_kill_command();
             }
             "shell-backward-kill-word" => {
-                state.record_undo();
+                record_kill_undo(state);
                 let mut killed = Vec::new();
                 let arg = state.take_numeric_arg().unwrap_or(1);
                 let direction = if arg < 0 {
@@ -235,7 +239,7 @@ where
                 state.push_kill(killed, direction, self.kill_append_allowed());
             }
             "shell-kill-word" => {
-                state.record_undo();
+                record_kill_undo(state);
                 let mut killed = Vec::new();
                 let arg = state.take_numeric_arg().unwrap_or(1);
                 let direction = if arg < 0 {
@@ -256,7 +260,7 @@ where
                 state.push_kill(killed, direction, self.kill_append_allowed());
             }
             "unix-filename-rubout" => {
-                state.record_undo();
+                record_kill_undo(state);
                 let argument = state.take_numeric_arg().unwrap_or(1);
                 let count = if argument > 0 { argument as u32 } else { 1 };
                 let mut killed = Vec::new();
@@ -270,7 +274,7 @@ where
                 state.push_kill(killed, KillDirection::Backward, self.kill_append_allowed());
             }
             "vi-unix-word-rubout" => {
-                state.record_undo();
+                record_kill_undo(state);
                 let killed = state.buffer.backward_kill_word(None);
                 state.push_kill(killed, KillDirection::Backward, self.kill_append_allowed());
             }

@@ -4003,3 +4003,54 @@ fn bash_readline_and_sushline_preserve_point_substring_search_point_and_mark() {
         }
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_preserve_point_numeric_history_navigation() {
+    let history = ["alpha one", "alpha two", "alpha three"];
+    for (setting, inputrc) in [("off", ""), ("on", "set history-preserve-point on\n")] {
+        for (desc, keys, expected, bells) in [
+            (
+                "back2",
+                &b"xxxx\x1b[D\x1b[D\x1b2\x10X\r"[..],
+                if setting == "on" {
+                    "alXpha two"
+                } else {
+                    "alpha twoX"
+                },
+                0,
+            ),
+            (
+                "fwd2",
+                &b"\x10\x10\x10\x01\x0bxxxx\x1b[D\x1b[D\x1b2\x0eX\r"[..],
+                if setting == "on" {
+                    "alXpha three"
+                } else {
+                    "alpha threeX"
+                },
+                0,
+            ),
+            (
+                "savededit",
+                &b"alpha\x10\x05 EDIT\x01\x1b[D\x1b[D\x1b[D\x1b2\x10\x1b2\x0eX\r"[..],
+                if setting == "on" {
+                    "Xalpha three EDIT"
+                } else {
+                    "alpha three EDITX"
+                },
+                3,
+            ),
+        ] {
+            let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &history);
+            let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+            for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+                let context = format!("{editor} setting={setting} {desc} keys={keys:?}\n{output}");
+                assert_eq!(
+                    accepted_line(output).as_deref(),
+                    Some(expected),
+                    "{context}"
+                );
+                assert_eq!(bell_count(output), bells, "{context}");
+            }
+        }
+    }
+}

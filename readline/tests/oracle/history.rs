@@ -336,11 +336,7 @@ fn bash_readline_and_sushline_substring_search_point_follows_effective_direction
         "alpha cc alpha new",
     ];
     for (command, ups, expected) in [
-        (
-            "history-substring-search-forward",
-            0,
-            "alpha cc Xalpha new",
-        ),
+        ("history-substring-search-forward", 0, "alpha cc Xalpha new"),
         (
             "history-substring-search-backward",
             2,
@@ -364,7 +360,11 @@ fn bash_readline_and_sushline_substring_search_point_follows_effective_direction
             ),
         ] {
             let context = format!("{editor} command={command} ups={ups} keys={keys:?}\n{output}");
-            assert_eq!(accepted_line(&output).as_deref(), Some(expected), "{context}");
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(expected),
+                "{context}"
+            );
             assert_eq!(bell_count(&output), 0, "{context}");
         }
     }

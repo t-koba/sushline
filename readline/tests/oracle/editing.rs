@@ -523,6 +523,26 @@ fn bash_readline_and_sushline_backward_and_unix_line_kill_mark_parity() {
 }
 
 #[test]
+fn bash_readline_and_sushline_word_kill_mark_parity() {
+    // Pin only these word kills followed by exchange-point-and-mark.
+    for keys in [
+        b"abcdef\x05\x00\x01\x1b\x64\x18\x18X\r".as_slice(),
+        b"abcdef\x00\x05\x1b\x7f\x18\x18X\r".as_slice(),
+    ] {
+        let bash = run_bash_readline(keys);
+        let sushline = run_sushline_harness(keys);
+        for (host, output) in [("bash", &bash), ("sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some("X"),
+                "keys={keys:?} {host}: {output}"
+            );
+            assert_eq!(bell_count(output), 0, "keys={keys:?} {host}: {output}");
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_negative_kill_line_bell_parity() {
     for (keys, expected, bells) in [
         (b"\x1b-\x0b\r".as_slice(), "", 1),

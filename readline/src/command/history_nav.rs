@@ -85,14 +85,12 @@ where
                         }
                     }
                 }
-                // Only successful nonempty prefix recalls change point and mark;
-                // keep saved-edit restoration and preserve-point policy unchanged.
-                if matched
-                    && !prefix.is_empty()
-                    && self.history.current_index().is_some()
-                    && !self.flag(BoolVariable::HistoryPreservePoint)
-                {
-                    state.buffer.set_point(prefix.len());
+                // Successful nonempty prefix recalls set mark at the line end;
+                // preserve-point controls only point, not mark.
+                if matched && !prefix.is_empty() && self.history.current_index().is_some() {
+                    if !self.flag(BoolVariable::HistoryPreservePoint) {
+                        state.buffer.set_point(prefix.len());
+                    }
                     state.mark = Some(state.buffer.len_chars());
                 }
                 state.after_non_kill_command();
@@ -162,14 +160,12 @@ where
                         }
                     }
                 }
-                // Only successful nonempty prefix recalls change point and mark;
-                // keep saved-edit restoration and preserve-point policy unchanged.
-                if matched
-                    && !prefix.is_empty()
-                    && self.history.current_index().is_some()
-                    && !self.flag(BoolVariable::HistoryPreservePoint)
-                {
-                    state.buffer.set_point(prefix.len());
+                // Successful nonempty prefix recalls set mark at the line end;
+                // preserve-point controls only point, not mark.
+                if matched && !prefix.is_empty() && self.history.current_index().is_some() {
+                    if !self.flag(BoolVariable::HistoryPreservePoint) {
+                        state.buffer.set_point(prefix.len());
+                    }
                     state.mark = Some(state.buffer.len_chars());
                 }
                 state.after_non_kill_command();

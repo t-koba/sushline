@@ -151,26 +151,28 @@ where
             }
             EditCommand::PreviousHistory | EditCommand::NextHistory => {
                 let arg = state.take_numeric_arg().unwrap_or(1);
-                if command == EditCommand::PreviousHistory && arg < 0 {
-                    self.ding()?;
+                let direction = if (command == EditCommand::NextHistory) != (arg < 0) {
+                    HistoryDirection::Next
                 } else {
-                    let direction = if command == EditCommand::NextHistory && arg > 0 {
-                        HistoryDirection::Next
-                    } else {
-                        HistoryDirection::Previous
-                    };
-                    for step in 0..arg.unsigned_abs() {
-                        if let Some(line) = self
-                            .history
-                            .navigate_bytes(direction, state.buffer.as_bytes().to_vec())
+                    HistoryDirection::Previous
+                };
+                for step in 0..arg.unsigned_abs() {
+                    let before_pos = self.history.where_history();
+                    if let Some(line) = self
+                        .history
+                        .navigate_bytes(direction, state.buffer.as_bytes().to_vec())
+                    {
+                        self.replace_from_history(state, &line);
+                        if direction == HistoryDirection::Previous
+                            && self.history.where_history() == before_pos
                         {
-                            self.replace_from_history(state, &line);
-                        } else {
-                            if direction == HistoryDirection::Next && step == 0 {
-                                self.ding()?;
-                            }
                             break;
                         }
+                    } else {
+                        if direction == HistoryDirection::Next && step == 0 {
+                            self.ding()?;
+                        }
+                        break;
                     }
                 }
                 state.after_non_kill_command();

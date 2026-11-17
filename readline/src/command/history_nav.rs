@@ -149,22 +149,29 @@ where
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
             }
-            EditCommand::NextHistory => {
-                if let Some(line) = self
-                    .history
-                    .navigate_bytes(HistoryDirection::Next, state.buffer.as_bytes().to_vec())
-                {
-                    self.replace_from_history(state, &line);
-                }
-                state.after_non_kill_command();
-                Ok(EditorOutcome::Continue)
-            }
-            EditCommand::PreviousHistory => {
-                if let Some(line) = self
-                    .history
-                    .navigate_bytes(HistoryDirection::Previous, state.buffer.as_bytes().to_vec())
-                {
-                    self.replace_from_history(state, &line);
+            EditCommand::PreviousHistory | EditCommand::NextHistory => {
+                let arg = state.take_numeric_arg().unwrap_or(1);
+                if command == EditCommand::PreviousHistory && arg < 0 {
+                    self.ding()?;
+                } else {
+                    let direction = if command == EditCommand::NextHistory && arg > 0 {
+                        HistoryDirection::Next
+                    } else {
+                        HistoryDirection::Previous
+                    };
+                    for step in 0..arg.unsigned_abs() {
+                        if let Some(line) = self
+                            .history
+                            .navigate_bytes(direction, state.buffer.as_bytes().to_vec())
+                        {
+                            self.replace_from_history(state, &line);
+                        } else {
+                            if direction == HistoryDirection::Next && step == 0 {
+                                self.ding()?;
+                            }
+                            break;
+                        }
+                    }
                 }
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)

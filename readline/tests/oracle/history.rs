@@ -10,6 +10,48 @@ use std::fs;
 use std::process::Command;
 
 #[test]
+fn bash_readline_and_sushline_numeric_history_navigation_counts() {
+    let history = ["one", "two", "three", "four", "five"];
+    for (entries, keys, expected, bells) in [
+        (&history[..], &b"\x1b2\x10\r"[..], "four", 0),
+        (&history[..], &b"\x1b3\x10\r"[..], "three", 0),
+        (&history[..], &b"\x1b9\x10\r"[..], "one", 0),
+        (&history[..], &b"\x1b0\x10\r"[..], "", 0),
+        (&history[..], &b"\x1b-1\x10\r"[..], "", 1),
+        (&history[..], &b"\x10\r"[..], "five", 0),
+        (&history[..], &b"\x10\x10\x10\x1b9\x10\r"[..], "one", 0),
+        (&history[..], &b"\x10\x10\x10\x1b0\x10\r"[..], "three", 0),
+        (&history[..], &b"\x10\x10\x10\x1b9\x0e\r"[..], "", 0),
+        (&history[..], &b"\x10\x10\x10\x1b2\x0e\r"[..], "five", 0),
+        (&history[..], &b"\x10\x10\x10\x1b0\x0e\r"[..], "three", 0),
+        (&history[..], &b"\x10\x10\x10\x0e\r"[..], "four", 0),
+        (&history[..], &b"\x10\x10\x10\x1b-1\x0e\r"[..], "two", 0),
+        (&history[..], &b"\x10\x10\x10\x1b-2\x0e\r"[..], "one", 0),
+        (&history[..], &b"\x1b-1\x0e\r"[..], "five", 0),
+        (&history[..], &b"\x1b-2\x0e\r"[..], "four", 0),
+        (&history[..], &b"\x10X\x1b2\x10\r"[..], "three", 0),
+        (&history[..], &b"\x10\x10\x10X\x1b2\x0e\r"[..], "five", 0),
+        (&history[..], &b"\x10\x10\x10X\x1b-1\x0eY\r"[..], "twoY", 0),
+        (&[][..], &b"\x1b2\x10\r"[..], "", 0),
+        (&[][..], &b"\x1b-1\x10\r"[..], "", 1),
+        (&[][..], &b"\x1b2\x0e\r"[..], "", 1),
+        (&[][..], &b"\x1b-1\x0e\r"[..], "", 0),
+    ] {
+        let bash = run_bash_readline_with_bindings_and_history(keys, "", entries);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, "", entries);
+        for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+            let context = format!("{editor}: keys={keys:?} history={entries:?}: {output}");
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{context}"
+            );
+            assert_eq!(bell_count(output), bells, "{context}");
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_history_search_backward_by_prefix() {
     let keys = b"alp\x1d\r";
     let inputrc = r#""\C-]": history-search-backward"#;

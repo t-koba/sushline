@@ -24,6 +24,7 @@ where
                     self.ding()?;
                 }
                 state.push_kill(killed, direction, self.kill_append_allowed());
+                state.mark = Some(state.buffer.point());
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::UnixWordRubout => {
@@ -86,6 +87,7 @@ where
                     let killed = state.buffer.kill_to_end();
                     state.push_kill(killed, KillDirection::Forward, self.kill_append_allowed());
                 }
+                state.mark = Some(state.buffer.point());
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::KillRegion => {

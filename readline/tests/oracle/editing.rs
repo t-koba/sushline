@@ -469,6 +469,27 @@ fn bash_readline_and_sushline_accept_same_kill_line_edit() {
 }
 
 #[test]
+fn bash_readline_and_sushline_kill_line_resets_mark() {
+    let mut observed = Vec::new();
+    let mut expected = Vec::new();
+    for (keys, line) in [
+        (
+            b"abcdef\x01\x06\x06\x00\x06\x06\x0b\x18\x18X\r".as_slice(),
+            "abcdX",
+        ),
+        (b"abc\x01\x00\x05\x0b\x18\x18X\r".as_slice(), "abcX"),
+    ] {
+        let bash = run_bash_readline(keys);
+        let sushline = run_sushline_harness(keys);
+        for (host, output) in [("bash", &bash), ("sushline", &sushline)] {
+            observed.push((host, accepted_line(output), bell_count(output)));
+            expected.push((host, Some(line.to_string()), 0));
+        }
+    }
+    assert_eq!(observed, expected);
+}
+
+#[test]
 fn bash_readline_and_sushline_negative_kill_line_bell_parity() {
     for (keys, expected, bells) in [
         (b"\x1b-\x0b\r".as_slice(), "", 1),

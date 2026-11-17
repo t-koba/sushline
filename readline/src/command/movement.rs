@@ -68,11 +68,10 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::ExchangePointAndMark => {
-                if let Some(mark) = state.mark {
-                    let point = state.buffer.point();
-                    state.buffer.set_point(mark);
-                    state.mark = Some(point);
-                }
+                let mark = state.mark.unwrap_or(0);
+                let point = state.buffer.point();
+                state.buffer.set_point(mark);
+                state.mark = Some(point);
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
             }

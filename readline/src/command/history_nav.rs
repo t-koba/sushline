@@ -87,9 +87,7 @@ where
                 }
                 // Successful nonempty prefix recalls set mark at the line end;
                 // preserve-point controls only point, not mark.
-                if arg == 0 && !prefix.is_empty() && state.mark.is_none() {
-                    state.mark = Some(0);
-                } else if matched && !prefix.is_empty() && self.history.current_index().is_some() {
+                if matched && !prefix.is_empty() && self.history.current_index().is_some() {
                     if !self.flag(BoolVariable::HistoryPreservePoint) {
                         state.buffer.set_point(prefix.len());
                     }
@@ -164,9 +162,7 @@ where
                 }
                 // Successful nonempty prefix recalls set mark at the line end;
                 // preserve-point controls only point, not mark.
-                if arg == 0 && !prefix.is_empty() && state.mark.is_none() {
-                    state.mark = Some(0);
-                } else if matched && !prefix.is_empty() && self.history.current_index().is_some() {
+                if matched && !prefix.is_empty() && self.history.current_index().is_some() {
                     if !self.flag(BoolVariable::HistoryPreservePoint) {
                         state.buffer.set_point(prefix.len());
                     }
@@ -315,9 +311,6 @@ where
                 let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
                 let locale_lowercase = self.search_locale_lowercase(ignore_case);
                 let arg = state.take_numeric_arg().unwrap_or(1);
-                if arg == 0 && !needle.is_empty() && state.mark.is_none() {
-                    state.mark = Some(0);
-                }
                 let count = arg.unsigned_abs() as usize;
                 let mut matched = false;
                 let mut all_matched = true;
@@ -376,9 +369,6 @@ where
                 let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
                 let locale_lowercase = self.search_locale_lowercase(ignore_case);
                 let arg = state.take_numeric_arg().unwrap_or(1);
-                if arg == 0 && !needle.is_empty() && state.mark.is_none() {
-                    state.mark = Some(0);
-                }
                 let count = arg.unsigned_abs() as usize;
                 let mut matched = false;
                 let mut all_matched = true;

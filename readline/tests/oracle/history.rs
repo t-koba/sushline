@@ -4523,3 +4523,32 @@ fn bash_readline_and_sushline_zero_numeric_search_preserves_explicit_mark() {
         }
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_exchange_with_unset_mark() {
+    let history = ["Alpha aa old", "ALPHA bb mid", "alpha cc new"];
+    for (label, keys, expected) in [
+        ("empty", &b"\x18\x18X\r"[..], "X"),
+        ("typed", &b"alpha\x18\x18X\r"[..], "Xalpha"),
+        ("left1", &b"alpha\x1b[D\x18\x18X\r"[..], "Xalpha"),
+        (
+            "left4",
+            &b"alpha\x1b[D\x1b[D\x1b[D\x1b[D\x18\x18X\r"[..],
+            "Xalpha",
+        ),
+        ("ctrl_a", &b"alpha\x01\x18\x18X\r"[..], "Xalpha"),
+        ("ctrl_e", &b"alpha\x05\x18\x18X\r"[..], "Xalpha"),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_history(keys, "", &history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, "", &history);
+        for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+            let context = format!("{editor} {label} keys={keys:?}\n{output}");
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{context}"
+            );
+            assert_eq!(bell_count(output), 0, "{context}");
+        }
+    }
+}

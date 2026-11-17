@@ -4470,3 +4470,56 @@ fn bash_readline_and_sushline_zero_numeric_prefix_search_fresh_buffer() {
         }
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_zero_numeric_search_preserves_explicit_mark() {
+    let history = [
+        "Alpha aa alpha old",
+        "ALPHA bb Alpha mid",
+        "alpha cc ALPHA new",
+    ];
+    for (family, inputrc, backward, forward) in [
+        (
+            "prefix",
+            "\"\\C-o\": history-search-backward\n\"\\C-^\": history-search-forward\n",
+            0x0fu8,
+            0x1eu8,
+        ),
+        (
+            "substring",
+            "\"\\C-]\": history-substring-search-backward\n\"\\C-^\": history-substring-search-forward\n",
+            0x1du8,
+            0x1eu8,
+        ),
+    ] {
+        for (direction, key) in [("backward", backward), ("forward", forward)] {
+            for (lefts, mark, expected) in [(1u8, 4, "alphXa"), (4u8, 1, "aXlpha")] {
+                for (with_search, label) in [(true, "search"), (false, "control")] {
+                    let mut keys = b"alpha".to_vec();
+                    keys.extend(std::iter::repeat_n([0x1b, b'[', b'D'], lefts as usize).flatten());
+                    keys.push(0x00);
+                    if with_search {
+                        keys.extend_from_slice(b"\x1b0");
+                        keys.push(key);
+                    }
+                    keys.extend_from_slice(b"\x18\x18X\r");
+                    let bash =
+                        run_bash_readline_with_inputrc_file_and_history(&keys, inputrc, &history);
+                    let sushline =
+                        run_sushline_harness_with_inputrc_and_history(&keys, inputrc, &history);
+                    for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+                        let context = format!(
+                            "{editor} family={family} direction={direction} mark={mark} {label} keys={keys:?}\n{output}"
+                        );
+                        assert_eq!(
+                            accepted_line(output).as_deref(),
+                            Some(expected),
+                            "{context}"
+                        );
+                        assert_eq!(bell_count(output), 0, "{context}");
+                    }
+                }
+            }
+        }
+    }
+}

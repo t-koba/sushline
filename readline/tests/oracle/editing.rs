@@ -4409,6 +4409,77 @@ fn bash_readline_and_sushline_numeric_unix_line_discard_parity() {
 }
 
 #[test]
+fn bash_readline_and_sushline_zero_prefix_delete_bell_parity() {
+    for (desc, keys, expected, bells) in [
+        (
+            "delete_two",
+            b"abcdef\x01\x1b2\x04X\r".as_slice(),
+            "Xcdef",
+            0,
+        ),
+        (
+            "delete_three",
+            b"abcdef\x01\x1b3\x04X\r".as_slice(),
+            "Xdef",
+            0,
+        ),
+        (
+            "delete_zero",
+            b"abcdef\x01\x1b0\x04X\r".as_slice(),
+            "Xabcdef",
+            0,
+        ),
+        (
+            "delete_negative_one",
+            b"abcdef\x01\x1b-\x31\x04X\r".as_slice(),
+            "Xabcdef",
+            1,
+        ),
+        (
+            "delete_uncounted",
+            b"abcdef\x01\x04X\r".as_slice(),
+            "Xbcdef",
+            0,
+        ),
+        (
+            "backward_delete_two",
+            b"abcdef\x1b2\x7fX\r".as_slice(),
+            "abcdX",
+            0,
+        ),
+        (
+            "backward_delete_zero",
+            b"abcdef\x1b0\x7fX\r".as_slice(),
+            "abcdefX",
+            0,
+        ),
+        (
+            "backward_delete_negative_one",
+            b"abcdef\x1b-\x31\x7fX\r".as_slice(),
+            "abcdefX",
+            1,
+        ),
+        (
+            "backward_delete_uncounted",
+            b"abcdef\x7fX\r".as_slice(),
+            "abcdeX",
+            0,
+        ),
+    ] {
+        let bash = run_bash_readline(keys);
+        let sushline = run_sushline_harness(keys);
+        for (host, output) in [("bash", &bash), ("sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output),
+                Some(expected.to_string()),
+                "{desc}: {host}={output}"
+            );
+            assert_eq!(bell_count(output), bells, "{desc}: {host}={output}");
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_numeric_word_kill_prefix_parity() {
     for (desc, keys, expected) in [
         (

@@ -17,7 +17,11 @@ where
             EditCommand::BackwardDeleteChar => {
                 state.record_undo();
                 if let Some(arg) = state.take_numeric_arg() {
-                    self.delete_chars_with_numeric_argument(state, arg, false)?;
+                    if arg == 0 {
+                        state.after_non_kill_command();
+                    } else {
+                        self.delete_chars_with_numeric_argument(state, arg, false)?;
+                    }
                 } else if state.overwrite_mode {
                     state.buffer.backward_replace_char_with_space();
                     state.after_non_kill_command();
@@ -50,7 +54,11 @@ where
                 }
                 state.record_undo();
                 if let Some(arg) = state.take_numeric_arg() {
-                    self.delete_chars_with_numeric_argument(state, arg, true)?;
+                    if arg == 0 {
+                        state.after_non_kill_command();
+                    } else {
+                        self.delete_chars_with_numeric_argument(state, arg, true)?;
+                    }
                 } else if !state.buffer.delete_char() {
                     self.ding()?;
                     state.after_non_kill_command();

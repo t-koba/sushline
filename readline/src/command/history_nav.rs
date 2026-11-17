@@ -345,6 +345,22 @@ where
                         break;
                     }
                 }
+                // Bash 5.3 pins point/mark for successful matches at byte zero;
+                // leave empty searches and other match offsets unchanged.
+                if matched
+                    && !needle.is_empty()
+                    && let Some(offset) = search_bytes_offset(
+                        state.buffer.as_bytes(),
+                        &needle,
+                        ignore_case,
+                        locale_lowercase.as_ref(),
+                        false,
+                    )
+                    && offset == 0
+                {
+                    state.buffer.set_point(offset);
+                    state.mark = Some(state.buffer.len_chars());
+                }
                 state.after_non_kill_command();
             }
             "history-substring-search-backward" => {
@@ -382,6 +398,22 @@ where
                         }
                         break;
                     }
+                }
+                // Bash 5.3 pins point/mark for successful matches at byte zero;
+                // leave empty searches and other match offsets unchanged.
+                if matched
+                    && !needle.is_empty()
+                    && let Some(offset) = search_bytes_offset(
+                        state.buffer.as_bytes(),
+                        &needle,
+                        ignore_case,
+                        locale_lowercase.as_ref(),
+                        false,
+                    )
+                    && offset == 0
+                {
+                    state.buffer.set_point(offset);
+                    state.mark = Some(state.buffer.len_chars());
                 }
                 state.after_non_kill_command();
             }

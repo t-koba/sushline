@@ -262,27 +262,42 @@ fn bash_readline_and_sushline_prefix_history_search_point_and_mark() {
 
 #[test]
 fn bash_readline_and_sushline_substring_history_search_point_and_mark() {
-    let history = ["needle old", "needle mid", "needle new"];
-    for (command, start) in [
-        ("history-substring-search-backward", &b"\x10"[..]),
-        ("history-substring-search-forward", &b"\x10\x10\x10"[..]),
+    for (history, point_only, mark_exchange) in [
+        (
+            &["needle old", "needle mid", "needle new"][..],
+            "Xneedle mid",
+            "needle midX",
+        ),
+        (
+            &["xxneedle old", "other", "xxneedle mid", "xxneedle new"][..],
+            "xxXneedle mid",
+            "xxneedle midX",
+        ),
     ] {
-        let inputrc = format!("\"\\C-o\": {command}");
-        for (finish, expected) in [
-            (&b"\x18\x18X\r"[..], "needle midX"),
-            (&b"X\r"[..], "Xneedle mid"),
+        for (command, start) in [
+            ("history-substring-search-backward", &b"\x10"[..]),
+            ("history-substring-search-forward", &b"\x10\x10\x10"[..]),
         ] {
-            let keys = [start, b"\x01\x0bneedle\x01\x00\x05\x0f", finish].concat();
-            let bash = run_bash_readline_with_bindings_and_history(&keys, &inputrc, &history);
-            let sushline = run_sushline_harness_with_inputrc_and_history(&keys, &inputrc, &history);
-            for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
-                let context = format!("{editor} command={command} keys={keys:?}\n{output}");
-                assert_eq!(
-                    accepted_line(output).as_deref(),
-                    Some(expected),
-                    "{context}"
-                );
-                assert_eq!(bell_count(output), 0, "{context}");
+            let inputrc = format!("\"\\C-o\": {command}");
+            for (finish, expected) in [
+                (&b"\x18\x18X\r"[..], mark_exchange),
+                (&b"X\r"[..], point_only),
+            ] {
+                let keys = [start, b"\x01\x0bneedle\x01\x00\x05\x0f", finish].concat();
+                let bash = run_bash_readline_with_bindings_and_history(&keys, &inputrc, history);
+                let sushline =
+                    run_sushline_harness_with_inputrc_and_history(&keys, &inputrc, history);
+                for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+                    let context = format!(
+                        "{editor} command={command} history={history:?} keys={keys:?}\n{output}"
+                    );
+                    assert_eq!(
+                        accepted_line(output).as_deref(),
+                        Some(expected),
+                        "{context}"
+                    );
+                    assert_eq!(bell_count(output), 0, "{context}");
+                }
             }
         }
     }

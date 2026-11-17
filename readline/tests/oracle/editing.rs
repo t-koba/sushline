@@ -491,10 +491,16 @@ fn bash_readline_and_sushline_kill_line_resets_mark() {
 
 #[test]
 fn bash_readline_and_sushline_backward_and_unix_line_kill_mark_parity() {
-    // Pinned Bash 5.3 / Readline 8.3 observations: these no-ops retain
-    // the mark, while these real kills reset it. No other kills are covered.
+    // Pinned Bash 5.3 / Readline 8.3 observations: the non-negative no-ops
+    // retain the mark; the negative backward-kill-line no-op and these real
+    // kills reset it. No other kills are covered.
     for (keys, line, bells) in [
         (b"abc\x05\x00\x01\x18\x7f\x18\x18X\r".as_slice(), "abcX", 1),
+        (
+            b"abcdef\x01\x06\x06\x00\x05\x1b-\x18\x7f\x18\x18X\r".as_slice(),
+            "abcdefX",
+            0,
+        ),
         (
             b"abcdef\x05\x00\x01\x06\x06\x06\x15\x18\x18X\r".as_slice(),
             "Xdef",

@@ -23,7 +23,7 @@ where
                 if killed.is_empty() && !negative {
                     self.ding()?;
                 }
-                if !killed.is_empty() {
+                if negative || !killed.is_empty() {
                     state.mark = Some(state.buffer.point());
                 }
                 state.push_kill(killed, direction, self.kill_append_allowed());

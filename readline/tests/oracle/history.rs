@@ -4054,3 +4054,102 @@ fn bash_readline_and_sushline_preserve_point_numeric_history_navigation() {
         }
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_ignore_case_numeric_substring_search() {
+    let history = [
+        "Alpha aa alpha old",
+        "ALPHA bb Alpha mid",
+        "alpha cc ALPHA new",
+    ];
+    for (setting, on) in [("off", ""), ("on", "set search-ignore-case on\n")] {
+        for (direction, command, key, prefix) in [
+            (
+                "backward",
+                "history-substring-search-backward",
+                0x1du8,
+                &b""[..],
+            ),
+            (
+                "forward",
+                "history-substring-search-forward",
+                0x1eu8,
+                &b"\x10\x10\x10\x01\x0b"[..],
+            ),
+        ] {
+            let inputrc = format!(
+                "{on}\"\\C-{}\": {command}",
+                if key == 0x1d { "]" } else { "^" }
+            );
+            for (count, arg, point, mark) in match (setting, direction) {
+                ("off", "backward") => [
+                    ("one", "", "Xalpha cc ALPHA new", "alpha cc ALPHA newX"),
+                    ("two", "\x1b2", "Alpha aa Xalpha old", "Alpha aa alpha oldX"),
+                    (
+                        "three",
+                        "\x1b3",
+                        "Alpha aa Xalpha old",
+                        "Alpha aa alpha oldX",
+                    ),
+                ],
+                ("off", "forward") => [
+                    ("one", "", "Xalpha cc ALPHA new", "alpha cc ALPHA newX"),
+                    ("two", "\x1b2", "alpha cc ALPHA newX", "alpha cc ALPHA newX"),
+                    (
+                        "three",
+                        "\x1b3",
+                        "alpha cc ALPHA newX",
+                        "alpha cc ALPHA newX",
+                    ),
+                ],
+                ("on", "backward") => [
+                    ("one", "", "alpha cc XALPHA new", "alpha cc ALPHA newX"),
+                    ("two", "\x1b2", "ALPHA bb XAlpha mid", "ALPHA bb Alpha midX"),
+                    (
+                        "three",
+                        "\x1b3",
+                        "Alpha aa Xalpha old",
+                        "Alpha aa alpha oldX",
+                    ),
+                ],
+                ("on", "forward") => [
+                    ("one", "", "XALPHA bb Alpha mid", "ALPHA bb Alpha midX"),
+                    ("two", "\x1b2", "Xalpha cc ALPHA new", "alpha cc ALPHA newX"),
+                    (
+                        "three",
+                        "\x1b3",
+                        "alpha cc ALPHA newX",
+                        "alpha cc ALPHA newX",
+                    ),
+                ],
+                _ => unreachable!(),
+            } {
+                for (finish, expected) in [(&b"X\r"[..], point), (&b"\x18\x18X\r"[..], mark)] {
+                    let keys = [
+                        prefix,
+                        b"alpha".as_slice(),
+                        arg.as_bytes(),
+                        &[key][..],
+                        finish,
+                    ]
+                    .concat();
+                    let bash =
+                        run_bash_readline_with_inputrc_file_and_history(&keys, &inputrc, &history);
+                    let sushline =
+                        run_sushline_harness_with_inputrc_and_history(&keys, &inputrc, &history);
+                    for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+                        let context = format!(
+                            "{editor} setting={setting} {direction} count={count} finish={finish:?} keys={keys:?}\n{output}"
+                        );
+                        assert_eq!(
+                            accepted_line(output).as_deref(),
+                            Some(expected),
+                            "{context}"
+                        );
+                        assert_eq!(bell_count(output), 0, "{context}");
+                    }
+                }
+            }
+        }
+    }
+}

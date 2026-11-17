@@ -211,8 +211,12 @@ where
                 }
             }
             EditCommand::Undo => {
-                if !state.undo() {
-                    self.ding()?;
+                let count = state.take_numeric_arg().unwrap_or(1);
+                for _ in 0..count {
+                    if !state.undo() {
+                        self.ding()?;
+                        break;
+                    }
                 }
                 Ok(EditorOutcome::Continue)
             }

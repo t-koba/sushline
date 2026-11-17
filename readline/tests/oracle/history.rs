@@ -90,6 +90,33 @@ fn bash_readline_and_sushline_numeric_accept_and_revert_parity() {
 }
 
 #[test]
+fn bash_readline_and_sushline_numeric_undo_parity() {
+    for (desc, keys, expected, bells) in [
+        ("undo_1", &b"abc\x01X\x05Y\x1b1\x1f\r"[..], "Xabc", 0),
+        ("undo_2", &b"abc\x01X\x05Y\x1b2\x1f\r"[..], "abc", 0),
+        ("undo_3", &b"abc\x01X\x05Y\x1b3\x1f\r"[..], "", 0),
+        ("undo_4", &b"abc\x01X\x05Y\x1b4\x1f\r"[..], "", 1),
+        ("undo_0", &b"abc\x01X\x05Y\x1b0\x1f\r"[..], "XabcY", 0),
+        ("undo_neg1", &b"abc\x01X\x05Y\x1b-1\x1f\r"[..], "XabcY", 0),
+        ("undo_neg2", &b"abc\x01X\x05Y\x1b-2\x1f\r"[..], "XabcY", 0),
+        ("undo_uncounted", &b"abc\x01X\x05Y\x1f\r"[..], "Xabc", 0),
+        ("undo_empty", &b"\x1f\r"[..], "", 1),
+    ] {
+        let bash = run_bash_readline_with_bindings_and_history(keys, "", &[]);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, "", &[]);
+        for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+            let context = format!("{desc}: {editor}: {output}");
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{context}"
+            );
+            assert_eq!(bell_count(output), bells, "{context}");
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_history_search_backward_by_prefix() {
     let keys = b"alp\x1d\r";
     let inputrc = r#""\C-]": history-search-backward"#;

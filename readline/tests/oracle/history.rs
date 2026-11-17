@@ -117,6 +117,41 @@ fn bash_readline_and_sushline_numeric_undo_parity() {
 }
 
 #[test]
+fn bash_readline_and_sushline_numeric_character_search_parity() {
+    for (keys, expected, bells) in [
+        (&b"aXbXc\x1daZ\r"[..], "aXbXcZ", 1),
+        (&b"aXbXc\x1b1\x1daZ\r"[..], "aXbXcZ", 1),
+        (&b"aXbXc\x1b2\x1daZ\r"[..], "aXbXcZ", 1),
+        (&b"aXbXc\x1b3\x1daZ\r"[..], "aXbXcZ", 1),
+        (&b"aXbXc\x1b4\x1daZ\r"[..], "aXbXcZ", 1),
+        (&b"aXbXc\x1b0\x1daZ\r"[..], "aXbXcZ", 0),
+        (&b"aXbXc\x1b-1\x1daZ\r"[..], "ZaXbXc", 0),
+        (&b"aXbXc\x1b-2\x1daZ\r"[..], "ZaXbXc", 1),
+        (&b"aXbXc\x1b\x1daZ\r"[..], "ZaXbXc", 0),
+        (&b"aXbXc\x1b1\x1b\x1daZ\r"[..], "ZaXbXc", 0),
+        (&b"aXbXc\x1b2\x1b\x1daZ\r"[..], "ZaXbXc", 1),
+        (&b"aXbXc\x1b0\x1b\x1daZ\r"[..], "aXbXcZ", 0),
+        (&b"aXbXc\x1b-1\x1b\x1daZ\r"[..], "aXbXcZ", 1),
+        (&b"aXbXc\x1b-2\x1b\x1daZ\r"[..], "aXbXcZ", 1),
+        (&b"abcabc\x01\x1b2\x1daX\r"[..], "abcXabc", 1),
+        (&b"abcabc\x01\x1b0\x1daX\r"[..], "Xabcabc", 0),
+        (&b"abcabc\x01\x1b-1\x1daX\r"[..], "Xabcabc", 1),
+    ] {
+        let bash = run_bash_readline_with_bindings_and_history(keys, "", &[]);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, "", &[]);
+        for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+            let context = format!("{editor}: keys={keys:?}: {output}");
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{context}"
+            );
+            assert_eq!(bell_count(output), bells, "{context}");
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_history_search_backward_by_prefix() {
     let keys = b"alp\x1d\r";
     let inputrc = r#""\C-]": history-search-backward"#;

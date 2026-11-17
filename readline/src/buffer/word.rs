@@ -979,6 +979,18 @@ impl LineBuffer {
         None
     }
 
+    /// Find a target strictly before point, as Emacs character-search requires.
+    pub(crate) fn find_backward_before_point(&self, target: char) -> Option<usize> {
+        let mut end = self.point;
+        while let Some((idx, ch)) = self.prev_char(end) {
+            if ch == target {
+                return Some(idx);
+            }
+            end = idx;
+        }
+        None
+    }
+
     /// Find backward.
     pub fn find_backward(&self, target: char, from_previous: bool) -> Option<usize> {
         let end = if from_previous {

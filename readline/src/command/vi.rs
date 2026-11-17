@@ -629,7 +629,7 @@ where
             ("vi-char-search", b";") => {
                 let op_start = state.take_vi_operator();
                 if let Some((mode, ch)) = state.vi.last_char_search {
-                    if self.apply_char_search_with_repeat(state, mode, ch, true)? {
+                    if self.apply_char_search_with_repeat(state, mode, ch, true, false)? {
                         self.finish_vi_motion_operator(state, op_start, key, true);
                     } else {
                         state.cancel_pending_command();
@@ -643,7 +643,13 @@ where
             ("vi-char-search", b",") => {
                 let op_start = state.take_vi_operator();
                 if let Some((mode, ch)) = state.vi.last_char_search {
-                    if self.apply_char_search_with_repeat(state, mode.reversed(), ch, true)? {
+                    if self.apply_char_search_with_repeat(
+                        state,
+                        mode.reversed(),
+                        ch,
+                        true,
+                        false,
+                    )? {
                         self.finish_vi_motion_operator(state, op_start, key, true);
                     } else {
                         state.cancel_pending_command();
@@ -659,6 +665,12 @@ where
 
         if let Some(mode) = mode {
             state.vi.pending_char_search = Some(mode);
+            state.vi.pending_char_search_count =
+                if matches!(command, "character-search" | "character-search-backward") {
+                    Some(state.numeric_arg.unwrap_or(1))
+                } else {
+                    None
+                };
             state.vi.pending_char_search_operator = state.take_vi_operator();
         }
         Ok(())
@@ -668,8 +680,9 @@ where
         state: &mut EditorState,
         mode: CharSearchMode,
         ch: char,
+        emacs: bool,
     ) -> Result<bool, ReadlineError> {
-        self.apply_char_search_with_repeat(state, mode, ch, false)
+        self.apply_char_search_with_repeat(state, mode, ch, false, emacs)
     }
 
     fn apply_char_search_with_repeat(
@@ -678,9 +691,11 @@ where
         mode: CharSearchMode,
         ch: char,
         repeat: bool,
+        emacs: bool,
     ) -> Result<bool, ReadlineError> {
         let found = match mode {
             CharSearchMode::Forward => state.buffer.find_forward(ch, true),
+            CharSearchMode::Backward if emacs => state.buffer.find_backward_before_point(ch),
             CharSearchMode::Backward => state.buffer.find_backward(ch, true),
             CharSearchMode::TillForward if repeat => state
                 .buffer

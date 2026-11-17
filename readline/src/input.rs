@@ -701,12 +701,22 @@ where
         let Some(search) = state.vi.pending_char_search.take() else {
             return Ok(None);
         };
+        let emacs_count = state.vi.pending_char_search_count.take();
+        let count = emacs_count.unwrap_or(1);
+        let search = if count < 0 { search.reversed() } else { search };
         let op_start = state.vi.pending_char_search_operator.take();
 
         // Fragmentation-invariant: only the first character is the search
         // key; trailing bytes are separate input like split reads.
         if let Some(ch) = char_search_key(&first) {
-            if self.apply_char_search(state, search, ch)? {
+            let mut success = true;
+            for _ in 0..count.unsigned_abs() {
+                if !self.apply_char_search(state, search, ch, emacs_count.is_some())? {
+                    success = false;
+                    break;
+                }
+            }
+            if success {
                 self.finish_vi_motion_operator(state, op_start, &first, true);
                 state.vi.last_char_search = Some((search, ch));
                 state.after_non_kill_command();

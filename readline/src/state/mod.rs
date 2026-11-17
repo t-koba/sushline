@@ -91,6 +91,7 @@ impl EditorState {
         self.input.named_command = None;
         self.input.pending_replace = false;
         self.vi.pending_char_search = None;
+        self.vi.pending_char_search_count = None;
         self.vi.pending_char_search_operator = None;
         self.vi.pending_vi_mark = None;
         self.vi.pending_mark_operator = None;

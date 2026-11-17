@@ -2663,9 +2663,8 @@ fn bash_readline_and_sushline_accept_same_undo_after_midline_insert() {
 
 #[test]
 fn bash_readline_and_sushline_yank_ignores_numeric_argument() {
-    // With two killed words, the tested Bash 5.3 PTY fixtures yank the
-    // newest entry once for every tested prefix; the count is consumed
-    // but does not repeat or skip kill-ring entries.
+    // Consecutive C-u kills coalesce into one kill-ring entry here; this
+    // fixture pins that coalesced-text yank, not multi-entry ring selection.
     for (desc, prefix) in [
         ("uncounted", b"".as_slice()),
         ("zero", b"\x1b0".as_slice()),
@@ -2692,6 +2691,43 @@ fn bash_readline_and_sushline_yank_ignores_numeric_argument() {
             "{desc}: bash={bash}\nsushline={sushline}"
         );
         assert_eq!(bell_count(&sushline), 0, "{desc}: {sushline}");
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_yank_ignores_numeric_argument_with_distinct_kill_entries() {
+    // C-f at end of `two` separates the two C-u kills, making their ring
+    // entries distinct; Bash rings once for that failed forward motion.
+    // Every tested C-y prefix yanks only the newest entry, `two`.
+    for (desc, prefix) in [
+        ("uncounted", b"".as_slice()),
+        ("zero", b"\x1b0".as_slice()),
+        ("one", b"\x1b1".as_slice()),
+        ("two", b"\x1b2".as_slice()),
+        ("negative_one", b"\x1b-\x1b1".as_slice()),
+    ] {
+        let mut keys = b"one\x15two\x06\x15".to_vec();
+        keys.extend_from_slice(prefix);
+        keys.extend_from_slice(b"\x19X\r");
+        let bash = run_bash_readline(&keys);
+        let sushline = run_sushline_harness(&keys);
+
+        assert_eq!(
+            accepted_line(&bash),
+            Some("twoX".to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 1, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bell_count(&bash),
+            "{desc}: {sushline}"
+        );
     }
 }
 

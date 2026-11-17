@@ -182,21 +182,66 @@ fn bash_readline_and_sushline_accept_same_backspace_edit() {
 }
 
 #[test]
-fn bash_readline_and_sushline_accept_same_word_motion_edit() {
-    let keys = b"one two three\x1bbX\r";
-    let bash = run_bash_readline(keys);
-    let sushline = run_sushline_harness(keys);
+fn bash_readline_and_sushline_word_motion_honors_numeric_argument() {
+    // Counts and boundary clamping in the tested Bash 5.3 PTY fixtures.
+    // Zero and negative counts stay at the starting point; over-counts stop
+    // at the nearest word boundary. No broader rule is inferred.
+    for (desc, prefix, expected) in [
+        ("uncounted", b"".as_slice(), "oneX two three"),
+        ("zero", b"\x1b0".as_slice(), "Xone two three"),
+        ("one", b"\x1b1".as_slice(), "oneX two three"),
+        ("two", b"\x1b2".as_slice(), "one twoX three"),
+        ("three", b"\x1b3".as_slice(), "one two threeX"),
+        ("negative_one", b"\x1b-\x1b1".as_slice(), "Xone two three"),
+        ("nine", b"\x1b9".as_slice(), "one two threeX"),
+    ] {
+        let mut keys = b"one two three\x01".to_vec();
+        keys.extend_from_slice(prefix);
+        keys.extend_from_slice(b"\x1bfX\r");
+        let bash = run_bash_readline(&keys);
+        let sushline = run_sushline_harness(&keys);
 
-    assert_eq!(
-        accepted_line(&bash),
-        Some("one two Xthree".to_string()),
-        "{bash}"
-    );
-    assert_eq!(
-        accepted_line(&sushline),
-        Some("one two Xthree".to_string()),
-        "{sushline}"
-    );
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), 0, "{desc}: {sushline}");
+    }
+    for (desc, prefix, expected) in [
+        ("uncounted", b"".as_slice(), "one two Xthree"),
+        ("zero", b"\x1b0".as_slice(), "one two threeX"),
+        ("one", b"\x1b1".as_slice(), "one two Xthree"),
+        ("two", b"\x1b2".as_slice(), "one Xtwo three"),
+        ("three", b"\x1b3".as_slice(), "Xone two three"),
+        ("negative_one", b"\x1b-\x1b1".as_slice(), "one two threeX"),
+        ("nine", b"\x1b9".as_slice(), "Xone two three"),
+    ] {
+        let mut keys = b"one two three".to_vec();
+        keys.extend_from_slice(prefix);
+        keys.extend_from_slice(b"\x1bbX\r");
+        let bash = run_bash_readline(&keys);
+        let sushline = run_sushline_harness(&keys);
+
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), 0, "{desc}: {sushline}");
+    }
 }
 
 #[test]

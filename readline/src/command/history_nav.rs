@@ -317,6 +317,7 @@ where
                 let arg = state.take_numeric_arg().unwrap_or(1);
                 let count = arg.unsigned_abs() as usize;
                 let mut matched = false;
+                let mut all_matched = true;
                 for _ in 0..count {
                     let found = if arg < 0 {
                         history_substring_backward_with_locale(
@@ -342,12 +343,16 @@ where
                         if !matched {
                             self.ding()?;
                         }
+                        all_matched = false;
                         break;
                     }
                 }
                 // A negative argument makes the forward command search backward.
                 let from_end = arg < 0;
+                // Forward search leaves point at the line end when a repeated
+                // count runs past the newest match.
                 if matched
+                    && (arg < 0 || all_matched)
                     && !needle.is_empty()
                     && let Some(offset) = search_bytes_offset(
                         state.buffer.as_bytes(),
@@ -370,6 +375,7 @@ where
                 let arg = state.take_numeric_arg().unwrap_or(1);
                 let count = arg.unsigned_abs() as usize;
                 let mut matched = false;
+                let mut all_matched = true;
                 for _ in 0..count {
                     let found = if arg < 0 {
                         history_substring_forward_with_locale(
@@ -395,12 +401,16 @@ where
                         if !matched {
                             self.ding()?;
                         }
+                        all_matched = false;
                         break;
                     }
                 }
                 // A negative argument makes the backward command search forward.
                 let from_end = arg >= 0;
+                // Forward search leaves point at the line end when a repeated
+                // count runs past the newest match.
                 if matched
+                    && (arg >= 0 || all_matched)
                     && !needle.is_empty()
                     && let Some(offset) = search_bytes_offset(
                         state.buffer.as_bytes(),

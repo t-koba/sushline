@@ -23,8 +23,10 @@ where
                 if killed.is_empty() && !negative {
                     self.ding()?;
                 }
+                if !killed.is_empty() {
+                    state.mark = Some(state.buffer.point());
+                }
                 state.push_kill(killed, direction, self.kill_append_allowed());
-                state.mark = Some(state.buffer.point());
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::UnixWordRubout => {
@@ -130,6 +132,8 @@ where
                 let killed = state.buffer.kill_to_start();
                 if killed.is_empty() {
                     self.ding()?;
+                } else {
+                    state.mark = Some(state.buffer.point());
                 }
                 state.push_kill(killed, KillDirection::Backward, self.kill_append_allowed());
                 Ok(EditorOutcome::Continue)

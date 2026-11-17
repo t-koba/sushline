@@ -118,6 +118,12 @@ through the editor, inputrc, history, or completion. Aliases, variables, jobs,
 shell expansion, external editing, and `bind -x` execution are embedder-owned
 and supplied through `Hooks` where applicable.
 
+Numeric quoted-insert arguments whose first key is Meta-minus followed by a
+digit are outside the pinned claims: in paired PTY runs Bash produced no
+accepted line for `M-- M-1 C-v a Enter` or `M-- M-2 C-v a Enter`, while
+Sushline accepted `a` or `aa` respectively. The sign-only and `M-0 M-- M-1`
+forms did match, but no general negative-count rule is inferred.
+
 ## Compatibility Boundaries
 
 | Area | Baseline behavior | Sushline behavior | Status |

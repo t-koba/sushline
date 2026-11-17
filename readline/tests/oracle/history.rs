@@ -101,6 +101,48 @@ fn bash_readline_and_sushline_numeric_undo_parity() {
         ("undo_neg2", &b"abc\x01X\x05Y\x1b-2\x1f\r"[..], "XabcY", 0),
         ("undo_uncounted", &b"abc\x01X\x05Y\x1f\r"[..], "Xabc", 0),
         ("undo_empty", &b"\x1f\r"[..], "", 1),
+        (
+            "kill_then_undo_1",
+            &b"abc\x01X\x05Y\x15\x1b1\x1f\r"[..],
+            "XabcY",
+            0,
+        ),
+        (
+            "kill_then_undo_2",
+            &b"abc\x01X\x05Y\x15\x1b2\x1f\r"[..],
+            "Xabc",
+            0,
+        ),
+        (
+            "kill_then_undo_3",
+            &b"abc\x01X\x05Y\x15\x1b3\x1f\r"[..],
+            "abc",
+            0,
+        ),
+        (
+            "kill_then_undo_4",
+            &b"abc\x01X\x05Y\x15\x1b4\x1f\r"[..],
+            "",
+            0,
+        ),
+        (
+            "kill_then_undo_uncounted",
+            &b"abc\x01X\x05Y\x15\x1f\r"[..],
+            "XabcY",
+            0,
+        ),
+        (
+            "kill_then_undo_0",
+            &b"abc\x01X\x05Y\x15\x1b0\x1f\r"[..],
+            "",
+            0,
+        ),
+        (
+            "kill_then_undo_neg1",
+            &b"abc\x01X\x05Y\x15\x1b-1\x1f\r"[..],
+            "",
+            0,
+        ),
     ] {
         let bash = run_bash_readline_with_bindings_and_history(keys, "", &[]);
         let sushline = run_sushline_harness_with_inputrc_and_history(keys, "", &[]);

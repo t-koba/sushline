@@ -128,6 +128,7 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::UnixLineDiscard => {
+                state.commit_pending_undo();
                 state.record_undo();
                 let killed = state.buffer.kill_to_start();
                 if killed.is_empty() {

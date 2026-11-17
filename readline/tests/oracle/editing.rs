@@ -3782,6 +3782,39 @@ fn bash_readline_and_sushline_render_byte_oriented_with_output_meta() {
 }
 
 #[test]
+fn bash_readline_and_sushline_quoted_insert_repeats_by_numeric_argument() {
+    for (desc, prefix, expected) in [
+        ("uncounted", b"".as_slice(), "a"),
+        ("zero", b"\x1b0".as_slice(), ""),
+        ("one", b"\x1b1".as_slice(), "a"),
+        ("two", b"\x1b2".as_slice(), "aa"),
+        ("three", b"\x1b3".as_slice(), "aaa"),
+    ] {
+        let mut keys = prefix.to_vec();
+        keys.extend_from_slice(b"\x16a\r");
+        let bash = run_bash_readline(&keys);
+        let sushline = run_sushline_harness(&keys);
+
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        assert_eq!(
+            bell_count(&sushline),
+            bell_count(&bash),
+            "{desc}: {sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_render_quoted_controls_independent_of_echo_control_setting() {
     if !c_utf8_locale_available() {
         return;

@@ -311,6 +311,9 @@ where
                 let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
                 let locale_lowercase = self.search_locale_lowercase(ignore_case);
                 let arg = state.take_numeric_arg().unwrap_or(1);
+                if arg == 0 && !needle.is_empty() {
+                    state.mark = Some(0);
+                }
                 let count = arg.unsigned_abs() as usize;
                 let mut matched = false;
                 let mut all_matched = true;
@@ -369,6 +372,9 @@ where
                 let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
                 let locale_lowercase = self.search_locale_lowercase(ignore_case);
                 let arg = state.take_numeric_arg().unwrap_or(1);
+                if arg == 0 && !needle.is_empty() {
+                    state.mark = Some(0);
+                }
                 let count = arg.unsigned_abs() as usize;
                 let mut matched = false;
                 let mut all_matched = true;

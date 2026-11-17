@@ -4397,3 +4397,47 @@ fn bash_readline_and_sushline_ignore_case_negative_numeric_substring_search() {
         }
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_zero_numeric_substring_search() {
+    let history = [
+        "Alpha aa alpha old",
+        "ALPHA bb Alpha mid",
+        "alpha cc ALPHA new",
+    ];
+    for setting in ["off", "on"] {
+        for (direction, command, key) in [
+            ("backward", "history-substring-search-backward", 0x1du8),
+            ("forward", "history-substring-search-forward", 0x1eu8),
+        ] {
+            let inputrc = format!(
+                "set search-ignore-case {setting}\n\"\\C-{}\": {command}",
+                if key == 0x1d { "]" } else { "^" }
+            );
+            for (setup, prefix) in [
+                ("fresh", &b""[..]),
+                ("oldest", &b"\x10\x10\x10\x01\x0b"[..]),
+            ] {
+                for (finish, expected) in [(&b"X\r"[..], "alphaX"), (&b"\x18\x18X\r"[..], "Xalpha")]
+                {
+                    let keys = [prefix, b"alpha\x1b0".as_slice(), &[key][..], finish].concat();
+                    let bash =
+                        run_bash_readline_with_inputrc_file_and_history(&keys, &inputrc, &history);
+                    let sushline =
+                        run_sushline_harness_with_inputrc_and_history(&keys, &inputrc, &history);
+                    for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+                        let context = format!(
+                            "{editor} setting={setting} direction={direction} setup={setup} count=0 finish={finish:?} keys={keys:?}\n{output}"
+                        );
+                        assert_eq!(
+                            accepted_line(output).as_deref(),
+                            Some(expected),
+                            "{context}"
+                        );
+                        assert_eq!(bell_count(output), 0, "{context}");
+                    }
+                }
+            }
+        }
+    }
+}

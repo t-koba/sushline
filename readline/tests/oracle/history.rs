@@ -61,6 +61,35 @@ fn bash_readline_and_sushline_numeric_history_navigation_counts() {
 }
 
 #[test]
+fn bash_readline_and_sushline_numeric_accept_and_revert_parity() {
+    let inputrc = r#""\er": revert-line"#;
+    for (desc, keys, expected, bells) in [
+        ("accept_2", &b"abc\x1b2\r"[..], "abc", 0),
+        ("accept_0", &b"abc\x1b0\r"[..], "abc", 0),
+        ("accept_neg1", &b"abc\x1b-1\r"[..], "abc", 0),
+        ("revert_2", &b"abc\x01X\x1b2\x1br\r"[..], "", 0),
+        ("revert_0", &b"abc\x01X\x1b0\x1br\r"[..], "", 0),
+        ("revert_neg1", &b"abc\x01X\x1b-1\x1br\r"[..], "", 0),
+        ("revert_uncounted", &b"abc\x01X\x1br\r"[..], "", 0),
+        ("revert_clean_2", &b"abc\x1b2\x1br\r"[..], "", 0),
+        ("revert_then_insert", &b"abc\x01X\x1b2\x1brY\r"[..], "Y", 0),
+        ("revert_twice", &b"abc\x01X\x1br\x1b2\x1brY\r"[..], "Y", 1),
+    ] {
+        let bash = run_bash_readline_with_bindings_and_history(keys, inputrc, &[]);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &[]);
+        for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+            let context = format!("{desc}: {editor}: {output}");
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{context}"
+            );
+            assert_eq!(bell_count(output), bells, "{context}");
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_history_search_backward_by_prefix() {
     let keys = b"alp\x1d\r";
     let inputrc = r#""\C-]": history-search-backward"#;

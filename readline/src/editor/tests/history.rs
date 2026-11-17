@@ -505,7 +505,7 @@ fn prefix_search_matches_invalid_utf8_history_fixture() {
 fn history_navigation_search_needle_lasts_until_the_next_edit() {
     for (tail, expected) in [
         (&b"\x1b1\x1d\r"[..], &b"alpha one"[..]),
-        (&b"X\x1d\r"[..], &b"alpha twoX"[..]),
+        (&b"X\x1d\r"[..], &b"alpXha two"[..]),
     ] {
         let terminal = MemoryTerminal::with_events(vec![
             TerminalEvent::Bytes(b"alp\x1d".to_vec()),

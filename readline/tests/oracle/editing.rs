@@ -4387,6 +4387,28 @@ fn bash_readline_and_sushline_numeric_backward_kill_line_parity() {
 }
 
 #[test]
+fn bash_readline_and_sushline_numeric_unix_line_discard_parity() {
+    for (desc, keys) in [
+        ("zero", b"abc def\x1b0\x15X\r".as_slice()),
+        ("negative_one", b"abc def\x1b-\x31\x15X\r".as_slice()),
+        ("negative_two", b"abc def\x1b-\x32\x15X\r".as_slice()),
+        ("two", b"abc def\x1b2\x15X\r".as_slice()),
+        ("uncounted", b"abc def\x15X\r".as_slice()),
+    ] {
+        let bash = run_bash_readline(keys);
+        let sushline = run_sushline_harness(keys);
+        for (host, output) in [("bash", &bash), ("sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output),
+                Some("X".to_string()),
+                "{desc}: {host}={output}"
+            );
+            assert_eq!(bell_count(output), 0, "{desc}: {host}={output}");
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_unbound_esc_matches_like_bash() {
     let vi = "set editing-mode vi";
     let em_pair: &[u8] = b"\x1b\x1babc\r";

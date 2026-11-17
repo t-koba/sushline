@@ -349,21 +349,21 @@ where
                 }
                 // A negative argument makes the forward command search backward.
                 let from_end = arg < 0;
-                // Forward search leaves point at the line end when a repeated
-                // count runs past the newest match.
-                if matched
-                    && (arg < 0 || all_matched)
-                    && !needle.is_empty()
-                    && let Some(offset) = search_bytes_offset(
-                        state.buffer.as_bytes(),
-                        &needle,
-                        ignore_case,
-                        locale_lowercase.as_ref(),
-                        from_end,
-                    )
-                {
-                    state.buffer.set_point(offset);
+                if matched && !needle.is_empty() {
                     state.mark = Some(state.buffer.len_chars());
+                    // Forward search leaves point at the line end when a repeated
+                    // count runs past the newest match.
+                    if (arg < 0 || all_matched)
+                        && let Some(offset) = search_bytes_offset(
+                            state.buffer.as_bytes(),
+                            &needle,
+                            ignore_case,
+                            locale_lowercase.as_ref(),
+                            from_end,
+                        )
+                    {
+                        state.buffer.set_point(offset);
+                    }
                 }
                 state.after_non_kill_command();
             }
@@ -407,21 +407,21 @@ where
                 }
                 // A negative argument makes the backward command search forward.
                 let from_end = arg >= 0;
-                // Forward search leaves point at the line end when a repeated
-                // count runs past the newest match.
-                if matched
-                    && (arg >= 0 || all_matched)
-                    && !needle.is_empty()
-                    && let Some(offset) = search_bytes_offset(
-                        state.buffer.as_bytes(),
-                        &needle,
-                        ignore_case,
-                        locale_lowercase.as_ref(),
-                        from_end,
-                    )
-                {
-                    state.buffer.set_point(offset);
+                if matched && !needle.is_empty() {
                     state.mark = Some(state.buffer.len_chars());
+                    // Forward search leaves point at the line end when a repeated
+                    // count runs past the newest match.
+                    if (arg >= 0 || all_matched)
+                        && let Some(offset) = search_bytes_offset(
+                            state.buffer.as_bytes(),
+                            &needle,
+                            ignore_case,
+                            locale_lowercase.as_ref(),
+                            from_end,
+                        )
+                    {
+                        state.buffer.set_point(offset);
+                    }
                 }
                 state.after_non_kill_command();
             }

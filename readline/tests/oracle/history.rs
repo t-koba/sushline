@@ -389,29 +389,33 @@ fn bash_readline_and_sushline_substring_search_count_past_newest_keeps_point_at_
         ("history-substring-search-forward", 3, "3"),
     ] {
         let inputrc = format!("\"\\C-o\": {command}");
-        let keys = [
-            &b"\x10".repeat(ups)[..],
-            format!("\x01\x0balpha\x01\x00\x05\x1b{arg}\x0fX\r").as_bytes(),
-        ]
-        .concat();
-        for (editor, output) in [
-            (
-                "bash",
-                run_bash_readline_with_bindings_and_history(&keys, &inputrc, &history),
-            ),
-            (
-                "sushline",
-                run_sushline_harness_with_inputrc_and_history(&keys, &inputrc, &history),
-            ),
-        ] {
-            let context =
-                format!("{editor} command={command} ups={ups} arg={arg} keys={keys:?}\n{output}");
-            assert_eq!(
-                accepted_line(&output).as_deref(),
-                Some("alpha cc alpha newX"),
-                "{context}"
-            );
-            assert_eq!(bell_count(&output), 0, "{context}");
+        for finish in [&b"X\r"[..], &b"\x18\x18X\r"[..]] {
+            let keys = [
+                &b"\x10".repeat(ups)[..],
+                format!("\x01\x0balpha\x01\x00\x05\x1b{arg}\x0f").as_bytes(),
+                finish,
+            ]
+            .concat();
+            for (editor, output) in [
+                (
+                    "bash",
+                    run_bash_readline_with_bindings_and_history(&keys, &inputrc, &history),
+                ),
+                (
+                    "sushline",
+                    run_sushline_harness_with_inputrc_and_history(&keys, &inputrc, &history),
+                ),
+            ] {
+                let context = format!(
+                    "{editor} command={command} ups={ups} arg={arg} keys={keys:?}\n{output}"
+                );
+                assert_eq!(
+                    accepted_line(&output).as_deref(),
+                    Some("alpha cc alpha newX"),
+                    "{context}"
+                );
+                assert_eq!(bell_count(&output), 0, "{context}");
+            }
         }
     }
 }

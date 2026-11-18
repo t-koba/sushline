@@ -1847,6 +1847,32 @@ fn bash_readline_and_sushline_complete_named_command_names() {
     }
 }
 
+#[test]
+fn bash_readline_and_sushline_list_ambiguous_named_command_candidates() {
+    if !host_carries_measured_release() {
+        eprintln!("Ambiguous named-command listing was measured on Readline 8.3");
+        return;
+    }
+    let keys = b"abc\x1bxbeginning-of-\tline\rX\r";
+    for (name, output) in [
+        ("Bash", run_bash_readline_with_inputrc_file(keys, "")),
+        ("Sushline", run_sushline_harness_with_inputrc(keys, "")),
+    ] {
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some("Xabc"),
+            "{name} keys={keys:?}: {output:?}"
+        );
+        assert_eq!(bell_count(&output), 0, "{name} keys={keys:?}: {output:?}");
+        for candidate in ["beginning-of-history", "beginning-of-line"] {
+            assert!(
+                output.contains(candidate),
+                "{name} did not list {candidate}: {output:?}"
+            );
+        }
+    }
+}
+
 /// A command-name completion with no match rings once per TAB/SPACE on both
 /// editors; the later unknown-name submission rings once more. Accepted lines
 /// are identical; only the paired bell counts distinguish the behavior.

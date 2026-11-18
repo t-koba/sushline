@@ -1681,19 +1681,19 @@ where
         let Some(pending) = state.input.named_command.as_ref() else {
             return Ok(());
         };
-        let prefix = pending.query.as_bytes();
+        let prefix = pending.query.as_bytes().to_vec();
         let mut candidates: Vec<_> =
             crate::keymap::bind_function_names(self.variable_is_on("sushline-vi-registers"))
                 .into_iter()
                 .map(str::as_bytes)
-                .filter(|name| name.starts_with(prefix))
+                .filter(|name| name.starts_with(&prefix))
                 .map(<[u8]>::to_vec)
                 .collect();
         candidates.extend(
             hooks
                 .named_command_names()
                 .into_iter()
-                .filter(|name| name.starts_with(prefix)),
+                .filter(|name| name.starts_with(&prefix)),
         );
         // GNU rings once for a completion with no candidate, as ordinary
         // completion does. An empty query has every name as a candidate, so
@@ -1702,12 +1702,25 @@ where
             self.ding()?;
             return Ok(());
         }
-        if let Some(common) = crate::completion::display::longest_common_bytes_prefix(
+        let common = crate::completion::display::longest_common_bytes_prefix(
             candidates.iter().map(Vec::as_slice),
-        ) && common.len() > prefix.len()
+        );
+        if let Some(common) = common
+            && common.len() > prefix.len()
             && let Some(pending) = state.input.named_command.as_mut()
         {
             pending.query = String::from_utf8_lossy(&common).into_owned();
+        } else if candidates.len() > 1 {
+            // An ambiguous query that cannot extend must reveal the names it
+            // matches, just as ordinary completion lists its candidates.
+            let response = crate::completion::CompletionResponse {
+                candidates: candidates
+                    .into_iter()
+                    .map(crate::completion::CompletionCandidate::plain)
+                    .collect(),
+                options: crate::completion::CompletionOptions::default(),
+            };
+            self.display_completions_for_word(state, &response, &prefix, hooks)?;
         }
         Ok(())
     }

@@ -355,6 +355,15 @@ where
                 state.after_non_kill_command();
             }
             _ => {
+                // A name offered by the embedder for M-x completion must be
+                // executable; built-in names are resolved before this arm.
+                if hooks
+                    .named_command_names()
+                    .iter()
+                    .any(|name| name.as_slice() == command.as_bytes())
+                {
+                    return self.apply_application_command(state, command, key, hooks);
+                }
                 self.ding()?;
                 state.after_non_kill_command();
             }

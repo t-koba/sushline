@@ -143,32 +143,44 @@ where
                 }
             }
             KeyBinding::ApplicationCommand(command) => {
-                state.completion.menu_completion = None;
-                let argument = state.take_numeric_arg();
-                let context = CommandContext {
-                    command: &command,
-                    line: state.buffer.as_bytes(),
-                    point: state.buffer.point(),
-                    mark: state.mark,
-                    argument,
-                    key,
-                    keymap: self.keymap.current(),
-                };
-                if let Some(edit) = hooks.on_command(context) {
-                    state.record_undo();
-                    if let Some(line) = edit.line {
-                        state.buffer = LineBuffer::from_bytes(line);
-                    }
-                    if let Some(point) = edit.point {
-                        state.buffer.set_point(point);
-                    }
-                    if let Some(mark) = edit.mark {
-                        state.mark = mark;
-                    }
-                }
-                state.after_non_kill_command();
-                Ok(EditorOutcome::Continue)
+                self.apply_application_command(state, &command, key, hooks)
             }
         }
+    }
+
+    /// Invoke an embedder-owned command with the same context and edit
+    /// handling as a `KeyBinding::ApplicationCommand` binding.
+    pub(crate) fn apply_application_command(
+        &mut self,
+        state: &mut EditorState,
+        command: &str,
+        key: &[u8],
+        hooks: &mut impl Hooks,
+    ) -> Result<EditorOutcome, ReadlineError> {
+        state.completion.menu_completion = None;
+        let argument = state.take_numeric_arg();
+        let context = CommandContext {
+            command,
+            line: state.buffer.as_bytes(),
+            point: state.buffer.point(),
+            mark: state.mark,
+            argument,
+            key,
+            keymap: self.keymap.current(),
+        };
+        if let Some(edit) = hooks.on_command(context) {
+            state.record_undo();
+            if let Some(line) = edit.line {
+                state.buffer = LineBuffer::from_bytes(line);
+            }
+            if let Some(point) = edit.point {
+                state.buffer.set_point(point);
+            }
+            if let Some(mark) = edit.mark {
+                state.mark = mark;
+            }
+        }
+        state.after_non_kill_command();
+        Ok(EditorOutcome::Continue)
     }
 }

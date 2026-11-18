@@ -322,6 +322,60 @@ fn named_command_completion_uses_embedder_supplied_names() {
 }
 
 #[test]
+fn named_command_completion_then_embedder_execution() {
+    struct NamedApplicationHook {
+        invoked: Vec<Vec<u8>>,
+    }
+
+    impl Hooks for NamedApplicationHook {
+        fn named_command_names(&mut self) -> Vec<Vec<u8>> {
+            vec![b"app-insert-X".to_vec()]
+        }
+
+        fn on_command(
+            &mut self,
+            context: crate::hooks::CommandContext<'_>,
+        ) -> Option<crate::hooks::Edit> {
+            self.invoked.push(context.command.as_bytes().to_vec());
+            let mut line = context.line.to_vec();
+            line.extend_from_slice(b"X");
+            Some(crate::hooks::Edit {
+                line: Some(line),
+                point: None,
+                mark: None,
+            })
+        }
+    }
+
+    let mut line = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
+    let mut state = EditorState::new(Prompt::new("> "), Some(b"abc".to_vec()));
+    state.input.named_command = Some(PendingNamedCommand {
+        query: "app-".to_string(),
+        invoking_key: None,
+    });
+    let mut hooks = NamedApplicationHook {
+        invoked: Vec::new(),
+    };
+
+    line.handle_named_command(&mut state, b"\t", &mut hooks)
+        .unwrap();
+    assert_eq!(
+        state
+            .input
+            .named_command
+            .as_ref()
+            .map(|pending| pending.query.as_str()),
+        Some("app-insert-X")
+    );
+    line.handle_named_command(&mut state, b"\r", &mut hooks)
+        .unwrap();
+
+    assert!(state.input.named_command.is_none());
+    assert_eq!(hooks.invoked, vec![b"app-insert-X".to_vec()]);
+    assert_eq!(state.buffer.as_bytes(), b"abcX");
+}
+
+#[test]
 fn application_command_binding_passes_readline_context_and_applies_edit() {
     #[derive(Debug, PartialEq, Eq)]
     struct SeenCommand {

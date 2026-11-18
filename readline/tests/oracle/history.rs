@@ -4619,34 +4619,65 @@ fn bash_and_sushline_ring_on_redundant_previous_history() {
 }
 
 #[test]
-fn bash_and_sushline_fetch_history_negative_counts_from_end() {
+fn bash_and_sushline_fetch_history_counts_follow_the_cursor() {
     let fetch = r#""\C-o": fetch-history"#;
     let vi_fetch = r#""\C-o": vi-fetch-history"#;
     let five = ["one", "two", "three", "four", "five"];
-    let three = ["one", "two", "three"];
     let empty: [&str; 0] = [];
-    for (binding, entries, arg, expected) in [
-        (fetch, &five[..], "-1", "fiveX"),
-        (fetch, &five[..], "-2", "fourX"),
-        (fetch, &five[..], "-3", "threeX"),
-        (fetch, &five[..], "-4", "twoX"),
-        (fetch, &five[..], "-5", "oneX"),
-        (fetch, &five[..], "-6", "oneX"),
-        (fetch, &five[..], "0", "oneX"),
-        (fetch, &five[..], "2", "twoX"),
-        (fetch, &three[..], "-1", "threeX"),
-        (fetch, &three[..], "-3", "oneX"),
-        (fetch, &three[..], "-4", "oneX"),
-        (vi_fetch, &five[..], "-1", "fiveX"),
-        (vi_fetch, &five[..], "-5", "oneX"),
-        (fetch, &empty[..], "-1", "X"),
+    for (binding, entries, prefix, arg, suffix, expected) in [
+        // From the end of the history, numbers are absolute.
+        (fetch, &five[..], "", Some("1"), "X\r", "oneX"),
+        (fetch, &five[..], "", Some("3"), "X\r", "threeX"),
+        (fetch, &five[..], "", Some("5"), "X\r", "fiveX"),
+        (fetch, &five[..], "", Some("6"), "X\r", "oneX"),
+        (fetch, &five[..], "", Some("0"), "X\r", "oneX"),
+        (fetch, &five[..], "", None, "X\r", "oneX"),
+        (fetch, &five[..], "", Some("-1"), "X\r", "fiveX"),
+        (fetch, &five[..], "", Some("-5"), "X\r", "oneX"),
+        (fetch, &five[..], "", Some("-6"), "X\r", "oneX"),
+        // After one Ctrl-P the position bounds positive numbers and anchors
+        // negative ones; the fetched entry becomes the current one.
+        (fetch, &five[..], "\x10", Some("4"), "X\r", "fourX"),
+        (fetch, &five[..], "\x10", Some("5"), "X\r", "oneX"),
+        (fetch, &five[..], "\x10", Some("-1"), "\x10X\r", "threeX"),
+        (fetch, &five[..], "\x10", None, "X\r", "oneX"),
+        // After two Ctrl-P steps, negative counts step backward from four.
+        (fetch, &five[..], "\x10\x10", Some("1"), "X\r", "oneX"),
+        (fetch, &five[..], "\x10\x10", Some("2"), "X\r", "twoX"),
+        (fetch, &five[..], "\x10\x10", Some("3"), "X\r", "threeX"),
+        (fetch, &five[..], "\x10\x10", Some("4"), "X\r", "oneX"),
+        (fetch, &five[..], "\x10\x10", Some("-1"), "X\r", "threeX"),
+        (fetch, &five[..], "\x10\x10", Some("-2"), "\x10X\r", "oneX"),
+        (fetch, &five[..], "\x10\x10", Some("-3"), "X\r", "oneX"),
+        (fetch, &five[..], "\x10\x10", Some("-4"), "X\r", "oneX"),
+        (fetch, &five[..], "\x10\x10", None, "X\r", "oneX"),
+        (fetch, &five[..], "\x10\x10", Some("1"), "\x0eX\r", "twoX"),
+        (
+            fetch,
+            &five[..],
+            "\x10\x10\x10\x10",
+            Some("-1"),
+            "X\r",
+            "oneX",
+        ),
+        (vi_fetch, &five[..], "", Some("-1"), "X\r", "fiveX"),
+        (vi_fetch, &five[..], "\x10\x10", Some("-1"), "X\r", "threeX"),
+        (fetch, &empty[..], "", Some("-1"), "X\r", "X"),
     ] {
-        let keys = format!("\x1b{arg}\x0fX\r");
+        let mut keys = prefix.to_string();
+        if let Some(arg) = arg {
+            keys.push('\x1b');
+            keys.push_str(arg);
+        }
+        keys.push('\x0f');
+        keys.push_str(suffix);
         let keys = keys.as_bytes();
         let bash = run_bash_readline_with_inputrc_file_and_history(keys, binding, entries);
         let sushline = run_sushline_harness_with_inputrc_and_history(keys, binding, entries);
         for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
-            let context = format!("{editor}: arg={arg} history={entries:?}: {output}");
+            let context = format!(
+                "{editor}: prefix={prefix:?} arg={arg:?} suffix={suffix:?} history={entries:?}: {output}"
+            );
             assert_eq!(
                 accepted_line(output).as_deref(),
                 Some(expected),

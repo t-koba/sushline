@@ -281,33 +281,29 @@ where
                 }
             }
             "fetch-history" | "vi-fetch-history" => {
+                // GNU bounds a numbered fetch by the current history position
+                // and counts a negative number backward from that position.
+                // Zero, an absent argument and an out-of-range number fetch
+                // the first entry; an empty history stays put. The cursor
+                // moves to the fetched entry so later navigation starts there.
+                let position = self.history.where_history();
                 let arg = state.take_numeric_arg().unwrap_or(1);
-                // GNU counts a negative number from the end of the history.
-                // Zero and out-of-range numbers fetch the first entry
-                // (tested 0/4/5/6 against 3 entries, silently); an empty
-                // history stays put.
                 let index = if arg < 0 {
-                    self.history
-                        .entries()
-                        .len()
-                        .saturating_sub(arg.unsigned_abs() as usize)
-                        + 1
+                    position.saturating_sub(arg.unsigned_abs() as usize)
                 } else {
-                    arg.unsigned_abs() as usize
+                    match arg.unsigned_abs() as usize {
+                        0 => 0,
+                        number if number > position => 0,
+                        number => number - 1,
+                    }
                 };
-                let line = self
+                if let Some(line) = self
                     .history
-                    .get_1_based_entry(index)
-                    .or_else(|| {
-                        if self.history.entries().is_empty() {
-                            None
-                        } else {
-                            self.history.get_1_based_entry(1)
-                        }
-                    })
-                    .map(|entry| entry.line_bytes.clone());
-                if let Some(line) = line {
-                    self.replace_from_history(state, &line);
+                    .get(index)
+                    .map(|entry| entry.line_bytes.clone())
+                {
+                    self.history.set_pos(index);
+                    self.replace_from_history_at(state, Some(index), &line);
                 }
                 state.after_non_kill_command();
             }

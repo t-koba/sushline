@@ -79,14 +79,14 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::DigitArgument => {
-                if state.numeric_arg_universal_noop && key.last().is_some_and(u8::is_ascii_digit) {
+                let argument_key = key
+                    .last()
+                    .is_some_and(|byte| byte.is_ascii_digit() || *byte == b'-');
+                if argument_key
+                    && (state.numeric_arg_literal_tail || state.numeric_arg_universal_noop)
+                {
                     let meta_prefixed = key.first() == Some(&0x1b);
-                    self.handle_noop_universal_digit(
-                        state,
-                        key[key.len() - 1],
-                        meta_prefixed,
-                        true,
-                    )?;
+                    self.handle_noop_argument_key(state, key[key.len() - 1], meta_prefixed, true)?;
                     return Ok(EditorOutcome::Continue);
                 }
                 if update_numeric_argument(state, key) {

@@ -292,21 +292,11 @@ Sushline-only extensions use the `Sushline extension` status.
 
 | Command(s) | Status | Notes |
 | --- | --- | --- |
-| `digit-argument`, `universal-argument` | Compatible | Multi-digit/sign/universal composition, including an explicit Meta-zero count preserved through `universal-argument`, a minus after it starting a fresh sign-only argument, and a digit after a no-op universal being inserted literally by a positive pending count (a Meta-digit inserts once) with a bell, and a repeated universal after a no-op preserving the explicit count's composition flags; arguments above 1000000 ring and reset, leaving subsequent digits as ordinary text. The pending `(arg: N) ` indicator replaces the whole prompt, including its mode indicator, until consumed; sign-only, leading-zero and universal-argument displays are covered. Screen comparisons require host Readline 8.3 (8.2 retains the prompt) and report nothing on other releases. These are Bash 5.3 PTY observations. Evidence: [`oracle/editing.rs`](readline/tests/oracle/editing.rs), [`editor/tests/display.rs`](readline/src/editor/tests/display.rs). |
+| `digit-argument`, `universal-argument` | Compatible | Multi-digit/sign/universal composition, including an explicit Meta-zero count preserved through `universal-argument`, a minus after it starting a fresh sign-only argument, and a digit or minus after a no-op universal being inserted literally by a positive pending count (a Meta-prefixed key inserts once), later digits and minus keys continuing the literal tail without another bell, and a repeated universal after a no-op preserving the explicit count's composition flags; arguments above 1000000 ring and reset, leaving subsequent digits as ordinary text. The pending `(arg: N) ` indicator replaces the whole prompt, including its mode indicator, until consumed; sign-only, leading-zero and universal-argument displays are covered. Screen comparisons require host Readline 8.3 (8.2 retains the prompt) and report nothing on other releases. These are Bash 5.3 PTY observations. Evidence: [`oracle/editing.rs`](readline/tests/oracle/editing.rs), [`editor/tests/display.rs`](readline/src/editor/tests/display.rs). |
 | `start-kbd-macro`, `end-kbd-macro` | Compatible | A recording without an argument starts a fresh definition, an unfinished recording continues across prompts, and a replay that accepts a line continues in the next prompt. Explicit start and end counts follow the append/replay, no-op, invalidation, abort, and nesting behavior with matching bells and diagnostics. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `call-last-kbd-macro` | Compatible | Default and counted calls, with no-definition and nesting-exhaustion bells. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `print-last-kbd-macro` | Compatible | Recorded macro output. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 
-A bounded post-no-op literal-tail deviation remains. With point at byte 60 of
-60 ASCII `a`s and `C-o` bound to `universal-argument`, after `M-3 C-o` GNU
-accepts `5556X` for a following `5 6`, `555-X` for `5 -`, and `555a6X` for
-`5 a 6`, each with one bell; after a direct `-` it accepts `---5X` with one
-bell. Sushline inserts only the first literal run and composes the next
-digit/minus as a fresh argument. A negative no-op count drops the first digit
-and GNU inserts the next one (`M-- M-1 C-o 5 6` accepts `6X` with one bell),
-while a Meta-digit inserts once and leaves the same tail (`M-3 C-o M-0 5 6`
-accepts `056X` with two bells). These exact paired observations establish no
-general tail rule beyond these forms.
 
 ### Completion Commands And Behavior
 

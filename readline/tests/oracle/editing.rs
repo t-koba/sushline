@@ -2675,6 +2675,104 @@ fn bash_and_sushline_reset_universal_count_on_following_minus() {
 }
 
 #[test]
+fn bash_and_sushline_insert_the_noop_universal_literal_tail() {
+    // The first digit or minus after a no-op universal is literal text; GNU
+    // keeps following argument keys literal too, with no extra bell until a
+    // blocked movement consumes the argument.
+    let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
+    let a = "a".repeat(60);
+    for (desc, keys, text, bells) in [
+        (
+            "two bare digits",
+            b"\x1b3\x0f56\x06X\r".as_slice(),
+            "5556X",
+            1,
+        ),
+        (
+            "bare then meta",
+            b"\x1b3\x0f5\x1b6\x06X\r".as_slice(),
+            "555X",
+            1,
+        ),
+        (
+            "bare then minus",
+            b"\x1b3\x0f5-\x06X\r".as_slice(),
+            "555-X",
+            1,
+        ),
+        (
+            "zero then digit",
+            b"\x1b3\x0f05\x06X\r".as_slice(),
+            "0005X",
+            1,
+        ),
+        (
+            "negative then two",
+            b"\x1b-\x1b1\x0f56\x06X\r".as_slice(),
+            "6X",
+            1,
+        ),
+        (
+            "meta then two",
+            b"\x1b3\x0f\x1b056\x06X\r".as_slice(),
+            "056X",
+            2,
+        ),
+        (
+            "two minuses",
+            b"\x1b3\x0f5--\x06X\r".as_slice(),
+            "555--X",
+            1,
+        ),
+        ("direct minus", b"\x1b3\x0f-\x06X\r".as_slice(), "---X", 1),
+        (
+            "direct meta minus",
+            b"\x1b3\x0f\x1b-\x06X\r".as_slice(),
+            "-X",
+            2,
+        ),
+        (
+            "minus then digit",
+            b"\x1b3\x0f-5\x06X\r".as_slice(),
+            "---5X",
+            1,
+        ),
+        (
+            "self insert then tail",
+            b"\x1b3\x0f5a6\x06X\r".as_slice(),
+            "555a6X",
+            1,
+        ),
+        (
+            "self insert only",
+            b"\x1b3\x0f5a\x06X\r".as_slice(),
+            "555aX",
+            1,
+        ),
+        (
+            "no blocked movement",
+            b"\x1b3\x0f5a6X\r".as_slice(),
+            "555a6X",
+            0,
+        ),
+    ] {
+        let mut input = vec![b'a'; 60];
+        input.extend_from_slice(keys);
+        let expected = format!("{a}{text}");
+        let bash = run_bash_readline_with_inputrc_file(&input, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&input, inputrc);
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected.as_str()),
+                "{editor} {desc}: {output}"
+            );
+            assert_eq!(bell_count(output), bells, "{editor} {desc}: {output}");
+        }
+    }
+}
+
+#[test]
 fn bash_and_sushline_compose_counts_after_repeated_universal_noop() {
     // `M-- M-0` leaves a negative Meta-digit count. A second universal after
     // its no-op multiplies that count while retaining composition flags, so

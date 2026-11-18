@@ -107,7 +107,14 @@ where
             }
             EditCommand::SelfInsert => {
                 state.display.pending_text = true;
+                let literal_tail = state.numeric_arg_literal_tail;
                 let raw = state.take_numeric_arg().unwrap_or(1);
+                let raw = if literal_tail && raw == 0 {
+                    state.numeric_arg_literal_tail = true;
+                    1
+                } else {
+                    raw
+                };
                 // Sushline treats a negative repeat count as zero inserts;
                 // the pinned negative self-insert fixture accepts the empty
                 // line. Only sign-only and zero-then-negative quoted-insert

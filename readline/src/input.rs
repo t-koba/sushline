@@ -372,8 +372,18 @@ where
     }
 
     fn insert_literal(&mut self, state: &mut EditorState, bytes: &[u8], record_macro: bool) {
-        state.display.pending_text = true;
         let count = repeat_count(state.take_numeric_arg());
+        self.insert_literal_with_count(state, bytes, count, record_macro);
+    }
+
+    fn insert_literal_with_count(
+        &mut self,
+        state: &mut EditorState,
+        bytes: &[u8],
+        count: u32,
+        record_macro: bool,
+    ) {
+        state.display.pending_text = true;
         state.record_insert_undo(count == 1 && bytes.len() == 1);
         for _ in 0..count {
             if state.overwrite_mode {
@@ -395,30 +405,35 @@ where
         state.after_self_insert();
     }
 
-    /// GNU consumes a digit after a universal-argument no-op as literal text:
-    /// a bare digit repeats by the pending positive count, a Meta-digit inserts
-    /// once, and the resulting argument is zero.
-    pub(crate) fn handle_noop_universal_digit(
+    /// GNU consumes a digit or minus after a universal-argument no-op as
+    /// literal text. The first key repeats by the pending positive count (a
+    /// Meta-prefixed key inserts once); later argument keys in the tail insert
+    /// once without another bell, while Meta-prefixed ones are dropped.
+    pub(crate) fn handle_noop_argument_key(
         &mut self,
         state: &mut EditorState,
-        digit: u8,
+        key: u8,
         meta_prefixed: bool,
         record_macro: bool,
     ) -> Result<(), ReadlineError> {
+        if state.numeric_arg_literal_tail {
+            if !meta_prefixed {
+                self.insert_literal_with_count(state, &[key], 1, record_macro);
+            }
+            return Ok(());
+        }
         let count = state.numeric_arg.unwrap_or(0);
         state.take_numeric_arg();
         if meta_prefixed {
-            self.insert_literal(state, &[digit], record_macro);
+            self.insert_literal_with_count(state, &[key], 1, record_macro);
             self.ding()?;
             self.ding()?;
+            state.numeric_arg = Some(0);
         } else {
-            if count > 0 {
-                state.numeric_arg = Some(count);
-                self.insert_literal(state, &[digit], record_macro);
-            }
-            self.ding()?;
+            self.insert_literal_with_count(state, &[key], count.max(0) as u32, record_macro);
+            state.numeric_arg = None;
         }
-        state.numeric_arg = Some(0);
+        state.numeric_arg_literal_tail = true;
         Ok(())
     }
 
@@ -446,8 +461,12 @@ where
         if run == 0 {
             return Ok(None);
         }
-        if state.numeric_arg_universal_noop && bytes[0].is_ascii_digit() {
-            self.handle_noop_universal_digit(state, bytes[0], false, true)?;
+        if state.numeric_arg_literal_tail
+            || (state.numeric_arg_universal_noop && (bytes[0].is_ascii_digit() || bytes[0] == b'-'))
+        {
+            for byte in &bytes[..run] {
+                self.handle_noop_argument_key(state, *byte, false, true)?;
+            }
             if run < bytes.len() {
                 let remainder = bytes[run..].to_vec();
                 let outcome = self.handle_bytes(state, &remainder, hooks)?;

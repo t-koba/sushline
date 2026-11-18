@@ -294,10 +294,12 @@ where
                 let vi_count =
                     self.effective_editing_mode_is_vi() && (arg > 1 || (explicit_arg && arg == 1));
                 let index = if vi_count {
-                    // Vi command-mode counts select a 1-based entry. Past
-                    // where_history() GNU takes the next newer entry and
-                    // rings; at the newest entry it only rings. Named
-                    // `fetch-history` in emacs mode falls back to the first.
+                    // Vi command-mode counts select a 1-based entry. A count
+                    // past where_history() rings and leaves the current
+                    // position in place: a fresh line has no entry there and
+                    // stays as typed, while a line owned by the entry at that
+                    // position remains that entry. Named `fetch-history` in
+                    // emacs mode falls back to the first.
                     let number = arg.unsigned_abs() as usize;
                     if number > position {
                         out_of_range = true;

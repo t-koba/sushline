@@ -4735,21 +4735,23 @@ fn bash_and_sushline_operate_and_get_next_signed_counts() {
 fn bash_and_sushline_vi_fetch_history_out_of_range_counts_ring() {
     let inputrc = "set editing-mode vi\n";
     let history = ["one", "two", "three", "four", "five"];
-    for (navigation, count, expected, bells) in [
-        ("", "", "oneX", 0),
-        ("", "1", "oneX", 0),
-        ("", "2", "twoX", 0),
-        ("", "5", "fiveX", 0),
-        ("", "6", "X", 1),
-        ("", "7", "X", 1),
-        ("k", "4", "fourX", 0),
-        ("k", "5", "fiveX", 1),
-        ("k", "9", "fiveX", 1),
-        ("kk", "3", "threeX", 0),
-        ("kk", "4", "fourX", 1),
-        ("kkkk", "2", "twoX", 1),
+    for (navigation, count, after_g, expected, bells) in [
+        ("", "", "", "oneX", 0),
+        ("", "1", "", "oneX", 0),
+        ("", "2", "", "twoX", 0),
+        ("", "5", "", "fiveX", 0),
+        ("", "6", "", "X", 1),
+        ("", "7", "", "X", 1),
+        ("k", "4", "", "fourX", 0),
+        ("k", "5", "", "fiveX", 1),
+        ("k", "9", "", "fiveX", 1),
+        ("kk", "3", "", "threeX", 0),
+        ("kk", "4", "", "fourX", 1),
+        ("kk", "4", "j", "fiveX", 1),
+        ("kk", "4", "k", "threeX", 1),
+        ("kkkk", "2", "", "twoX", 1),
     ] {
-        let keys = format!("\x1b{navigation}{count}GAX\r");
+        let keys = format!("\x1b{navigation}{count}G{after_g}AX\r");
         let keys = keys.as_bytes();
         let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &history);
         let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
@@ -4762,6 +4764,29 @@ fn bash_and_sushline_vi_fetch_history_out_of_range_counts_ring() {
             );
             assert_eq!(bell_count(output), bells, "{context}");
         }
+    }
+
+    // A typed line is not a history entry: an excessive count rings but
+    // leaves that fresh line in place, unlike a line already owned by the
+    // entry at the current history position.
+    let fresh_keys = b"fresh\x1b6GAX\r";
+    for (editor, output) in [
+        (
+            "bash",
+            run_bash_readline_with_inputrc_file_and_history(fresh_keys, inputrc, &history),
+        ),
+        (
+            "sushline",
+            run_sushline_harness_with_inputrc_and_history(fresh_keys, inputrc, &history),
+        ),
+    ] {
+        let context = format!("{editor} fresh line: {output}");
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some("freshX"),
+            "{context}"
+        );
+        assert_eq!(bell_count(&output), 1, "{context}");
     }
 }
 

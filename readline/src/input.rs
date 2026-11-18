@@ -1654,7 +1654,7 @@ where
                 Ok(EditorOutcome::Continue)
             }
             &[b'\t'] | &[b' '] => {
-                self.complete_named_command_query(state, hooks);
+                self.complete_named_command_query(state, hooks)?;
                 Ok(EditorOutcome::Continue)
             }
             _ => {
@@ -1673,9 +1673,13 @@ where
         }
     }
 
-    fn complete_named_command_query(&self, state: &mut EditorState, hooks: &mut impl Hooks) {
+    fn complete_named_command_query(
+        &mut self,
+        state: &mut EditorState,
+        hooks: &mut impl Hooks,
+    ) -> Result<(), ReadlineError> {
         let Some(pending) = state.input.named_command.as_ref() else {
-            return;
+            return Ok(());
         };
         let prefix = pending.query.as_bytes();
         let mut candidates: Vec<_> =
@@ -1691,6 +1695,13 @@ where
                 .into_iter()
                 .filter(|name| name.starts_with(prefix)),
         );
+        // GNU rings once for a completion with no candidate, as ordinary
+        // completion does. An empty query has every name as a candidate, so
+        // it stays silent.
+        if candidates.is_empty() {
+            self.ding()?;
+            return Ok(());
+        }
         if let Some(common) = crate::completion::display::longest_common_bytes_prefix(
             candidates.iter().map(Vec::as_slice),
         ) && common.len() > prefix.len()
@@ -1698,6 +1709,7 @@ where
         {
             pending.query = String::from_utf8_lossy(&common).into_owned();
         }
+        Ok(())
     }
 }
 

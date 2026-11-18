@@ -1847,6 +1847,38 @@ fn bash_readline_and_sushline_complete_named_command_names() {
     }
 }
 
+/// A command-name completion with no match rings once per TAB/SPACE on both
+/// editors; the later unknown-name submission rings once more. Accepted lines
+/// are identical; only the paired bell counts distinguish the behavior.
+#[test]
+fn bash_readline_and_sushline_ring_on_failed_named_command_completion() {
+    if !host_carries_measured_release() {
+        eprintln!("Failed named-completion bells were measured on Readline 8.3");
+        return;
+    }
+    for (keys, bells) in [
+        (b"abc\x1bxzzz\t\rX\r".as_slice(), 2),
+        (b"abc\x1bxzzz\t\t\t\rX\r".as_slice(), 4),
+        (b"abc\x1bxzzz \t\rX\r".as_slice(), 3),
+    ] {
+        for (name, output) in [
+            ("Bash", run_bash_readline_with_inputrc_file(keys, "")),
+            ("Sushline", run_sushline_harness_with_inputrc(keys, "")),
+        ] {
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some("abcX"),
+                "{name} keys={keys:?}: {output:?}"
+            );
+            assert_eq!(
+                bell_count(&output),
+                bells,
+                "{name} keys={keys:?}: {output:?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn bash_readline_and_sushline_redispatch_named_digit_argument_key() {
     assert_named_invoking_key_cases(

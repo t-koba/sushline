@@ -2613,6 +2613,34 @@ fn bash_and_sushline_match_universal_argument_digit_composition() {
 }
 
 #[test]
+fn bash_and_sushline_keep_explicit_meta_zero_count_through_universal_argument() {
+    let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
+    // Point starts at byte 60; the count selects where C-f leaves the sentinel.
+    for (desc, prefix, position) in [
+        ("explicit meta zero", b"\x1b-\x1b0".as_slice(), 50),
+        ("sign only", b"\x1b-".as_slice(), 56),
+        ("explicit meta digit", b"\x1b-\x1b1".as_slice(), 49),
+        ("bare leading zero", b"\x1b-0".as_slice(), 60),
+    ] {
+        let mut keys = vec![b'a'; 60];
+        keys.extend_from_slice(prefix);
+        keys.extend_from_slice(b"\x0f\x06X\r");
+        let expected = format!("{}X{}", "a".repeat(position), "a".repeat(60 - position));
+        let bash = run_bash_readline_with_inputrc_file(&keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&keys, inputrc);
+
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected.as_str()),
+                "{editor} {desc}: {output}"
+            );
+            assert_eq!(bell_count(output), 0, "{editor} {desc}: {output}");
+        }
+    }
+}
+
+#[test]
 fn bash_and_sushline_keep_negative_sign_across_universal_argument() {
     let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
     let keys = b"abcdefghijklmnopqrstuvwxyz\x01\x1b-\x0f\x1b-\x06X\r";

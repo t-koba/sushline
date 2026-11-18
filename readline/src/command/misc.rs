@@ -122,7 +122,7 @@ where
                 // Explicit digit counts are already complete; only implicit
                 // counts and sign-only prefixes are multiplied by four.
                 if state.numeric_arg.is_none()
-                    || state.numeric_arg_sign_only
+                    || (state.numeric_arg_sign_only && !state.numeric_arg_meta_digit)
                     || state.numeric_arg_universal
                 {
                     state.numeric_arg_universal_noop = false;

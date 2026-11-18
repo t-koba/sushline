@@ -200,7 +200,9 @@ pub trait Hooks {
     }
 
     /// Returns embedder-owned command function names for completion in the
-    /// `execute-named-command` prompt.
+    /// `execute-named-command` prompt. Submitting an exact match executes it
+    /// through `Hooks::on_command`, like an application-command binding.
+    /// Built-in names take precedence and unknown names still ring.
     fn named_command_names(&mut self) -> Vec<Vec<u8>> {
         Vec::new()
     }

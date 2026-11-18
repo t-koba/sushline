@@ -11738,3 +11738,102 @@ set page-completions on"#;
         }
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn bash_and_sushline_pin_unpaged_listing_resize() {
+    use portable_pty::{CommandBuilder, PtySize};
+
+    require_oracle_host();
+    let root = tempfile::tempdir().expect("unpaged resize root");
+    let cwd = root.path().join("cwd");
+    fs::create_dir(&cwd).expect("unpaged resize cwd");
+    for index in 1..=12 {
+        fs::write(cwd.join(format!("alpha-{index:02}")), b"").expect("unpaged candidate");
+    }
+    let home = root.path().join("home");
+    fs::create_dir(&home).expect("unpaged resize home");
+    let inputrc = r#""\C-o": possible-filename-completions
+set completion-query-items 0
+set page-completions off
+set print-completions-horizontally off"#;
+    let inputrc_path = root.path().join("inputrc");
+    fs::write(&inputrc_path, inputrc).expect("unpaged resize inputrc");
+    let initial_size = PtySize {
+        rows: 8,
+        cols: 40,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let line = format!("{}/al", cwd.display());
+    let completion_keys = format!("{line}\x0f");
+    let steps = [(READY_PROMPT, completion_keys.as_bytes())];
+
+    for (label, rows, cols) in [("taller", 14, 40), ("narrow", 8, 20)] {
+        for (editor, mut command) in [
+            ("Bash", CommandBuilder::new("bash")),
+            (
+                "Sushline",
+                CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness")),
+            ),
+        ] {
+            command.cwd(&cwd);
+            if editor == "Bash" {
+                command.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
+                command.env("HOME", home.to_string_lossy().as_ref());
+                command.env(
+                    "HISTFILE",
+                    root.path().join("history").to_string_lossy().as_ref(),
+                );
+                command.args([
+                    "--noprofile",
+                    "--norc",
+                    "-i",
+                    "-c",
+                    &format!(
+                        r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+                    ),
+                ]);
+            } else {
+                command.env("SUSHLINE_INPUTRC", inputrc);
+                command.env("SUSHLINE_PROMPT", READY_PROMPT);
+                command.env("SUSHLINE_HISTORY", "");
+            }
+            let output = run_pty_steps_then_resize_until(
+                command,
+                &steps,
+                &cwd,
+                initial_size,
+                PtyResizeAction {
+                    marker: READY_PROMPT,
+                    size: PtySize {
+                        rows,
+                        cols,
+                        pixel_width: 0,
+                        pixel_height: 0,
+                    },
+                    post_resize_marker: None,
+                    after_keys: b"\r",
+                },
+                "SUSHLINE_ACCEPTED:",
+            );
+            let candidates = (1..=12)
+                .filter(|index| output.contains(&format!("alpha-{index:02}")))
+                .count();
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(line.as_str()),
+                "{label} {editor}: accepted line changed\n{output:?}"
+            );
+            assert_eq!(
+                candidates, 12,
+                "{label} {editor}: unpaged listing lost candidates\n{output:?}"
+            );
+            assert!(
+                !output.contains("--More--"),
+                "{label} {editor}: page-completions off still paged\n{output:?}"
+            );
+            assert_eq!(bell_count(&output), 0, "{label} {editor}: unexpected bell");
+        }
+    }
+}

@@ -507,7 +507,9 @@ where
                         self.handle_input_interrupt(state)?;
                         return Ok(());
                     }
-                    TerminalEvent::Bytes(bytes) if matches!(bytes.as_slice(), b"q" | b"Q") => {
+                    TerminalEvent::Bytes(bytes)
+                        if matches!(bytes.as_slice(), b"q" | b"Q" | b"n" | b"N") =>
+                    {
                         self.write_tracked_newline(state)?;
                         return Ok(());
                     }

@@ -2312,3 +2312,39 @@ fn screen_row_marker_waits_for_nonempty_search_and_ignores_highlighting() {
     output.extend_from_slice(b"\r(reverse-i-search)`a': alph\x1b[7ma\x1b[27m two");
     assert!(screen_shows_row(&output, query_row));
 }
+
+/// Runs Bash with an inputrc file, sending each key step only after its marker
+/// appears. This lets a fixture answer the completion pager at `--More--`.
+pub(super) fn run_bash_readline_steps_with_inputrc(
+    steps: &[(&str, &[u8])],
+    inputrc: &str,
+) -> String {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    fs::write(&path, inputrc).expect("write inputrc");
+    let mut command = CommandBuilder::new("bash");
+    command.env("INPUTRC", path.to_string_lossy().as_ref());
+    command.args([
+        "--noprofile",
+        "--norc",
+        "-i",
+        "-c",
+        &format!(
+            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+        ),
+    ]);
+    run_pty_steps_until(command, steps, "SUSHLINE_ACCEPTED:")
+}
+
+/// Runs the Sushline harness in step mode with an inputrc, matching the Bash
+/// step helper above.
+pub(super) fn run_sushline_harness_steps_with_inputrc(
+    steps: &[(&str, &[u8])],
+    inputrc: &str,
+) -> String {
+    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    command.env("SUSHLINE_INPUTRC", inputrc);
+    command.env("SUSHLINE_PROMPT", READY_PROMPT);
+    command.env("SUSHLINE_HISTORY", "");
+    run_pty_steps_until(command, steps, "SUSHLINE_ACCEPTED:")
+}

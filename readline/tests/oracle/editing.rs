@@ -1904,6 +1904,37 @@ fn bash_readline_and_sushline_list_empty_named_command_candidates_without_confir
     }
 }
 
+/// GNU's completion pager treats `n` and `q` alike: both stop listing and
+/// leave the caller ready for the next input. Sushline used to advance pages
+/// on `n`, which kept the pager alive until the PTY deadline.
+#[test]
+fn bash_readline_and_sushline_stop_completion_pager_on_n_or_q() {
+    if !host_carries_measured_release() {
+        eprintln!("Completion pager quit keys were measured on Readline 8.3");
+        return;
+    }
+    for answer in [b"n".as_slice(), b"q".as_slice()] {
+        let mut after_answer = answer.to_vec();
+        after_answer.extend_from_slice(b"\rX\r");
+        let steps = [
+            ("SUSHLINE_READY>", b"\x1bx\t".as_slice()),
+            ("--More--", after_answer.as_slice()),
+        ];
+        for (name, output) in [
+            ("Bash", run_bash_readline_steps_with_inputrc(&steps, "")),
+            (
+                "Sushline",
+                run_sushline_harness_steps_with_inputrc(&steps, ""),
+            ),
+        ] {
+            let context = format!("{name} answer={answer:?}: {output:?}");
+            assert_eq!(accepted_line(&output).as_deref(), Some("X"), "{context}");
+            assert_eq!(output.matches("--More--").count(), 1, "{context}");
+            assert_eq!(bell_count(&output), 0, "{context}");
+        }
+    }
+}
+
 /// A command-name completion with no match rings once per TAB/SPACE on both
 /// editors; the later unknown-name submission rings once more. Accepted lines
 /// are identical; only the paired bell counts distinguish the behavior.

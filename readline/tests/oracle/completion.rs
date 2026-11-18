@@ -11453,6 +11453,7 @@ fn bash_and_sushline_keep_completion_query_threshold_under_show_all() {
     };
     let line = format!("{}/al", cwd.display());
     let completion_keys = format!("{line}\x0f");
+    let common = format!("{}/alpha-long-completion-item-", cwd.display());
 
     for (label, query, marker, answer, want_query, want_more) in [
         (
@@ -11466,7 +11467,7 @@ fn bash_and_sushline_keep_completion_query_threshold_under_show_all() {
         ("list", "0", "--More--", b"q\r".as_slice(), false, true),
     ] {
         let inputrc = format!(
-            r#""\C-o": possible-filename-completions
+            r#""\C-o": complete
 set show-all-if-ambiguous on
 set completion-query-items {query}
 set print-completions-horizontally off
@@ -11509,7 +11510,7 @@ set page-completions on"#
             let context = format!("{name} {label}: {output}");
             assert_eq!(
                 accepted_line(&output).as_deref(),
-                Some(line.as_str()),
+                Some(common.as_str()),
                 "show-all answer changes the accepted line\n{context}"
             );
             assert_eq!(

@@ -922,11 +922,10 @@ fn normalize_variable_value(name: &str, value: &str) -> Option<String> {
         });
     }
     if name == "bell-style" {
-        // GNU keeps the current bell style when the value is empty and
-        // canonicalizes `on` and `off` to `audible` and `none`.
+        // GNU Readline 8.3's sv_bell_style selects audible for an empty
+        // value and canonicalizes `on` and `off` to `audible` and `none`.
         return match unquote_set_value(value).to_ascii_lowercase().as_str() {
-            "" => None,
-            "on" => Some("audible".to_string()),
+            "" | "on" => Some("audible".to_string()),
             "off" => Some("none".to_string()),
             other => Some(other.to_string()),
         };

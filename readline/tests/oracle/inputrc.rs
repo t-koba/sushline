@@ -1394,6 +1394,35 @@ fn assert_raw_inputrc_binding_value(value: &[u8], expected: &str) {
 }
 
 #[test]
+fn bash_readline_and_sushline_select_audible_for_empty_bell_style_values() {
+    assert_eq!(
+        super::host_readline::host_readline_identity()
+            .expect("Readline identity")
+            .release,
+        super::host_readline::MEASURED_RELEASE
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    // Bash 5.3 `bind -v` reports audible for both forms after none; Ctrl-G
+    // checks the resulting bell in both editors.
+    for inputrc in [
+        "set bell-style none\nset bell-style\n",
+        "set bell-style none\nset bell-style \"\"\n",
+    ] {
+        fs::write(&path, inputrc).expect("write inputrc");
+        let keys = b"abc\x07\r";
+        let bash = run_bash_readline_with_inputrc_path(keys, &path);
+        let sushline = run_sushline_harness_with_inputrc_path(keys, &path);
+        assert_eq!(bell_count(&bash), 1, "{inputrc:?}: Bash: {bash:?}");
+        assert_eq!(
+            bell_count(&sushline),
+            1,
+            "{inputrc:?}: sushline: {sushline:?}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_do_not_strip_invalid_comments_from_set_directives() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("inputrc");

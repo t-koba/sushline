@@ -192,7 +192,7 @@ fn unquotes_set_values_like_gnu_readline() {
 }
 
 #[test]
-fn keeps_the_current_bell_style_for_an_empty_quoted_value() {
+fn empty_quoted_bell_style_value_selects_audible() {
     let mut keymap = KeyMap::emacs_default();
     let mut variables = Variables::new();
 
@@ -206,11 +206,11 @@ fn keeps_the_current_bell_style_for_an_empty_quoted_value() {
         .unwrap();
 
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    assert_eq!(variables["bell-style"], "none");
+    assert_eq!(variables["bell-style"], "audible");
 }
 
 #[test]
-fn keeps_the_current_bell_style_for_an_empty_bell_style_value() {
+fn empty_bell_style_value_selects_audible() {
     let mut keymap = KeyMap::emacs_default();
     let mut variables = Variables::new();
 
@@ -224,7 +224,7 @@ fn keeps_the_current_bell_style_for_an_empty_bell_style_value() {
         .unwrap();
 
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    assert_eq!(variables["bell-style"], "none");
+    assert_eq!(variables["bell-style"], "audible");
 }
 
 #[test]

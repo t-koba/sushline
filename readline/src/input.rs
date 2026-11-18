@@ -405,6 +405,13 @@ where
         state.after_self_insert();
     }
 
+    fn positive_zero_digit_is_literal(state: &EditorState, byte: u8) -> bool {
+        state.numeric_arg == Some(0)
+            && state.numeric_arg_sign_only
+            && !state.numeric_arg_negative
+            && byte.is_ascii_digit()
+    }
+
     /// A bare argument key becomes literal text once a positive count is
     /// established: a minus after any positive count, or a digit after a
     /// positive sign-only count. Negative sign-only counts still compose bare
@@ -419,7 +426,12 @@ where
         let Some(count) = state.numeric_arg else {
             return false;
         };
-        count > 0 && (byte == b'-' || (state.numeric_arg_sign_only && byte.is_ascii_digit()))
+        (count > 0
+            && (byte == b'-' || (state.numeric_arg_sign_only && byte.is_ascii_digit())))
+            // A minus at a zero count starts a literal tail with zero repeats;
+            // following argument keys then insert once.
+            || (count == 0 && byte == b'-')
+            || Self::positive_zero_digit_is_literal(state, byte)
     }
 
     /// GNU consumes a digit or minus after a universal-argument no-op as
@@ -439,6 +451,13 @@ where
             return Ok(());
         }
         let count = state.numeric_arg.unwrap_or(0);
+        // A positive sign-only zero still inserts one bare argument key; a
+        // plain zero repeats keys zero times, as GNU does.
+        let repeats = if Self::positive_zero_digit_is_literal(state, key) {
+            1
+        } else {
+            count.max(0) as u32
+        };
         // A minus after a multiplied positive no-op chain repeats by that
         // count even when Meta-prefixed, with no bell; other Meta-prefixed
         // no-op argument keys insert once and ring twice.
@@ -451,7 +470,7 @@ where
             self.ding()?;
             state.numeric_arg = Some(0);
         } else {
-            self.insert_literal_with_count(state, &[key], count.max(0) as u32, record_macro);
+            self.insert_literal_with_count(state, &[key], repeats, record_macro);
             state.numeric_arg = None;
         }
         state.numeric_arg_tail = NumericArgLiteralTail::Literal;

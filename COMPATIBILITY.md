@@ -137,16 +137,15 @@ universal-argument key, a following digit, and the toggling controls. Once a
 positive count is established, a bare minus becomes literal text repeated by
 that count (`M-2 - X` accepts `--X`), and a bare digit after a positive
 sign-only count is literal as well (`M-- M-- 1 X` accepts `1X`); paired
-fixtures pin these forms. Negative sign-only counts still compose bare digits,
-and bare minuses after a zero digit remain outside these claims.
+fixtures pin these forms. Negative sign-only counts still compose bare digits;
+zero-count forms are pinned below.
 
-Repeated minus after a zero digit is also outside the pinned claims. With point
-13 on `abcdefghijklmnopqrstuvwxyz`, the byte sequences
-`ESC - 0 ESC - 1 C-f X Enter` and `ESC - ESC 0 ESC - 1 C-f X Enter` (final `1`
-bare) accept `abcdefghijklm1nXopqrstuvwxyz` in Bash 5.3, with the `1` left as
-text, while Sushline accepts `abcdefghijklmnXopqrstuvwxyz`; the bare `2`
-variants diverge in the same way. Replacing the final bare digit with a
-Meta-digit matches in both editors. No general repeated-sign rule is inferred.
+A minus at a zero count inserts no copies but starts a literal tail: later bare
+argument keys insert once, and a positive sign-only zero inserts one bare digit.
+Paired fixtures pin `M-0 - X`, `M-- 0 - X`, the following bare digit and minus,
+a Meta-minus between the zero and the digit, and a Meta-digit final. Negative
+zero counts still compose bare digits. No general repeated-sign rule is
+inferred.
 
 ## Compatibility Boundaries
 

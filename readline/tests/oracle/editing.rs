@@ -6214,3 +6214,57 @@ fn bash_and_sushline_insert_literal_argument_keys_after_positive_counts() {
         }
     }
 }
+
+#[test]
+fn bash_and_sushline_start_a_literal_tail_at_zero_count() {
+    let inputrc = "";
+    let mut base = b"abcdefghijklmnopqrstuvwxyz\x01".to_vec();
+    base.extend_from_slice(&[b'\x06'; 5]);
+    // A minus at a zero count inserts no copies but starts a literal tail, so
+    // later bare argument keys insert once. A positive sign-only zero also
+    // inserts one bare digit, while negative zeros still compose digits.
+    for (desc, suffix, expected) in [
+        (
+            "meta zero minus",
+            b"\x1b0-X\r".as_slice(),
+            "abcdeXfghijklmnopqrstuvwxyz",
+        ),
+        (
+            "minus zero minus",
+            b"\x1b-0-X\r".as_slice(),
+            "abcdeXfghijklmnopqrstuvwxyz",
+        ),
+        (
+            "meta zero minus digit",
+            b"\x1b0-1X\r".as_slice(),
+            "abcde1Xfghijklmnopqrstuvwxyz",
+        ),
+        (
+            "meta zero minus minus",
+            b"\x1b0--X\r".as_slice(),
+            "abcde-Xfghijklmnopqrstuvwxyz",
+        ),
+        (
+            "minus zero meta minus digit",
+            b"\x1b-0\x1b-1X\r".as_slice(),
+            "abcde1Xfghijklmnopqrstuvwxyz",
+        ),
+        (
+            "meta zero minus meta digit",
+            b"\x1b0-\x1b1X\r".as_slice(),
+            "abcdeXfghijklmnopqrstuvwxyz",
+        ),
+    ] {
+        let mut keys = base.clone();
+        keys.extend_from_slice(suffix);
+        let bash = run_bash_readline_with_inputrc_file(&keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&keys, inputrc);
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{editor} {desc}: {output}"
+            );
+        }
+    }
+}

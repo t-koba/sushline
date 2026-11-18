@@ -8082,18 +8082,18 @@ set page-completions on"#;
     let line = format!("{}/al", cwd.display());
     let completion_keys = format!("{line}\x0f");
 
-    for (label, key, bells, more, highest) in [
-        ("space", b' ', 0, 2, 14),
-        ("y", b'y', 0, 2, 14),
-        ("Y", b'Y', 0, 2, 14),
-        ("tab", b'\t', 1, 1, 7),
-        ("CR", b'\r', 0, 2, 8),
-        ("z", b'z', 1, 1, 7),
+    for (label, answer, bells, more, highest) in [
+        ("space", b" q\r".as_slice(), 0, 2, 14),
+        ("y", b"yq\r".as_slice(), 0, 2, 14),
+        ("Y", b"Yq\r".as_slice(), 0, 2, 14),
+        ("tab", b"\tq\r".as_slice(), 1, 1, 7),
+        ("CR", b"\rq\r".as_slice(), 0, 2, 8),
+        ("z", b"zq\r".as_slice(), 1, 1, 7),
+        ("ctrl_g", b"\x07\r".as_slice(), 1, 1, 7),
     ] {
-        let answer = [key, b'q', b'\r'];
         let steps = [
             (READY_PROMPT, completion_keys.as_bytes()),
-            ("--More--", answer.as_slice()),
+            ("--More--", answer),
         ];
 
         let mut bash = CommandBuilder::new("bash");
@@ -8119,7 +8119,7 @@ set page-completions on"#;
 
         for (name, command) in [("Bash", bash), ("Sushline", sushline)] {
             let output = run_pty_steps_with_size_until(command, &steps, size, "SUSHLINE_ACCEPTED:");
-            let context = format!("{name} key={label}: {output}");
+            let context = format!("{name} answer={label}: {output}");
             assert_eq!(
                 accepted_line(&output).as_deref(),
                 Some(line.as_str()),

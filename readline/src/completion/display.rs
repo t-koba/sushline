@@ -506,6 +506,9 @@ where
                 // waiting at the same prompt, as the pinned host does.
                 let answer = loop {
                     match self.read_completion_response(hooks)? {
+                        TerminalEvent::Bytes(bytes) if bytes.as_slice() == [0x07] => {
+                            break TerminalEvent::Bytes(bytes);
+                        }
                         TerminalEvent::Bytes(bytes)
                             if bytes.as_slice() != [0x03]
                                 && !matches!(
@@ -519,6 +522,11 @@ where
                     }
                 };
                 match answer {
+                    TerminalEvent::Bytes(bytes) if bytes.as_slice() == [0x07] => {
+                        self.ding()?;
+                        self.write_tracked_newline(state)?;
+                        return Ok(());
+                    }
                     TerminalEvent::Bytes(bytes) if bytes.as_slice() == [0x03] => {
                         self.handle_input_interrupt(state)?;
                         return Ok(());

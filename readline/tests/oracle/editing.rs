@@ -6642,7 +6642,7 @@ fn bash_and_sushline_pin_multiline_bracketed_paste_across_resize() {
     sushline_command.env("SUSHLINE_HISTORY", "");
 
     for (editor, command) in [("Bash", bash_command), ("Sushline", sushline_command)] {
-        let output = run_pty_steps_then_resize_until(
+        let (output, post_resize) = run_pty_steps_then_resize_until_with_post_resize(
             command,
             &[(READY_PROMPT, &b"\x1b[200~first\nsecond\x1b[201~"[..])],
             dir.path(),
@@ -6660,7 +6660,7 @@ fn bash_and_sushline_pin_multiline_bracketed_paste_across_resize() {
                     pixel_width: 0,
                     pixel_height: 0,
                 },
-                post_resize_marker: None,
+                post_resize_marker: Some(READY_PROMPT),
                 after_keys: b"\r",
             },
             "SUSHLINE_ACCEPTED:",
@@ -6670,9 +6670,10 @@ fn bash_and_sushline_pin_multiline_bracketed_paste_across_resize() {
             Some("first"),
             "{editor}: resize changed multiline paste acceptance\n{output:?}"
         );
+        let redrawn = post_resize.split("SUSHLINE_ACCEPTED:").next().unwrap_or("");
         assert!(
-            output.contains("second"),
-            "{editor}: second pasted line disappeared\n{output:?}"
+            redrawn.contains("second"),
+            "{editor}: second pasted line was not repainted after resize\n{post_resize:?}"
         );
         assert!(
             !output.contains("--More--"),

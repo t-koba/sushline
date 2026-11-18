@@ -1660,13 +1660,32 @@ pub(super) struct PtyResizeAction<'a> {
 }
 
 pub(super) fn run_pty_steps_then_resize_until(
-    mut command: CommandBuilder,
+    command: CommandBuilder,
     steps: &[(&str, &[u8])],
     cwd: &Path,
     initial_size: PtySize,
     resize: PtyResizeAction<'_>,
     stop_marker: &str,
 ) -> String {
+    run_pty_steps_then_resize_until_with_post_resize(
+        command,
+        steps,
+        cwd,
+        initial_size,
+        resize,
+        stop_marker,
+    )
+    .0
+}
+
+pub(super) fn run_pty_steps_then_resize_until_with_post_resize(
+    mut command: CommandBuilder,
+    steps: &[(&str, &[u8])],
+    cwd: &Path,
+    initial_size: PtySize,
+    resize: PtyResizeAction<'_>,
+    stop_marker: &str,
+) -> (String, String) {
     assert!(
         !steps.is_empty(),
         "at least one pre-resize input step is required"
@@ -1731,13 +1750,17 @@ pub(super) fn run_pty_steps_then_resize_until(
     }
 
     session.finish();
-    let output = lossy_output(&output);
     assert!(resized, "resize marker was not rendered: {output:?}");
     assert!(
         stopped,
         "stop marker did not complete after resize: {output:?}"
     );
-    output
+    let post_resize = response_start.map(|start| lossy_output(&output[start..]));
+    let output = lossy_output(&output);
+    (
+        output,
+        post_resize.expect("resized implies a response start"),
+    )
 }
 
 pub(super) fn run_pty_after_prompt(

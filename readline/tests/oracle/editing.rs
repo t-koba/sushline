@@ -2675,6 +2675,50 @@ fn bash_and_sushline_reset_universal_count_on_following_minus() {
 }
 
 #[test]
+fn bash_and_sushline_compose_counts_after_repeated_universal_noop() {
+    // `M-- M-0` leaves a negative Meta-digit count. A second universal after
+    // its no-op multiplies that count while retaining composition flags, so
+    // a following digit appends and a following minus toggles the sign.
+    let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
+    let a = "a".repeat(60);
+    for (desc, suffix, expected) in [
+        (
+            "bare digit",
+            b"\x1b-\x1b0\x0f\x0f3\x06X\r".as_slice(),
+            format!("X{a}"),
+        ),
+        (
+            "meta digit",
+            b"\x1b-\x1b0\x0f\x0f\x1b3\x06X\r".as_slice(),
+            format!("X{a}"),
+        ),
+        (
+            "minus",
+            b"\x1b-\x1b0\x0f\x0f-\x06X\r".as_slice(),
+            format!("{a}X"),
+        ),
+        (
+            "meta minus",
+            b"\x1b-\x1b0\x0f\x0f\x1b-\x06X\r".as_slice(),
+            format!("{a}X"),
+        ),
+    ] {
+        let mut keys = vec![b'a'; 60];
+        keys.extend_from_slice(suffix);
+        let bash = run_bash_readline_with_inputrc_file(&keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&keys, inputrc);
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected.as_str()),
+                "{editor} {desc}: {output}"
+            );
+            assert_eq!(bell_count(output), 1, "{editor} {desc}: {output}");
+        }
+    }
+}
+
+#[test]
 fn bash_and_sushline_match_digits_after_noop_universal_argument() {
     let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
     // Point starts at byte 60; C-f applies the resulting numeric argument.

@@ -132,16 +132,19 @@ where
                 // Explicit digit counts are already complete; only implicit
                 // counts, sign-only prefixes and a repeated universal argument
                 // after a no-op are multiplied by four.
+                let from_noop = state.numeric_arg_universal_noop;
                 if state.numeric_arg.is_none()
                     || (state.numeric_arg_sign_only && !state.numeric_arg_meta_digit)
                     || state.numeric_arg_universal
-                    || state.numeric_arg_universal_noop
+                    || from_noop
                 {
                     state.numeric_arg_universal_noop = false;
                     match state.numeric_arg.unwrap_or(1).checked_mul(4) {
                         Some(next) if next.unsigned_abs() <= MAX_NUMERIC_ARGUMENT as u32 => {
                             state.numeric_arg = Some(next);
-                            state.numeric_arg_universal = true;
+                            // A repeated universal after a no-op keeps the
+                            // explicit argument's composition flags.
+                            state.numeric_arg_universal = !from_noop;
                         }
                         _ => {
                             state.take_numeric_arg();

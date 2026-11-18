@@ -6184,3 +6184,33 @@ fn bash_and_sushline_keep_negative_sign_after_bare_minus() {
         }
     }
 }
+
+#[test]
+fn bash_and_sushline_insert_literal_argument_keys_after_positive_counts() {
+    let inputrc = "";
+    // GNU turns an argument key into literal text once a positive count is
+    // established: a minus after any positive count, or a digit after a
+    // positive sign-only count. Counts themselves still compose as before.
+    for (desc, keys, expected) in [
+        ("meta two literal minus", b"\x1b2-X\r".as_slice(), "--X"),
+        ("meta two two minuses", b"\x1b2--X\r".as_slice(), "---X"),
+        ("meta two minus digit", b"\x1b2-1X\r".as_slice(), "--1X"),
+        ("two meta minuses minus", b"\x1b-\x1b--X\r".as_slice(), "-X"),
+        ("two meta minuses digit", b"\x1b-\x1b-1X\r".as_slice(), "1X"),
+        (
+            "two meta minuses minus digit",
+            b"\x1b-\x1b--1X\r".as_slice(),
+            "-1X",
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{editor} {desc}: {output}"
+            );
+        }
+    }
+}

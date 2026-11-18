@@ -405,6 +405,23 @@ where
         state.after_self_insert();
     }
 
+    /// A bare argument key becomes literal text once a positive count is
+    /// established: a minus after any positive count, or a digit after a
+    /// positive sign-only count. Negative sign-only counts still compose bare
+    /// digits, and universal arguments start fresh counts.
+    pub(crate) fn bare_argument_key_is_literal(&self, state: &EditorState, byte: u8) -> bool {
+        if state.numeric_arg_tail != NumericArgLiteralTail::None
+            || state.numeric_arg_composition == NumericArgComposition::Pending
+            || state.numeric_arg_universal
+        {
+            return false;
+        }
+        let Some(count) = state.numeric_arg else {
+            return false;
+        };
+        count > 0 && (byte == b'-' || (state.numeric_arg_sign_only && byte.is_ascii_digit()))
+    }
+
     /// GNU consumes a digit or minus after a universal-argument no-op as
     /// literal text. The first key repeats by the pending positive count (a
     /// Meta-prefixed key inserts once); later argument keys in the tail insert
@@ -484,8 +501,12 @@ where
             return Ok(Some(EditorOutcome::Continue));
         }
         let mut overflowed = false;
-        for index in 0..run {
-            if update_numeric_argument(state, &bytes[index..index + 1]) {
+        for byte in &bytes[..run] {
+            if state.numeric_arg_tail != NumericArgLiteralTail::None
+                || self.bare_argument_key_is_literal(state, *byte)
+            {
+                self.handle_noop_argument_key(state, *byte, false, true)?;
+            } else if update_numeric_argument(state, &[*byte]) {
                 overflowed = true;
             }
         }

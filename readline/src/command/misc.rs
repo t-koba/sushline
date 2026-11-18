@@ -86,12 +86,16 @@ where
                     == NumericArgComposition::Chained
                     && key.last() == Some(&b'-')
                     && state.numeric_arg.is_some_and(|count| count > 0);
+                let meta_prefixed = key.first() == Some(&0x1b);
+                if !meta_prefixed && self.bare_argument_key_is_literal(state, key[key.len() - 1]) {
+                    self.handle_noop_argument_key(state, key[key.len() - 1], false, true)?;
+                    return Ok(EditorOutcome::Continue);
+                }
                 if argument_key
                     && (state.numeric_arg_tail != NumericArgLiteralTail::None
                         || state.numeric_arg_composition == NumericArgComposition::Pending
                         || positive_chain_minus)
                 {
-                    let meta_prefixed = key.first() == Some(&0x1b);
                     if meta_prefixed && state.numeric_arg_tail != NumericArgLiteralTail::None {
                         // An argument prefix inside a literal tail starts a
                         // fresh signed count; only bare keys keep the tail.

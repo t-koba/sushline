@@ -133,10 +133,12 @@ A bare minus following a sign-only argument is not a second sign: Bash 5.3
 keeps the negative count, so a following self-insert is dropped; a
 Meta-prefixed minus or a minus after a chained universal toggles the sign.
 Paired fixtures cover `M-- -`, two bare minuses after `M--` or a
-universal-argument key, a following digit, and the toggling controls. Bare
-minuses after an explicit digit count remain
-outside these claims: Bash repeats them as literal text (`M-2 - X` accepts
-`--X`), while Sushline currently treats them as a fresh sign.
+universal-argument key, a following digit, and the toggling controls. Once a
+positive count is established, a bare minus becomes literal text repeated by
+that count (`M-2 - X` accepts `--X`), and a bare digit after a positive
+sign-only count is literal as well (`M-- M-- 1 X` accepts `1X`); paired
+fixtures pin these forms. Negative sign-only counts still compose bare digits,
+and bare minuses after a zero digit remain outside these claims.
 
 Repeated minus after a zero digit is also outside the pinned claims. With point
 13 on `abcdefghijklmnopqrstuvwxyz`, the byte sequences

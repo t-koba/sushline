@@ -336,7 +336,10 @@ where
                 state.after_non_kill_command();
             }
             "execute-named-command" => {
-                state.input.named_command = Some(String::new());
+                state.input.named_command = Some(PendingNamedCommand {
+                    query: String::new(),
+                    invoking_key: key.last().copied(),
+                });
             }
             "re-read-init-file" => {
                 self.reload_inputrc()?;

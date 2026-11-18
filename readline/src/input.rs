@@ -1591,8 +1591,18 @@ where
     ) -> Result<EditorOutcome, ReadlineError> {
         match bytes {
             b"\r" | b"\n" => {
-                let command = state.input.named_command.take().unwrap_or_default();
-                self.apply_named_command(state, command.trim(), b"", hooks)
+                let pending = state.input.named_command.take().unwrap_or_default();
+                let command = pending.query.trim();
+                if command == "digit-argument"
+                    && let Some(key) = pending.invoking_key
+                {
+                    // Start a fresh count and dispatch the single invoking byte,
+                    // not the Meta sequence or the Enter that submitted the name.
+                    state.take_numeric_arg();
+                    state.numeric_arg = Some(1);
+                    return self.handle_bytes(state, &[key], hooks);
+                }
+                self.apply_named_command(state, command, b"", hooks)
             }
             &[0x07] | &[0x1b] => {
                 state.input.named_command = None;
@@ -1601,7 +1611,7 @@ where
             }
             &[0x7f] => {
                 if let Some(command) = state.input.named_command.as_mut() {
-                    command.pop();
+                    command.query.pop();
                 }
                 Ok(EditorOutcome::Continue)
             }
@@ -1612,7 +1622,9 @@ where
                 if let Ok(text) = std::str::from_utf8(bytes)
                     && let Some(command) = state.input.named_command.as_mut()
                 {
-                    command.extend(text.chars().filter(|ch| !ch.is_control()));
+                    command
+                        .query
+                        .extend(text.chars().filter(|ch| !ch.is_control()));
                 }
                 Ok(EditorOutcome::Continue)
             }

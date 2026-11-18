@@ -305,6 +305,12 @@ Sushline-only extensions use the `Sushline extension` status.
 | `call-last-kbd-macro` | Compatible | Default and counted calls, with no-definition and nesting-exhaustion bells. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `print-last-kbd-macro` | Compatible | Recorded macro output. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 
+On Bash 5.3 with Readline 8.3, the paired named-command fixture enters
+`digit-argument` via `M-x` and submits it with Enter. The suffixes `X Enter`,
+`Enter`, `3X Enter`, and `-X Enter` accept `xX`, `x`, `x3X`, and `x-X`,
+respectively, without a bell. See
+[`oracle/editing.rs`](readline/tests/oracle/editing.rs).
+
 A directional bell asymmetry is pinned for oversized counts. With 60 leading
 `a`s and `C-o` bound to `universal-argument`, a forward count that reaches the
 end with steps to spare is silent in both programs, even when the count comes

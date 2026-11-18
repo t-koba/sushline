@@ -1821,6 +1821,33 @@ fn bash_readline_and_sushline_accept_same_execute_named_command() {
 }
 
 #[test]
+fn bash_readline_and_sushline_redispatch_named_digit_argument_key() {
+    if !host_carries_measured_release() {
+        eprintln!(
+            "Named digit-argument was measured on Readline 8.3; this case reports nothing on other releases"
+        );
+        return;
+    }
+    for (keys, expected) in [
+        (b"\x1bxdigit-argument\rX\r".as_slice(), "xX"),
+        (b"\x1bxdigit-argument\r\r", "x"),
+        (b"\x1bxdigit-argument\r3X\r", "x3X"),
+        (b"\x1bxdigit-argument\r-X\r", "x-X"),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, "");
+        let sushline = run_sushline_harness_with_inputrc(keys, "");
+        for (name, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{name} keys={keys:?}: {output:?}"
+            );
+            assert_eq!(bell_count(output), 0, "{name} keys={keys:?}: {output:?}");
+        }
+    }
+}
+
+#[test]
 fn sushline_prefix_meta_inputrc_extension_preserves_literal_fallback() {
     require_oracle_host();
     let inputrc = "set convert-meta off\nset force-meta-prefix off\n\"\\C-o\": prefix-meta\n\"\\M-a\": beginning-of-line";

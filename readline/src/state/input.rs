@@ -16,7 +16,7 @@ pub(crate) struct InputState {
     pub(crate) skipping_csi: bool,
     pub(crate) csi_sequence_started: bool,
     pub(crate) pending_replace: bool,
-    pub(crate) named_command: Option<String>,
+    pub(crate) named_command: Option<PendingNamedCommand>,
     pub(crate) prefix_meta: bool,
     /// Whether the last dispatched key ran a command.
     ///
@@ -32,6 +32,12 @@ pub(crate) struct InputState {
     pub(crate) changed_display: bool,
     // Byte length of the synthetic Meta sequence retained in the pending key.
     pub(crate) prefix_meta_command_len: usize,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct PendingNamedCommand {
+    pub(crate) query: String,
+    pub(crate) invoking_key: Option<u8>,
 }
 
 impl EditorState {

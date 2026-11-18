@@ -2883,6 +2883,39 @@ fn bash_readline_and_sushline_isearch_terminators_terminate_without_execute() {
 }
 
 #[test]
+fn bash_readline_and_sushline_treat_return_as_custom_isearch_terminator() {
+    if !super::host_readline::host_carries(super::host_readline::MEASURED_RELEASE) {
+        eprintln!("Custom isearch terminator behavior was measured on Readline 8.3");
+        return;
+    }
+    let history = ["alpha one", "beta", "alpha two"];
+    let inputrc = r#"set isearch-terminators "\r\033""#;
+    for (keys, expected, bells) in [
+        (b"\x12alpha\r!\r".as_slice(), "!alpha two", 0),
+        (b"\x12alpha\r\r".as_slice(), "alpha two", 0),
+    ] {
+        for (name, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &history),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history),
+            ),
+        ] {
+            let context = format!("{name} keys={keys:?}: {output}");
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(expected),
+                "{context}"
+            );
+            assert_eq!(bell_count(&output), bells, "{context}");
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_forward_isearch_starts_from_cursor() {
     let history = ["alpha one", "beta", "alpha two"];
     // Backward from the middle searches before the cursor: Up Up lands on

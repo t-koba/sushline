@@ -395,6 +395,33 @@ where
         state.after_self_insert();
     }
 
+    /// GNU consumes a digit after a universal-argument no-op as literal text:
+    /// a bare digit repeats by the pending positive count, a Meta-digit inserts
+    /// once, and the resulting argument is zero.
+    pub(crate) fn handle_noop_universal_digit(
+        &mut self,
+        state: &mut EditorState,
+        digit: u8,
+        meta_prefixed: bool,
+        record_macro: bool,
+    ) -> Result<(), ReadlineError> {
+        let count = state.numeric_arg.unwrap_or(0);
+        state.take_numeric_arg();
+        if meta_prefixed {
+            self.insert_literal(state, &[digit], record_macro);
+            self.ding()?;
+            self.ding()?;
+        } else {
+            if count > 0 {
+                state.numeric_arg = Some(count);
+                self.insert_literal(state, &[digit], record_macro);
+            }
+            self.ding()?;
+        }
+        state.numeric_arg = Some(0);
+        Ok(())
+    }
+
     fn handle_numeric_argument_continuation(
         &mut self,
         state: &mut EditorState,
@@ -418,6 +445,15 @@ where
             .count();
         if run == 0 {
             return Ok(None);
+        }
+        if state.numeric_arg_universal_noop && bytes[0].is_ascii_digit() {
+            self.handle_noop_universal_digit(state, bytes[0], false, true)?;
+            if run < bytes.len() {
+                let remainder = bytes[run..].to_vec();
+                let outcome = self.handle_bytes(state, &remainder, hooks)?;
+                return Ok(Some(outcome));
+            }
+            return Ok(Some(EditorOutcome::Continue));
         }
         let mut overflowed = false;
         for index in 0..run {

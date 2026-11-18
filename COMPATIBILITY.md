@@ -137,13 +137,6 @@ text, while Sushline accepts `abcdefghijklmnXopqrstuvwxyz`; the bare `2`
 variants diverge in the same way. Replacing the final bare digit with a
 Meta-digit matches in both editors. No general repeated-sign rule is inferred.
 
-A post-universal no-op form remains outside the pinned claims. With point at the
-end of 60 ASCII `a`s, `C-o 3 C-o 4 C-f X Enter` (with `C-o` bound to
-`universal-argument`) accepts `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa444X`
-with one bell in Bash 5.3, while Sushline accepts the same 60 `a`s followed by
-`X` with one bell. This single paired observation does not establish a general
-no-op or redisplay rule.
-
 ## Compatibility Boundaries
 
 | Area | Baseline behavior | Sushline behavior | Status |
@@ -299,7 +292,7 @@ Sushline-only extensions use the `Sushline extension` status.
 
 | Command(s) | Status | Notes |
 | --- | --- | --- |
-| `digit-argument`, `universal-argument` | Compatible | Multi-digit/sign/universal composition, including an explicit Meta-zero count preserved through `universal-argument`, a minus after it starting a fresh sign-only argument, and a digit after a no-op universal being consumed with a bell (a Meta-digit is also inserted literally); arguments above 1000000 ring and reset, leaving subsequent digits as ordinary text. The pending `(arg: N) ` indicator replaces the whole prompt, including its mode indicator, until consumed; sign-only, leading-zero and universal-argument displays are covered. Screen comparisons require host Readline 8.3 (8.2 retains the prompt) and report nothing on other releases. These are Bash 5.3 PTY observations. Evidence: [`oracle/editing.rs`](readline/tests/oracle/editing.rs), [`editor/tests/display.rs`](readline/src/editor/tests/display.rs). |
+| `digit-argument`, `universal-argument` | Compatible | Multi-digit/sign/universal composition, including an explicit Meta-zero count preserved through `universal-argument`, a minus after it starting a fresh sign-only argument, and a digit after a no-op universal being inserted literally by a positive pending count (a Meta-digit inserts once) with a bell; arguments above 1000000 ring and reset, leaving subsequent digits as ordinary text. The pending `(arg: N) ` indicator replaces the whole prompt, including its mode indicator, until consumed; sign-only, leading-zero and universal-argument displays are covered. Screen comparisons require host Readline 8.3 (8.2 retains the prompt) and report nothing on other releases. These are Bash 5.3 PTY observations. Evidence: [`oracle/editing.rs`](readline/tests/oracle/editing.rs), [`editor/tests/display.rs`](readline/src/editor/tests/display.rs). |
 | `start-kbd-macro`, `end-kbd-macro` | Compatible | A recording without an argument starts a fresh definition, an unfinished recording continues across prompts, and a replay that accepts a line continues in the next prompt. Explicit start and end counts follow the append/replay, no-op, invalidation, abort, and nesting behavior with matching bells and diagnostics. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `call-last-kbd-macro` | Compatible | Default and counted calls, with no-definition and nesting-exhaustion bells. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `print-last-kbd-macro` | Compatible | Recorded macro output. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |

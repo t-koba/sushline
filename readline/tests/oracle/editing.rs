@@ -2716,6 +2716,41 @@ fn bash_and_sushline_match_digits_after_noop_universal_argument() {
 }
 
 #[test]
+fn bash_and_sushline_repeat_noop_universal_digits_by_explicit_count() {
+    let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
+    // Point starts at byte 60; every accepted line ends at the line end.
+    for (desc, prefix, inserted, bells) in [
+        ("count three", b"\x1b3\x0f5".as_slice(), "555", 1),
+        ("count two", b"\x1b2\x0f5".as_slice(), "55", 1),
+        ("zero digit", b"\x1b3\x0f0".as_slice(), "000", 1),
+        ("meta digit", b"\x1b3\x0f\x1b0".as_slice(), "0", 2),
+        ("negative count", b"\x1b-\x1b1\x0f5".as_slice(), "", 1),
+        (
+            "universal then explicit",
+            b"\x0f3\x0f4".as_slice(),
+            "444",
+            1,
+        ),
+    ] {
+        let mut keys = vec![b'a'; 60];
+        keys.extend_from_slice(prefix);
+        keys.extend_from_slice(b"\x06X\r");
+        let expected = format!("{}{}X", "a".repeat(60), inserted);
+        let bash = run_bash_readline_with_inputrc_file(&keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&keys, inputrc);
+
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected.as_str()),
+                "{editor} {desc}: {output}"
+            );
+            assert_eq!(bell_count(output), bells, "{editor} {desc}: {output}");
+        }
+    }
+}
+
+#[test]
 fn bash_and_sushline_keep_negative_sign_across_universal_argument() {
     let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
     let keys = b"abcdefghijklmnopqrstuvwxyz\x01\x1b-\x0f\x1b-\x06X\r";

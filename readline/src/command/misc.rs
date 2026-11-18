@@ -79,16 +79,18 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::DigitArgument => {
-                let noop_meta_digit = state.numeric_arg_universal_noop
-                    && key.first() == Some(&0x1b)
-                    && key.last().is_some_and(u8::is_ascii_digit);
+                if state.numeric_arg_universal_noop && key.last().is_some_and(u8::is_ascii_digit) {
+                    let meta_prefixed = key.first() == Some(&0x1b);
+                    self.handle_noop_universal_digit(
+                        state,
+                        key[key.len() - 1],
+                        meta_prefixed,
+                        true,
+                    )?;
+                    return Ok(EditorOutcome::Continue);
+                }
                 if update_numeric_argument(state, key) {
                     self.ding()?;
-                }
-                if noop_meta_digit {
-                    self.ding()?;
-                    let digit = &key[key.len() - 1..];
-                    return self.apply_command(state, EditCommand::SelfInsert, digit, hooks);
                 }
                 Ok(EditorOutcome::Continue)
             }

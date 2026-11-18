@@ -11232,3 +11232,102 @@ fn closed_and_reopened_double_quote_filename_completion_matches_bash_5_3() {
         );
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn bash_and_sushline_pin_completion_confirmation_response_keys() {
+    use portable_pty::{CommandBuilder, PtySize};
+
+    require_oracle_host();
+    let root = tempfile::tempdir().expect("confirmation root");
+    let cwd = root.path().join("cwd");
+    fs::create_dir(&cwd).expect("confirmation cwd");
+    for index in 1..=40 {
+        fs::write(
+            cwd.join(format!("alpha-long-completion-item-{index:02}")),
+            b"",
+        )
+        .expect("confirmation candidate");
+    }
+    let home = root.path().join("home");
+    fs::create_dir(&home).expect("confirmation home");
+    let inputrc = r#""\C-o": possible-filename-completions
+set completion-query-items 1
+set print-completions-horizontally off
+set page-completions off"#;
+    let inputrc_path = root.path().join("inputrc");
+    fs::write(&inputrc_path, inputrc).expect("confirmation inputrc");
+    let size = PtySize {
+        rows: 8,
+        cols: 40,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let line = format!("{}/al", cwd.display());
+    let completion_keys = format!("{line}\x0f");
+
+    for (label, key, bells, listed, typed_after_answer) in [
+        ("space", b" ".as_slice(), 0, true, true),
+        ("y", b"y".as_slice(), 0, true, true),
+        ("Y", b"Y".as_slice(), 0, true, true),
+        ("n", b"n".as_slice(), 0, false, true),
+        ("N", b"N".as_slice(), 0, false, true),
+        ("ctrl_g", b"\x07".as_slice(), 1, false, true),
+        ("tab", b"\t".as_slice(), 1, false, false),
+        ("CR", b"\r".as_slice(), 1, false, false),
+        ("LF", b"\n".as_slice(), 1, false, false),
+        ("esc", b"\x1b".as_slice(), 1, false, false),
+        ("z", b"z".as_slice(), 1, false, false),
+    ] {
+        let mut answer = key.to_vec();
+        answer.extend_from_slice(b"n\r");
+        let steps = [
+            (READY_PROMPT, completion_keys.as_bytes()),
+            ("Display all", answer.as_slice()),
+        ];
+        let mut bash = CommandBuilder::new("bash");
+        bash.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
+        bash.env("HOME", home.to_string_lossy().as_ref());
+        bash.env(
+            "HISTFILE",
+            root.path().join("history").to_string_lossy().as_ref(),
+        );
+        bash.args([
+            "--noprofile",
+            "--norc",
+            "-i",
+            "-c",
+            &format!(
+                r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+            ),
+        ]);
+        let mut sushline = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+        sushline.env("SUSHLINE_INPUTRC", inputrc);
+        sushline.env("SUSHLINE_PROMPT", READY_PROMPT);
+        sushline.env("SUSHLINE_HISTORY", "");
+        let expected = if typed_after_answer {
+            format!("{line}n")
+        } else {
+            line.clone()
+        };
+        for (name, command) in [("Bash", bash), ("Sushline", sushline)] {
+            let output = run_pty_steps_with_size_until(command, &steps, size, "SUSHLINE_ACCEPTED:");
+            let context = format!("{name} answer={label}: {output}");
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(expected.as_str()),
+                "confirmation answer changes the accepted line\n{context}"
+            );
+            assert_eq!(
+                bell_count(&output),
+                bells,
+                "confirmation answer bell count differs\n{context}"
+            );
+            assert_eq!(
+                output.contains("alpha-long-completion-item-01"),
+                listed,
+                "confirmation answer changes candidate listing\n{context}"
+            );
+        }
+    }
+}

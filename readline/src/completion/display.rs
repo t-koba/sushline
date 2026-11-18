@@ -342,6 +342,16 @@ where
             let answer = loop {
                 match self.read_completion_response(hooks)? {
                     TerminalEvent::Resize(_) => continue,
+                    TerminalEvent::Bytes(bytes)
+                        if bytes.as_slice() == [0x03]
+                            || bytes.as_slice() == [0x07]
+                            || matches!(bytes.as_slice(), b"y" | b"Y" | b" " | b"n" | b"N") =>
+                    {
+                        break TerminalEvent::Bytes(bytes);
+                    }
+                    TerminalEvent::Bytes(_) => {
+                        self.ding()?;
+                    }
                     event => break event,
                 }
             };
@@ -350,12 +360,17 @@ where
                     self.handle_input_interrupt(state)?;
                     return Ok(());
                 }
-                TerminalEvent::Bytes(bytes)
-                    if matches!(bytes.as_slice(), b"y" | b"Y" | b" " | b"\t" | b"\r" | b"\n") => {}
-                TerminalEvent::Bytes(_) => {
+                TerminalEvent::Bytes(bytes) if bytes.as_slice() == [0x07] => {
+                    self.ding()?;
                     self.write_tracked_newline(state)?;
                     return Ok(());
                 }
+                TerminalEvent::Bytes(bytes) if matches!(bytes.as_slice(), b"y" | b"Y" | b" ") => {}
+                TerminalEvent::Bytes(bytes) if matches!(bytes.as_slice(), b"n" | b"N") => {
+                    self.write_tracked_newline(state)?;
+                    return Ok(());
+                }
+                TerminalEvent::Bytes(_) => unreachable!("invalid confirmation bytes ring and wait"),
                 TerminalEvent::Timeout | TerminalEvent::Wakeup => {
                     unreachable!("indefinite completion waits absorb wakeups")
                 }

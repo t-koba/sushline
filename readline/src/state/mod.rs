@@ -103,6 +103,7 @@ impl EditorState {
         self.input.pending_char_bytes.clear();
         self.input.prefix_meta_command_len = 0;
         self.input.quoted_insert = false;
+        self.input.quoted_insert_remaining = 0;
         self.input.skipping_csi = false;
         self.input.csi_sequence_started = false;
         self.take_numeric_arg();

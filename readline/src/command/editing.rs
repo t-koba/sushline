@@ -91,6 +91,13 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::QuotedInsert => {
+                // GNU reads |count| consecutive raw bytes for a negative
+                // quoted-insert count, inserting each one once. Positive
+                // counts repeat a single quoted byte.
+                if let Some(arg) = state.numeric_arg.filter(|arg| *arg < 0) {
+                    state.input.quoted_insert_remaining = arg.unsigned_abs();
+                    state.take_numeric_arg();
+                }
                 state.input.quoted_insert = true;
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)

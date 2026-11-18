@@ -120,14 +120,12 @@ through the editor, inputrc, history, or completion. Aliases, variables, jobs,
 shell expansion, external editing, and `bind -x` execution are embedder-owned
 and supplied through `Hooks` where applicable.
 
-Numeric quoted-insert arguments whose first keys are Meta-minus followed by a
-Meta-digit are outside the pinned claims: in paired PTY runs Bash produced no
-accepted line for `M-- M-1 C-v a Enter` or `M-- M-2 C-v a Enter`, while
-Sushline accepts eleven or twelve `a` characters respectively: those Meta-digit
-forms compose -11 and -12 and quoted-insert repeats by the magnitude. A bare
-`M-- 1` is a different case and reached a prompt in a bounded Bash 5.3 PTY
-comparison; the sign-only and `M-0 M-- M-1` forms also matched. No general
-negative-count rule is inferred.
+A negative quoted-insert count reads that many consecutive raw bytes and
+inserts each once: paired fixtures cover `M-- M-1 C-v abcdefghijk Enter`
+accepting `abcdefghijk`, the -12 form, and a shorter run where the quoted
+insert consumes the Enter and neither editor accepts a line. Positive counts
+still repeat a single quoted byte, with the existing paired fixtures covering
+zero through three. No broader stream-consumption rule is inferred.
 
 A bare minus following a sign-only argument is not a second sign: Bash 5.3
 keeps the negative count, so a following self-insert is dropped; a

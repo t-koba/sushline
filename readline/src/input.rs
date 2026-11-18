@@ -79,7 +79,7 @@ where
             return Ok(self.handle_csi_skip(state, bytes));
         }
         if state.input.quoted_insert {
-            return Ok(self.handle_quoted_insert(state, bytes));
+            return self.handle_quoted_insert(state, bytes, hooks);
         }
         if let Some(translated) = self.translate_meta_input(bytes) {
             return self.handle_bytes(state, &translated, hooks);
@@ -277,10 +277,30 @@ where
         EditorOutcome::Continue
     }
 
-    fn handle_quoted_insert(&mut self, state: &mut EditorState, bytes: &[u8]) -> EditorOutcome {
-        state.input.quoted_insert = false;
-        self.insert_literal(state, bytes, true);
-        EditorOutcome::Continue
+    fn handle_quoted_insert(
+        &mut self,
+        state: &mut EditorState,
+        bytes: &[u8],
+        hooks: &mut impl Hooks,
+    ) -> Result<EditorOutcome, ReadlineError> {
+        let remaining = state.input.quoted_insert_remaining;
+        if remaining == 0 {
+            state.input.quoted_insert = false;
+            self.insert_literal(state, bytes, true);
+            return Ok(EditorOutcome::Continue);
+        }
+        let take = remaining.min(bytes.len() as u32) as usize;
+        for byte in &bytes[..take] {
+            self.insert_literal_with_count(state, &[*byte], 1, true);
+            state.input.quoted_insert_remaining -= 1;
+        }
+        if state.input.quoted_insert_remaining == 0 {
+            state.input.quoted_insert = false;
+        }
+        if take < bytes.len() {
+            return self.handle_bytes(state, &bytes[take..], hooks);
+        }
+        Ok(EditorOutcome::Continue)
     }
 
     fn handle_bracketed_paste_input(

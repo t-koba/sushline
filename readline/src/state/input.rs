@@ -3,6 +3,8 @@ use super::EditorState;
 #[derive(Debug, Default)]
 pub(crate) struct InputState {
     pub(crate) quoted_insert: bool,
+    /// Remaining raw bytes for a negative-count quoted insert.
+    pub(crate) quoted_insert_remaining: u32,
     pub(crate) interrupted: bool,
     pub(crate) pending_key: Vec<u8>,
     /// The bytes of a character a pending command has not taken yet.

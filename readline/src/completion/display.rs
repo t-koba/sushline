@@ -461,7 +461,9 @@ where
                 abbreviate_completion_prefix(&mut items, prefix);
             }
         }
-        if self.variable_is_on("colored-completion-prefix") {
+        // Readline 8.3 makes these two display options mutually exclusive:
+        // any positive prefix-display-length takes precedence over coloring.
+        if prefix_limit == 0 && self.variable_is_on("colored-completion-prefix") {
             if response.options.filenames {
                 // Filename items are basenames (`filename_display_name`), so
                 // both prefix and replacement must be basenames too: full-path

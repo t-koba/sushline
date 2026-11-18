@@ -12100,3 +12100,48 @@ set print-completions-horizontally on"#;
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_pin_prefix_display_length_over_colored_prefix() {
+    let dir = tempfile::tempdir().expect("prefix precedence dir");
+    for name in ["longprefix-alpha", "longprefix-beta"] {
+        fs::write(dir.path().join(name), b"").expect("write candidate");
+    }
+    let typed = format!("{}/longprefix-\x0f\r", dir.path().display());
+    let env = [("LS_COLORS", "")];
+
+    for (label, length, expected) in [
+        ("abbreviated", 4, ["...alpha", "...beta"]),
+        ("unabbreviated", 20, ["longprefix-alpha", "longprefix-beta"]),
+        ("colored", 0, ["longprefix-alpha", "longprefix-beta"]),
+    ] {
+        let inputrc = format!(
+            "\"\\C-o\": possible-filename-completions\nset completion-query-items 999\nset colored-completion-prefix on\nset completion-prefix-display-length {length}"
+        );
+        let bash = run_bash_readline_with_inputrc_file_and_env(typed.as_bytes(), &inputrc, &env);
+        let sushline = run_sushline_harness_with_inputrc_and_env(typed.as_bytes(), &inputrc, &env);
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            let plain = output
+                .replace("\x1b[01;35m", "")
+                .replace("\x1b[0m", "")
+                .replace("\x1b[K", "");
+            for name in expected {
+                assert!(
+                    plain.contains(name),
+                    "{label} {editor}: missing {name:?}\n{output:?}"
+                );
+            }
+            let colored = output.contains("\x1b[01;35m");
+            assert_eq!(
+                colored,
+                length == 0,
+                "{label} {editor}: unexpected prefix coloring\n{output:?}"
+            );
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(format!("{}/longprefix-", dir.path().display()).as_str()),
+                "{label} {editor}: accepted line changed\n{output:?}"
+            );
+        }
+    }
+}

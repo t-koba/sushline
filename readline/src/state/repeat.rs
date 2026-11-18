@@ -97,13 +97,19 @@ pub(crate) fn update_numeric_argument(state: &mut EditorState, key: &[u8]) -> bo
     match last {
         b'-' => {
             let current = state.numeric_arg.unwrap_or(1);
-            state.numeric_arg_negative =
-                if state.numeric_arg_sign_only && !state.numeric_arg_universal {
-                    !state.numeric_arg_negative
-                } else {
-                    true
-                };
-            let magnitude = current.unsigned_abs().min(i32::MAX as u32) as i32;
+            let universal = state.numeric_arg_universal;
+            // A minus after a universal argument starts a fresh sign-only
+            // argument; GNU does not negate or retain the universal count.
+            let magnitude = if universal {
+                1
+            } else {
+                current.unsigned_abs().min(i32::MAX as u32) as i32
+            };
+            state.numeric_arg_negative = if state.numeric_arg_sign_only && !universal {
+                !state.numeric_arg_negative
+            } else {
+                true
+            };
             state.numeric_arg = Some(if state.numeric_arg_negative {
                 -magnitude
             } else {
@@ -111,6 +117,7 @@ pub(crate) fn update_numeric_argument(state: &mut EditorState, key: &[u8]) -> bo
             });
             state.numeric_arg_sign_only = true;
             state.numeric_arg_meta_digit = false;
+            state.numeric_arg_universal = false;
             false
         }
         b'0'..=b'9' => {

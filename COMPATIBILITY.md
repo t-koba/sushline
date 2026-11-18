@@ -304,6 +304,10 @@ from a long universal chain. A forward count with no possible step rings once
 in both, as does a backward count that cannot be fully satisfied. These
 paired observations do not establish a general blocked-movement rule.
 
+A minus after a multiplied positive no-op chain is inserted as literal text
+repeated by the multiplied count, including when the minus is Meta-prefixed,
+with no bell. A minus after a multiplied negative chain is not claimed here.
+
 Inside a no-op universal literal tail, a Meta-prefixed argument key or a
 universal-argument key is consumed along with every later argument key, so the
 inserted literal text is unchanged; paired fixtures cover one and two inner

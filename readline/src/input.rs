@@ -426,8 +426,12 @@ where
             return Ok(());
         }
         let count = state.numeric_arg.unwrap_or(0);
+        // A minus after a multiplied positive no-op chain repeats by that
+        // count even when Meta-prefixed, with no bell; other Meta-prefixed
+        // no-op argument keys insert once and ring twice.
+        let repeat_by_count = state.numeric_arg_noop_chain && count > 0;
         state.take_numeric_arg();
-        if meta_prefixed {
+        if meta_prefixed && !repeat_by_count {
             self.insert_literal_with_count(state, &[key], 1, record_macro);
             self.ding()?;
             self.ding()?;
@@ -466,8 +470,12 @@ where
         if run == 0 {
             return Ok(None);
         }
+        let positive_chain_minus = state.numeric_arg_noop_chain
+            && state.numeric_arg.is_some_and(|count| count > 0)
+            && bytes[0] == b'-';
         if state.numeric_arg_literal_tail
             || (state.numeric_arg_universal_noop && (bytes[0].is_ascii_digit() || bytes[0] == b'-'))
+            || positive_chain_minus
         {
             for byte in &bytes[..run] {
                 self.handle_noop_argument_key(state, *byte, false, true)?;

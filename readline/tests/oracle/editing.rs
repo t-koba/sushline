@@ -2958,6 +2958,53 @@ fn bash_and_sushline_ring_for_blocked_character_motion_by_direction() {
 }
 
 #[test]
+fn bash_and_sushline_insert_minus_after_a_multiplied_universal_chain() {
+    let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
+    let a = "a".repeat(60);
+    // The minus is literal text repeated by the multiplied positive count;
+    // C-f then moves one byte because the argument was consumed.
+    for (desc, prefix, hyphens) in [
+        (
+            "M-2 with three universals",
+            b"\x1b2\x0f\x0f\x0f-".as_slice(),
+            32,
+        ),
+        (
+            "M-3 with three universals",
+            b"\x1b3\x0f\x0f\x0f-".as_slice(),
+            48,
+        ),
+        (
+            "M-4 with three universals",
+            b"\x1b4\x0f\x0f\x0f-".as_slice(),
+            64,
+        ),
+        (
+            "M-3 with Meta-minus",
+            b"\x1b3\x0f\x0f\x0f\x1b-".as_slice(),
+            48,
+        ),
+        ("M-3 with two universals", b"\x1b3\x0f\x0f-".as_slice(), 12),
+    ] {
+        let expected = format!("{}{}X{}", "-".repeat(hyphens), &a[..1], &a[..59]);
+        let mut input = a.as_bytes().to_vec();
+        input.push(b'\x01');
+        input.extend_from_slice(prefix);
+        input.extend_from_slice(b"\x06X\r");
+        let bash = run_bash_readline_with_inputrc_file(&input, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&input, inputrc);
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected.as_str()),
+                "{editor} {desc}: {output}"
+            );
+            assert_eq!(bell_count(output), 0, "{editor} {desc}: {output}");
+        }
+    }
+}
+
+#[test]
 fn bash_and_sushline_multiply_repeated_universal_chains() {
     let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
     let a = "a".repeat(60);

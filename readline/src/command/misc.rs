@@ -82,8 +82,13 @@ where
                 let argument_key = key
                     .last()
                     .is_some_and(|byte| byte.is_ascii_digit() || *byte == b'-');
+                let positive_chain_minus = state.numeric_arg_noop_chain
+                    && key.last() == Some(&b'-')
+                    && state.numeric_arg.is_some_and(|count| count > 0);
                 if argument_key
-                    && (state.numeric_arg_literal_tail || state.numeric_arg_universal_noop)
+                    && (state.numeric_arg_literal_tail
+                        || state.numeric_arg_universal_noop
+                        || positive_chain_minus)
                 {
                     let meta_prefixed = key.first() == Some(&0x1b);
                     self.handle_noop_argument_key(state, key[key.len() - 1], meta_prefixed, true)?;

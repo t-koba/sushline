@@ -502,6 +502,28 @@ fn prefix_search_matches_invalid_utf8_history_fixture() {
 }
 
 #[test]
+fn prefix_search_point_stays_a_byte_offset_in_a_multibyte_character() {
+    // Paired Bash 5.3 PTY probe: with `search-ignore-case` on, prefix `k`
+    // recalls the history entry `KELVIN` (U+212A) with READLINE_POINT=1,
+    // inside the three-byte character; inserting `X` splits those bytes.
+    let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(b"k\x0fX\r".to_vec())]);
+    let mut history = History::new();
+    history.push("KELVIN");
+    assert!(history.set_pos(history.len()));
+    let mut editor = Editor::new(Config::default(), terminal, history);
+    editor
+        .load_inputrc_str("set search-ignore-case on\n\"\\C-o\": history-search-backward")
+        .unwrap();
+
+    assert_eq!(
+        editor
+            .read_line(Prompt::new("> "), &mut TestHistoryHook)
+            .unwrap(),
+        ReadlineResult::Line(b"\xe2X\x84\xaaELVIN".to_vec())
+    );
+}
+
+#[test]
 fn history_navigation_search_needle_lasts_until_the_next_edit() {
     for (tail, expected) in [
         (&b"\x1b1\x1d\r"[..], &b"alpha one"[..]),

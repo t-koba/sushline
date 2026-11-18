@@ -76,11 +76,13 @@ not extend the compatibility claims beyond the evidence cited below.
 | Status | Meaning |
 | --- | --- |
 | Compatible | Matched against the baseline for the scoped behavior, with no known user-visible difference. |
+| Compatible for measured Bash-hosted fixtures | Matched only for the cited Bash-hosted PTY fixtures; no standalone-library or broader fixture claim is made. |
 | Implemented | Implemented, but not audited enough to claim GNU-compatible behavior for the whole row. |
 | Implementation-specific | Implemented through Sushline's Rust model rather than GNU Readline/History internals; observable differences may exist outside the cited evidence. |
 | Sushline extension | Deliberate Sushline-only behavior or API, used only by explicit invocation/configuration; it does not alter GNU-default Readline behavior. |
 | Terminal-backed | Implemented through `TerminalIo`, terminfo-backed capabilities where available, and fixed ANSI helpers for the built-in terminal; exact bytes may still depend on terminal/backend capabilities. |
 | Mixed | The area contains multiple statuses; use the detailed rows below. |
+| Mixed by policy | The area has multiple behavior policies, including an opt-in GNU-compatible mode; use the cited row and fixtures for exact bounds. |
 | Known deviation | A known observable behavior differs from the baseline. |
 | Hook-backed | The command or mechanism is implemented; the GNU-equivalent embedder-owned state or behavior is supplied through `Hooks`. |
 | Not implemented | In the compatibility target, but missing or effectively inert. |

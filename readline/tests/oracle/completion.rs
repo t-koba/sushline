@@ -8051,13 +8051,13 @@ fn bash_readline_and_sushline_page_filename_completions_at_narrow_terminal_size(
 
 #[cfg(unix)]
 #[test]
-fn bash_and_sushline_ring_and_stop_on_invalid_pager_key() {
+fn bash_and_sushline_pin_completion_pager_response_keys() {
     use portable_pty::{CommandBuilder, PtySize};
 
     require_oracle_host();
-    let root = tempfile::tempdir().expect("invalid pager key root");
+    let root = tempfile::tempdir().expect("pager key root");
     let cwd = root.path().join("cwd");
-    fs::create_dir(&cwd).expect("invalid pager key cwd");
+    fs::create_dir(&cwd).expect("pager key cwd");
     for index in 1..=40 {
         fs::write(
             cwd.join(format!("alpha-long-completion-item-{index:02}")),
@@ -8066,7 +8066,7 @@ fn bash_and_sushline_ring_and_stop_on_invalid_pager_key() {
         .expect("write pagination candidate");
     }
     let home = root.path().join("home");
-    fs::create_dir(&home).expect("invalid pager key home");
+    fs::create_dir(&home).expect("pager key home");
     let inputrc = r#""\C-o": possible-filename-completions
 set completion-query-items 0
 set print-completions-horizontally off
@@ -8081,50 +8081,60 @@ set page-completions on"#;
     };
     let line = format!("{}/al", cwd.display());
     let completion_keys = format!("{line}\x0f");
-    let steps = [
-        (READY_PROMPT, completion_keys.as_bytes()),
-        ("--More--", b"z\rq\r".as_slice()),
-    ];
 
-    let mut bash = CommandBuilder::new("bash");
-    bash.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
-    bash.env("HOME", home.to_string_lossy().as_ref());
-    bash.env(
-        "HISTFILE",
-        root.path().join("history").to_string_lossy().as_ref(),
-    );
-    bash.args([
-        "--noprofile",
-        "--norc",
-        "-i",
-        "-c",
-        &format!(
-            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
-        ),
-    ]);
-    let mut sushline = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
-    sushline.env("SUSHLINE_INPUTRC", inputrc);
-    sushline.env("SUSHLINE_PROMPT", READY_PROMPT);
-    sushline.env("SUSHLINE_HISTORY", "");
+    for (label, key, bells, more, highest) in [
+        ("space", b' ', 0, 2, 14),
+        ("y", b'y', 0, 2, 14),
+        ("Y", b'Y', 0, 2, 14),
+        ("tab", b'\t', 1, 1, 7),
+        ("CR", b'\r', 0, 2, 8),
+        ("z", b'z', 1, 1, 7),
+    ] {
+        let answer = [key, b'q', b'\r'];
+        let steps = [
+            (READY_PROMPT, completion_keys.as_bytes()),
+            ("--More--", answer.as_slice()),
+        ];
 
-    for (name, command) in [("Bash", bash), ("Sushline", sushline)] {
-        let output = run_pty_steps_with_size_until(command, &steps, size, "SUSHLINE_ACCEPTED:");
-        let context = format!("{name}: {output}");
-        assert_eq!(
-            accepted_line(&output).as_deref(),
-            Some(line.as_str()),
-            "{context}"
+        let mut bash = CommandBuilder::new("bash");
+        bash.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
+        bash.env("HOME", home.to_string_lossy().as_ref());
+        bash.env(
+            "HISTFILE",
+            root.path().join("history").to_string_lossy().as_ref(),
         );
-        assert_eq!(output.matches("--More--").count(), 2, "{context}");
-        assert_eq!(bell_count(&output), 1, "{context}");
-        assert!(
-            output.contains("alpha-long-completion-item-08"),
-            "the line response did not advance one line: {context}"
-        );
-        assert!(
-            !output.contains("alpha-long-completion-item-09"),
-            "the invalid key advanced a page: {context}"
-        );
+        bash.args([
+            "--noprofile",
+            "--norc",
+            "-i",
+            "-c",
+            &format!(
+                r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+            ),
+        ]);
+        let mut sushline = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+        sushline.env("SUSHLINE_INPUTRC", inputrc);
+        sushline.env("SUSHLINE_PROMPT", READY_PROMPT);
+        sushline.env("SUSHLINE_HISTORY", "");
+
+        for (name, command) in [("Bash", bash), ("Sushline", sushline)] {
+            let output = run_pty_steps_with_size_until(command, &steps, size, "SUSHLINE_ACCEPTED:");
+            let context = format!("{name} key={label}: {output}");
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(line.as_str()),
+                "{context}"
+            );
+            assert_eq!(bell_count(&output), bells, "{context}");
+            assert_eq!(output.matches("--More--").count(), more, "{context}");
+            let mut shown = 0;
+            for index in 1..=40 {
+                if output.contains(&format!("alpha-long-completion-item-{index:02}")) {
+                    shown = index;
+                }
+            }
+            assert_eq!(shown, highest, "{context}");
+        }
     }
 }
 

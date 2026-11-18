@@ -510,7 +510,7 @@ where
                             if bytes.as_slice() != [0x03]
                                 && !matches!(
                                     bytes.as_slice(),
-                                    b"q" | b"Q" | b"n" | b"N" | b"\r" | b"\n" | b" " | b"\t"
+                                    b"q" | b"Q" | b"n" | b"N" | b"\r" | b"\n" | b" " | b"y" | b"Y"
                                 ) =>
                         {
                             self.ding()?;
@@ -532,7 +532,9 @@ where
                     TerminalEvent::Bytes(bytes) if matches!(bytes.as_slice(), b"\r" | b"\n") => {
                         page_remaining = 1;
                     }
-                    TerminalEvent::Bytes(bytes) if matches!(bytes.as_slice(), b" " | b"\t") => {
+                    TerminalEvent::Bytes(bytes)
+                        if matches!(bytes.as_slice(), b" " | b"y" | b"Y") =>
+                    {
                         page_remaining = page_rows;
                     }
                     TerminalEvent::Bytes(_) => {

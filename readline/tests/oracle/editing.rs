@@ -6614,3 +6614,74 @@ fn bash_and_sushline_read_consecutive_bytes_for_negative_quoted_insert() {
         assert_eq!(bell_count(&sushline), 0, "{desc}: {sushline}");
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn bash_and_sushline_pin_multiline_bracketed_paste_across_resize() {
+    use portable_pty::{CommandBuilder, PtySize};
+
+    let dir = tempfile::tempdir().expect("paste resize dir");
+    let inputrc = "set enable-bracketed-paste on\nset bell-style audible\n";
+    let inputrc_path = dir.path().join("inputrc");
+    fs::write(&inputrc_path, inputrc).expect("write inputrc");
+    let mut bash_command = CommandBuilder::new("bash");
+    bash_command.env("INPUTRC", inputrc_path.as_os_str());
+    bash_command.env("HISTFILE", dir.path().join("history").as_os_str());
+    bash_command.args([
+        "--noprofile",
+        "--norc",
+        "-i",
+        "-c",
+        &format!(
+            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+        ),
+    ]);
+    let mut sushline_command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    sushline_command.env("SUSHLINE_INPUTRC", inputrc);
+    sushline_command.env("SUSHLINE_PROMPT", READY_PROMPT);
+    sushline_command.env("SUSHLINE_HISTORY", "");
+
+    for (editor, command) in [("Bash", bash_command), ("Sushline", sushline_command)] {
+        let output = run_pty_steps_then_resize_until(
+            command,
+            &[(READY_PROMPT, &b"\x1b[200~first\nsecond\x1b[201~"[..])],
+            dir.path(),
+            PtySize {
+                rows: 30,
+                cols: 100,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+            PtyResizeAction {
+                marker: "second",
+                size: PtySize {
+                    rows: 12,
+                    cols: 20,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                },
+                post_resize_marker: None,
+                after_keys: b"\r",
+            },
+            "SUSHLINE_ACCEPTED:",
+        );
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some("first"),
+            "{editor}: resize changed multiline paste acceptance\n{output:?}"
+        );
+        assert!(
+            output.contains("second"),
+            "{editor}: second pasted line disappeared\n{output:?}"
+        );
+        assert!(
+            !output.contains("--More--"),
+            "{editor}: unexpected pager prompt\n{output:?}"
+        );
+        assert_eq!(
+            bell_count(&output),
+            0,
+            "{editor}: unexpected bell\n{output:?}"
+        );
+    }
+}

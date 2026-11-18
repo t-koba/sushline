@@ -616,7 +616,13 @@ unmeasured range or cross-architecture behavior. Nonnumeric strings are unchange
 The following are bounded pinned Readline 8.3 direct-library observations,
 paired with [`oracle/history.rs`](readline/tests/oracle/history.rs) Bash/Sushline
 PTY regressions. Expected projections define the seeds, keys and accepted bytes;
-none implies general Unicode folding, locale or search equivalence.
+none implies general Unicode folding, locale or search equivalence. A paired
+100x30 to 20x12 resize between query bytes of a reverse-incremental search keeps
+the search prompt visible and accepts the matched history entry in both editors.
+GNU redraws
+the prompt with inline cursor motion while Sushline repaints whole prompt lines,
+so this pins prompt visibility and acceptance, not byte-identical redisplay.
+Test: [`oracle/history.rs`](readline/tests/oracle/history.rs).
 
 - **C.UTF-8 lowercase:** the single-entry prefix and reverse-incremental
   `älpha`/`ÄLPHA old` cases, and the forward-incremental case with `prior`

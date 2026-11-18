@@ -4886,3 +4886,73 @@ fn bash_and_sushline_vi_fetch_history_empty_history_explicit_one_rings() {
         }
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn bash_and_sushline_pin_incremental_search_across_resize() {
+    use portable_pty::{CommandBuilder, PtySize};
+
+    let dir = tempfile::tempdir().expect("search resize tempdir");
+    let history = ["needle alpha", "other beta"];
+    let mut bash_command = CommandBuilder::new("bash");
+    bash_command.env("HISTFILE", dir.path().join("history").as_os_str());
+    bash_command.env("HISTSIZE", "100");
+    bash_command.env("HISTFILESIZE", "100");
+    let seed = history
+        .iter()
+        .map(|entry| format!("history -s {}", shell_single_quote(entry)))
+        .collect::<Vec<_>>()
+        .join("; ");
+    bash_command.args([
+        "--noprofile",
+        "--norc",
+        "-i",
+        "-c",
+        &format!(
+            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; unset HISTTIMEFORMAT HISTCONTROL HISTIGNORE; history -c; {seed}; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+        ),
+    ]);
+    let mut sushline_command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    sushline_command.env("SUSHLINE_PROMPT", READY_PROMPT);
+    sushline_command.env("SUSHLINE_HISTORY", history.join("\n"));
+
+    for (editor, command) in [("Bash", bash_command), ("Sushline", sushline_command)] {
+        let output = run_pty_steps_then_resize_until(
+            command,
+            &[(READY_PROMPT, &b"\x12nee"[..])],
+            dir.path(),
+            PtySize {
+                rows: 30,
+                cols: 100,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+            PtyResizeAction {
+                marker: "nee",
+                size: PtySize {
+                    rows: 12,
+                    cols: 20,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                },
+                post_resize_marker: None,
+                after_keys: b"dle\r",
+            },
+            "SUSHLINE_ACCEPTED:",
+        );
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some("needle alpha"),
+            "{editor}: resize dropped incremental search state\n{output:?}"
+        );
+        assert!(
+            output.contains("(reverse-i-search)") && output.contains("needle"),
+            "{editor}: search prompt not visible after resize\n{output:?}"
+        );
+        assert_eq!(
+            bell_count(&output),
+            0,
+            "{editor}: unexpected bell\n{output:?}"
+        );
+    }
+}

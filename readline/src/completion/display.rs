@@ -143,6 +143,12 @@ pub(crate) fn apply_extended_completion_options(response: &mut CompletionRespons
     }
 }
 
+fn completion_columns(item_count: usize, display_width: usize, item_width: usize) -> usize {
+    (display_width.saturating_sub(1) / item_width.max(1))
+        .max(1)
+        .min(item_count.max(1))
+}
+
 pub(crate) fn format_completion_items_with_trailing(
     items: &[String],
     display_width: usize,
@@ -154,7 +160,7 @@ pub(crate) fn format_completion_items_with_trailing(
     }
     let widths: Vec<usize> = items.iter().map(|item| visible_width(item)).collect();
     let item_width = widths.iter().copied().max().unwrap_or(0) + 2;
-    let columns = (display_width.saturating_sub(1) / item_width.max(1)).max(1);
+    let columns = completion_columns(items.len(), display_width, item_width);
     let rows = items.len().div_ceil(columns);
     let mut lines = Vec::with_capacity(rows);
     for row in 0..rows {
@@ -580,5 +586,17 @@ where
         crate::buffer::LineBuffer::from_bytes(bytes.to_vec())
             .render_text(None, self.render_options(), 0)
             .0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::completion_columns;
+
+    #[test]
+    fn completion_columns_never_exceed_item_count() {
+        assert_eq!(completion_columns(3, usize::MAX, 8), 3);
+        assert_eq!(completion_columns(3, 20, 8), 2);
+        assert_eq!(completion_columns(0, usize::MAX, 8), 1);
     }
 }

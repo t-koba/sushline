@@ -1593,16 +1593,32 @@ where
             b"\r" | b"\n" => {
                 let pending = state.input.named_command.take().unwrap_or_default();
                 let command = pending.query.trim();
-                if matches!(command, "digit-argument" | "self-insert")
-                    && let Some(key) = pending.invoking_key
-                {
-                    if command == "digit-argument" && state.numeric_arg.is_none() {
-                        state.take_numeric_arg();
-                        state.numeric_arg = Some(1);
+                if let Some(key) = pending.invoking_key {
+                    match command {
+                        "digit-argument" => {
+                            if state.numeric_arg.is_none() {
+                                state.take_numeric_arg();
+                                state.numeric_arg = Some(1);
+                            }
+                            // Dispatch the invoking byte, not the Meta
+                            // sequence or the Enter that submitted the name.
+                            return self.handle_bytes(state, &[key], hooks);
+                        }
+                        "self-insert" => {
+                            // GNU inserts the invoking byte as a literal
+                            // self-insert even when that byte is bound to
+                            // another command. Applying SelfInsert directly
+                            // keeps the count and undo/redraw semantics but
+                            // avoids re-running the keymap on the byte.
+                            return self.apply_binding(
+                                state,
+                                KeyBinding::Command(EditCommand::SelfInsert),
+                                &[key],
+                                hooks,
+                            );
+                        }
+                        _ => {}
                     }
-                    // Dispatch the invoking byte, not the Meta sequence or
-                    // the Enter that submitted the name.
-                    return self.handle_bytes(state, &[key], hooks);
                 }
                 self.apply_named_command(state, command, b"", hooks)
             }

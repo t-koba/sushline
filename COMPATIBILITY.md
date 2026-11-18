@@ -316,7 +316,10 @@ enters the named command with `M-x` and submits its name with Enter:
   accept `xY`, `x`, `x3Y`, and `x-Y`, respectively. With `M-2` before `M-x`,
   `Y Enter` accepts `xxY`. A count multiplies only the invoking key: with
   `M--` or `M-0` before `M-x`, `Y Enter` accepts `Y`, and with `M-3`,
-  `YZ Enter` accepts `xxxYZ`.
+  `YZ Enter` accepts `xxxYZ`. The invoking byte is inserted literally even
+  when it is bound elsewhere: with `C-o` bound to `execute-named-command`,
+  `C-o self-insert Enter Y Enter` accepts the literal Ctrl-O followed by `Y`
+  in both editors, without a bell.
 
 Cancelling the named-command prompt with Ctrl-G discards a pending count: with
 `M-3` or `M-2` before `M-x`, `C-g` then `X Enter` (or `Y Enter`) accepts a

@@ -1847,6 +1847,36 @@ fn bash_readline_and_sushline_redispatch_named_self_insert_key() {
     ]);
 }
 
+/// A named self-insert inserts the byte that opened the prompt literally,
+/// even when that byte is bound to another command. Pinned on Readline 8.3
+/// with Ctrl-O bound to execute-named-command: 0x0f is the invoking byte.
+#[test]
+fn bash_readline_and_sushline_insert_bound_named_self_insert_key_literally() {
+    if !host_carries_measured_release() {
+        eprintln!(
+            "Bound named self-insert was measured on Readline 8.3; this case reports nothing on other releases"
+        );
+        return;
+    }
+    let inputrc = r#""\C-o": execute-named-command"#;
+    for (keys, expected) in [
+        (b"\x0fself-insert\rY\r".as_slice(), "\u{f}Y"),
+        (b"\x0fself-insert\r\r".as_slice(), "\u{f}"),
+    ] {
+        for (name, output) in [
+            ("Bash", run_bash_readline_with_bindings(keys, inputrc)),
+            ("Sushline", run_sushline_harness_with_inputrc(keys, inputrc)),
+        ] {
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(expected),
+                "{name} keys={keys:?}: {output:?}"
+            );
+            assert_eq!(bell_count(&output), 0, "{name} keys={keys:?}: {output:?}");
+        }
+    }
+}
+
 /// Dismissing the execute-named-command prompt without submitting a command
 /// drops a pending count. Pinned on Readline 8.3 with Ctrl-G as the cancel key:
 /// Escape is not used here because GNU reads it as a meta prefix inside the

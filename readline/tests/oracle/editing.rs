@@ -1821,6 +1821,33 @@ fn bash_readline_and_sushline_accept_same_execute_named_command() {
 }
 
 #[test]
+fn bash_readline_and_sushline_complete_named_command_names() {
+    if !host_carries_measured_release() {
+        eprintln!(
+            "Named command completion was measured on Readline 8.3; this case reports nothing on other releases"
+        );
+        return;
+    }
+    for keys in [
+        b"abc\x1bxbegin\tline\rX\r".as_slice(),
+        b"abc\x1bxbegin line\rX\r".as_slice(),
+        b"abc\x1bxbeginning-of-\tline\rX\r".as_slice(),
+    ] {
+        for (name, output) in [
+            ("Bash", run_bash_readline_with_inputrc_file(keys, "")),
+            ("Sushline", run_sushline_harness_with_inputrc(keys, "")),
+        ] {
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some("Xabc"),
+                "{name} keys={keys:?}: {output:?}"
+            );
+            assert_eq!(bell_count(&output), 0, "{name} keys={keys:?}: {output:?}");
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_redispatch_named_digit_argument_key() {
     assert_named_invoking_key_cases(
         "",

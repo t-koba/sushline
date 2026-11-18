@@ -199,6 +199,12 @@ pub trait Hooks {
         Vec::new()
     }
 
+    /// Returns embedder-owned command function names for completion in the
+    /// `execute-named-command` prompt.
+    fn named_command_names(&mut self) -> Vec<Vec<u8>> {
+        Vec::new()
+    }
+
     /// Returns user names for completion.
     fn user_names(&mut self) -> Vec<Vec<u8>> {
         Vec::new()

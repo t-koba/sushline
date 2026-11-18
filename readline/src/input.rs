@@ -1653,6 +1653,10 @@ where
                 }
                 Ok(EditorOutcome::Continue)
             }
+            &[b'\t'] | &[b' '] => {
+                self.complete_named_command_query(state, hooks);
+                Ok(EditorOutcome::Continue)
+            }
             _ => {
                 if state.input.named_command.is_none() {
                     return self.handle_bytes(state, bytes, hooks);
@@ -1666,6 +1670,33 @@ where
                 }
                 Ok(EditorOutcome::Continue)
             }
+        }
+    }
+
+    fn complete_named_command_query(&self, state: &mut EditorState, hooks: &mut impl Hooks) {
+        let Some(pending) = state.input.named_command.as_ref() else {
+            return;
+        };
+        let prefix = pending.query.as_bytes();
+        let mut candidates: Vec<_> =
+            crate::keymap::bind_function_names(self.variable_is_on("sushline-vi-registers"))
+                .into_iter()
+                .map(str::as_bytes)
+                .filter(|name| name.starts_with(prefix))
+                .map(<[u8]>::to_vec)
+                .collect();
+        candidates.extend(
+            hooks
+                .named_command_names()
+                .into_iter()
+                .filter(|name| name.starts_with(prefix)),
+        );
+        if let Some(common) = crate::completion::display::longest_common_bytes_prefix(
+            candidates.iter().map(Vec::as_slice),
+        ) && common.len() > prefix.len()
+            && let Some(pending) = state.input.named_command.as_mut()
+        {
+            pending.query = String::from_utf8_lossy(&common).into_owned();
         }
     }
 }

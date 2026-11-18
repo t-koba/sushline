@@ -281,15 +281,19 @@ where
                 }
             }
             "fetch-history" | "vi-fetch-history" => {
-                // GNU bounds a numbered fetch by the current history position
-                // and counts a negative number backward from that position.
-                // Zero, an absent argument and an out-of-range number fetch
-                // the first entry; an empty history stays put. The cursor
-                // moves to the fetched entry so later navigation starts there.
+                // In emacs mode GNU bounds a numbered fetch by the current
+                // history position and counts a negative number backward
+                // from it; zero, an absent argument and an out-of-range
+                // number fetch the first entry. Vi command mode has its own
+                // out-of-range rule below. The cursor moves to the fetched
+                // entry so later navigation starts there.
                 let position = self.history.where_history();
+                let explicit_arg = state.numeric_arg.is_some();
                 let arg = state.take_numeric_arg().unwrap_or(1);
                 let mut out_of_range = false;
-                let index = if self.effective_editing_mode_is_vi() && arg > 1 {
+                let vi_count =
+                    self.effective_editing_mode_is_vi() && (arg > 1 || (explicit_arg && arg == 1));
+                let index = if vi_count {
                     // Vi command-mode counts select a 1-based entry. Past
                     // where_history() GNU takes the next newer entry and
                     // rings; at the newest entry it only rings. Named

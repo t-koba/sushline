@@ -4764,3 +4764,20 @@ fn bash_and_sushline_vi_fetch_history_out_of_range_counts_ring() {
         }
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_fetch_history_empty_history_explicit_one_rings() {
+    let inputrc = "set editing-mode vi\n";
+    let empty: [&str; 0] = [];
+    for (count, bells) in [("", 0), ("1", 1), ("2", 1)] {
+        let keys = format!("\x1b{count}GAX\r");
+        let keys = keys.as_bytes();
+        let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &empty);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &empty);
+        for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+            let context = format!("{editor} count={count:?}: {output}");
+            assert_eq!(accepted_line(output).as_deref(), Some("X"), "{context}");
+            assert_eq!(bell_count(output), bells, "{context}");
+        }
+    }
+}

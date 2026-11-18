@@ -1863,6 +1863,10 @@ pub(super) fn accepted_numbered_line(output: &str, number: usize) -> Option<Stri
     accepted_line_after_marker(output, &format!("SUSHLINE_ACCEPTED_{number}:"))
 }
 
+/// Returns only the first physical line after `marker`.
+///
+/// A PTY turns embedded newlines in the accepted buffer into CR/LF output. Use
+/// a raw marker split when a fixture needs to assert the whole multiline buffer.
 pub(super) fn accepted_line_after_marker(output: &str, marker: &str) -> Option<String> {
     let start = output.find(marker)? + marker.len();
     let rest = &output[start..];
@@ -2347,4 +2351,18 @@ pub(super) fn run_sushline_harness_steps_with_inputrc(
     command.env("SUSHLINE_PROMPT", READY_PROMPT);
     command.env("SUSHLINE_HISTORY", "");
     run_pty_steps_until(command, steps, "SUSHLINE_ACCEPTED:")
+}
+
+#[test]
+fn accepted_line_after_marker_stops_at_first_line_break() {
+    assert_eq!(
+        accepted_line_after_marker("SUSHLINE_ACCEPTED:first\r\nsecond", "SUSHLINE_ACCEPTED:")
+            .as_deref(),
+        Some("first")
+    );
+    assert_eq!(
+        accepted_line_after_marker("SUSHLINE_ACCEPTED:first\nsecond", "SUSHLINE_ACCEPTED:")
+            .as_deref(),
+        Some("first")
+    );
 }

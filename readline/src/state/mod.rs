@@ -52,6 +52,9 @@ pub(crate) struct EditorState {
     /// An argument prefix inside the literal tail makes GNU consume all later
     /// argument keys without inserting them.
     pub(crate) numeric_arg_literal_swallow: bool,
+    /// The literal tail came from a multiplied minus; a Meta-prefixed argument
+    /// key then starts a fresh count instead of being swallowed.
+    pub(crate) numeric_arg_literal_tail_chain_minus: bool,
     pub(crate) mark: Option<usize>,
     pub(crate) overwrite_mode: bool,
     pub(crate) original_line: Vec<u8>,
@@ -83,6 +86,7 @@ impl EditorState {
             numeric_arg_noop_chain: false,
             numeric_arg_literal_tail: false,
             numeric_arg_literal_swallow: false,
+            numeric_arg_literal_tail_chain_minus: false,
             mark: None,
             overwrite_mode: false,
             original_line,
@@ -145,6 +149,7 @@ impl EditorState {
         self.numeric_arg_noop_chain = false;
         self.numeric_arg_literal_tail = false;
         self.numeric_arg_literal_swallow = false;
+        self.numeric_arg_literal_tail_chain_minus = false;
         self.macro_state.numeric_arg_recording_start = None;
         arg
     }

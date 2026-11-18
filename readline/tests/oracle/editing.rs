@@ -2958,6 +2958,59 @@ fn bash_and_sushline_ring_for_blocked_character_motion_by_direction() {
 }
 
 #[test]
+fn bash_and_sushline_start_fresh_counts_after_a_chain_minus_tail() {
+    let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
+    let base = format!("{}{}", "a".repeat(60), "-".repeat(48));
+    // Bare argument keys remain literal in this tail, but a Meta-prefixed
+    // argument key starts a new signed count and ends the tail.
+    for (desc, suffix, expected) in [
+        ("bare digit", b"5X\r".as_slice(), format!("{base}5X")),
+        (
+            "meta digit",
+            b"\x1b5X\r".as_slice(),
+            format!("{base}{}", "X".repeat(5)),
+        ),
+        ("second minus", b"-X\r".as_slice(), format!("{base}-X")),
+        ("meta minus", b"\x1b-X\r".as_slice(), base.clone()),
+        ("letter", b"YX\r".as_slice(), format!("{base}YX")),
+        (
+            "meta five then bare six",
+            b"\x1b56X\r".as_slice(),
+            format!("{base}{}", "X".repeat(56)),
+        ),
+        (
+            "bare five then meta six",
+            b"5\x1b6X\r".as_slice(),
+            format!("{base}5{}", "X".repeat(6)),
+        ),
+        (
+            "meta five then meta six",
+            b"\x1b5\x1b6X\r".as_slice(),
+            format!("{base}{}", "X".repeat(56)),
+        ),
+        (
+            "meta minus then digit",
+            b"\x1b-5X\r".as_slice(),
+            base.clone(),
+        ),
+    ] {
+        let mut input = vec![b'a'; 60];
+        input.extend_from_slice(b"\x1b3\x0f\x0f\x0f-");
+        input.extend_from_slice(suffix);
+        let bash = run_bash_readline_with_inputrc_file(&input, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&input, inputrc);
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected.as_str()),
+                "{editor} {desc}: {output}"
+            );
+            assert_eq!(bell_count(output), 0, "{editor} {desc}: {output}");
+        }
+    }
+}
+
+#[test]
 fn bash_and_sushline_insert_minus_after_a_multiplied_universal_chain() {
     let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
     let a = "a".repeat(60);

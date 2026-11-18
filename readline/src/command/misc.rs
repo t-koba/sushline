@@ -91,6 +91,17 @@ where
                         || positive_chain_minus)
                 {
                     let meta_prefixed = key.first() == Some(&0x1b);
+                    if meta_prefixed && state.numeric_arg_literal_tail_chain_minus {
+                        // A Meta-prefixed key after a chain-minus tail starts
+                        // a fresh signed argument; bare keys stay literal.
+                        state.numeric_arg_literal_tail = false;
+                        state.numeric_arg_literal_swallow = false;
+                        state.numeric_arg_literal_tail_chain_minus = false;
+                        if update_numeric_argument(state, key) {
+                            self.ding()?;
+                        }
+                        return Ok(EditorOutcome::Continue);
+                    }
                     self.handle_noop_argument_key(state, key[key.len() - 1], meta_prefixed, true)?;
                     return Ok(EditorOutcome::Continue);
                 }

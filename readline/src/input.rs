@@ -440,6 +440,9 @@ where
             self.insert_literal_with_count(state, &[key], count.max(0) as u32, record_macro);
             state.numeric_arg = None;
         }
+        if repeat_by_count {
+            state.numeric_arg_literal_tail_chain_minus = true;
+        }
         state.numeric_arg_literal_tail = true;
         Ok(())
     }

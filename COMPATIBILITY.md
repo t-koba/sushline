@@ -314,7 +314,9 @@ enters the named command with `M-x` and submits its name with Enter:
   `M-x`, `X Enter` accepts `X` or `xxX`; with `M-3`, `Y Enter` accepts `xxxY`.
 - `self-insert`: the suffixes `Y Enter`, `Enter`, `3Y Enter`, and `-Y Enter`
   accept `xY`, `x`, `x3Y`, and `x-Y`, respectively. With `M-2` before `M-x`,
-  `Y Enter` accepts `xxY`.
+  `Y Enter` accepts `xxY`. A count multiplies only the invoking key: with
+  `M--` or `M-0` before `M-x`, `Y Enter` accepts `Y`, and with `M-3`,
+  `YZ Enter` accepts `xxxYZ`.
 
 A directional bell asymmetry is pinned for oversized counts. With 60 leading
 `a`s and `C-o` bound to `universal-argument`, a forward count that reaches the

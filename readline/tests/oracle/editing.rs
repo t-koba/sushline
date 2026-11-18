@@ -1841,6 +1841,9 @@ fn bash_readline_and_sushline_redispatch_named_self_insert_key() {
         (b"\x1bxself-insert\r3Y\r", "x3Y"),
         (b"\x1bxself-insert\r-Y\r", "x-Y"),
         (b"\x1b2\x1bxself-insert\rY\r", "xxY"),
+        (b"\x1b-\x1bxself-insert\rY\r", "Y"),
+        (b"\x1b0\x1bxself-insert\rY\r", "Y"),
+        (b"\x1b3\x1bxself-insert\rYZ\r", "xxxYZ"),
     ]);
 }
 

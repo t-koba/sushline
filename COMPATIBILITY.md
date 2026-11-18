@@ -305,11 +305,16 @@ Sushline-only extensions use the `Sushline extension` status.
 | `call-last-kbd-macro` | Compatible | Default and counted calls, with no-definition and nesting-exhaustion bells. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `print-last-kbd-macro` | Compatible | Recorded macro output. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 
-On Bash 5.3 with Readline 8.3, the paired named-command fixture enters
-`digit-argument` via `M-x` and submits it with Enter. The suffixes `X Enter`,
-`Enter`, `3X Enter`, and `-X Enter` accept `xX`, `x`, `x3X`, and `x-X`,
-respectively, without a bell. See
-[`oracle/editing.rs`](readline/tests/oracle/editing.rs).
+The paired [`oracle/editing.rs`](readline/tests/oracle/editing.rs) fixtures
+cover these silent accepted-line cases on Bash 5.3 with Readline 8.3. Each
+enters the named command with `M-x` and submits its name with Enter:
+
+- `digit-argument`: the suffixes `X Enter`, `Enter`, `3X Enter`, and `-X Enter`
+  accept `xX`, `x`, `x3X`, and `x-X`, respectively. With `M-0` or `M-2` before
+  `M-x`, `X Enter` accepts `X` or `xxX`; with `M-3`, `Y Enter` accepts `xxxY`.
+- `self-insert`: the suffixes `Y Enter`, `Enter`, `3Y Enter`, and `-Y Enter`
+  accept `xY`, `x`, `x3Y`, and `x-Y`, respectively. With `M-2` before `M-x`,
+  `Y Enter` accepts `xxY`.
 
 A directional bell asymmetry is pinned for oversized counts. With 60 leading
 `a`s and `C-o` bound to `universal-argument`, a forward count that reaches the

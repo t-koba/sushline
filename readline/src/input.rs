@@ -1593,13 +1593,15 @@ where
             b"\r" | b"\n" => {
                 let pending = state.input.named_command.take().unwrap_or_default();
                 let command = pending.query.trim();
-                if command == "digit-argument"
+                if matches!(command, "digit-argument" | "self-insert")
                     && let Some(key) = pending.invoking_key
                 {
-                    // Start a fresh count and dispatch the single invoking byte,
-                    // not the Meta sequence or the Enter that submitted the name.
-                    state.take_numeric_arg();
-                    state.numeric_arg = Some(1);
+                    if command == "digit-argument" && state.numeric_arg.is_none() {
+                        state.take_numeric_arg();
+                        state.numeric_arg = Some(1);
+                    }
+                    // Dispatch the invoking byte, not the Meta sequence or
+                    // the Enter that submitted the name.
                     return self.handle_bytes(state, &[key], hooks);
                 }
                 self.apply_named_command(state, command, b"", hooks)

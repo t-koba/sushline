@@ -1822,18 +1822,36 @@ fn bash_readline_and_sushline_accept_same_execute_named_command() {
 
 #[test]
 fn bash_readline_and_sushline_redispatch_named_digit_argument_key() {
-    if !host_carries_measured_release() {
-        eprintln!(
-            "Named digit-argument was measured on Readline 8.3; this case reports nothing on other releases"
-        );
-        return;
-    }
-    for (keys, expected) in [
-        (b"\x1bxdigit-argument\rX\r".as_slice(), "xX"),
+    assert_named_invoking_key_cases(&[
+        (b"\x1bxdigit-argument\rX\r", "xX"),
         (b"\x1bxdigit-argument\r\r", "x"),
         (b"\x1bxdigit-argument\r3X\r", "x3X"),
         (b"\x1bxdigit-argument\r-X\r", "x-X"),
-    ] {
+        (b"\x1b0\x1bxdigit-argument\rX\r", "X"),
+        (b"\x1b2\x1bxdigit-argument\rX\r", "xxX"),
+        (b"\x1b3\x1bxdigit-argument\rY\r", "xxxY"),
+    ]);
+}
+
+#[test]
+fn bash_readline_and_sushline_redispatch_named_self_insert_key() {
+    assert_named_invoking_key_cases(&[
+        (b"\x1bxself-insert\rY\r", "xY"),
+        (b"\x1bxself-insert\r\r", "x"),
+        (b"\x1bxself-insert\r3Y\r", "x3Y"),
+        (b"\x1bxself-insert\r-Y\r", "x-Y"),
+        (b"\x1b2\x1bxself-insert\rY\r", "xxY"),
+    ]);
+}
+
+fn assert_named_invoking_key_cases(cases: &[(&[u8], &str)]) {
+    if !host_carries_measured_release() {
+        eprintln!(
+            "Named invoking-key forwarding was measured on Readline 8.3; this case reports nothing on other releases"
+        );
+        return;
+    }
+    for &(keys, expected) in cases {
         let bash = run_bash_readline_with_inputrc_file(keys, "");
         let sushline = run_sushline_harness_with_inputrc(keys, "");
         for (name, output) in [("Bash", &bash), ("Sushline", &sushline)] {

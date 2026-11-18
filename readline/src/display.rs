@@ -50,7 +50,6 @@ where
             .and_then(|value| value.parse::<isize>().ok())
             .filter(|value| *value >= 0)
             .map(|value| value as usize)
-            .filter(|value| *value <= screen_width)
         {
             return width;
         }

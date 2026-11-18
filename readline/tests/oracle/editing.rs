@@ -6491,22 +6491,33 @@ fn bash_and_sushline_start_a_literal_tail_at_zero_count() {
 
 #[test]
 fn bash_and_sushline_read_consecutive_bytes_for_negative_quoted_insert() {
-    for (desc, keys) in [
-        ("minus meta one", b"\x1b-\x1b1\x16abcdefghijk\r".as_slice()),
-        ("minus meta two", b"\x1b-\x1b2\x16abcdefghijkl\r".as_slice()),
-        ("too few bytes", b"\x1b-\x1b1\x16abc\r".as_slice()),
+    for (desc, keys, expected) in [
+        (
+            "minus meta one",
+            b"\x1b-\x1b1\x16abcdefghijk\r".as_slice(),
+            Some("abcdefghijk"),
+        ),
+        (
+            "minus meta two",
+            b"\x1b-\x1b2\x16abcdefghijkl\r".as_slice(),
+            Some("abcdefghijkl"),
+        ),
+        ("too few bytes", b"\x1b-\x1b1\x16abc\r".as_slice(), None),
         (
             "positive count repeats one byte",
             b"\x1b2\x16abc\r".as_slice(),
+            Some("aabc"),
         ),
     ] {
         let bash = run_bash_readline_with_inputrc_file(keys, "");
         let sushline = run_sushline_harness_with_inputrc(keys, "");
-        assert_eq!(
-            accepted_line(&sushline),
-            accepted_line(&bash),
-            "{desc}: bash={bash}\nsushline={sushline}"
-        );
+        for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                expected,
+                "{editor} {desc}: {output}"
+            );
+        }
         assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
         assert_eq!(bell_count(&sushline), 0, "{desc}: {sushline}");
     }

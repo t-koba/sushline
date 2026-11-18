@@ -183,64 +183,128 @@ fn bash_readline_and_sushline_accept_same_backspace_edit() {
 
 #[test]
 fn bash_readline_and_sushline_word_motion_honors_numeric_argument() {
-    // Counts and boundary clamping in the tested Bash 5.3 PTY fixtures.
-    // Zero and negative counts stay at the starting point; over-counts stop
-    // at the nearest word boundary. No broader rule is inferred.
-    for (desc, prefix, expected) in [
-        ("uncounted", b"".as_slice(), "oneX two three"),
-        ("zero", b"\x1b0".as_slice(), "Xone two three"),
-        ("one", b"\x1b1".as_slice(), "oneX two three"),
-        ("two", b"\x1b2".as_slice(), "one twoX three"),
-        ("three", b"\x1b3".as_slice(), "one two threeX"),
-        ("negative_one", b"\x1b-\x1b1".as_slice(), "Xone two three"),
-        ("nine", b"\x1b9".as_slice(), "one two threeX"),
+    let interior = b"one two three\x01\x06\x06\x06\x06\x06";
+    // Expected lines for Meta-f from line start and inside "two", then
+    // for Meta-b from line end and inside "two". Labels describe the keys:
+    // `negative_one` sends M-- M-1, which composes an argument of -11.
+    for (desc, prefix, forward, backward) in [
+        (
+            "uncounted",
+            b"".as_slice(),
+            ["oneX two three", "one twoX three"],
+            ["one two Xthree", "one Xtwo three"],
+        ),
+        (
+            "zero",
+            b"\x1b0".as_slice(),
+            ["Xone two three", "one tXwo three"],
+            ["one two threeX", "one tXwo three"],
+        ),
+        (
+            "one",
+            b"\x1b1".as_slice(),
+            ["oneX two three", "one twoX three"],
+            ["one two Xthree", "one Xtwo three"],
+        ),
+        (
+            "two",
+            b"\x1b2".as_slice(),
+            ["one twoX three", "one two threeX"],
+            ["one Xtwo three", "Xone two three"],
+        ),
+        (
+            "three",
+            b"\x1b3".as_slice(),
+            ["one two threeX", "one two threeX"],
+            ["Xone two three", "Xone two three"],
+        ),
+        (
+            "negative_one",
+            b"\x1b-\x1b1".as_slice(),
+            ["Xone two three", "Xone two three"],
+            ["one two threeX", "one two threeX"],
+        ),
+        (
+            "nine",
+            b"\x1b9".as_slice(),
+            ["one two threeX", "one two threeX"],
+            ["Xone two three", "Xone two three"],
+        ),
     ] {
-        let mut keys = b"one two three\x01".to_vec();
-        keys.extend_from_slice(prefix);
-        keys.extend_from_slice(b"\x1bfX\r");
-        let bash = run_bash_readline(&keys);
-        let sushline = run_sushline_harness(&keys);
+        for (position, start, motion, expected) in [
+            (
+                "start",
+                b"one two three\x01".as_slice(),
+                b"\x1bfX\r",
+                forward[0],
+            ),
+            ("end", b"one two three".as_slice(), b"\x1bbX\r", backward[0]),
+            (
+                "interior forward",
+                interior.as_slice(),
+                b"\x1bfX\r",
+                forward[1],
+            ),
+            (
+                "interior backward",
+                interior.as_slice(),
+                b"\x1bbX\r",
+                backward[1],
+            ),
+        ] {
+            let mut keys = start.to_vec();
+            keys.extend_from_slice(prefix);
+            keys.extend_from_slice(motion);
+            let bash = run_bash_readline(&keys);
+            let sushline = run_sushline_harness(&keys);
 
-        assert_eq!(
-            accepted_line(&bash),
-            Some(expected.to_string()),
-            "{desc}: {bash}"
-        );
-        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
-        assert_eq!(
-            accepted_line(&sushline),
-            accepted_line(&bash),
-            "{desc}: bash={bash}\nsushline={sushline}"
-        );
-        assert_eq!(bell_count(&sushline), 0, "{desc}: {sushline}");
+            for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+                assert_eq!(
+                    accepted_line(output).as_deref(),
+                    Some(expected),
+                    "{editor} {position}, {desc}: {output:?}"
+                );
+                assert_eq!(
+                    bell_count(output),
+                    0,
+                    "{editor} {position}, {desc}: {output:?}"
+                );
+            }
+        }
     }
-    for (desc, prefix, expected) in [
-        ("uncounted", b"".as_slice(), "one two Xthree"),
-        ("zero", b"\x1b0".as_slice(), "one two threeX"),
-        ("one", b"\x1b1".as_slice(), "one two Xthree"),
-        ("two", b"\x1b2".as_slice(), "one Xtwo three"),
-        ("three", b"\x1b3".as_slice(), "Xone two three"),
-        ("negative_one", b"\x1b-\x1b1".as_slice(), "one two threeX"),
-        ("nine", b"\x1b9".as_slice(), "Xone two three"),
+}
+
+#[test]
+fn bash_readline_and_sushline_compose_meta_minus_and_meta_digits() {
+    if !host_carries_measured_release() {
+        eprintln!(
+            "Meta-minus composition was measured on Readline 8.3; this case reports nothing on other releases"
+        );
+        return;
+    }
+    // Point 13 distinguishes -1, -11, -12 and -10 without clamping.
+    for (prefix, expected) in [
+        (b"\x1b-".as_slice(), "abcdefghijklXmnopqrstuvwxyz"),
+        (b"\x1b-\x1b1".as_slice(), "abXcdefghijklmnopqrstuvwxyz"),
+        (b"\x1b-\x1b2".as_slice(), "aXbcdefghijklmnopqrstuvwxyz"),
+        (b"\x1b-\x1b0".as_slice(), "abcXdefghijklmnopqrstuvwxyz"),
+        (b"\x1b-\x1b-\x1b1".as_slice(), "abcdefghijklmnXopqrstuvwxyz"),
     ] {
-        let mut keys = b"one two three".to_vec();
+        let mut keys = b"abcdefghijklmnopqrstuvwxyz\x01".to_vec();
+        keys.extend_from_slice(&[0x06; 13]);
         keys.extend_from_slice(prefix);
-        keys.extend_from_slice(b"\x1bbX\r");
+        keys.extend_from_slice(b"\x06X\r");
         let bash = run_bash_readline(&keys);
         let sushline = run_sushline_harness(&keys);
 
-        assert_eq!(
-            accepted_line(&bash),
-            Some(expected.to_string()),
-            "{desc}: {bash}"
-        );
-        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
-        assert_eq!(
-            accepted_line(&sushline),
-            accepted_line(&bash),
-            "{desc}: bash={bash}\nsushline={sushline}"
-        );
-        assert_eq!(bell_count(&sushline), 0, "{desc}: {sushline}");
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{editor} {prefix:?}: {output:?}"
+            );
+            assert_eq!(bell_count(output), 0, "{editor} {prefix:?}: {output:?}");
+        }
     }
 }
 
@@ -2116,8 +2180,7 @@ fn pending_argument_row(editor: &str, output: &str, indicator: &str) -> String {
         })
 }
 
-/// Whether the host carries the release the pending argument rendering was
-/// measured on.
+/// Whether the host carries the measured Readline release.
 ///
 /// GNU Readline 8.3 draws `(arg: N) ` where the prompt would be while a
 /// numeric argument is pending, and the prompt is not on the screen while

@@ -113,7 +113,11 @@ pub(crate) fn update_numeric_argument(state: &mut EditorState, key: &[u8]) -> bo
         b'0'..=b'9' => {
             let digit = (last - b'0') as i32;
             let current = state.numeric_arg.unwrap_or(0);
-            let next = if state.numeric_arg_sign_only || state.numeric_arg_universal {
+            // After M--, a bare 1 replaces the magnitude (-1), while M-1 appends (-11).
+            let meta_prefixed = key.first() == Some(&0x1b);
+            let next = if state.numeric_arg_universal
+                || (state.numeric_arg_sign_only && (!state.numeric_arg_negative || !meta_prefixed))
+            {
                 Some(if state.numeric_arg_negative {
                     -digit
                 } else {

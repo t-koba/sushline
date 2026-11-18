@@ -4656,3 +4656,46 @@ fn bash_and_sushline_fetch_history_negative_counts_from_end() {
         }
     }
 }
+
+#[test]
+fn bash_and_sushline_operate_and_get_next_signed_counts() {
+    let inputrc = r#""\C-o": operate-and-get-next"#;
+    let history = ["one", "two", "three", "four", "five"];
+    let empty: [&str; 0] = [];
+    for (entries, prefix, arg, first, second) in [
+        (&history[..], "", "0", "", "one"),
+        (&history[..], "\x10", "0", "five", "one"),
+        (&history[..], "\x10\x10", "0", "four", "one"),
+        (&history[..], "", "-1", "", ""),
+        (&history[..], "", "-3", "", ""),
+        (&history[..], "\x10", "-1", "five", ""),
+        (&history[..], "\x10", "-5", "five", ""),
+        (&history[..], "", "1", "", "one"),
+        (&history[..], "", "2", "", "two"),
+        (&history[..], "", "6", "", ""),
+        (&empty[..], "", "0", "", ""),
+        (&empty[..], "", "-1", "", ""),
+    ] {
+        let keys = format!("{prefix}\x1b{arg}\x0f\r\r");
+        let keys = keys.as_bytes();
+        let bash =
+            run_bash_readline_two_reads_with_inputrc_file_and_history(keys, inputrc, entries);
+        let sushline =
+            run_sushline_harness_two_reads_with_inputrc_and_history(keys, inputrc, entries);
+        for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+            let context =
+                format!("{editor}: prefix={prefix:?} arg={arg} history={entries:?}: {output}");
+            assert_eq!(
+                accepted_numbered_line(output, 1).as_deref(),
+                Some(first),
+                "{context}"
+            );
+            assert_eq!(
+                accepted_numbered_line(output, 2).as_deref(),
+                Some(second),
+                "{context}"
+            );
+            assert_eq!(bell_count(output), 0, "{context}");
+        }
+    }
+}

@@ -540,15 +540,22 @@ where
                 state.after_non_kill_command();
             }
             "operate-and-get-next" => {
-                self.pending_initial_line = state
-                    .numeric_arg
-                    .take()
-                    .and_then(|arg| {
-                        self.history
-                            .get_1_based_entry(arg.unsigned_abs() as usize)
-                            .map(|entry| entry.line_bytes.clone())
-                    })
-                    .or_else(|| self.history.next_after_current_cursor_bytes());
+                // GNU prefills the first entry for an explicit zero, the
+                // numbered entry for a positive argument, and nothing for a
+                // negative one. Without an argument it prefills the entry
+                // after the current cursor, when there is one.
+                self.pending_initial_line = match state.numeric_arg.take() {
+                    Some(0) => self
+                        .history
+                        .get_1_based_entry(1)
+                        .map(|entry| entry.line_bytes.clone()),
+                    Some(arg) if arg > 0 => self
+                        .history
+                        .get_1_based_entry(arg as usize)
+                        .map(|entry| entry.line_bytes.clone()),
+                    Some(_) => None,
+                    None => self.history.next_after_current_cursor_bytes(),
+                };
                 return Ok(EditorOutcome::Accepted(state.buffer.as_bytes().to_vec()));
             }
             _ => unreachable!("named command group mismatch"),

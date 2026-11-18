@@ -11840,7 +11840,7 @@ set print-completions-horizontally off"#;
 
 #[cfg(unix)]
 #[test]
-fn bash_and_sushline_pin_explicit_completion_width_across_resize() {
+fn bash_and_sushline_pin_explicit_completion_width_against_terminal_width() {
     use portable_pty::{CommandBuilder, PtySize};
 
     require_oracle_host();
@@ -11859,17 +11859,16 @@ set print-completions-horizontally on
 set completion-display-width 21"#;
     let inputrc_path = root.path().join("inputrc");
     fs::write(&inputrc_path, inputrc).expect("explicit width inputrc");
-    let initial_size = PtySize {
-        rows: 12,
-        cols: 100,
-        pixel_width: 0,
-        pixel_height: 0,
-    };
     let line = format!("{}/al", cwd.display());
-    let completion_keys = format!("{line}\x0f");
-    let steps = [(READY_PROMPT, completion_keys.as_bytes())];
+    let keys = format!("{line}\x0f\r");
 
-    for (label, cols) in [("wider", 100), ("narrow", 20)] {
+    for (label, cols, expected) in [("wider", 100, vec![2; 10]), ("narrow", 20, vec![1; 20])] {
+        let size = PtySize {
+            rows: 12,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        };
         for (editor, mut command) in [
             ("Bash", CommandBuilder::new("bash")),
             (
@@ -11899,33 +11898,15 @@ set completion-display-width 21"#;
                 command.env("SUSHLINE_PROMPT", READY_PROMPT);
                 command.env("SUSHLINE_HISTORY", "");
             }
-            let output = run_pty_steps_then_resize_until(
-                command,
-                &steps,
-                &cwd,
-                initial_size,
-                PtyResizeAction {
-                    marker: READY_PROMPT,
-                    size: PtySize {
-                        rows: 12,
-                        cols,
-                        pixel_width: 0,
-                        pixel_height: 0,
-                    },
-                    post_resize_marker: None,
-                    after_keys: b"\r",
-                },
-                "SUSHLINE_ACCEPTED:",
-            );
+            let output = run_pty_with_size(command, keys.as_bytes(), size);
             let rows = output
                 .lines()
                 .map(|line| line.matches("alpha-").count())
                 .filter(|count| *count > 0)
                 .collect::<Vec<_>>();
             assert_eq!(
-                rows,
-                vec![2; 10],
-                "{label} {editor}: explicit display width was capped\n{output:?}"
+                rows, expected,
+                "{label} {editor}: explicit display width above terminal width was honored\n{output:?}"
             );
             assert_eq!(
                 accepted_line(&output).as_deref(),

@@ -43,25 +43,23 @@ where
     }
 
     pub(crate) fn completion_display_width(&self) -> usize {
-        if let Some(width) = self
-            .variables
+        let terminal_width = if let Ok(size) = self.terminal.size()
+            && size.columns > 0
+        {
+            normalize_terminal_size(size).columns as usize
+        } else {
+            std::env::var("COLUMNS")
+                .ok()
+                .and_then(|value| value.parse::<usize>().ok())
+                .filter(|value| *value > 0)
+                .unwrap_or(80)
+        };
+        self.variables
             .get("completion-display-width")
             .and_then(|value| value.parse::<isize>().ok())
             .filter(|value| *value >= 0)
-            .map(|value| value as usize)
-        {
-            return width;
-        }
-        if let Ok(size) = self.terminal.size()
-            && size.columns > 0
-        {
-            return normalize_terminal_size(size).columns as usize;
-        }
-        std::env::var("COLUMNS")
-            .ok()
-            .and_then(|value| value.parse::<usize>().ok())
-            .filter(|value| *value > 0)
-            .unwrap_or(80)
+            .map(|value| (value as usize).min(terminal_width))
+            .unwrap_or(terminal_width)
     }
 
     pub(crate) fn terminal_screen_rows(&self) -> usize {

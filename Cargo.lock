@@ -399,7 +399,7 @@ dependencies = [
 
 [[package]]
 name = "sushline-history"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "libc",
  "memchr",
@@ -409,7 +409,7 @@ dependencies = [
 
 [[package]]
 name = "sushline-readline"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "libc",
  "portable-pty",

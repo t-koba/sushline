@@ -8143,8 +8143,8 @@ set page-completions on"#;
 fn bash_and_sushline_compare_resize_during_completion_pagination() {
     // The pinned Bash fixture redraws the input prompt after this resize, but
     // that alone is not proof it exited the pager: q is still a pager response.
-    // Wait for Bash's fresh prompt and Sushline's subsequent --More-- before
-    // sending q + Enter. Compare accepted lines, not redraw bytes.
+    // Both editors page once after the resize; compare accepted lines, not
+    // redraw bytes.
     use portable_pty::{CommandBuilder, PtySize};
 
     require_oracle_host();
@@ -8207,7 +8207,7 @@ set page-completions on"#;
             marker: "--More--",
             size: resized_size,
             post_resize_marker: Some(READY_PROMPT),
-            after_keys: b"q\r",
+            after_keys: b" q\r",
         },
         "SUSHLINE_ACCEPTED:",
     );
@@ -8224,8 +8224,8 @@ set page-completions on"#;
         PtyResizeAction {
             marker: "--More--",
             size: resized_size,
-            post_resize_marker: Some("--More--"),
-            after_keys: b"q\r",
+            post_resize_marker: None,
+            after_keys: b" q\r",
         },
         "SUSHLINE_ACCEPTED:",
     );
@@ -11627,6 +11627,113 @@ set page-completions off"#;
             assert_eq!(
                 flashes, expected,
                 "visible bell count differs for this prompt\n{context}"
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn bash_and_sushline_pin_completion_pager_page_size_after_resize() {
+    use portable_pty::{CommandBuilder, PtySize};
+
+    require_oracle_host();
+    let root = tempfile::tempdir().expect("pager resize root");
+    let cwd = root.path().join("cwd");
+    fs::create_dir(&cwd).expect("pager resize cwd");
+    for index in 1..=40 {
+        fs::write(
+            cwd.join(format!("alpha-long-completion-item-{index:02}")),
+            b"",
+        )
+        .expect("pager resize candidate");
+    }
+    let home = root.path().join("home");
+    fs::create_dir(&home).expect("pager resize home");
+    let inputrc = r#""\C-o": possible-filename-completions
+set completion-query-items 0
+set print-completions-horizontally off
+set page-completions on"#;
+    let inputrc_path = root.path().join("inputrc");
+    fs::write(&inputrc_path, inputrc).expect("pager resize inputrc");
+    let initial_size = PtySize {
+        rows: 8,
+        cols: 40,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let line = format!("{}/al", cwd.display());
+    let completion_keys = format!("{line}\x0f");
+    let steps = [(READY_PROMPT, completion_keys.as_bytes())];
+
+    for (label, rows, cols, expected_highest) in [("taller", 16, 40, 22), ("narrower", 8, 20, 14)] {
+        for (editor, command) in [
+            ("Bash", CommandBuilder::new("bash")),
+            (
+                "Sushline",
+                CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness")),
+            ),
+        ] {
+            let mut command = command;
+            command.env("TERM", "xterm-256color");
+            command.cwd(&cwd);
+            if editor == "Bash" {
+                command.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
+                command.env("HOME", home.to_string_lossy().as_ref());
+                command.env(
+                    "HISTFILE",
+                    root.path().join("history").to_string_lossy().as_ref(),
+                );
+                command.args([
+                    "--noprofile",
+                    "--norc",
+                    "-i",
+                    "-c",
+                    &format!(
+                        r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+                    ),
+                ]);
+            } else {
+                command.env("SUSHLINE_INPUTRC", inputrc);
+                command.env("SUSHLINE_PROMPT", READY_PROMPT);
+                command.env("SUSHLINE_HISTORY", "");
+            }
+            let output = run_pty_steps_then_resize_until(
+                command,
+                &steps,
+                &cwd,
+                initial_size,
+                PtyResizeAction {
+                    marker: "--More--",
+                    size: PtySize {
+                        rows,
+                        cols,
+                        pixel_width: 0,
+                        pixel_height: 0,
+                    },
+                    post_resize_marker: None,
+                    after_keys: b" q\r",
+                },
+                "SUSHLINE_ACCEPTED:",
+            );
+            let highest = (1..=40)
+                .filter(|index| output.contains(&format!("alpha-long-completion-item-{index:02}")))
+                .max()
+                .unwrap_or_default();
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(line.as_str()),
+                "{label} {editor}: accepted line changed\n{output:?}"
+            );
+            assert_eq!(bell_count(&output), 0, "{label} {editor}: unexpected bell");
+            assert_eq!(
+                output.matches("--More--").count(),
+                2,
+                "{label} {editor}: expected one further pager prompt\n{output:?}"
+            );
+            assert_eq!(
+                highest, expected_highest,
+                "{label} {editor}: page size after resize differs\n{output:?}"
             );
         }
     }

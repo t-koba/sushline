@@ -763,7 +763,7 @@ fn completion_query_wakeup_rechecks_hooks_without_answering_prompt() {
 }
 
 #[test]
-fn completion_pager_resize_keeps_paging_and_consumes_quit() {
+fn completion_pager_resize_does_not_advance_page_and_consumes_quit() {
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Resize(TerminalSize {
             columns: 32,
@@ -786,11 +786,11 @@ fn completion_pager_resize_keeps_paging_and_consumes_quit() {
 
     line.display_completions(&response).unwrap();
 
-    // Resize uses the new four-row page budget rather than the original 23;
-    // q quits at the second pager prompt, leaving Enter for normal line input.
-    assert_eq!(line.terminal.out.matches("--More--").count(), 2);
-    assert!(line.terminal.out.contains("candidate-26-"));
-    assert!(!line.terminal.out.contains("candidate-27-"));
+    // Resize is recorded without printing a page; q quits at the first pager
+    // prompt, leaving Enter for normal line input.
+    assert_eq!(line.terminal.out.matches("--More--").count(), 1);
+    assert!(line.terminal.out.contains("candidate-22-"));
+    assert!(!line.terminal.out.contains("candidate-23-"));
     assert_eq!(
         line.read_input_event(None).unwrap(),
         TerminalEvent::Bytes(b"\r".to_vec())

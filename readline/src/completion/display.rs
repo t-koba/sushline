@@ -537,14 +537,13 @@ where
                         TerminalEvent::Bytes(bytes)
                             if matches!(bytes.as_slice(), b" " | b"y" | b"Y") =>
                         {
+                            page_rows = self.terminal_screen_rows().saturating_sub(1).max(1);
                             page_remaining = page_rows;
                             break;
                         }
                         TerminalEvent::Resize(size) => {
                             state.display.last_terminal_size = Some(size);
-                            page_rows = usize::from(size.rows.max(1)).saturating_sub(1).max(1);
-                            page_remaining = page_rows;
-                            break;
+                            continue;
                         }
                         TerminalEvent::Bytes(_) => {
                             self.ding()?;

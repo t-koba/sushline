@@ -297,6 +297,17 @@ Sushline-only extensions use the `Sushline extension` status.
 | `call-last-kbd-macro` | Compatible | Default and counted calls, with no-definition and nesting-exhaustion bells. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `print-last-kbd-macro` | Compatible | Recorded macro output. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 
+A bounded post-no-op literal-tail deviation remains. With point at byte 60 of
+60 ASCII `a`s and `C-o` bound to `universal-argument`, after `M-3 C-o` GNU
+accepts `5556X` for a following `5 6`, `555-X` for `5 -`, and `555a6X` for
+`5 a 6`, each with one bell; after a direct `-` it accepts `---5X` with one
+bell. Sushline inserts only the first literal run and composes the next
+digit/minus as a fresh argument. A negative no-op count drops the first digit
+and GNU inserts the next one (`M-- M-1 C-o 5 6` accepts `6X` with one bell),
+while a Meta-digit inserts once and leaves the same tail (`M-3 C-o M-0 5 6`
+accepts `056X` with two bells). These exact paired observations establish no
+general tail rule beyond these forms.
+
 ### Completion Commands And Behavior
 
 | Command/feature(s) | Status | Notes |

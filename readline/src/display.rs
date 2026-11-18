@@ -52,7 +52,9 @@ where
         {
             return width;
         }
-        if let Ok(size) = self.terminal.size() {
+        if let Ok(size) = self.terminal.size()
+            && size.columns > 0
+        {
             return normalize_terminal_size(size).columns as usize;
         }
         std::env::var("COLUMNS")

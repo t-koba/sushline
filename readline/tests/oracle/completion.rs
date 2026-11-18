@@ -12043,3 +12043,79 @@ set print-completions-horizontally on"#;
         }
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn bash_and_sushline_pin_columns_fallback_when_width_is_zero() {
+    use portable_pty::{CommandBuilder, PtySize};
+
+    require_oracle_host();
+    let root = tempfile::tempdir().expect("zero width root");
+    let cwd = root.path().join("cwd");
+    fs::create_dir(&cwd).expect("zero width cwd");
+    for index in 1..=20 {
+        fs::write(cwd.join(format!("alpha-{index:02}")), b"").expect("zero width candidate");
+    }
+    let inputrc = r#""\C-o": possible-filename-completions
+set completion-query-items 0
+set page-completions off
+set print-completions-horizontally on"#;
+    let inputrc_path = root.path().join("inputrc");
+    fs::write(&inputrc_path, inputrc).expect("zero width inputrc");
+    let size = PtySize {
+        rows: 24,
+        cols: 0,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let line = format!("{}/al", cwd.display());
+    let keys = format!("{line}\x0f\r");
+
+    for (editor, mut command) in [
+        ("Bash", CommandBuilder::new("bash")),
+        (
+            "Sushline",
+            CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness")),
+        ),
+    ] {
+        command.cwd(&cwd);
+        command.env("COLUMNS", "40");
+        if editor == "Bash" {
+            command.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
+            command.env("HOME", root.path().join("home").to_string_lossy().as_ref());
+            command.env(
+                "HISTFILE",
+                root.path().join("history").to_string_lossy().as_ref(),
+            );
+            command.args([
+                "--noprofile",
+                "--norc",
+                "-i",
+                "-c",
+                &format!(
+                    r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+                ),
+            ]);
+        } else {
+            command.env("SUSHLINE_INPUTRC", inputrc);
+            command.env("SUSHLINE_PROMPT", READY_PROMPT);
+            command.env("SUSHLINE_HISTORY", "");
+        }
+        let output = run_pty_with_size(command, keys.as_bytes(), size);
+        let rows = output
+            .lines()
+            .map(|line| line.matches("alpha-").count())
+            .filter(|count| *count > 0)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            rows,
+            vec![3, 3, 3, 3, 3, 3, 2],
+            "{editor}: zero queried width must fall back to COLUMNS\n{output:?}"
+        );
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some(line.as_str()),
+            "{editor}: accepted line changed\n{output:?}"
+        );
+    }
+}

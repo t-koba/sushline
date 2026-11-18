@@ -202,13 +202,16 @@ fn char_motion_is_bytewise(byte_oriented: bool, utf8_locale: bool) -> bool {
 
 /// Move point by characters honoring a signed numeric argument, like
 /// `repeat_signed`: a negative argument moves the opposite way. Returns
-/// false when the count is nonzero and any step could not move, in which
-/// case the caller rings once (blocked movement rings in the tested Bash
-/// fixtures); a zero count or a fully satisfied count stays silent.
+/// false when the caller should ring once. Paired Bash 5.3 / Readline 8.3
+/// fixtures show a direction asymmetry: a backward walk that cannot satisfy
+/// its count rings even after moving, while a forward walk rings only when
+/// no step at all was possible. A zero count or a satisfied count is silent.
 fn move_by_char(state: &mut EditorState, forward: bool, bytewise: bool) -> bool {
     let arg = state.take_numeric_arg().unwrap_or(1);
+    let moving_forward = forward != (arg < 0);
+    let mut moved = false;
     for _ in 0..arg.unsigned_abs() {
-        let stepped = if forward != (arg < 0) {
+        let stepped = if moving_forward {
             if bytewise {
                 state.buffer.move_forward_byte()
             } else {
@@ -220,8 +223,9 @@ fn move_by_char(state: &mut EditorState, forward: bool, bytewise: bool) -> bool 
             state.buffer.move_backward()
         };
         if !stepped {
-            return false;
+            return moving_forward && moved;
         }
+        moved = true;
     }
     true
 }

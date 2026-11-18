@@ -2858,6 +2858,51 @@ fn bash_and_sushline_match_digits_after_noop_universal_argument() {
 }
 
 #[test]
+fn bash_and_sushline_ring_for_blocked_character_motion_by_direction() {
+    let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
+    let a = "a".repeat(60);
+    for (desc, keys, expected, bells) in [
+        (
+            "forward overshoot from start",
+            b"\x01\x0f\x0f\x0f\x06X\r".as_slice(),
+            format!("{a}X"),
+            0,
+        ),
+        (
+            "forward overshoot partway",
+            b"\x02\x02\x0f\x06X\r".as_slice(),
+            format!("{a}X"),
+            0,
+        ),
+        (
+            "forward fully blocked",
+            b"\x0f\x06X\r".as_slice(),
+            format!("{a}X"),
+            1,
+        ),
+        (
+            "backward overshoot",
+            b"\x1b-\x0f\x0f\x0f\x06X\r".as_slice(),
+            format!("X{a}"),
+            1,
+        ),
+    ] {
+        let mut input = a.as_bytes().to_vec();
+        input.extend_from_slice(keys);
+        let bash = run_bash_readline_with_inputrc_file(&input, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&input, inputrc);
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected.as_str()),
+                "{editor} {desc}: {output}"
+            );
+            assert_eq!(bell_count(output), bells, "{editor} {desc}: {output}");
+        }
+    }
+}
+
+#[test]
 fn bash_and_sushline_multiply_repeated_universal_chains() {
     let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
     let a = "a".repeat(60);
@@ -2874,7 +2919,7 @@ fn bash_and_sushline_multiply_repeated_universal_chains() {
             "four universals",
             b"\x1b3\x0f\x0f\x0f\x0f\x06X\r".as_slice(),
             format!("{a}X"),
-            None,
+            Some(0),
         ),
         (
             "negative three universals",

@@ -216,6 +216,37 @@ fn batched_numeric_continuation_matches_fragmented_reads() {
 }
 
 #[test]
+fn batched_noop_universal_digits_match_fragmented_reads() {
+    // The fast path handles a bare-digit run, while a single byte goes
+    // through key lookup. Both shapes must insert the same repeated digit
+    // after a universal-argument no-op.
+    let cases: [(&str, &[&[u8]]); 3] = [
+        ("single", &[b"\x1b3\x15", b"5", b"\x06X\r"]),
+        (
+            "split",
+            &[b"\x1b", b"3", b"\x15", b"5", b"\x06", b"X", b"\r"],
+        ),
+        ("batched", &[b"\x1b3\x155\x06X\r"]),
+    ];
+    for (label, chunked) in cases {
+        let events = chunked
+            .iter()
+            .map(|chunk| TerminalEvent::Bytes(chunk.to_vec()))
+            .collect();
+        let terminal = super::MemoryTerminal::with_events(events);
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        line.load_inputrc_str("\"\\C-u\": universal-argument")
+            .unwrap();
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        assert_eq!(
+            result,
+            ReadlineResult::Line(b"555X".to_vec()),
+            "{label}: batched and fragmented no-op digits must agree"
+        );
+    }
+}
+
+#[test]
 fn batched_invalid_multibyte_chunk_preserves_both_bytes() {
     // Pin-independent lock: a single `Bytes([0xFF, 0x41])` chunk through the
     // live dispatch preserves both bytes. Each byte is bound to `self-insert`

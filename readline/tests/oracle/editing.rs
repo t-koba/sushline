@@ -1847,6 +1847,35 @@ fn bash_readline_and_sushline_redispatch_named_self_insert_key() {
     ]);
 }
 
+/// Dismissing the execute-named-command prompt without submitting a command
+/// drops a pending count. Pinned on Readline 8.3 with Ctrl-G as the cancel key:
+/// Escape is not used here because GNU reads it as a meta prefix inside the
+/// prompt, a separate gap that predates count preservation. Only the accepted
+/// line is compared: GNU rings on Ctrl-G abort while Sushline stays silent.
+#[test]
+fn bash_readline_and_sushline_drop_count_when_named_command_is_cancelled() {
+    if !host_carries_measured_release() {
+        eprintln!(
+            "Named command cancel was measured on Readline 8.3; this case reports nothing on other releases"
+        );
+        return;
+    }
+    for &(keys, expected) in &[
+        (b"\x1b3\x1bx\x07X\r".as_slice(), "X"),
+        (b"\x1b2\x1bx\x07Y\r".as_slice(), "Y"),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, "");
+        let sushline = run_sushline_harness_with_inputrc(keys, "");
+        for (name, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{name} keys={keys:?}: {output:?}"
+            );
+        }
+    }
+}
+
 fn assert_named_invoking_key_cases(cases: &[(&[u8], &str)]) {
     if !host_carries_measured_release() {
         eprintln!(

@@ -318,6 +318,12 @@ enters the named command with `M-x` and submits its name with Enter:
   `M--` or `M-0` before `M-x`, `Y Enter` accepts `Y`, and with `M-3`,
   `YZ Enter` accepts `xxxYZ`.
 
+Cancelling the named-command prompt with Ctrl-G discards a pending count: with
+`M-3` or `M-2` before `M-x`, `C-g` then `X Enter` (or `Y Enter`) accepts a
+single `X` (or `Y`) in both editors. Only the accepted line is compared; GNU
+rings on the Ctrl-G abort while Sushline stays silent, and Escape is not
+covered because GNU reads it as a meta prefix inside the prompt.
+
 A directional bell asymmetry is pinned for oversized counts. With 60 leading
 `a`s and `C-o` bound to `universal-argument`, a forward count that reaches the
 end with steps to spare is silent in both programs, even when the count comes

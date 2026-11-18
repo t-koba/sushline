@@ -1607,6 +1607,10 @@ where
                 self.apply_named_command(state, command, b"", hooks)
             }
             &[0x07] | &[0x1b] => {
+                // Dismissing the prompt without submitting a command must not
+                // carry a pending count into the next ordinary key. Submitted
+                // named commands (digit-argument/self-insert) keep it.
+                state.take_numeric_arg();
                 state.input.named_command = None;
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)

@@ -35,8 +35,10 @@ impl HistoryEntry {
         String::from_utf8_lossy(&self.line_bytes)
     }
 
-    /// A GNU-compatible timestamp-text view: the stored text before its first
-    /// NUL, or `None` if the entry has no timestamp. This does not control writes.
+    /// A GNU-style view of the stored timestamp text before its first NUL, or
+    /// `None` if the entry has no timestamp. This does not control writes and is
+    /// not a general GNU compatibility guarantee; see `COMPATIBILITY.md` for the
+    /// fixture-scoped observations.
     pub fn gnu_timestamp_text(&self) -> Option<&str> {
         self.timestamp
             .as_deref()

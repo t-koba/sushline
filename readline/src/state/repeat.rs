@@ -104,7 +104,7 @@ pub(crate) fn update_numeric_argument(state: &mut EditorState, key: &[u8]) -> bo
     match last {
         b'-' => {
             let current = state.numeric_arg.unwrap_or(1);
-            let universal = state.numeric_arg_universal;
+            let universal = state.numeric_arg_universal && !state.numeric_arg_noop_chain;
             // A minus after a universal argument starts a fresh sign-only
             // argument; GNU does not negate or retain the universal count.
             let magnitude = if universal {
@@ -125,16 +125,18 @@ pub(crate) fn update_numeric_argument(state: &mut EditorState, key: &[u8]) -> bo
             state.numeric_arg_sign_only = true;
             state.numeric_arg_meta_digit = false;
             state.numeric_arg_universal = false;
+            state.numeric_arg_noop_chain = false;
             false
         }
         b'0'..=b'9' => {
             let digit = (last - b'0') as i32;
             let current = state.numeric_arg.unwrap_or(0);
+            let universal = state.numeric_arg_universal && !state.numeric_arg_noop_chain;
             // After M--, a bare 1 replaces the magnitude (-1), while M-1 appends
             // (-11). A Meta-digit has already established an explicit magnitude,
             // so later bare digits append too (M-- M-0 1 gives -101).
             let meta_prefixed = key.first() == Some(&0x1b);
-            let next = if state.numeric_arg_universal
+            let next = if universal
                 || (state.numeric_arg_sign_only
                     && !state.numeric_arg_meta_digit
                     && (!state.numeric_arg_negative || !meta_prefixed))
@@ -162,8 +164,9 @@ pub(crate) fn update_numeric_argument(state: &mut EditorState, key: &[u8]) -> bo
                     state.numeric_arg = Some(value);
                     // Preserve a negative sign through leading zero digits.
                     state.numeric_arg_sign_only &= digit == 0;
-                    state.numeric_arg_meta_digit |= meta_prefixed && !state.numeric_arg_universal;
+                    state.numeric_arg_meta_digit |= meta_prefixed && !universal;
                     state.numeric_arg_universal = false;
+                    state.numeric_arg_noop_chain = false;
                     false
                 }
                 None => {

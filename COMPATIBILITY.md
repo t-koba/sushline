@@ -297,6 +297,14 @@ Sushline-only extensions use the `Sushline extension` status.
 | `call-last-kbd-macro` | Compatible | Default and counted calls, with no-definition and nesting-exhaustion bells. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `print-last-kbd-macro` | Compatible | Recorded macro output. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 
+A bounded bell difference remains for an oversized universal chain. With 60
+leading `a`s, point at byte 0 and `C-o` bound to `universal-argument`,
+`M-3 C-o C-o C-o C-o C-f X Enter` accepts 60 `a`s followed by `X` in both
+programs, but GNU rings no bell while Sushline rings once on the blocked
+forward movement. With one fewer `C-o` both accept X at byte 48 with no bell.
+This observation does not establish a general blocked-movement rule.
+
+
 
 ### Completion Commands And Behavior
 

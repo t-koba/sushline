@@ -142,9 +142,11 @@ where
                     match state.numeric_arg.unwrap_or(1).checked_mul(4) {
                         Some(next) if next.unsigned_abs() <= MAX_NUMERIC_ARGUMENT as u32 => {
                             state.numeric_arg = Some(next);
-                            // A repeated universal after a no-op keeps the
-                            // explicit argument's composition flags.
-                            state.numeric_arg_universal = !from_noop;
+                            // Keep multiplying on later universals; a
+                            // separate flag carries the explicit composition
+                            // behavior inherited from the no-op count.
+                            state.numeric_arg_universal = true;
+                            state.numeric_arg_noop_chain |= from_noop;
                         }
                         _ => {
                             state.take_numeric_arg();

@@ -2858,6 +2858,58 @@ fn bash_and_sushline_match_digits_after_noop_universal_argument() {
 }
 
 #[test]
+fn bash_and_sushline_multiply_repeated_universal_chains() {
+    let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
+    let a = "a".repeat(60);
+    // Third and later universal arguments must keep multiplying; a separate
+    // state flag preserves digit/minus composition after the no-op chain.
+    for (desc, keys, expected, bells) in [
+        (
+            "three universals",
+            b"\x1b3\x0f\x0f\x0f\x06X\r".as_slice(),
+            format!("{}X{}", &a[..48], &a[..12]),
+            Some(0),
+        ),
+        (
+            "four universals",
+            b"\x1b3\x0f\x0f\x0f\x0f\x06X\r".as_slice(),
+            format!("{a}X"),
+            None,
+        ),
+        (
+            "negative three universals",
+            b"\x1b-\x1b0\x0f\x0f\x0f\x06X\r".as_slice(),
+            format!("X{a}"),
+            Some(1),
+        ),
+        (
+            "two universals control",
+            b"\x1b3\x0f\x0f\x06X\r".as_slice(),
+            format!("{}X{}", &a[..12], &a[..48]),
+            Some(0),
+        ),
+    ] {
+        let mut input = a.as_bytes().to_vec();
+        if desc != "negative three universals" {
+            input.push(b'\x01');
+        }
+        input.extend_from_slice(keys);
+        let bash = run_bash_readline_with_inputrc_file(&input, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&input, inputrc);
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected.as_str()),
+                "{editor} {desc}: {output}"
+            );
+            if let Some(bells) = bells {
+                assert_eq!(bell_count(output), bells, "{editor} {desc}: {output}");
+            }
+        }
+    }
+}
+
+#[test]
 fn bash_and_sushline_repeat_noop_universal_digits_by_explicit_count() {
     let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
     // Point starts at byte 60; every accepted line ends at the line end.

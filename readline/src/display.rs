@@ -43,7 +43,6 @@ where
     }
 
     pub(crate) fn completion_display_width(&self) -> usize {
-        let screen_width = self.usable_terminal_size().columns as usize;
         if let Some(width) = self
             .variables
             .get("completion-display-width")
@@ -53,11 +52,14 @@ where
         {
             return width;
         }
+        if let Ok(size) = self.terminal.size() {
+            return normalize_terminal_size(size).columns as usize;
+        }
         std::env::var("COLUMNS")
             .ok()
             .and_then(|value| value.parse::<usize>().ok())
             .filter(|value| *value > 0)
-            .unwrap_or(screen_width)
+            .unwrap_or(80)
     }
 
     pub(crate) fn terminal_screen_rows(&self) -> usize {

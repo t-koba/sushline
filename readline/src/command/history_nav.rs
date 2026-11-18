@@ -288,7 +288,20 @@ where
                 // moves to the fetched entry so later navigation starts there.
                 let position = self.history.where_history();
                 let arg = state.take_numeric_arg().unwrap_or(1);
-                let index = if arg < 0 {
+                let mut out_of_range = false;
+                let index = if self.effective_editing_mode_is_vi() && arg > 1 {
+                    // Vi command-mode counts select a 1-based entry. Past
+                    // where_history() GNU takes the next newer entry and
+                    // rings; at the newest entry it only rings. Named
+                    // `fetch-history` in emacs mode falls back to the first.
+                    let number = arg.unsigned_abs() as usize;
+                    if number > position {
+                        out_of_range = true;
+                        position
+                    } else {
+                        number - 1
+                    }
+                } else if arg < 0 {
                     position.saturating_sub(arg.unsigned_abs() as usize)
                 } else {
                     match arg.unsigned_abs() as usize {
@@ -304,6 +317,9 @@ where
                 {
                     self.history.set_pos(index);
                     self.replace_from_history_at(state, Some(index), &line);
+                }
+                if out_of_range {
+                    self.ding()?;
                 }
                 state.after_non_kill_command();
             }

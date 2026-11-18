@@ -4730,3 +4730,37 @@ fn bash_and_sushline_operate_and_get_next_signed_counts() {
         }
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_fetch_history_out_of_range_counts_ring() {
+    let inputrc = "set editing-mode vi\n";
+    let history = ["one", "two", "three", "four", "five"];
+    for (navigation, count, expected, bells) in [
+        ("", "", "oneX", 0),
+        ("", "1", "oneX", 0),
+        ("", "2", "twoX", 0),
+        ("", "5", "fiveX", 0),
+        ("", "6", "X", 1),
+        ("", "7", "X", 1),
+        ("k", "4", "fourX", 0),
+        ("k", "5", "fiveX", 1),
+        ("k", "9", "fiveX", 1),
+        ("kk", "3", "threeX", 0),
+        ("kk", "4", "fourX", 1),
+        ("kkkk", "2", "twoX", 1),
+    ] {
+        let keys = format!("\x1b{navigation}{count}GAX\r");
+        let keys = keys.as_bytes();
+        let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+        for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+            let context = format!("{editor} navigation={navigation:?} count={count:?}: {output}");
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{context}"
+            );
+            assert_eq!(bell_count(output), bells, "{context}");
+        }
+    }
+}

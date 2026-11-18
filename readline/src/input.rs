@@ -1720,7 +1720,7 @@ where
                     .collect(),
                 options: crate::completion::CompletionOptions::default(),
             };
-            self.display_completions_for_word(state, &response, &prefix, hooks)?;
+            self.display_completions_for_word_without_query(state, &response, &prefix, hooks)?;
         }
         Ok(())
     }

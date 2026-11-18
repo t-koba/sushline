@@ -292,6 +292,29 @@ where
         word: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<(), ReadlineError> {
+        self.display_completions_for_word_impl(state, response, word, hooks, true)
+    }
+
+    /// Lists candidates without asking whether to display a large set.
+    /// Named-command listing uses this; ordinary completion keeps the query.
+    pub(crate) fn display_completions_for_word_without_query(
+        &mut self,
+        state: &mut EditorState,
+        response: &CompletionResponse,
+        word: &[u8],
+        hooks: &mut impl Hooks,
+    ) -> Result<(), ReadlineError> {
+        self.display_completions_for_word_impl(state, response, word, hooks, false)
+    }
+
+    fn display_completions_for_word_impl(
+        &mut self,
+        state: &mut EditorState,
+        response: &CompletionResponse,
+        word: &[u8],
+        hooks: &mut impl Hooks,
+        confirm_many: bool,
+    ) -> Result<(), ReadlineError> {
         if response.candidates.is_empty() {
             self.ding()?;
             return Ok(());
@@ -301,7 +324,8 @@ where
             .get("completion-query-items")
             .and_then(|value| value.parse::<isize>().ok())
             .unwrap_or(100);
-        let displayed_query = query_items > 0
+        let displayed_query = confirm_many
+            && query_items > 0
             && response.candidates.len() > 1
             && response.candidates.len() >= query_items as usize;
         if displayed_query {

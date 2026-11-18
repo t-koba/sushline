@@ -424,8 +424,9 @@ where
 
     /// GNU consumes a digit or minus after a universal-argument no-op as
     /// literal text. The first key repeats by the pending positive count (a
-    /// Meta-prefixed key inserts once); later argument keys in the tail insert
-    /// once without another bell, while Meta-prefixed ones are dropped.
+    /// Meta-prefixed key inserts once); later bare argument keys in the tail
+    /// insert once without another bell, while Meta-prefixed argument keys
+    /// start a fresh signed count.
     pub(crate) fn handle_noop_argument_key(
         &mut self,
         state: &mut EditorState,

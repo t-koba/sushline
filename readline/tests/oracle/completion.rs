@@ -11425,3 +11425,104 @@ set page-completions on"#,
         }
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn bash_and_sushline_keep_completion_query_threshold_under_show_all() {
+    use portable_pty::{CommandBuilder, PtySize};
+    use std::time::Duration;
+
+    require_oracle_host();
+    let root = tempfile::tempdir().expect("show-all root");
+    let cwd = root.path().join("cwd");
+    fs::create_dir(&cwd).expect("show-all cwd");
+    for index in 1..=40 {
+        fs::write(
+            cwd.join(format!("alpha-long-completion-item-{index:02}")),
+            b"",
+        )
+        .expect("show-all candidate");
+    }
+    let home = root.path().join("home");
+    fs::create_dir(&home).expect("show-all home");
+    let size = PtySize {
+        rows: 8,
+        cols: 40,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let line = format!("{}/al", cwd.display());
+    let completion_keys = format!("{line}\x0f");
+
+    for (label, query, marker, answer, want_query, want_more) in [
+        (
+            "confirm",
+            "1",
+            "Display all",
+            b"n\r".as_slice(),
+            true,
+            false,
+        ),
+        ("list", "0", "--More--", b"q\r".as_slice(), false, true),
+    ] {
+        let inputrc = format!(
+            r#""\C-o": possible-filename-completions
+set show-all-if-ambiguous on
+set completion-query-items {query}
+set print-completions-horizontally off
+set page-completions on"#
+        );
+        let inputrc_path = root.path().join(format!("inputrc-{label}"));
+        fs::write(&inputrc_path, &inputrc).expect("show-all inputrc");
+        let steps = [(READY_PROMPT, completion_keys.as_bytes()), (marker, answer)];
+        let mut bash = CommandBuilder::new("bash");
+        bash.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
+        bash.env("HOME", home.to_string_lossy().as_ref());
+        bash.env(
+            "HISTFILE",
+            root.path().join("history").to_string_lossy().as_ref(),
+        );
+        bash.args([
+            "--noprofile",
+            "--norc",
+            "-i",
+            "-c",
+            &format!(
+                r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+            ),
+        ]);
+        let mut sushline = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+        sushline.env("SUSHLINE_INPUTRC", inputrc);
+        sushline.env("SUSHLINE_PROMPT", READY_PROMPT);
+        sushline.env("SUSHLINE_HISTORY", "");
+        for (name, command) in [("Bash", bash), ("Sushline", sushline)] {
+            let raw = run_pty_steps_in_dir_with_size_raw_until_count(
+                command,
+                &steps,
+                &cwd,
+                size,
+                "SUSHLINE_ACCEPTED:",
+                1,
+                Duration::from_secs(3),
+            );
+            let output = String::from_utf8_lossy(&raw);
+            let context = format!("{name} {label}: {output}");
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(line.as_str()),
+                "show-all answer changes the accepted line\n{context}"
+            );
+            assert_eq!(
+                output.contains("Display all"),
+                want_query,
+                "show-all changes the query threshold\n{context}"
+            );
+            assert_eq!(
+                output.matches("--More--").count() > 0,
+                want_more,
+                "show-all changes pager use\n{context}"
+            );
+            assert_eq!(bell_count(&output), 0, "unexpected bell\n{context}");
+        }
+    }
+}

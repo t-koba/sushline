@@ -6502,7 +6502,11 @@ fn bash_and_sushline_read_consecutive_bytes_for_negative_quoted_insert() {
             b"\x1b-\x1b2\x16abcdefghijkl\r".as_slice(),
             Some("abcdefghijkl"),
         ),
-        ("too few bytes", b"\x1b-\x1b1\x16abc\r".as_slice(), None),
+        (
+            "enter as the last quoted byte",
+            b"\x1b-\x1b1\x16abcdefghij\r\x7fX\r".as_slice(),
+            Some("abcdefghijX"),
+        ),
         (
             "positive count repeats one byte",
             b"\x1b2\x16abc\r".as_slice(),

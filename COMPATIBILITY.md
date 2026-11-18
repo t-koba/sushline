@@ -122,10 +122,11 @@ and supplied through `Hooks` where applicable.
 
 A negative quoted-insert count reads that many consecutive raw bytes and
 inserts each once: paired fixtures cover `M-- M-1 C-v abcdefghijk Enter`
-accepting `abcdefghijk`, the -12 form, and a shorter run where the quoted
-insert consumes the Enter and neither editor accepts a line. Positive counts
-still repeat a single quoted byte, with the existing paired fixtures covering
-zero through three. No broader stream-consumption rule is inferred.
+accepting `abcdefghijk`, the -12 form, and a run where Enter is the last
+quoted byte: a following Backspace removes it and a normal Enter accepts
+`abcdefghijX` in both editors. Positive counts still repeat a single quoted
+byte, with the existing paired fixtures covering zero through three. No
+broader stream-consumption rule is inferred.
 
 A bare minus following a sign-only argument is not a second sign: Bash 5.3
 keeps the negative count, so a following self-insert is dropped; a

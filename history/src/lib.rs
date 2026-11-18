@@ -247,7 +247,11 @@ impl Default for HistoryAppendOptions {
 ///
 /// Regular files are replaced using an exclusively created temporary file.
 /// This provides atomic replacement, not fsync or crash-durability guarantees.
+///
+/// This struct is non-exhaustive: start from [`Default::default`] and assign
+/// the fields your host needs instead of using a struct literal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct HistoryWriteOptions {
     /// Maximum temporary-name creation attempts, including the first attempt.
     /// Defaults to 100. Only name collisions are retried; other errors return

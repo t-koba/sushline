@@ -41,7 +41,11 @@ pub struct TerminalSize {
 }
 
 /// An input or terminal-state event reported by a [`TerminalIo`] backend.
+///
+/// This enum is non-exhaustive: backends and embedders should include a
+/// wildcard arm when matching so later event kinds remain compatible.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum TerminalEvent {
     /// Input bytes read from the terminal.
     Bytes(Vec<u8>),

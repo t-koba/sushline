@@ -649,8 +649,9 @@ Evidence: [`history/tests/history.rs`](history/tests/history.rs),
 
 On Unix, regular rewrites are atomic and mode 0600. This includes writes through a
 symlink to an existing regular file: Sushline preserves the link but defaults to
-replacing its target with mode 0600. Opting into `HistoryWriteOptions { preserve_symlink_target_mode: true, ..Default::default() }` preserves an existing
-regular symlink target's Unix permission mode on full writes and truncation; direct
+replacing its target with mode 0600. Opting into `HistoryWriteOptions::default()` with
+`preserve_symlink_target_mode` set to `true` preserves an existing regular
+symlink target's Unix permission mode on full writes and truncation; direct
 paths and missing targets still use 0600. Only the pinned GNU Readline 8.3
 `write_history` symlink fixture (mode-0644 target preserved) is claimed equivalent.
 

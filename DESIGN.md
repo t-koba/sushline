@@ -136,6 +136,8 @@ repeat work on the next prompt.
 Terminal access is isolated behind `TerminalIo`. The editor consumes
 `TerminalEvent` values and writes through terminal methods instead of reading
 from stdin or writing escape sequences directly throughout the command code.
+`TerminalEvent` is non-exhaustive, so backends match it with a wildcard arm and
+new event kinds can be added without breaking embedders.
 
 On Unix, the concrete `Terminal` handles raw-mode setup and restoration,
 terminal size, resize events, byte input, signal events, visible bell, keypad

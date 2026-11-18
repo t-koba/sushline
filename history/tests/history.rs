@@ -13,6 +13,18 @@ use history::{
     HistoryWriteOptions,
 };
 
+fn write_options_with_hops(hops: usize) -> HistoryWriteOptions {
+    let mut options = HistoryWriteOptions::default();
+    options.maximum_symlink_hops = NonZeroUsize::new(hops).unwrap();
+    options
+}
+
+fn write_options_preserving_mode(preserve: bool) -> HistoryWriteOptions {
+    let mut options = HistoryWriteOptions::default();
+    options.preserve_symlink_target_mode = preserve;
+    options
+}
+
 #[test]
 fn navigates_history_and_restores_current_edit() {
     let mut h = History::new();
@@ -2701,10 +2713,7 @@ fn rewrite_permission_policy_only_preserves_existing_symlink_targets() {
                 } else {
                     &target
                 };
-                let options = HistoryWriteOptions {
-                    preserve_symlink_target_mode: preserve,
-                    ..HistoryWriteOptions::default()
-                };
+                let options = write_options_preserving_mode(preserve);
                 let expected: &[u8] = match operation {
                     0 | 1 => {
                         let mut history = History::new();
@@ -2749,7 +2758,6 @@ fn rewrite_permission_policy_only_preserves_existing_symlink_targets() {
 #[test]
 #[cfg(unix)]
 fn write_permission_opt_in_keeps_missing_symlink_target_owner_only() {
-    use history::HistoryWriteOptions;
     use std::os::unix::fs::{PermissionsExt, symlink};
 
     let dir = tempfile::tempdir().unwrap();
@@ -2759,13 +2767,7 @@ fn write_permission_opt_in_keeps_missing_symlink_target_owner_only() {
     let mut history = History::new();
     history.push("new");
     history
-        .write_file_with_options(
-            &link,
-            HistoryWriteOptions {
-                preserve_symlink_target_mode: true,
-                ..HistoryWriteOptions::default()
-            },
-        )
+        .write_file_with_options(&link, write_options_preserving_mode(true))
         .unwrap();
     assert_eq!(fs::read(&target).unwrap(), b"new\n");
     assert_eq!(
@@ -2842,17 +2844,11 @@ fn full_write_obeys_configured_symlink_hop_limit() {
         );
         let mut history = History::new();
         history.push("new");
-        let two_hops = HistoryWriteOptions {
-            maximum_symlink_hops: NonZeroUsize::new(2).unwrap(),
-            ..HistoryWriteOptions::default()
-        };
+        let two_hops = write_options_with_hops(2);
         history.write_file_with_options(&link, two_hops).unwrap();
         assert_eq!(fs::read_to_string(&target).unwrap(), "new\n");
 
-        let one_hop = HistoryWriteOptions {
-            maximum_symlink_hops: NonZeroUsize::new(1).unwrap(),
-            ..HistoryWriteOptions::default()
-        };
+        let one_hop = write_options_with_hops(1);
         assert_eq!(
             history
                 .write_file_with_options(&link, one_hop)
@@ -2886,10 +2882,7 @@ fn truncate_file_obeys_configured_symlink_hop_limit() {
         let link = dir.path().join("link-history");
         symlink("intermediate-history", &link).unwrap();
 
-        let one_hop = HistoryWriteOptions {
-            maximum_symlink_hops: NonZeroUsize::new(1).unwrap(),
-            ..HistoryWriteOptions::default()
-        };
+        let one_hop = write_options_with_hops(1);
         assert_eq!(
             History::truncate_file_with_options(&link, 2, one_hop)
                 .unwrap_err()
@@ -2898,10 +2891,7 @@ fn truncate_file_obeys_configured_symlink_hop_limit() {
         );
         assert_eq!(fs::read_to_string(&target).unwrap(), "one\ntwo\nthree\n");
 
-        let two_hops = HistoryWriteOptions {
-            maximum_symlink_hops: NonZeroUsize::new(2).unwrap(),
-            ..HistoryWriteOptions::default()
-        };
+        let two_hops = write_options_with_hops(2);
         History::truncate_file_with_options(&link, 2, two_hops).unwrap();
         assert_eq!(fs::read_to_string(&target).unwrap(), "two\nthree\n");
         assert_eq!(
@@ -2938,10 +2928,7 @@ fn truncate_file_uses_resolved_path_beyond_os_symlink_limit() {
             next = name;
         }
 
-        let options = HistoryWriteOptions {
-            maximum_symlink_hops: NonZeroUsize::new(LINK_COUNT).unwrap(),
-            ..HistoryWriteOptions::default()
-        };
+        let options = write_options_with_hops(LINK_COUNT);
         History::truncate_file_with_options(dir.path().join("link-0"), 2, options).unwrap();
 
         assert_eq!(fs::read_to_string(&target).unwrap(), "two\nthree\n");

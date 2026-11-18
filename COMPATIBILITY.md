@@ -307,8 +307,11 @@ paired observations do not establish a general blocked-movement rule.
 A minus after a multiplied positive no-op chain is inserted as literal text
 repeated by the multiplied count, including when the minus is Meta-prefixed,
 with no bell. In that literal tail, bare argument keys stay literal while a
-Meta-prefixed argument key starts a fresh signed count; a minus after a
-multiplied negative chain is not claimed here.
+Meta-prefixed argument key starts a fresh signed count. A universal-argument
+key instead ends the tail and starts a fresh universal count: following bare
+digits compose that count and a following minus makes it negative. These paired
+fixtures cover implicit, bare-digit, multi-digit, minus and Meta-digit counts;
+a minus after a multiplied negative chain is not claimed here.
 
 Inside a no-op universal literal tail, a Meta-prefixed argument key or a
 universal-argument key is consumed along with every later argument key, so the

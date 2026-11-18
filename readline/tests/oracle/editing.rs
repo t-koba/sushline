@@ -6077,3 +6077,34 @@ fn bash_readline_and_sushline_byte_motions_land_on_utf8_boundaries() {
         assert_eq!(accepted_line(&sushline), accepted_line(&bash), "{context}");
     }
 }
+
+#[test]
+fn bash_and_sushline_restart_counts_after_universal_in_multiplied_minus_tail() {
+    let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
+    let base = format!("{}{}", "a".repeat(60), "-".repeat(48));
+    // A universal argument ends a multiplied-minus tail. GNU then treats the
+    // following argument keys as a fresh count instead of swallowing them.
+    for (desc, suffix, repeat) in [
+        ("bare universal", b"\x0fX\r".as_slice(), 4),
+        ("bare digit", b"\x0f5X\r".as_slice(), 5),
+        ("two bare digits", b"\x0f56X\r".as_slice(), 56),
+        ("minus", b"\x0f-X\r".as_slice(), 0),
+        ("meta digit", b"\x0f\x1b5X\r".as_slice(), 5),
+        ("two universals then digit", b"\x0f\x0f5X\r".as_slice(), 5),
+    ] {
+        let mut input = vec![b'a'; 60];
+        input.extend_from_slice(b"\x1b3\x0f\x0f\x0f-");
+        input.extend_from_slice(suffix);
+        let bash = run_bash_readline_with_inputrc_file(&input, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&input, inputrc);
+        let expected = format!("{base}{}", "X".repeat(repeat));
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected.as_str()),
+                "{editor} {desc}: {output}"
+            );
+            assert_eq!(bell_count(output), 0, "{editor} {desc}: {output}");
+        }
+    }
+}

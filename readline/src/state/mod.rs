@@ -42,26 +42,19 @@ pub(crate) enum NumericArgLiteralTail {
     Swallow,
     /// A Meta-prefixed argument key starts a fresh count after a multiplied minus.
     ChainMinus,
-    /// A prefix was consumed after a multiplied minus: swallow bare keys,
-    /// but still start a fresh count on Meta-prefixed argument keys.
-    ChainMinusSwallow,
 }
 
 impl NumericArgLiteralTail {
     pub(crate) fn is_chain_minus(self) -> bool {
-        matches!(self, Self::ChainMinus | Self::ChainMinusSwallow)
+        matches!(self, Self::ChainMinus)
     }
 
     pub(crate) fn swallows_bare_keys(self) -> bool {
-        matches!(self, Self::Swallow | Self::ChainMinusSwallow)
+        matches!(self, Self::Swallow)
     }
 
     pub(crate) fn swallow(&mut self) {
-        *self = if self.is_chain_minus() {
-            Self::ChainMinusSwallow
-        } else {
-            Self::Swallow
-        };
+        *self = Self::Swallow;
     }
 }
 

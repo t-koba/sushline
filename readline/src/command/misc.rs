@@ -145,10 +145,17 @@ where
             }
             EditCommand::UniversalArgument => {
                 if state.numeric_arg_tail != NumericArgLiteralTail::None {
-                    // A universal argument inside the literal tail is
-                    // consumed, along with later bare argument keys.
-                    state.numeric_arg_tail.swallow();
-                    return Ok(EditorOutcome::Continue);
+                    if state.numeric_arg_tail.is_chain_minus() {
+                        // A multiplied-minus tail ends when a universal
+                        // argument arrives; GNU starts a fresh count instead
+                        // of swallowing the following argument keys.
+                        state.numeric_arg_tail = NumericArgLiteralTail::None;
+                    } else {
+                        // An ordinary literal tail consumes the universal
+                        // argument and every later argument key.
+                        state.numeric_arg_tail.swallow();
+                        return Ok(EditorOutcome::Continue);
+                    }
                 }
                 // Explicit digit counts are already complete; only implicit
                 // counts, sign-only prefixes and a repeated universal argument

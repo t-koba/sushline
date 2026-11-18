@@ -1776,3 +1776,18 @@ fn emacs_submap_user_identity_protects_terminal_refreshes() {
         }
     }
 }
+
+#[test]
+fn named_digit_argument_with_an_empty_key_does_not_panic() {
+    let terminal = super::MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"\x1bxdigit-argument\r".to_vec()),
+        TerminalEvent::Bytes(b"X\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("\"\\C-o\": execute-named-command")
+        .unwrap();
+    assert!(matches!(
+        line.read_line(Prompt::new("> "), &mut ()).unwrap(),
+        ReadlineResult::Line(line) if line == b"X"
+    ));
+}

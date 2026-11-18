@@ -129,6 +129,14 @@ forms compose -11 and -12 and quoted-insert repeats by the magnitude. A bare
 comparison; the sign-only and `M-0 M-- M-1` forms also matched. No general
 negative-count rule is inferred.
 
+Repeated minus after a zero digit is also outside the pinned claims. With point
+13 on `abcdefghijklmnopqrstuvwxyz`, the byte sequences
+`ESC - 0 ESC - 1 C-f X Enter` and `ESC - ESC 0 ESC - 1 C-f X Enter` (final `1`
+bare) accept `abcdefghijklm1nXopqrstuvwxyz` in Bash 5.3, with the `1` left as
+text, while Sushline accepts `abcdefghijklmnXopqrstuvwxyz`; the bare `2`
+variants diverge in the same way. Replacing the final bare digit with a
+Meta-digit matches in both editors. No general repeated-sign rule is inferred.
+
 ## Compatibility Boundaries
 
 | Area | Baseline behavior | Sushline behavior | Status |

@@ -79,8 +79,16 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::DigitArgument => {
+                let noop_meta_digit = state.numeric_arg_universal_noop
+                    && key.first() == Some(&0x1b)
+                    && key.last().is_some_and(u8::is_ascii_digit);
                 if update_numeric_argument(state, key) {
                     self.ding()?;
+                }
+                if noop_meta_digit {
+                    self.ding()?;
+                    let digit = &key[key.len() - 1..];
+                    return self.apply_command(state, EditCommand::SelfInsert, digit, hooks);
                 }
                 Ok(EditorOutcome::Continue)
             }
@@ -120,10 +128,12 @@ where
             }
             EditCommand::UniversalArgument => {
                 // Explicit digit counts are already complete; only implicit
-                // counts and sign-only prefixes are multiplied by four.
+                // counts, sign-only prefixes and a repeated universal argument
+                // after a no-op are multiplied by four.
                 if state.numeric_arg.is_none()
                     || (state.numeric_arg_sign_only && !state.numeric_arg_meta_digit)
                     || state.numeric_arg_universal
+                    || state.numeric_arg_universal_noop
                 {
                     state.numeric_arg_universal_noop = false;
                     match state.numeric_arg.unwrap_or(1).checked_mul(4) {

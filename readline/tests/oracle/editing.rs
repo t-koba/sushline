@@ -2675,6 +2675,47 @@ fn bash_and_sushline_reset_universal_count_on_following_minus() {
 }
 
 #[test]
+fn bash_and_sushline_match_digits_after_noop_universal_argument() {
+    let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
+    // Point starts at byte 60; C-f applies the resulting numeric argument.
+    for (desc, suffix, position, inserted, bells) in [
+        ("meta zero", b"\x1b-\x1b0\x0f\x1b0".as_slice(), 61, "0", 2),
+        ("meta one", b"\x1b-\x1b0\x0f\x1b1".as_slice(), 61, "1", 2),
+        (
+            "second universal",
+            b"\x1b-\x1b0\x0f\x0f".as_slice(),
+            20,
+            "",
+            0,
+        ),
+        ("bare zero", b"\x1b-\x1b0\x0f0".as_slice(), 60, "", 1),
+        ("bare three", b"\x1b-\x1b0\x0f3".as_slice(), 60, "", 1),
+        ("no-op control", b"\x1b-\x1b0\x0f".as_slice(), 50, "", 0),
+    ] {
+        let mut keys = vec![b'a'; 60];
+        keys.extend_from_slice(suffix);
+        keys.extend_from_slice(b"\x06X\r");
+        let expected = format!(
+            "{}{}X{}",
+            "a".repeat(position - inserted.len()),
+            inserted,
+            "a".repeat(60 + inserted.len() - position)
+        );
+        let bash = run_bash_readline_with_inputrc_file(&keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&keys, inputrc);
+
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected.as_str()),
+                "{editor} {desc}: {output}"
+            );
+            assert_eq!(bell_count(output), bells, "{editor} {desc}: {output}");
+        }
+    }
+}
+
+#[test]
 fn bash_and_sushline_keep_negative_sign_across_universal_argument() {
     let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
     let keys = b"abcdefghijklmnopqrstuvwxyz\x01\x1b-\x0f\x1b-\x06X\r";

@@ -93,6 +93,13 @@ pub(crate) fn update_numeric_argument(state: &mut EditorState, key: &[u8]) -> bo
     let Some(last) = key.last().copied() else {
         return false;
     };
+    // A universal-argument no-op on an explicit count consumes the next digit
+    // without building a new count; the key may arrive through the input fast
+    // path as well as through DigitArgument dispatch.
+    if state.numeric_arg_universal_noop && last.is_ascii_digit() {
+        state.take_numeric_arg();
+        return false;
+    }
     state.numeric_arg_universal_noop = false;
     match last {
         b'-' => {

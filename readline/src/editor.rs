@@ -757,8 +757,14 @@ where
     pub(crate) fn ding(&mut self) -> Result<(), ReadlineError> {
         match self.variables.effective_bell() {
             BellKind::None => {}
-            BellKind::Audible => self.terminal.write("\x07")?,
-            BellKind::Visible => self.terminal.visible_bell()?,
+            BellKind::Audible => {
+                self.terminal.write("\x07")?;
+                self.terminal.flush()?;
+            }
+            BellKind::Visible => {
+                self.terminal.visible_bell()?;
+                self.terminal.flush()?;
+            }
         }
         Ok(())
     }

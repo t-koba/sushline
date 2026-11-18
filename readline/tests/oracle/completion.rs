@@ -11331,3 +11331,97 @@ set page-completions off"#;
         }
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn bash_and_sushline_ring_before_completion_prompt_answers() {
+    use portable_pty::{CommandBuilder, PtySize};
+    use std::time::Duration;
+
+    require_oracle_host();
+    let root = tempfile::tempdir().expect("bell root");
+    let cwd = root.path().join("cwd");
+    fs::create_dir(&cwd).expect("bell cwd");
+    for index in 1..=40 {
+        fs::write(
+            cwd.join(format!("alpha-long-completion-item-{index:02}")),
+            b"",
+        )
+        .expect("bell candidate");
+    }
+    let home = root.path().join("home");
+    fs::create_dir(&home).expect("bell home");
+    let size = PtySize {
+        rows: 8,
+        cols: 40,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let line = format!("{}/al", cwd.display());
+    let completion_keys = format!("{line}\x0f");
+
+    for (label, inputrc, marker) in [
+        (
+            "confirmation",
+            r#""\C-o": possible-filename-completions
+set completion-query-items 1
+set print-completions-horizontally off
+set page-completions off"#,
+            "Display all",
+        ),
+        (
+            "pager",
+            r#""\C-o": possible-filename-completions
+set completion-query-items 0
+set print-completions-horizontally off
+set page-completions on"#,
+            "--More--",
+        ),
+    ] {
+        let inputrc_path = root.path().join(format!("inputrc-{label}"));
+        fs::write(&inputrc_path, inputrc).expect("bell inputrc");
+        let steps = [
+            (READY_PROMPT, completion_keys.as_bytes()),
+            (marker, b"z".as_slice()),
+        ];
+        let mut bash = CommandBuilder::new("bash");
+        bash.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
+        bash.env("HOME", home.to_string_lossy().as_ref());
+        bash.env(
+            "HISTFILE",
+            root.path().join("history").to_string_lossy().as_ref(),
+        );
+        bash.args([
+            "--noprofile",
+            "--norc",
+            "-i",
+            "-c",
+            &format!(
+                r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+            ),
+        ]);
+        let mut sushline = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+        sushline.env("SUSHLINE_INPUTRC", inputrc);
+        sushline.env("SUSHLINE_PROMPT", READY_PROMPT);
+        sushline.env("SUSHLINE_HISTORY", "");
+        for (name, command) in [("Bash", bash), ("Sushline", sushline)] {
+            let raw = run_pty_steps_in_dir_with_size_raw_until_count(
+                command,
+                &steps,
+                &cwd,
+                size,
+                "\x07",
+                1,
+                Duration::from_millis(700),
+            );
+            let output = String::from_utf8_lossy(&raw);
+            let context = format!("{name} {label}: {output}");
+            assert!(output.contains(marker), "prompt not reached\n{context}");
+            assert_eq!(
+                bell_count(&output),
+                1,
+                "invalid key must ring before any answer\n{context}"
+            );
+        }
+    }
+}

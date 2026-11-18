@@ -290,6 +290,38 @@ fn command_completion_gets_application_language_words_from_hooks() {
 }
 
 #[test]
+fn named_command_completion_uses_embedder_supplied_names() {
+    struct AppCommands;
+    impl Hooks for AppCommands {
+        fn named_command_names(&mut self) -> Vec<Vec<u8>> {
+            let names: [&[u8]; 2] = [b"app-alpha", b"app-alpine"];
+            names.iter().map(|name| name.to_vec()).collect()
+        }
+    }
+
+    let mut line = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
+    let mut state = EditorState::new(Prompt::new("> "), None);
+    state.input.named_command = Some(PendingNamedCommand {
+        query: "app-".to_string(),
+        invoking_key: None,
+    });
+
+    line.handle_named_command(&mut state, b"\t", &mut AppCommands)
+        .unwrap();
+
+    // Only the hook supplies names with this prefix, so the query must extend
+    // to their common prefix. Without the hook candidates it would stay `app-`.
+    assert_eq!(
+        state
+            .input
+            .named_command
+            .as_ref()
+            .map(|pending| pending.query.as_str()),
+        Some("app-alp")
+    );
+}
+
+#[test]
 fn application_command_binding_passes_readline_context_and_applies_edit() {
     #[derive(Debug, PartialEq, Eq)]
     struct SeenCommand {

@@ -282,13 +282,28 @@ fn bash_readline_and_sushline_compose_meta_minus_and_meta_digits() {
         );
         return;
     }
-    // Point 13 distinguishes -1, -11, -12 and -10 without clamping.
-    for (prefix, expected) in [
-        (b"\x1b-".as_slice(), "abcdefghijklXmnopqrstuvwxyz"),
-        (b"\x1b-\x1b1".as_slice(), "abXcdefghijklmnopqrstuvwxyz"),
-        (b"\x1b-\x1b2".as_slice(), "aXbcdefghijklmnopqrstuvwxyz"),
-        (b"\x1b-\x1b0".as_slice(), "abcXdefghijklmnopqrstuvwxyz"),
-        (b"\x1b-\x1b-\x1b1".as_slice(), "abcdefghijklmnXopqrstuvwxyz"),
+    // Point 13 distinguishes -1, -11, -12 and -10 without clamping. A
+    // Meta-digit establishes an explicit magnitude, so a later bare digit
+    // appends instead of replacing; -101 reaches the start of the line and
+    // rings once when the following C-f cannot move.
+    for (prefix, expected, bells) in [
+        (b"\x1b-".as_slice(), "abcdefghijklXmnopqrstuvwxyz", 0),
+        (b"\x1b-\x1b1".as_slice(), "abXcdefghijklmnopqrstuvwxyz", 0),
+        (b"\x1b-\x1b2".as_slice(), "aXbcdefghijklmnopqrstuvwxyz", 0),
+        (b"\x1b-\x1b0".as_slice(), "abcXdefghijklmnopqrstuvwxyz", 0),
+        (
+            b"\x1b-\x1b-\x1b1".as_slice(),
+            "abcdefghijklmnXopqrstuvwxyz",
+            0,
+        ),
+        (b"\x1b-\x1b01".as_slice(), "Xabcdefghijklmnopqrstuvwxyz", 1),
+        (
+            b"\x1b-\x1b0\x1b1".as_slice(),
+            "Xabcdefghijklmnopqrstuvwxyz",
+            1,
+        ),
+        (b"\x1b-01".as_slice(), "abcdefghijklXmnopqrstuvwxyz", 0),
+        (b"\x1b-0\x1b1".as_slice(), "abcdefghijklXmnopqrstuvwxyz", 0),
     ] {
         let mut keys = b"abcdefghijklmnopqrstuvwxyz\x01".to_vec();
         keys.extend_from_slice(&[0x06; 13]);
@@ -303,7 +318,7 @@ fn bash_readline_and_sushline_compose_meta_minus_and_meta_digits() {
                 Some(expected),
                 "{editor} {prefix:?}: {output:?}"
             );
-            assert_eq!(bell_count(output), 0, "{editor} {prefix:?}: {output:?}");
+            assert_eq!(bell_count(output), bells, "{editor} {prefix:?}: {output:?}");
         }
     }
 }

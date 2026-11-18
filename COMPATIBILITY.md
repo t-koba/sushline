@@ -123,8 +123,10 @@ and supplied through `Hooks` where applicable.
 Numeric quoted-insert arguments whose first key is Meta-minus followed by a
 digit are outside the pinned claims: in paired PTY runs Bash produced no
 accepted line for `M-- M-1 C-v a Enter` or `M-- M-2 C-v a Enter`, while
-Sushline accepted `a` or `aa` respectively. The sign-only and `M-0 M-- M-1`
-forms did match, but no general negative-count rule is inferred.
+Sushline accepts eleven or twelve `a` characters respectively: those Meta-digit
+forms compose -11 and -12 and quoted-insert repeats by the magnitude. The
+sign-only, bare-digit, and `M-0 M-- M-1` forms did match, but no general
+negative-count rule is inferred.
 
 ## Compatibility Boundaries
 

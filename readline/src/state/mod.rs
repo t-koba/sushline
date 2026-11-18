@@ -37,6 +37,8 @@ pub(crate) struct EditorState {
     pub(crate) display: DisplayState,
     pub(crate) numeric_arg: Option<i32>,
     pub(crate) numeric_arg_sign_only: bool,
+    /// A Meta-prefixed digit has contributed to the pending argument since the last sign.
+    pub(crate) numeric_arg_meta_digit: bool,
     /// Sign retained when the numeric argument is zero or sign-only.
     pub(crate) numeric_arg_negative: bool,
     /// The pending count is an implicit universal-argument multiplier.
@@ -67,6 +69,7 @@ impl EditorState {
             display: DisplayState::default(),
             numeric_arg: None,
             numeric_arg_sign_only: false,
+            numeric_arg_meta_digit: false,
             numeric_arg_negative: false,
             numeric_arg_universal: false,
             numeric_arg_universal_noop: false,
@@ -125,6 +128,7 @@ impl EditorState {
     pub(crate) fn take_numeric_arg(&mut self) -> Option<i32> {
         let arg = self.numeric_arg.take();
         self.numeric_arg_sign_only = false;
+        self.numeric_arg_meta_digit = false;
         self.numeric_arg_negative = false;
         self.numeric_arg_universal = false;
         self.numeric_arg_universal_noop = false;

@@ -1593,6 +1593,16 @@ where
             b"\r" | b"\n" => {
                 let pending = state.input.named_command.take().unwrap_or_default();
                 let command = pending.query.trim();
+                if command.is_empty() {
+                    // GNU treats an empty name as a silent no-op that restores
+                    // the line; only an unknown non-empty name rings. Mirror a
+                    // named command's redraw and count consumption without the
+                    // catch-all's bell.
+                    state.input.applied_command = true;
+                    state.after_non_kill_command();
+                    state.consume_numeric_arg_unless_prefix();
+                    return Ok(EditorOutcome::Continue);
+                }
                 if let Some(key) = pending.invoking_key {
                     match command {
                         "digit-argument" => {

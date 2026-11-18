@@ -1847,6 +1847,40 @@ fn bash_readline_and_sushline_redispatch_named_self_insert_key() {
     ]);
 }
 
+/// An empty execute-named-command name is a silent no-op on Readline 8.3:
+/// the original line is accepted with no bell, while an unknown non-empty name
+/// rings exactly once. Both editors are compared on accepted line and bells.
+#[test]
+fn bash_readline_and_sushline_empty_named_command_name_is_silent() {
+    if !host_carries_measured_release() {
+        eprintln!(
+            "Named command empty name was measured on Readline 8.3; this case reports nothing on other releases"
+        );
+        return;
+    }
+    for &(keys, expected, bells) in &[
+        (b"abc\x1bx\r\r".as_slice(), "abc", 0),
+        (b"abc\x1bxno-such-cmd-xyz\r\r".as_slice(), "abc", 1),
+        (b"\x1bx\rX\r".as_slice(), "X", 0),
+    ] {
+        for (name, output) in [
+            ("Bash", run_bash_readline_with_inputrc_file(keys, "")),
+            ("Sushline", run_sushline_harness_with_inputrc(keys, "")),
+        ] {
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(expected),
+                "{name} keys={keys:?}: {output:?}"
+            );
+            assert_eq!(
+                bell_count(&output),
+                bells,
+                "{name} keys={keys:?}: {output:?}"
+            );
+        }
+    }
+}
+
 /// A named self-insert inserts the byte that opened the prompt literally,
 /// even when that byte is bound to another command. Pinned on Readline 8.3
 /// with Ctrl-O bound to execute-named-command: 0x0f is the invoking byte.

@@ -321,6 +321,11 @@ enters the named command with `M-x` and submits its name with Enter:
   `C-o self-insert Enter Y Enter` accepts the literal Ctrl-O followed by `Y`
   in both editors, without a bell.
 
+Submitting an empty name is a silent no-op in both editors: `M-x Enter`
+accepts the unchanged line with no bell, while an unknown non-empty name rings
+once. Whitespace-only names are not covered because the oracle treats SPACE as
+command-name completion inside this prompt.
+
 Cancelling the named-command prompt with Ctrl-G discards a pending count: with
 `M-3` or `M-2` before `M-x`, `C-g` then `X Enter` (or `Y Enter`) accepts a
 single `X` (or `Y`) in both editors. Only the accepted line is compared; GNU

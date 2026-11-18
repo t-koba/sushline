@@ -1608,6 +1608,12 @@ where
                         "digit-argument" => {
                             if state.numeric_arg.is_none() {
                                 state.take_numeric_arg();
+                                if key.is_ascii_digit() {
+                                    state.numeric_arg = Some((key - b'0') as i32);
+                                    state.input.applied_command = true;
+                                    state.after_non_kill_command();
+                                    return Ok(EditorOutcome::Continue);
+                                }
                                 state.numeric_arg = Some(1);
                             }
                             // Dispatch the invoking byte, not the Meta

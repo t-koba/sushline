@@ -1822,29 +1822,49 @@ fn bash_readline_and_sushline_accept_same_execute_named_command() {
 
 #[test]
 fn bash_readline_and_sushline_redispatch_named_digit_argument_key() {
-    assert_named_invoking_key_cases(&[
-        (b"\x1bxdigit-argument\rX\r", "xX"),
-        (b"\x1bxdigit-argument\r\r", "x"),
-        (b"\x1bxdigit-argument\r3X\r", "x3X"),
-        (b"\x1bxdigit-argument\r-X\r", "x-X"),
-        (b"\x1b0\x1bxdigit-argument\rX\r", "X"),
-        (b"\x1b2\x1bxdigit-argument\rX\r", "xxX"),
-        (b"\x1b3\x1bxdigit-argument\rY\r", "xxxY"),
-    ]);
+    assert_named_invoking_key_cases(
+        "",
+        &[
+            (b"\x1bxdigit-argument\rX\r", "xX"),
+            (b"\x1bxdigit-argument\r\r", "x"),
+            (b"\x1bxdigit-argument\r3X\r", "x3X"),
+            (b"\x1bxdigit-argument\r-X\r", "x-X"),
+            (b"\x1b0\x1bxdigit-argument\rX\r", "X"),
+            (b"\x1b2\x1bxdigit-argument\rX\r", "xxX"),
+            (b"\x1b3\x1bxdigit-argument\rY\r", "xxxY"),
+        ],
+    );
+}
+
+#[test]
+fn bash_readline_and_sushline_use_named_digit_argument_invoking_digit_as_count() {
+    let inputrc = r#""5": execute-named-command
+"0": execute-named-command"#;
+    assert_named_invoking_key_cases(
+        inputrc,
+        &[
+            (b"5digit-argument\rX\r", "XXXXX"),
+            (b"0digit-argument\rX\r", ""),
+            (b"5digit-argument\r3X\r", &"X".repeat(53)),
+        ],
+    );
 }
 
 #[test]
 fn bash_readline_and_sushline_redispatch_named_self_insert_key() {
-    assert_named_invoking_key_cases(&[
-        (b"\x1bxself-insert\rY\r", "xY"),
-        (b"\x1bxself-insert\r\r", "x"),
-        (b"\x1bxself-insert\r3Y\r", "x3Y"),
-        (b"\x1bxself-insert\r-Y\r", "x-Y"),
-        (b"\x1b2\x1bxself-insert\rY\r", "xxY"),
-        (b"\x1b-\x1bxself-insert\rY\r", "Y"),
-        (b"\x1b0\x1bxself-insert\rY\r", "Y"),
-        (b"\x1b3\x1bxself-insert\rYZ\r", "xxxYZ"),
-    ]);
+    assert_named_invoking_key_cases(
+        "",
+        &[
+            (b"\x1bxself-insert\rY\r", "xY"),
+            (b"\x1bxself-insert\r\r", "x"),
+            (b"\x1bxself-insert\r3Y\r", "x3Y"),
+            (b"\x1bxself-insert\r-Y\r", "x-Y"),
+            (b"\x1b2\x1bxself-insert\rY\r", "xxY"),
+            (b"\x1b-\x1bxself-insert\rY\r", "Y"),
+            (b"\x1b0\x1bxself-insert\rY\r", "Y"),
+            (b"\x1b3\x1bxself-insert\rYZ\r", "xxxYZ"),
+        ],
+    );
 }
 
 /// An empty execute-named-command name is a silent no-op on Readline 8.3:
@@ -1940,7 +1960,7 @@ fn bash_readline_and_sushline_drop_count_when_named_command_is_cancelled() {
     }
 }
 
-fn assert_named_invoking_key_cases(cases: &[(&[u8], &str)]) {
+fn assert_named_invoking_key_cases(inputrc: &str, cases: &[(&[u8], &str)]) {
     if !host_carries_measured_release() {
         eprintln!(
             "Named invoking-key forwarding was measured on Readline 8.3; this case reports nothing on other releases"
@@ -1948,8 +1968,8 @@ fn assert_named_invoking_key_cases(cases: &[(&[u8], &str)]) {
         return;
     }
     for &(keys, expected) in cases {
-        let bash = run_bash_readline_with_inputrc_file(keys, "");
-        let sushline = run_sushline_harness_with_inputrc(keys, "");
+        let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
         for (name, output) in [("Bash", &bash), ("Sushline", &sushline)] {
             assert_eq!(
                 accepted_line(output).as_deref(),

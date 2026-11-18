@@ -306,8 +306,8 @@ Sushline-only extensions use the `Sushline extension` status.
 | `print-last-kbd-macro` | Compatible | Recorded macro output. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 
 The paired [`oracle/editing.rs`](readline/tests/oracle/editing.rs) fixtures
-cover these silent accepted-line cases on Bash 5.3 with Readline 8.3. Each
-enters the named command with `M-x` and submits its name with Enter:
+cover these silent accepted-line cases on Bash 5.3 with Readline 8.3.
+The `M-x` cases submit the command name with Enter:
 
 - `digit-argument`: the suffixes `X Enter`, `Enter`, `3X Enter`, and `-X Enter`
   accept `xX`, `x`, `x3X`, and `x-X`, respectively. With `M-0` or `M-2` before
@@ -320,6 +320,10 @@ enters the named command with `M-x` and submits its name with Enter:
   when it is bound elsewhere: with `C-o` bound to `execute-named-command`,
   `C-o self-insert Enter Y Enter` accepts the literal Ctrl-O followed by `Y`
   in both editors, without a bell.
+
+When an ASCII digit bound to `execute-named-command` invokes `digit-argument`
+without a pending count, the digit itself becomes the count. The paired fixtures
+cover `5`, `0`, and appending `3` after `5` to make `53`, all without a bell.
 
 Submitting an empty name is a silent no-op in both editors: `M-x Enter`
 accepts the unchanged line with no bell, while an unknown non-empty name rings

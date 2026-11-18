@@ -502,7 +502,23 @@ where
                 let more_prompt = "--More--";
                 self.terminal.write(more_prompt)?;
                 self.terminal.flush()?;
-                match self.read_completion_response(hooks)? {
+                // Unrecognized keys ring without consuming a page; keep
+                // waiting at the same prompt, as the pinned host does.
+                let answer = loop {
+                    match self.read_completion_response(hooks)? {
+                        TerminalEvent::Bytes(bytes)
+                            if bytes.as_slice() != [0x03]
+                                && !matches!(
+                                    bytes.as_slice(),
+                                    b"q" | b"Q" | b"n" | b"N" | b"\r" | b"\n" | b" " | b"\t"
+                                ) =>
+                        {
+                            self.ding()?;
+                        }
+                        event => break event,
+                    }
+                };
+                match answer {
                     TerminalEvent::Bytes(bytes) if bytes.as_slice() == [0x03] => {
                         self.handle_input_interrupt(state)?;
                         return Ok(());
@@ -520,7 +536,7 @@ where
                         page_remaining = page_rows;
                     }
                     TerminalEvent::Bytes(_) => {
-                        page_remaining = page_rows;
+                        unreachable!("unrecognized pager keys ring while waiting")
                     }
                     TerminalEvent::Resize(size) => {
                         state.display.last_terminal_size = Some(size);

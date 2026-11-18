@@ -38,24 +38,6 @@ pub(crate) enum NumericArgLiteralTail {
     None,
     /// Subsequent bare argument keys insert as text.
     Literal,
-    /// An argument prefix consumed inside the tail makes it swallow keys.
-    Swallow,
-    /// A Meta-prefixed argument key starts a fresh count after a multiplied minus.
-    ChainMinus,
-}
-
-impl NumericArgLiteralTail {
-    pub(crate) fn is_chain_minus(self) -> bool {
-        matches!(self, Self::ChainMinus)
-    }
-
-    pub(crate) fn swallows_bare_keys(self) -> bool {
-        matches!(self, Self::Swallow)
-    }
-
-    pub(crate) fn swallow(&mut self) {
-        *self = Self::Swallow;
-    }
 }
 
 pub(crate) struct EditorState {

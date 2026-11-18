@@ -92,9 +92,9 @@ where
                         || positive_chain_minus)
                 {
                     let meta_prefixed = key.first() == Some(&0x1b);
-                    if meta_prefixed && state.numeric_arg_tail.is_chain_minus() {
-                        // A Meta-prefixed key after a chain-minus tail starts
-                        // a fresh signed argument instead of being swallowed.
+                    if meta_prefixed && state.numeric_arg_tail != NumericArgLiteralTail::None {
+                        // An argument prefix inside a literal tail starts a
+                        // fresh signed count; only bare keys keep the tail.
                         state.numeric_arg_tail = NumericArgLiteralTail::None;
                         if update_numeric_argument(state, key) {
                             self.ding()?;
@@ -145,17 +145,10 @@ where
             }
             EditCommand::UniversalArgument => {
                 if state.numeric_arg_tail != NumericArgLiteralTail::None {
-                    if state.numeric_arg_tail.is_chain_minus() {
-                        // A multiplied-minus tail ends when a universal
-                        // argument arrives; GNU starts a fresh count instead
-                        // of swallowing the following argument keys.
-                        state.numeric_arg_tail = NumericArgLiteralTail::None;
-                    } else {
-                        // An ordinary literal tail consumes the universal
-                        // argument and every later argument key.
-                        state.numeric_arg_tail.swallow();
-                        return Ok(EditorOutcome::Continue);
-                    }
+                    // An argument prefix inside the tail starts a fresh
+                    // count. A later blocking command may consume it, but the
+                    // prefix and following argument keys are not dropped.
+                    state.numeric_arg_tail = NumericArgLiteralTail::None;
                 }
                 // Explicit digit counts are already complete; only implicit
                 // counts, sign-only prefixes and a repeated universal argument

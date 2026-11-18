@@ -314,10 +314,13 @@ fixtures cover implicit, bare-digit, multi-digit, minus and Meta-digit counts;
 a minus after a multiplied negative chain is not claimed here.
 
 Inside a no-op universal literal tail, a Meta-prefixed argument key or a
-universal-argument key is consumed along with every later argument key, so the
-inserted literal text is unchanged; paired fixtures cover one and two inner
-universal keys, Meta-digit prefixes, and Meta-zero. These observations do not
-establish a general rule for other command keys in the tail.
+universal-argument key starts a fresh count. When a blocking command consumes
+that count before the next self-insert, the inserted literal text is unchanged
+and the block rings once; paired fixtures cover one and two inner universal
+keys, Meta-digit prefixes, and Meta-zero in that form. Without a blocking
+command, the next self-insert repeats by the fresh count; bare digits extend it
+and a minus makes it negative. These observations do not establish a general
+rule for other command keys in the tail.
 
 ### Completion Commands And Behavior
 

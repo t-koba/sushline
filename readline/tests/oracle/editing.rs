@@ -6108,3 +6108,40 @@ fn bash_and_sushline_restart_counts_after_universal_in_multiplied_minus_tail() {
         }
     }
 }
+
+#[test]
+fn bash_and_sushline_keep_fresh_counts_after_a_literal_tail_prefix() {
+    let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
+    let base = format!("{}555", "a".repeat(60));
+    // An argument prefix inside a no-op literal tail starts a fresh count.
+    // Without a blocking command, the following self-insert repeats by it;
+    // bare digits extend it and a minus makes it negative.
+    for (desc, suffix, repeat) in [
+        ("universal", b"5\x0fX\r".as_slice(), 4),
+        ("universal then digit", b"5\x0f6X\r".as_slice(), 6),
+        ("universal then two digits", b"5\x0f67X\r".as_slice(), 67),
+        ("universal then minus", b"5\x0f-X\r".as_slice(), 0),
+        ("meta digit", b"5\x1b6X\r".as_slice(), 6),
+        ("meta two digits", b"5\x1b67X\r".as_slice(), 67),
+        (
+            "universal digit then meta",
+            b"5\x0f6\x1b7X\r".as_slice(),
+            67,
+        ),
+    ] {
+        let mut input = vec![b'a'; 60];
+        input.extend_from_slice(b"\x1b3\x0f");
+        input.extend_from_slice(suffix);
+        let bash = run_bash_readline_with_inputrc_file(&input, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&input, inputrc);
+        let expected = format!("{base}{}", "X".repeat(repeat));
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected.as_str()),
+                "{editor} {desc}: {output}"
+            );
+            assert_eq!(bell_count(output), 0, "{editor} {desc}: {output}");
+        }
+    }
+}

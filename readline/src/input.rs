@@ -417,12 +417,7 @@ where
         record_macro: bool,
     ) -> Result<(), ReadlineError> {
         if state.numeric_arg_tail != NumericArgLiteralTail::None {
-            if meta_prefixed {
-                // GNU drops the prefix and every argument key after it.
-                state.numeric_arg_tail.swallow();
-            } else if !state.numeric_arg_tail.swallows_bare_keys() {
-                self.insert_literal_with_count(state, &[key], 1, record_macro);
-            }
+            self.insert_literal_with_count(state, &[key], 1, record_macro);
             return Ok(());
         }
         let count = state.numeric_arg.unwrap_or(0);
@@ -441,11 +436,7 @@ where
             self.insert_literal_with_count(state, &[key], count.max(0) as u32, record_macro);
             state.numeric_arg = None;
         }
-        state.numeric_arg_tail = if repeat_by_count {
-            NumericArgLiteralTail::ChainMinus
-        } else {
-            NumericArgLiteralTail::Literal
-        };
+        state.numeric_arg_tail = NumericArgLiteralTail::Literal;
         Ok(())
     }
 

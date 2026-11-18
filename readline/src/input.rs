@@ -417,7 +417,10 @@ where
         record_macro: bool,
     ) -> Result<(), ReadlineError> {
         if state.numeric_arg_literal_tail {
-            if !meta_prefixed {
+            if meta_prefixed {
+                // GNU drops the prefix and every argument key after it.
+                state.numeric_arg_literal_swallow = true;
+            } else if !state.numeric_arg_literal_swallow {
                 self.insert_literal_with_count(state, &[key], 1, record_macro);
             }
             return Ok(());
@@ -443,7 +446,9 @@ where
         bytes: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<Option<EditorOutcome>, ReadlineError> {
-        if state.numeric_arg.is_none() || !state.input.pending_key.is_empty() {
+        if (state.numeric_arg.is_none() && !state.numeric_arg_literal_tail)
+            || !state.input.pending_key.is_empty()
+        {
             return Ok(None);
         }
         // Fragmentation-invariant: a batched chunk may carry a digit run

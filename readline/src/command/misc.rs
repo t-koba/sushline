@@ -129,6 +129,12 @@ where
                 outcome
             }
             EditCommand::UniversalArgument => {
+                if state.numeric_arg_literal_tail {
+                    // A universal argument inside the literal tail is
+                    // consumed, along with later argument keys.
+                    state.numeric_arg_literal_swallow = true;
+                    return Ok(EditorOutcome::Continue);
+                }
                 // Explicit digit counts are already complete; only implicit
                 // counts, sign-only prefixes and a repeated universal argument
                 // after a no-op are multiplied by four.

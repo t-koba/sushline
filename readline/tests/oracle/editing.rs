@@ -2675,6 +2675,61 @@ fn bash_and_sushline_reset_universal_count_on_following_minus() {
 }
 
 #[test]
+fn bash_and_sushline_swallow_argument_keys_inside_the_literal_tail() {
+    let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
+    let a = "a".repeat(60);
+    let expected = format!("{a}555X");
+    // After a no-op universal tail, GNU consumes a Meta-prefixed argument
+    // key or a universal-argument key and every later argument key, without
+    // inserting them.
+    for (desc, keys) in [
+        (
+            "meta six then bare seven",
+            b"\x1b3\x0f5\x1b67\x06X\r".as_slice(),
+        ),
+        (
+            "meta zero then bare six",
+            b"\x1b3\x0f5\x1b06\x06X\r".as_slice(),
+        ),
+        ("one inner universal", b"\x1b3\x0f5\x0f6\x06X\r".as_slice()),
+        (
+            "two inner universals",
+            b"\x1b3\x0f5\x0f\x0f6\x06X\r".as_slice(),
+        ),
+        ("plain tail control", b"\x1b3\x0f5\x06X\r".as_slice()),
+        (
+            "meta six and two bare digits",
+            b"\x1b3\x0f5\x1b678\x06X\r".as_slice(),
+        ),
+        (
+            "inner universal and two bare digits",
+            b"\x1b3\x0f5\x0f67\x06X\r".as_slice(),
+        ),
+        (
+            "two meta prefixes and a bare digit",
+            b"\x1b3\x0f5\x1b6\x1b89\x06X\r".as_slice(),
+        ),
+        (
+            "inner universal then meta and a bare digit",
+            b"\x1b3\x0f5\x0f6\x1b89\x06X\r".as_slice(),
+        ),
+    ] {
+        let mut input = a.as_bytes().to_vec();
+        input.extend_from_slice(keys);
+        let bash = run_bash_readline_with_inputrc_file(&input, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&input, inputrc);
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected.as_str()),
+                "{editor} {desc}: {output}"
+            );
+            assert_eq!(bell_count(output), 1, "{editor} {desc}: {output}");
+        }
+    }
+}
+
+#[test]
 fn bash_and_sushline_insert_the_noop_universal_literal_tail() {
     // The first digit or minus after a no-op universal is literal text; GNU
     // keeps following argument keys literal too, with no extra bell until a

@@ -304,7 +304,11 @@ from a long universal chain. A forward count with no possible step rings once
 in both, as does a backward count that cannot be fully satisfied. These
 paired observations do not establish a general blocked-movement rule.
 
-
+Inside a no-op universal literal tail, a Meta-prefixed argument key or a
+universal-argument key is consumed along with every later argument key, so the
+inserted literal text is unchanged; paired fixtures cover one and two inner
+universal keys, Meta-digit prefixes, and Meta-zero. These observations do not
+establish a general rule for other command keys in the tail.
 
 ### Completion Commands And Behavior
 

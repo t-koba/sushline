@@ -49,6 +49,9 @@ pub(crate) struct EditorState {
     pub(crate) numeric_arg_noop_chain: bool,
     /// A no-op universal digit was consumed; following digits/minus are text.
     pub(crate) numeric_arg_literal_tail: bool,
+    /// An argument prefix inside the literal tail makes GNU consume all later
+    /// argument keys without inserting them.
+    pub(crate) numeric_arg_literal_swallow: bool,
     pub(crate) mark: Option<usize>,
     pub(crate) overwrite_mode: bool,
     pub(crate) original_line: Vec<u8>,
@@ -79,6 +82,7 @@ impl EditorState {
             numeric_arg_universal_noop: false,
             numeric_arg_noop_chain: false,
             numeric_arg_literal_tail: false,
+            numeric_arg_literal_swallow: false,
             mark: None,
             overwrite_mode: false,
             original_line,
@@ -140,6 +144,7 @@ impl EditorState {
         self.numeric_arg_universal_noop = false;
         self.numeric_arg_noop_chain = false;
         self.numeric_arg_literal_tail = false;
+        self.numeric_arg_literal_swallow = false;
         self.macro_state.numeric_arg_recording_start = None;
         arg
     }

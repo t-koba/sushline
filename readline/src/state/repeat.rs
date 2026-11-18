@@ -115,7 +115,13 @@ pub(crate) fn update_numeric_argument(state: &mut EditorState, key: &[u8]) -> bo
             } else {
                 current.unsigned_abs().min(i32::MAX as u32) as i32
             };
-            state.numeric_arg_negative = if state.numeric_arg_sign_only && !universal {
+            // A bare minus keeps a sign-only argument's sign on GNU, except
+            // after a chained universal, which retains the toggling behavior.
+            // Meta-prefixed minuses always toggle.
+            let meta_minus = key.first() == Some(&0x1b);
+            let chained = state.numeric_arg_composition == NumericArgComposition::Chained;
+            let toggles = state.numeric_arg_sign_only && !universal && (meta_minus || chained);
+            state.numeric_arg_negative = if toggles {
                 !state.numeric_arg_negative
             } else {
                 true

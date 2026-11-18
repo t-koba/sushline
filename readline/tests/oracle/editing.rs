@@ -6145,3 +6145,42 @@ fn bash_and_sushline_keep_fresh_counts_after_a_literal_tail_prefix() {
         }
     }
 }
+
+#[test]
+fn bash_and_sushline_keep_negative_sign_after_bare_minus() {
+    let inputrc = "set bind-tty-special-chars off\n\"\\C-o\": universal-argument\n";
+    // A bare minus after a sign-only argument is not a second sign on GNU:
+    // the argument stays negative and the following self-insert is dropped.
+    // Meta-prefixed minuses still toggle the sign.
+    for (desc, keys, expected) in [
+        ("meta minus then bare minus", b"\x1b--X\r".as_slice(), ""),
+        (
+            "meta minus then two bare minuses",
+            b"\x1b---X\r".as_slice(),
+            "",
+        ),
+        (
+            "universal then two bare minuses",
+            b"\x0f--X\r".as_slice(),
+            "",
+        ),
+        ("bare minus then digit", b"\x1b--1X\r".as_slice(), ""),
+        ("two meta minuses", b"\x1b-\x1b-X\r".as_slice(), "X"),
+        (
+            "universal minus then meta minus",
+            b"\x0f-\x1b-X\r".as_slice(),
+            "X",
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{editor} {desc}: {output}"
+            );
+            assert_eq!(bell_count(output), 0, "{editor} {desc}: {output}");
+        }
+    }
+}

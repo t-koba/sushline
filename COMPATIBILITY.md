@@ -129,6 +129,15 @@ forms compose -11 and -12 and quoted-insert repeats by the magnitude. A bare
 comparison; the sign-only and `M-0 M-- M-1` forms also matched. No general
 negative-count rule is inferred.
 
+A bare minus following a sign-only argument is not a second sign: Bash 5.3
+keeps the negative count, so a following self-insert is dropped; a
+Meta-prefixed minus or a minus after a chained universal toggles the sign.
+Paired fixtures cover `M-- -`, two bare minuses after `M--` or a
+universal-argument key, a following digit, and the toggling controls. Bare
+minuses after an explicit digit count remain
+outside these claims: Bash repeats them as literal text (`M-2 - X` accepts
+`--X`), while Sushline currently treats them as a fresh sign.
+
 Repeated minus after a zero digit is also outside the pinned claims. With point
 13 on `abcdefghijklmnopqrstuvwxyz`, the byte sequences
 `ESC - 0 ESC - 1 C-f X Enter` and `ESC - ESC 0 ESC - 1 C-f X Enter` (final `1`

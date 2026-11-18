@@ -4617,3 +4617,42 @@ fn bash_and_sushline_ring_on_redundant_previous_history() {
         }
     }
 }
+
+#[test]
+fn bash_and_sushline_fetch_history_negative_counts_from_end() {
+    let fetch = r#""\C-o": fetch-history"#;
+    let vi_fetch = r#""\C-o": vi-fetch-history"#;
+    let five = ["one", "two", "three", "four", "five"];
+    let three = ["one", "two", "three"];
+    let empty: [&str; 0] = [];
+    for (binding, entries, arg, expected) in [
+        (fetch, &five[..], "-1", "fiveX"),
+        (fetch, &five[..], "-2", "fourX"),
+        (fetch, &five[..], "-3", "threeX"),
+        (fetch, &five[..], "-4", "twoX"),
+        (fetch, &five[..], "-5", "oneX"),
+        (fetch, &five[..], "-6", "oneX"),
+        (fetch, &five[..], "0", "oneX"),
+        (fetch, &five[..], "2", "twoX"),
+        (fetch, &three[..], "-1", "threeX"),
+        (fetch, &three[..], "-3", "oneX"),
+        (fetch, &three[..], "-4", "oneX"),
+        (vi_fetch, &five[..], "-1", "fiveX"),
+        (vi_fetch, &five[..], "-5", "oneX"),
+        (fetch, &empty[..], "-1", "X"),
+    ] {
+        let keys = format!("\x1b{arg}\x0fX\r");
+        let keys = keys.as_bytes();
+        let bash = run_bash_readline_with_inputrc_file_and_history(keys, binding, entries);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, binding, entries);
+        for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+            let context = format!("{editor}: arg={arg} history={entries:?}: {output}");
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{context}"
+            );
+            assert_eq!(bell_count(output), 0, "{context}");
+        }
+    }
+}

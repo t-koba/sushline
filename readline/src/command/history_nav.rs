@@ -281,10 +281,20 @@ where
                 }
             }
             "fetch-history" | "vi-fetch-history" => {
-                let index = state.take_numeric_arg().unwrap_or(1).unsigned_abs() as usize;
-                // GNU fetches the first entry for an out-of-range number
+                let arg = state.take_numeric_arg().unwrap_or(1);
+                // GNU counts a negative number from the end of the history.
+                // Zero and out-of-range numbers fetch the first entry
                 // (tested 0/4/5/6 against 3 entries, silently); an empty
                 // history stays put.
+                let index = if arg < 0 {
+                    self.history
+                        .entries()
+                        .len()
+                        .saturating_sub(arg.unsigned_abs() as usize)
+                        + 1
+                } else {
+                    arg.unsigned_abs() as usize
+                };
                 let line = self
                     .history
                     .get_1_based_entry(index)

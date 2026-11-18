@@ -247,7 +247,7 @@ Sushline-only extensions use the `Sushline extension` status.
 
 | Command(s) | Status | Notes |
 | --- | --- | --- |
-| `beginning-of-line`, `end-of-line`, `forward-char`, `backward-char`, `forward-word`, `backward-word` | Compatible | The paired `bash_readline_and_sushline_char_move_edges_ring_like_bash` fixture checks forward-at-end/over-count and backward-at-start/over-count failures (one bell each); backward count 0 and exact count 2 are silent, while a sign-only negative backward argument rings. Separate paired word-motion fixtures now cover uncounted, 0, 1, 2, 3, `M-- M-1`, and 9 prefixes from both line start (`forward-word`) and line end (`backward-word`) on `one two three`, with all tested cases silent; they establish only those fixture boundaries. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
+| `beginning-of-line`, `end-of-line`, `forward-char`, `backward-char`, `forward-word`, `backward-word` | Compatible | The paired `bash_readline_and_sushline_char_move_edges_ring_like_bash` fixture checks motion blocked at a line edge: `fwd_at_end` and `fwd_over_count` from the end and `back_at_start` from the start ring once, as does an incomplete `back_over_count` from the end; backward count 0 and exact count 2 are silent, while a sign-only negative backward argument rings. `bash_and_sushline_ring_for_blocked_character_motion_by_direction` shows that a forward count which advances before overshooting is silent, while one with no possible step rings once; the measured backward overshoot also rings. These fixtures establish only those boundaries. Separate paired word-motion fixtures now cover uncounted, 0, 1, 2, 3, `M-- M-1`, and 9 prefixes from both line start (`forward-word`) and line end (`backward-word`) on `one two three`, with all tested cases silent; they establish only those fixture boundaries. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs). |
 | `forward-byte`, `backward-byte` | Compatible | Paired PTY cases bind Ctrl-O to each command and match accepted-line text for selected multibyte inputs and pin insertion-marker outcomes after byte motions stop on UTF-8 character boundaries; they do not assert raw bytes or splits inside a multibyte sequence. A Sushline-only unit test covers a `backward-byte` insertion between bytes of a combining sequence. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs), [`editing.rs`](readline/tests/editing.rs). |
 | `shell-forward-word`, `shell-backward-word` | Hook-backed | Paired PTY tests compare one `shell-backward-word` insertion over `one two/three` and `shell-forward-word` insertions around a pipe and process substitution. A local Sushline-only `Hooks::shell_word_spans` test covers custom colon-delimited forward spans; no GNU parity for custom spans is claimed. Tests: [`oracle/completion.rs`](readline/tests/oracle/completion.rs), [`editing.rs`](readline/tests/editing.rs). |
 | `previous-screen-line`, `next-screen-line` | Compatible | The paired `bash_readline_and_sushline_accept_same_screen_line_motion` PTY fixture uses a 4x20 terminal and compares accepted lines for `abcdefghij klmnopqrst uvwxyz` with `C-o` bound to `previous-screen-line` after the text and to `next-screen-line` after `C-a`; both editors agree in those two cases. No general narrow-terminal movement rule is claimed. Test: [`oracle/display.rs`](readline/tests/oracle/display.rs). |
@@ -341,13 +341,6 @@ Cancelling the named-command prompt with Ctrl-G discards a pending count: with
 single `X` (or `Y`) in both editors. Only the accepted line is compared; GNU
 rings on the Ctrl-G abort while Sushline stays silent, and Escape is not
 covered because GNU reads it as a meta prefix inside the prompt.
-
-A directional bell asymmetry is pinned for oversized counts. With 60 leading
-`a`s and `C-o` bound to `universal-argument`, a forward count that reaches the
-end with steps to spare is silent in both programs, even when the count comes
-from a long universal chain. A forward count with no possible step rings once
-in both, as does a backward count that cannot be fully satisfied. These
-paired observations do not establish a general blocked-movement rule.
 
 A minus after a multiplied positive no-op chain is inserted as literal text
 repeated by the multiplied count, including when the minus is Meta-prefixed,

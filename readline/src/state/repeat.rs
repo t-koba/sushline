@@ -1,4 +1,4 @@
-use super::{EditorState, KillDirection};
+use super::{EditorState, KillDirection, NumericArgComposition};
 use crate::buffer::LineBuffer;
 
 pub(crate) fn repeat<F>(state: &mut EditorState, mut op: F)
@@ -96,15 +96,18 @@ pub(crate) fn update_numeric_argument(state: &mut EditorState, key: &[u8]) -> bo
     // A universal-argument no-op on an explicit count consumes the next digit
     // without building a new count; the key may arrive through the input fast
     // path as well as through DigitArgument dispatch.
-    if state.numeric_arg_universal_noop && last.is_ascii_digit() {
-        state.take_numeric_arg();
-        return false;
+    if state.numeric_arg_composition == NumericArgComposition::Pending {
+        if last.is_ascii_digit() {
+            state.take_numeric_arg();
+            return false;
+        }
+        state.numeric_arg_composition = NumericArgComposition::None;
     }
-    state.numeric_arg_universal_noop = false;
+    let universal = state.numeric_arg_universal
+        && state.numeric_arg_composition != NumericArgComposition::Chained;
     match last {
         b'-' => {
             let current = state.numeric_arg.unwrap_or(1);
-            let universal = state.numeric_arg_universal && !state.numeric_arg_noop_chain;
             // A minus after a universal argument starts a fresh sign-only
             // argument; GNU does not negate or retain the universal count.
             let magnitude = if universal {
@@ -125,13 +128,12 @@ pub(crate) fn update_numeric_argument(state: &mut EditorState, key: &[u8]) -> bo
             state.numeric_arg_sign_only = true;
             state.numeric_arg_meta_digit = false;
             state.numeric_arg_universal = false;
-            state.numeric_arg_noop_chain = false;
+            state.numeric_arg_composition = NumericArgComposition::None;
             false
         }
         b'0'..=b'9' => {
             let digit = (last - b'0') as i32;
             let current = state.numeric_arg.unwrap_or(0);
-            let universal = state.numeric_arg_universal && !state.numeric_arg_noop_chain;
             // After M--, a bare 1 replaces the magnitude (-1), while M-1 appends
             // (-11). A Meta-digit has already established an explicit magnitude,
             // so later bare digits append too (M-- M-0 1 gives -101).
@@ -166,7 +168,7 @@ pub(crate) fn update_numeric_argument(state: &mut EditorState, key: &[u8]) -> bo
                     state.numeric_arg_sign_only &= digit == 0;
                     state.numeric_arg_meta_digit |= meta_prefixed && !universal;
                     state.numeric_arg_universal = false;
-                    state.numeric_arg_noop_chain = false;
+                    state.numeric_arg_composition = NumericArgComposition::None;
                     false
                 }
                 None => {

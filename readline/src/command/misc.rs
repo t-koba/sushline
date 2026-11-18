@@ -82,21 +82,20 @@ where
                 let argument_key = key
                     .last()
                     .is_some_and(|byte| byte.is_ascii_digit() || *byte == b'-');
-                let positive_chain_minus = state.numeric_arg_noop_chain
+                let positive_chain_minus = state.numeric_arg_composition
+                    == NumericArgComposition::Chained
                     && key.last() == Some(&b'-')
                     && state.numeric_arg.is_some_and(|count| count > 0);
                 if argument_key
-                    && (state.numeric_arg_literal_tail
-                        || state.numeric_arg_universal_noop
+                    && (state.numeric_arg_tail != NumericArgLiteralTail::None
+                        || state.numeric_arg_composition == NumericArgComposition::Pending
                         || positive_chain_minus)
                 {
                     let meta_prefixed = key.first() == Some(&0x1b);
-                    if meta_prefixed && state.numeric_arg_literal_tail_chain_minus {
+                    if meta_prefixed && state.numeric_arg_tail.is_chain_minus() {
                         // A Meta-prefixed key after a chain-minus tail starts
-                        // a fresh signed argument; bare keys stay literal.
-                        state.numeric_arg_literal_tail = false;
-                        state.numeric_arg_literal_swallow = false;
-                        state.numeric_arg_literal_tail_chain_minus = false;
+                        // a fresh signed argument instead of being swallowed.
+                        state.numeric_arg_tail = NumericArgLiteralTail::None;
                         if update_numeric_argument(state, key) {
                             self.ding()?;
                         }
@@ -145,30 +144,33 @@ where
                 outcome
             }
             EditCommand::UniversalArgument => {
-                if state.numeric_arg_literal_tail {
+                if state.numeric_arg_tail != NumericArgLiteralTail::None {
                     // A universal argument inside the literal tail is
-                    // consumed, along with later argument keys.
-                    state.numeric_arg_literal_swallow = true;
+                    // consumed, along with later bare argument keys.
+                    state.numeric_arg_tail.swallow();
                     return Ok(EditorOutcome::Continue);
                 }
                 // Explicit digit counts are already complete; only implicit
                 // counts, sign-only prefixes and a repeated universal argument
                 // after a no-op are multiplied by four.
-                let from_noop = state.numeric_arg_universal_noop;
+                let from_noop = state.numeric_arg_composition == NumericArgComposition::Pending;
                 if state.numeric_arg.is_none()
                     || (state.numeric_arg_sign_only && !state.numeric_arg_meta_digit)
                     || state.numeric_arg_universal
                     || from_noop
                 {
-                    state.numeric_arg_universal_noop = false;
+                    if from_noop {
+                        state.numeric_arg_composition = NumericArgComposition::None;
+                    }
                     match state.numeric_arg.unwrap_or(1).checked_mul(4) {
                         Some(next) if next.unsigned_abs() <= MAX_NUMERIC_ARGUMENT as u32 => {
                             state.numeric_arg = Some(next);
-                            // Keep multiplying on later universals; a
-                            // separate flag carries the explicit composition
-                            // behavior inherited from the no-op count.
+                            // Later universals still multiply, while digit/minus
+                            // composition retains the inherited explicit count.
                             state.numeric_arg_universal = true;
-                            state.numeric_arg_noop_chain |= from_noop;
+                            if from_noop {
+                                state.numeric_arg_composition = NumericArgComposition::Chained;
+                            }
                         }
                         _ => {
                             state.take_numeric_arg();
@@ -176,7 +178,7 @@ where
                         }
                     }
                 } else {
-                    state.numeric_arg_universal_noop = true;
+                    state.numeric_arg_composition = NumericArgComposition::Pending;
                 }
                 Ok(EditorOutcome::Continue)
             }

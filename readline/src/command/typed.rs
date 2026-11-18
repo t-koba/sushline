@@ -108,7 +108,7 @@ where
             && state.numeric_arg.is_some()
             && !state.numeric_arg_sign_only
         {
-            if state.numeric_arg_universal_noop {
+            if state.numeric_arg_composition == NumericArgComposition::Pending {
                 state.numeric_arg = Some(1);
                 state.numeric_arg_negative = false;
                 state.numeric_arg_universal = false;

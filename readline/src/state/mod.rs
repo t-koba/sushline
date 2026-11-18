@@ -23,6 +23,48 @@ pub(crate) use search::*;
 pub(crate) use undo::*;
 pub(crate) use vi::*;
 
+/// Composition inherited from a universal-argument no-op on an explicit count.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NumericArgComposition {
+    None,
+    /// The no-op was seen, but no multiplier has followed it.
+    Pending,
+    /// A multiplier followed the no-op; keep explicit-count composition.
+    Chained,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NumericArgLiteralTail {
+    None,
+    /// Subsequent bare argument keys insert as text.
+    Literal,
+    /// An argument prefix consumed inside the tail makes it swallow keys.
+    Swallow,
+    /// A Meta-prefixed argument key starts a fresh count after a multiplied minus.
+    ChainMinus,
+    /// A prefix was consumed after a multiplied minus: swallow bare keys,
+    /// but still start a fresh count on Meta-prefixed argument keys.
+    ChainMinusSwallow,
+}
+
+impl NumericArgLiteralTail {
+    pub(crate) fn is_chain_minus(self) -> bool {
+        matches!(self, Self::ChainMinus | Self::ChainMinusSwallow)
+    }
+
+    pub(crate) fn swallows_bare_keys(self) -> bool {
+        matches!(self, Self::Swallow | Self::ChainMinusSwallow)
+    }
+
+    pub(crate) fn swallow(&mut self) {
+        *self = if self.is_chain_minus() {
+            Self::ChainMinusSwallow
+        } else {
+            Self::Swallow
+        };
+    }
+}
+
 pub(crate) struct EditorState {
     pub(crate) prompt: Prompt,
     pub(crate) buffer: LineBuffer,
@@ -43,18 +85,8 @@ pub(crate) struct EditorState {
     pub(crate) numeric_arg_negative: bool,
     /// The pending count is an implicit universal-argument multiplier.
     pub(crate) numeric_arg_universal: bool,
-    /// An explicit count was followed by a no-op universal-argument command.
-    pub(crate) numeric_arg_universal_noop: bool,
-    /// A no-op-chain universal count keeps its explicit composition flags.
-    pub(crate) numeric_arg_noop_chain: bool,
-    /// A no-op universal digit was consumed; following digits/minus are text.
-    pub(crate) numeric_arg_literal_tail: bool,
-    /// An argument prefix inside the literal tail makes GNU consume all later
-    /// argument keys without inserting them.
-    pub(crate) numeric_arg_literal_swallow: bool,
-    /// The literal tail came from a multiplied minus; a Meta-prefixed argument
-    /// key then starts a fresh count instead of being swallowed.
-    pub(crate) numeric_arg_literal_tail_chain_minus: bool,
+    pub(crate) numeric_arg_composition: NumericArgComposition,
+    pub(crate) numeric_arg_tail: NumericArgLiteralTail,
     pub(crate) mark: Option<usize>,
     pub(crate) overwrite_mode: bool,
     pub(crate) original_line: Vec<u8>,
@@ -82,11 +114,8 @@ impl EditorState {
             numeric_arg_meta_digit: false,
             numeric_arg_negative: false,
             numeric_arg_universal: false,
-            numeric_arg_universal_noop: false,
-            numeric_arg_noop_chain: false,
-            numeric_arg_literal_tail: false,
-            numeric_arg_literal_swallow: false,
-            numeric_arg_literal_tail_chain_minus: false,
+            numeric_arg_composition: NumericArgComposition::None,
+            numeric_arg_tail: NumericArgLiteralTail::None,
             mark: None,
             overwrite_mode: false,
             original_line,
@@ -145,11 +174,8 @@ impl EditorState {
         self.numeric_arg_meta_digit = false;
         self.numeric_arg_negative = false;
         self.numeric_arg_universal = false;
-        self.numeric_arg_universal_noop = false;
-        self.numeric_arg_noop_chain = false;
-        self.numeric_arg_literal_tail = false;
-        self.numeric_arg_literal_swallow = false;
-        self.numeric_arg_literal_tail_chain_minus = false;
+        self.numeric_arg_composition = NumericArgComposition::None;
+        self.numeric_arg_tail = NumericArgLiteralTail::None;
         self.macro_state.numeric_arg_recording_start = None;
         arg
     }

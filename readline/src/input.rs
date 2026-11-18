@@ -416,11 +416,11 @@ where
         meta_prefixed: bool,
         record_macro: bool,
     ) -> Result<(), ReadlineError> {
-        if state.numeric_arg_literal_tail {
+        if state.numeric_arg_tail != NumericArgLiteralTail::None {
             if meta_prefixed {
                 // GNU drops the prefix and every argument key after it.
-                state.numeric_arg_literal_swallow = true;
-            } else if !state.numeric_arg_literal_swallow {
+                state.numeric_arg_tail.swallow();
+            } else if !state.numeric_arg_tail.swallows_bare_keys() {
                 self.insert_literal_with_count(state, &[key], 1, record_macro);
             }
             return Ok(());
@@ -429,7 +429,8 @@ where
         // A minus after a multiplied positive no-op chain repeats by that
         // count even when Meta-prefixed, with no bell; other Meta-prefixed
         // no-op argument keys insert once and ring twice.
-        let repeat_by_count = state.numeric_arg_noop_chain && count > 0;
+        let repeat_by_count =
+            state.numeric_arg_composition == NumericArgComposition::Chained && count > 0;
         state.take_numeric_arg();
         if meta_prefixed && !repeat_by_count {
             self.insert_literal_with_count(state, &[key], 1, record_macro);
@@ -440,10 +441,11 @@ where
             self.insert_literal_with_count(state, &[key], count.max(0) as u32, record_macro);
             state.numeric_arg = None;
         }
-        if repeat_by_count {
-            state.numeric_arg_literal_tail_chain_minus = true;
-        }
-        state.numeric_arg_literal_tail = true;
+        state.numeric_arg_tail = if repeat_by_count {
+            NumericArgLiteralTail::ChainMinus
+        } else {
+            NumericArgLiteralTail::Literal
+        };
         Ok(())
     }
 
@@ -453,7 +455,7 @@ where
         bytes: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<Option<EditorOutcome>, ReadlineError> {
-        if (state.numeric_arg.is_none() && !state.numeric_arg_literal_tail)
+        if (state.numeric_arg.is_none() && state.numeric_arg_tail == NumericArgLiteralTail::None)
             || !state.input.pending_key.is_empty()
         {
             return Ok(None);
@@ -473,11 +475,11 @@ where
         if run == 0 {
             return Ok(None);
         }
-        let positive_chain_minus = state.numeric_arg_noop_chain
+        let positive_chain_minus = state.numeric_arg_composition == NumericArgComposition::Chained
             && state.numeric_arg.is_some_and(|count| count > 0)
             && bytes[0] == b'-';
-        if state.numeric_arg_literal_tail
-            || (state.numeric_arg_universal_noop && (bytes[0].is_ascii_digit() || bytes[0] == b'-'))
+        if state.numeric_arg_tail != NumericArgLiteralTail::None
+            || state.numeric_arg_composition == NumericArgComposition::Pending
             || positive_chain_minus
         {
             for byte in &bytes[..run] {

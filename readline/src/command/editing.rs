@@ -107,10 +107,10 @@ where
             }
             EditCommand::SelfInsert => {
                 state.display.pending_text = true;
-                let literal_tail = state.numeric_arg_literal_tail;
+                let literal_tail = state.numeric_arg_tail != NumericArgLiteralTail::None;
                 let raw = state.take_numeric_arg().unwrap_or(1);
                 let raw = if literal_tail && raw == 0 {
-                    state.numeric_arg_literal_tail = true;
+                    state.numeric_arg_tail = NumericArgLiteralTail::Literal;
                     1
                 } else {
                     raw

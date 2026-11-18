@@ -4583,3 +4583,37 @@ fn bash_and_sushline_ring_on_redundant_history_extreme_navigation() {
         }
     }
 }
+
+#[test]
+fn bash_and_sushline_ring_on_redundant_previous_history() {
+    let history = ["AAA", "BBB"];
+    let single = ["AAA"];
+    for (entries, keys, expected, bells) in [
+        // Starting at the oldest entry rings once per invocation.
+        (&history[..], &b"\x10\x10\x10X\r"[..], "AAAX", 1),
+        (&history[..], &b"\x10\x10\x10\x10X\r"[..], "AAAX", 2),
+        (&history[..], &b"\x10\x10\x1b2\x10X\r"[..], "AAAX", 1),
+        (&history[..], &b"\x10\x10\x1b9\x10X\r"[..], "AAAX", 1),
+        (&single[..], &b"\x10\x10X\r"[..], "AAAX", 1),
+        (&single[..], &b"\x10\x1b2\x10X\r"[..], "AAAX", 1),
+        // Reaching the oldest mid-command, a zero count, an empty history,
+        // and a negative count that reverses direction stay silent.
+        (&history[..], &b"\x10\x1b2\x10X\r"[..], "AAAX", 0),
+        (&history[..], &b"\x1b2\x10X\r"[..], "AAAX", 0),
+        (&history[..], &b"\x10\x10\x1b0\x10X\r"[..], "AAAX", 0),
+        (&[][..], &b"\x10X\r"[..], "X", 0),
+        (&history[..], &b"\x10\x10\x1b-\x31\x10X\r"[..], "BBBX", 0),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_history(keys, "", entries);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, "", entries);
+        for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+            let context = format!("{editor}: keys={keys:?} history={entries:?}: {output}");
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{context}"
+            );
+            assert_eq!(bell_count(output), bells, "{context}");
+        }
+    }
+}

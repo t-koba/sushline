@@ -188,6 +188,15 @@ where
                 } else {
                     HistoryDirection::Previous
                 };
+                // GNU rings when a counted previous-history starts at the
+                // oldest entry. Reaching the oldest mid-command stays silent,
+                // as do a zero count and an empty history.
+                if arg != 0
+                    && direction == HistoryDirection::Previous
+                    && self.history.current_index() == Some(0)
+                {
+                    self.ding()?;
+                }
                 for step in 0..arg.unsigned_abs() {
                     let before_pos = self.history.where_history();
                     if let Some(line) = self

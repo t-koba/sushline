@@ -2825,6 +2825,11 @@ fn bash_readline_and_sushline_start_edits_at_the_first_byte_of_vi_recall() {
             b"\x1bkxAX\r".as_slice(),
             "iveX",
         ),
+        (
+            "set editing-mode vi\nset history-preserve-point on\n",
+            b"abc\x1b0lkxAX\r".as_slice(),
+            "iveX",
+        ),
         ("", b"\x10AX\r".as_slice(), "fiveAX"),
     ] {
         for (name, output) in [

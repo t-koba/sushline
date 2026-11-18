@@ -339,48 +339,40 @@ where
             )?;
             self.terminal.flush()?;
             // A resize changes the display, not the answer to this prompt.
-            let answer = loop {
+            loop {
                 match self.read_completion_response(hooks)? {
                     TerminalEvent::Resize(_) => continue,
+                    TerminalEvent::Bytes(bytes) if bytes.as_slice() == [0x03] => {
+                        self.handle_input_interrupt(state)?;
+                        return Ok(());
+                    }
+                    TerminalEvent::Bytes(bytes) if bytes.as_slice() == [0x07] => {
+                        self.ding()?;
+                        self.write_tracked_newline(state)?;
+                        return Ok(());
+                    }
+                    TerminalEvent::Bytes(bytes) if matches!(bytes.as_slice(), b"n" | b"N") => {
+                        self.write_tracked_newline(state)?;
+                        return Ok(());
+                    }
                     TerminalEvent::Bytes(bytes)
-                        if bytes.as_slice() == [0x03]
-                            || bytes.as_slice() == [0x07]
-                            || matches!(bytes.as_slice(), b"y" | b"Y" | b" " | b"n" | b"N") =>
+                        if matches!(bytes.as_slice(), b"y" | b"Y" | b" ") =>
                     {
-                        break TerminalEvent::Bytes(bytes);
+                        break;
                     }
                     TerminalEvent::Bytes(_) => {
                         self.ding()?;
                     }
-                    event => break event,
-                }
-            };
-            match answer {
-                TerminalEvent::Bytes(bytes) if bytes.as_slice() == [0x03] => {
-                    self.handle_input_interrupt(state)?;
-                    return Ok(());
-                }
-                TerminalEvent::Bytes(bytes) if bytes.as_slice() == [0x07] => {
-                    self.ding()?;
-                    self.write_tracked_newline(state)?;
-                    return Ok(());
-                }
-                TerminalEvent::Bytes(bytes) if matches!(bytes.as_slice(), b"y" | b"Y" | b" ") => {}
-                TerminalEvent::Bytes(bytes) if matches!(bytes.as_slice(), b"n" | b"N") => {
-                    self.write_tracked_newline(state)?;
-                    return Ok(());
-                }
-                TerminalEvent::Bytes(_) => unreachable!("invalid confirmation bytes ring and wait"),
-                TerminalEvent::Timeout | TerminalEvent::Wakeup => {
-                    unreachable!("indefinite completion waits absorb wakeups")
-                }
-                TerminalEvent::Signal(signal) => {
-                    if self.handle_terminal_signal(state, signal)?.is_some() {
-                        state.input.interrupted = true;
+                    TerminalEvent::Timeout | TerminalEvent::Wakeup => {
+                        unreachable!("indefinite completion waits absorb wakeups")
                     }
-                    return Ok(());
+                    TerminalEvent::Signal(signal) => {
+                        if self.handle_terminal_signal(state, signal)?.is_some() {
+                            state.input.interrupted = true;
+                        }
+                        return Ok(());
+                    }
                 }
-                TerminalEvent::Resize(_) => unreachable!("resize handled while waiting"),
             }
         }
 
@@ -519,63 +511,53 @@ where
                 self.terminal.flush()?;
                 // Unrecognized keys ring without consuming a page; keep
                 // waiting at the same prompt, as the pinned host does.
-                let answer = loop {
+                loop {
                     match self.read_completion_response(hooks)? {
                         TerminalEvent::Bytes(bytes) if bytes.as_slice() == [0x07] => {
-                            break TerminalEvent::Bytes(bytes);
+                            self.ding()?;
+                            self.write_tracked_newline(state)?;
+                            return Ok(());
+                        }
+                        TerminalEvent::Bytes(bytes) if bytes.as_slice() == [0x03] => {
+                            self.handle_input_interrupt(state)?;
+                            return Ok(());
                         }
                         TerminalEvent::Bytes(bytes)
-                            if bytes.as_slice() != [0x03]
-                                && !matches!(
-                                    bytes.as_slice(),
-                                    b"q" | b"Q" | b"n" | b"N" | b"\r" | b"\n" | b" " | b"y" | b"Y"
-                                ) =>
+                            if matches!(bytes.as_slice(), b"q" | b"Q" | b"n" | b"N") =>
                         {
+                            self.write_tracked_newline(state)?;
+                            return Ok(());
+                        }
+                        TerminalEvent::Bytes(bytes)
+                            if matches!(bytes.as_slice(), b"\r" | b"\n") =>
+                        {
+                            page_remaining = 1;
+                            break;
+                        }
+                        TerminalEvent::Bytes(bytes)
+                            if matches!(bytes.as_slice(), b" " | b"y" | b"Y") =>
+                        {
+                            page_remaining = page_rows;
+                            break;
+                        }
+                        TerminalEvent::Resize(size) => {
+                            state.display.last_terminal_size = Some(size);
+                            page_rows = usize::from(size.rows.max(1)).saturating_sub(1).max(1);
+                            page_remaining = page_rows;
+                            break;
+                        }
+                        TerminalEvent::Bytes(_) => {
                             self.ding()?;
                         }
-                        event => break event,
-                    }
-                };
-                match answer {
-                    TerminalEvent::Bytes(bytes) if bytes.as_slice() == [0x07] => {
-                        self.ding()?;
-                        self.write_tracked_newline(state)?;
-                        return Ok(());
-                    }
-                    TerminalEvent::Bytes(bytes) if bytes.as_slice() == [0x03] => {
-                        self.handle_input_interrupt(state)?;
-                        return Ok(());
-                    }
-                    TerminalEvent::Bytes(bytes)
-                        if matches!(bytes.as_slice(), b"q" | b"Q" | b"n" | b"N") =>
-                    {
-                        self.write_tracked_newline(state)?;
-                        return Ok(());
-                    }
-                    TerminalEvent::Bytes(bytes) if matches!(bytes.as_slice(), b"\r" | b"\n") => {
-                        page_remaining = 1;
-                    }
-                    TerminalEvent::Bytes(bytes)
-                        if matches!(bytes.as_slice(), b" " | b"y" | b"Y") =>
-                    {
-                        page_remaining = page_rows;
-                    }
-                    TerminalEvent::Bytes(_) => {
-                        unreachable!("unrecognized pager keys ring while waiting")
-                    }
-                    TerminalEvent::Resize(size) => {
-                        state.display.last_terminal_size = Some(size);
-                        page_rows = usize::from(size.rows.max(1)).saturating_sub(1).max(1);
-                        page_remaining = page_rows;
-                    }
-                    TerminalEvent::Timeout | TerminalEvent::Wakeup => {
-                        unreachable!("indefinite completion waits absorb wakeups")
-                    }
-                    TerminalEvent::Signal(signal) => {
-                        if self.handle_terminal_signal(state, signal)?.is_some() {
-                            state.input.interrupted = true;
+                        TerminalEvent::Timeout | TerminalEvent::Wakeup => {
+                            unreachable!("indefinite completion waits absorb wakeups")
                         }
-                        return Ok(());
+                        TerminalEvent::Signal(signal) => {
+                            if self.handle_terminal_signal(state, signal)?.is_some() {
+                                state.input.interrupted = true;
+                            }
+                            return Ok(());
+                        }
                     }
                 }
                 let columns = self.tracked_terminal_columns(state);

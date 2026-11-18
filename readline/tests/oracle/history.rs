@@ -4552,3 +4552,34 @@ fn bash_readline_and_sushline_exchange_with_unset_mark() {
         }
     }
 }
+
+#[test]
+fn bash_and_sushline_ring_on_redundant_history_extreme_navigation() {
+    let history = ["AAA", "BBB"];
+    for (entries, keys, expected, bells) in [
+        // beginning-of-history at the oldest entry rings once per invocation.
+        (&history[..], &b"\x1b<\x1b<X\r"[..], "AAAX", 1),
+        (&history[..], &b"\x10\x10\x1b<X\r"[..], "AAAX", 1),
+        // The first move from the current line stays silent.
+        (&history[..], &b"\x1b<X\r"[..], "AAAX", 0),
+        // end-of-history at the end rings once, including an empty history.
+        (&history[..], &b"\x1b>X\r"[..], "X", 1),
+        (&history[..], &b"\x10\x10\x1b>\x1b>X\r"[..], "X", 1),
+        (&[][..], &b"\x1b>X\r"[..], "X", 1),
+        // A moving end and a beginning-then-end stay silent with entries.
+        (&history[..], &b"\x10\x1b>X\r"[..], "X", 0),
+        (&history[..], &b"\x1b<\x1b>X\r"[..], "X", 0),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_history(keys, "", entries);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, "", entries);
+        for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+            let context = format!("{editor}: keys={keys:?} history={entries:?}: {output}");
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{context}"
+            );
+            assert_eq!(bell_count(output), bells, "{context}");
+        }
+    }
+}

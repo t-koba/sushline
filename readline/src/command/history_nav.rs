@@ -13,18 +13,28 @@ where
     ) -> Result<EditorOutcome, ReadlineError> {
         match command {
             EditCommand::HistoryBeginning => {
+                // GNU rings when already at the oldest entry (with entries
+                // present). The first move from the current line stays silent.
+                let already_oldest = self.history.current_index() == Some(0);
                 if let Some(line) = self
                     .history
                     .beginning_bytes(state.buffer.as_bytes().to_vec())
                 {
                     self.replace_from_history(state, &line);
                 }
+                if already_oldest {
+                    self.ding()?;
+                }
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::HistoryEnd => {
+                // `end_bytes` is None when the cursor is already at the end
+                // (including an empty history); GNU rings for that no-op.
                 if let Some(line) = self.history.end_bytes() {
                     self.replace_from_history(state, &line);
+                } else {
+                    self.ding()?;
                 }
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)

@@ -40,6 +40,14 @@ fn word_matcher(break_chars: Option<&str>) -> impl Fn(char) -> bool + Copy + '_ 
     }
 }
 
+fn capitalize_word_char(index: usize, ch: char) -> String {
+    if index == 0 {
+        ch.to_uppercase().collect()
+    } else {
+        ch.to_lowercase().collect()
+    }
+}
+
 pub(super) fn is_horizontal_space(ch: char) -> bool {
     ch == ' ' || ch == '\t'
 }
@@ -461,73 +469,60 @@ impl LineBuffer {
 
     /// Upcase word.
     pub fn upcase_word(&mut self, break_chars: Option<&str>) -> bool {
-        self.map_next_word_by(word_matcher(break_chars), |ch| ch.to_uppercase().collect())
+        self.map_next_word_by(word_matcher(break_chars), |_, ch| {
+            ch.to_uppercase().collect()
+        })
     }
 
     /// Upcase previous word preserving point.
     pub fn upcase_previous_word_preserving_point(&mut self, break_chars: Option<&str>) -> bool {
-        self.map_previous_word_preserving_point_by(word_matcher(break_chars), |ch| {
+        self.upcase_previous_words(1, break_chars)
+    }
+
+    pub(crate) fn upcase_previous_words(&mut self, count: u32, break_chars: Option<&str>) -> bool {
+        self.map_previous_words_by(count, word_matcher(break_chars), |_, ch| {
             ch.to_uppercase().collect()
         })
     }
 
     /// Downcase word.
     pub fn downcase_word(&mut self, break_chars: Option<&str>) -> bool {
-        self.map_next_word_by(word_matcher(break_chars), |ch| ch.to_lowercase().collect())
+        self.map_next_word_by(word_matcher(break_chars), |_, ch| {
+            ch.to_lowercase().collect()
+        })
     }
 
     /// Downcase previous word preserving point.
     pub fn downcase_previous_word_preserving_point(&mut self, break_chars: Option<&str>) -> bool {
-        self.map_previous_word_preserving_point_by(word_matcher(break_chars), |ch| {
+        self.downcase_previous_words(1, break_chars)
+    }
+
+    pub(crate) fn downcase_previous_words(
+        &mut self,
+        count: u32,
+        break_chars: Option<&str>,
+    ) -> bool {
+        self.map_previous_words_by(count, word_matcher(break_chars), |_, ch| {
             ch.to_lowercase().collect()
         })
     }
 
     /// Capitalize word.
     pub fn capitalize_word(&mut self, break_chars: Option<&str>) -> bool {
-        self.capitalize_word_by(word_matcher(break_chars))
+        self.map_next_word_by(word_matcher(break_chars), capitalize_word_char)
     }
 
     /// Capitalize previous word preserving point.
     pub fn capitalize_previous_word_preserving_point(&mut self, break_chars: Option<&str>) -> bool {
-        self.capitalize_previous_word_preserving_point_by(word_matcher(break_chars))
+        self.capitalize_previous_words(1, break_chars)
     }
 
-    fn capitalize_word_by<F>(&mut self, is_word: F) -> bool
-    where
-        F: Fn(char) -> bool + Copy,
-    {
-        let Some((start, end)) = self.next_word_bounds_by(self.point, is_word) else {
-            return false;
-        };
-        self.replace_mapped_chars(start, end, |idx, ch| {
-            if idx == 0 {
-                ch.to_uppercase().collect()
-            } else {
-                ch.to_lowercase().collect()
-            }
-        });
-        self.point = end;
-        true
-    }
-
-    fn capitalize_previous_word_preserving_point_by<F>(&mut self, is_word: F) -> bool
-    where
-        F: Fn(char) -> bool + Copy,
-    {
-        let Some((start, end)) = self.previous_word_bounds_by(self.point, is_word) else {
-            return false;
-        };
-        let point = self.point;
-        self.replace_mapped_chars(start, end, |idx, ch| {
-            if idx == 0 {
-                ch.to_uppercase().collect()
-            } else {
-                ch.to_lowercase().collect()
-            }
-        });
-        self.point = self.clamp_boundary(point);
-        true
+    pub(crate) fn capitalize_previous_words(
+        &mut self,
+        count: u32,
+        break_chars: Option<&str>,
+    ) -> bool {
+        self.map_previous_words_by(count, word_matcher(break_chars), capitalize_word_char)
     }
 
     /// Transpose words.
@@ -1113,31 +1108,34 @@ impl LineBuffer {
         self.point != start
     }
 
-    fn map_next_word_by<P, F>(&mut self, is_word: P, mut f: F) -> bool
+    fn map_next_word_by<P, F>(&mut self, is_word: P, f: F) -> bool
     where
         P: Fn(char) -> bool + Copy,
-        F: FnMut(char) -> String,
+        F: FnMut(usize, char) -> String,
     {
         let Some((start, end)) = self.next_word_bounds_by(self.point, is_word) else {
             return false;
         };
-        self.replace_mapped_chars(start, end, |_, ch| f(ch));
+        self.replace_mapped_chars(start, end, f);
         self.point = end;
         true
     }
 
-    fn map_previous_word_preserving_point_by<P, F>(&mut self, is_word: P, mut f: F) -> bool
+    fn map_previous_words_by<P, F>(&mut self, count: u32, is_word: P, mut f: F) -> bool
     where
         P: Fn(char) -> bool + Copy,
-        F: FnMut(char) -> String,
+        F: FnMut(usize, char) -> String,
     {
-        let Some((start, end)) = self.previous_word_bounds_by(self.point, is_word) else {
-            return false;
-        };
-        let point = self.point;
-        self.replace_mapped_chars(start, end, |_, ch| f(ch));
-        self.point = self.clamp_boundary(point);
-        true
+        // Walk backwards without moving the editor's point.
+        let mut cursor = self.point;
+        for _ in 0..count {
+            let Some((start, end)) = self.previous_word_bounds_by(cursor, is_word) else {
+                break;
+            };
+            self.replace_mapped_chars(start, end, &mut f);
+            cursor = start;
+        }
+        cursor != self.point
     }
 
     fn next_word_bounds_by<F>(&self, from: usize, is_word: F) -> Option<(usize, usize)>

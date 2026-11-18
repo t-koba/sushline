@@ -41,11 +41,9 @@ where
                 let word_breaks = self.editing_word_breaks(hooks);
                 repeat_case_word(
                     state,
-                    |state| state.buffer.capitalize_word(word_breaks.as_deref()),
-                    |state| {
-                        state
-                            .buffer
-                            .capitalize_previous_word_preserving_point(word_breaks.as_deref())
+                    |buffer| buffer.capitalize_word(word_breaks.as_deref()),
+                    |buffer, count| {
+                        buffer.capitalize_previous_words(count, word_breaks.as_deref());
                     },
                 );
                 state.after_non_kill_command();
@@ -84,11 +82,9 @@ where
                 let word_breaks = self.editing_word_breaks(hooks);
                 repeat_case_word(
                     state,
-                    |state| state.buffer.downcase_word(word_breaks.as_deref()),
-                    |state| {
-                        state
-                            .buffer
-                            .downcase_previous_word_preserving_point(word_breaks.as_deref())
+                    |buffer| buffer.downcase_word(word_breaks.as_deref()),
+                    |buffer, count| {
+                        buffer.downcase_previous_words(count, word_breaks.as_deref());
                     },
                 );
                 state.after_non_kill_command();
@@ -193,11 +189,9 @@ where
                 let word_breaks = self.editing_word_breaks(hooks);
                 repeat_case_word(
                     state,
-                    |state| state.buffer.upcase_word(word_breaks.as_deref()),
-                    |state| {
-                        state
-                            .buffer
-                            .upcase_previous_word_preserving_point(word_breaks.as_deref())
+                    |buffer| buffer.upcase_word(word_breaks.as_deref()),
+                    |buffer, count| {
+                        buffer.upcase_previous_words(count, word_breaks.as_deref());
                     },
                 );
                 state.after_non_kill_command();

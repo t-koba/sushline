@@ -758,6 +758,88 @@ fn bash_readline_and_sushline_accept_same_case_word_edits() {
 }
 
 #[test]
+fn bash_readline_and_sushline_case_word_counts_from_inside_word() {
+    for (command, [negative_one, negative_multiple, positive_two]) in [
+        (
+            b'u',
+            [
+                "one TXwo three four",
+                "ONE TXwo three four",
+                "one tWO THREEX four",
+            ],
+        ),
+        (
+            b'c',
+            [
+                "one TXwo three four",
+                "One TXwo three four",
+                "one tWo ThreeX four",
+            ],
+        ),
+        (
+            b'l',
+            [
+                "one tXwo three four",
+                "one tXwo three four",
+                "one two threeX four",
+            ],
+        ),
+    ] {
+        for (prefix, expected) in [
+            (b"\x1b-1".as_slice(), negative_one),
+            (b"\x1b-2".as_slice(), negative_multiple),
+            (b"\x1b-3".as_slice(), negative_multiple),
+            (b"\x1b2".as_slice(), positive_two),
+        ] {
+            let keys = [
+                b"one two three four\x01\x06\x06\x06\x06\x06".as_slice(),
+                prefix,
+                &[0x1b, command],
+                b"X\r",
+            ]
+            .concat();
+            let bash = run_bash_readline(&keys);
+            let sushline = run_sushline_harness(&keys);
+            for (host, output) in [("bash", &bash), ("sushline", &sushline)] {
+                assert_eq!(
+                    accepted_line(output).as_deref(),
+                    Some(expected),
+                    "keys={keys:?} {host}: {output}"
+                );
+                assert_eq!(bell_count(output), 0, "keys={keys:?} {host}: {output}");
+            }
+        }
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_negative_case_word_counts_reach_earlier_uppercase_word() {
+    // A lowercase earlier word hides whether a negative count reached it;
+    // with `ONE TWO` GNU downcases the earlier word at counts -2 and -3.
+    for (command, expected) in [(b'l', "one tXWO three four"), (b'u', "ONE TXWO three four")] {
+        for prefix in [b"\x1b-2".as_slice(), b"\x1b-3".as_slice()] {
+            let keys = [
+                b"ONE TWO three four\x01\x06\x06\x06\x06\x06".as_slice(),
+                prefix,
+                &[0x1b, command],
+                b"X\r",
+            ]
+            .concat();
+            let bash = run_bash_readline(&keys);
+            let sushline = run_sushline_harness(&keys);
+            for (host, output) in [("bash", &bash), ("sushline", &sushline)] {
+                assert_eq!(
+                    accepted_line(output).as_deref(),
+                    Some(expected),
+                    "keys={keys:?} {host}: {output}"
+                );
+                assert_eq!(bell_count(output), 0, "keys={keys:?} {host}: {output}");
+            }
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_transpose_chars_numeric_arguments() {
     // Paired Bash 5.3 numeric PTY cases assert accepted lines only; they do
     // not claim redisplay or bell parity. Selected bell cases are covered

@@ -1,4 +1,5 @@
 use super::{EditorState, KillDirection};
+use crate::buffer::LineBuffer;
 
 pub(crate) fn repeat<F>(state: &mut EditorState, mut op: F)
 where
@@ -23,18 +24,19 @@ where
     }
 }
 
-pub(crate) fn repeat_case_word<F, R>(state: &mut EditorState, mut forward: F, mut reverse: R)
+pub(crate) fn repeat_case_word<F, R>(state: &mut EditorState, mut forward: F, reverse: R)
 where
-    F: FnMut(&mut EditorState) -> bool,
-    R: FnMut(&mut EditorState) -> bool,
+    F: FnMut(&mut LineBuffer) -> bool,
+    R: FnOnce(&mut LineBuffer, u32),
 {
     let arg = state.take_numeric_arg().unwrap_or(1);
-    let count = arg.unsigned_abs();
-    let op: &mut dyn FnMut(&mut EditorState) -> bool =
-        if arg < 0 { &mut reverse } else { &mut forward };
-    for _ in 0..count {
-        if !op(state) {
-            break;
+    if arg < 0 {
+        reverse(&mut state.buffer, arg.unsigned_abs());
+    } else {
+        for _ in 0..arg {
+            if !forward(&mut state.buffer) {
+                break;
+            }
         }
     }
 }

@@ -930,6 +930,11 @@ where
         {
             state.restore_undo_snapshot_lines(undo_list);
         }
+        // Vi command-mode recall starts at the first byte so an immediate
+        // motion or edit applies to the recalled line, not the old point.
+        if self.keymap.current() == KeyMapName::ViCommand {
+            state.buffer.set_point(0);
+        }
         if self.flag(BoolVariable::HistoryPreservePoint) {
             state.buffer.set_point(point);
         }

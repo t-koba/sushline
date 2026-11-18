@@ -2806,6 +2806,48 @@ fn bash_history_timestamp_file_records_load_as_sushline_timestamps() {
     }));
 }
 
+/// Vi command-mode recall puts the cursor on the first byte, so an immediate
+/// `x` deletes it. Emacs recall and `history-preserve-point` keep their own
+/// placement rules; neither is changed by this case.
+#[test]
+fn bash_readline_and_sushline_start_edits_at_the_first_byte_of_vi_recall() {
+    let history = ["one", "two", "three", "four", "five"];
+    for (inputrc, keys, expected) in [
+        ("set editing-mode vi\n", b"\x1bkxAX\r".as_slice(), "iveX"),
+        ("set editing-mode vi\n", b"\x1b2GxAX\r".as_slice(), "woX"),
+        (
+            "set editing-mode vi\n",
+            b"\x1b\x1b[AxAX\r".as_slice(),
+            "iveX",
+        ),
+        (
+            "set editing-mode vi\nset history-preserve-point on\n",
+            b"\x1bkxAX\r".as_slice(),
+            "iveX",
+        ),
+        ("", b"\x10AX\r".as_slice(), "fiveAX"),
+    ] {
+        for (name, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &history),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history),
+            ),
+        ] {
+            let context = format!("{name} inputrc={inputrc:?} keys={keys:?}: {output}");
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(expected),
+                "{context}"
+            );
+            assert_eq!(bell_count(&output), 0, "{context}");
+        }
+    }
+}
+
 #[test]
 fn bash_readline_and_sushline_isearch_terminators_terminate_without_execute() {
     let history = ["alpha one", "beta", "alpha two"];

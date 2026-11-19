@@ -11944,17 +11944,17 @@ set page-completions off
 set print-completions-horizontally on"#;
     let inputrc_path = root.path().join("inputrc");
     fs::write(&inputrc_path, inputrc).expect("COLUMNS width inputrc");
-    let initial_size = PtySize {
-        rows: 12,
-        cols: 100,
-        pixel_width: 0,
-        pixel_height: 0,
-    };
     let line = format!("{}/al", cwd.display());
-    let completion_keys = format!("{line}\x0f");
-    let steps = [(READY_PROMPT, completion_keys.as_bytes())];
 
-    for (label, cols) in [("wider", 100), ("narrow", 20)] {
+    for (label, cols, expected) in [("wider", 100, vec![9, 9, 2]), ("narrow", 20, vec![1; 20])] {
+        let size = PtySize {
+            rows: 12,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        };
+        let keys = format!("{line}\x0f\r");
+        let steps = [(READY_PROMPT, keys.as_bytes())];
         for (editor, mut command) in [
             ("Bash", CommandBuilder::new("bash")),
             (
@@ -11985,32 +11985,14 @@ set print-completions-horizontally on"#;
                 command.env("SUSHLINE_PROMPT", READY_PROMPT);
                 command.env("SUSHLINE_HISTORY", "");
             }
-            let output = run_pty_steps_then_resize_until(
-                command,
-                &steps,
-                &cwd,
-                initial_size,
-                PtyResizeAction {
-                    marker: "alpha-20",
-                    size: PtySize {
-                        rows: 12,
-                        cols,
-                        pixel_width: 0,
-                        pixel_height: 0,
-                    },
-                    post_resize_marker: None,
-                    after_keys: b"\r",
-                },
-                "SUSHLINE_ACCEPTED:",
-            );
+            let output = run_pty_steps_with_size_until(command, &steps, size, "SUSHLINE_ACCEPTED:");
             let rows = output
                 .lines()
                 .map(|line| line.matches("alpha-").count())
                 .filter(|count| *count > 0)
                 .collect::<Vec<_>>();
             assert_eq!(
-                rows,
-                vec![9, 9, 2],
+                rows, expected,
                 "{label} {editor}: COLUMNS overrode queried width\n{output:?}"
             );
             assert_eq!(

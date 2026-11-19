@@ -6952,3 +6952,34 @@ fn bash_and_sushline_pin_insert_comment_default_and_numeric_toggle() {
         assert_eq!(bell_count(&sushline), 0, "Sushline rang a bell\n{context}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_explicit_skip_csi_sequence_discards_the_tail() {
+    // With `\e[` explicitly bound to skip-csi-sequence, the introducer is
+    // already consumed when the command runs; both editors must discard the
+    // rest of the CSI sequence through its final byte, then accept the
+    // following text.
+    let inputrc = "\"\\e[\": skip-csi-sequence\n";
+    for (name, seq, expected) in [
+        ("parameters", &b"\x1b[99~"[..], "abcX"),
+        ("final_byte_only", &b"\x1b[ZZ"[..], "abcZX"),
+    ] {
+        let mut keys = b"abc".to_vec();
+        keys.extend_from_slice(seq);
+        keys.extend_from_slice(b"X\r");
+        let bash = run_bash_readline_with_inputrc_file(&keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&keys, inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "{name}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "Bash {name}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "{name}: {sushline}"
+        );
+        assert_eq!(bell_count(&sushline), 0, "Sushline {name}: {sushline}");
+    }
+}

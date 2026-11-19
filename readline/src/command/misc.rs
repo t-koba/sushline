@@ -262,6 +262,12 @@ where
         match command {
             "arrow-key-prefix" | "skip-csi-sequence" => {
                 state.input.skipping_csi = true;
+                // A `skip-csi-sequence` binding on `[` has already consumed
+                // the introducer, so the remaining bytes are the CSI tail;
+                // start inside it instead of scanning for another introducer.
+                if command == "skip-csi-sequence" && key.last().is_some_and(|byte| *byte == b'[') {
+                    state.input.csi_sequence_started = true;
+                }
                 state.after_non_kill_command();
             }
             "clear-display" | "redraw-current-line" => {

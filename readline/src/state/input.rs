@@ -74,8 +74,17 @@ impl EditorState {
                 self.input.skipping_csi = false;
                 break;
             }
-            if self.input.csi_bare_introducer.is_some() && *byte == 0x1b {
-                self.input.csi_introducer_pending = true;
+            if *byte == 0x1b {
+                if self.input.csi_bare_introducer.is_some() {
+                    self.input.csi_introducer_pending = true;
+                } else {
+                    // An explicit binding has already consumed its
+                    // introducer; a fresh ESC ends the skip and the next
+                    // byte is ordinary input.
+                    self.input.skipping_csi = false;
+                    self.input.csi_sequence_started = false;
+                    return index + 1;
+                }
                 continue;
             }
             if (0x40..=0x7e).contains(byte) {

@@ -7313,3 +7313,51 @@ fn bash_readline_and_sushline_explicit_skip_ends_at_nested_escape() {
         assert_eq!(bell_count(&sushline), 0, "Sushline {name}: {sushline}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_arrow_prefix_lowercase_tails() {
+    let cases: [(&str, &[u8], &[u8], &str); 8] = [
+        ("[a at end", b"[", b"a!", "xyz!"),
+        ("[a in middle", b"[", b"a!", "xy!z"),
+        ("[d at end", b"[", b"d!", "xy!z"),
+        ("Oa at end", b"O", b"a!", "xyz!"),
+        ("Od at end", b"O", b"d!", "xy!z"),
+        ("[d counted", b"[", b"d!", "ab!cd"),
+        ("[a counted", b"[", b"a!", "abcd!"),
+        ("[A counted", b"[", b"A!", "abcd!"),
+    ];
+    for (name, intro, tail, expected) in cases {
+        let inputrc = format!(
+            "\"{}\": arrow-key-prefix\n",
+            if intro[0] == b'[' { "[" } else { "O" }
+        );
+        let mut keys = if name.contains("counted") {
+            b"abcd".to_vec()
+        } else {
+            b"xyz".to_vec()
+        };
+        if name.contains("counted") {
+            keys.extend_from_slice(b"\x1b2");
+        }
+        if name.contains("in middle") {
+            keys.push(2);
+        }
+        keys.extend_from_slice(intro);
+        keys.extend_from_slice(tail);
+        keys.push(b'\r');
+        let bash = run_bash_readline_with_inputrc_file(&keys, &inputrc);
+        let sush = run_sushline_harness_with_inputrc(&keys, &inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "Bash {name}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "Bash {name}: {bash}");
+        assert_eq!(
+            accepted_line(&sush).as_deref(),
+            Some(expected),
+            "Sushline {name}: {sush}"
+        );
+        assert_eq!(bell_count(&sush), 0, "Sushline {name}: {sush}");
+    }
+}

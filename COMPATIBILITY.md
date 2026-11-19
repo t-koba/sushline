@@ -630,11 +630,10 @@ The following are bounded pinned Readline 8.3 direct-library observations,
 paired with [`oracle/history.rs`](readline/tests/oracle/history.rs) Bash/Sushline
 PTY regressions. Expected projections define the seeds, keys and accepted bytes;
 none implies general Unicode folding, locale or search equivalence. A paired
-100x30 to 20x12 resize between query bytes of a reverse-incremental search keeps
-the search prompt visible and accepts the matched history entry in both editors.
-GNU redraws
-the prompt with inline cursor motion while Sushline repaints whole prompt lines,
-so this pins prompt visibility and acceptance, not byte-identical redisplay.
+100x30 to 20x12 resize between query bytes of a reverse-incremental search pins
+only that the pending query continues and accepts the matched history entry in
+both editors. It makes no assertion about post-resize prompt visibility, redraw
+style, or byte-identical redisplay.
 Test: [`oracle/history.rs`](readline/tests/oracle/history.rs).
 
 A paired non-incremental-search fixture,

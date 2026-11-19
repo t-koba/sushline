@@ -6686,3 +6686,57 @@ fn bash_and_sushline_pin_multiline_bracketed_paste_across_resize() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_pin_insert_comment_default_and_numeric_toggle() {
+    for (label, inputrc, keys, expected) in [
+        ("default", "", b"alpha\x1b#".as_slice(), "#alpha"),
+        (
+            "explicit",
+            "set comment-begin \"## \"",
+            b"alpha\x1b#".as_slice(),
+            "## alpha",
+        ),
+        (
+            "numeric_insert",
+            "",
+            b"alpha\x1b3\x1b#".as_slice(),
+            "#alpha",
+        ),
+        (
+            "numeric_remove",
+            "",
+            b"#alpha\x1b3\x1b#".as_slice(),
+            "alpha",
+        ),
+        (
+            "explicit_remove",
+            "set comment-begin \"## \"",
+            b"## alpha\x1b3\x1b#".as_slice(),
+            "alpha",
+        ),
+        (
+            "partial_prefix",
+            "set comment-begin \"## \"",
+            b"#alpha\x1b3\x1b#".as_slice(),
+            "## #alpha",
+        ),
+        ("empty_line", "", b"\x1b#".as_slice(), "#"),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        let context = format!("{label}: bash={bash} sushline={sushline}");
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "Bash accepted line differs\n{context}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "Sushline accepted line differs\n{context}"
+        );
+        assert_eq!(bell_count(&bash), 0, "Bash rang a bell\n{context}");
+        assert_eq!(bell_count(&sushline), 0, "Sushline rang a bell\n{context}");
+    }
+}

@@ -7095,3 +7095,25 @@ fn bash_readline_and_sushline_full_key_skip_starts_in_the_tail() {
         assert_eq!(bell_count(&sushline), 0, "Sushline {name}: {sushline}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_arrow_key_prefix_consumes_numeric_argument() {
+    let inputrc = "\"\\eO\": arrow-key-prefix\n";
+    for (name, count) in [("two", b'2'), ("three", b'3')] {
+        let keys = [b"abc\x1b".as_slice(), &[count], b"\x1bO9X\r"].concat();
+        let bash = run_bash_readline_with_inputrc_file(&keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&keys, inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some("abcX"),
+            "Bash {name}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 1, "Bash {name}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some("abcX"),
+            "Sushline {name}: {sushline}"
+        );
+        assert_eq!(bell_count(&sushline), 1, "Sushline {name}: {sushline}");
+    }
+}

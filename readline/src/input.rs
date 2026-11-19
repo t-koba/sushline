@@ -285,6 +285,7 @@ where
             if bytes.is_empty() {
                 return Ok(EditorOutcome::Continue);
             }
+            state.consume_numeric_arg_unless_prefix();
             self.ding()?;
             return self.handle_bytes(state, &bytes[1..], hooks);
         }

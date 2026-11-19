@@ -1277,6 +1277,38 @@ q: accept-line
     }
 }
 
+/// A lowercase CSI arrow tail with an explicit inputrc binding resolves through
+/// the active keymap, just like its uppercase form.
+#[test]
+fn bash_readline_and_sushline_bind_lowercase_arrow_tail_in_the_active_keymap() {
+    assert_eq!(
+        super::host_readline::host_readline_identity()
+            .expect("Readline identity")
+            .release,
+        super::host_readline::MEASURED_RELEASE
+    );
+    for (mode, expected) in [("emacs", "X"), ("vi", "Y")] {
+        let inputrc = format!(
+            "set editing-mode {mode}\nset keymap emacs\n\"\\e[a\": \"X\"\nset keymap vi-insert\n\"\\e[a\": \"Y\"\n"
+        );
+        let keys = b"\x1b[a\r";
+        for (name, output) in [
+            ("Bash", run_bash_readline_with_inputrc_file(keys, &inputrc)),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc(keys, &inputrc),
+            ),
+        ] {
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(expected),
+                "mode={mode}, {name}: {output}"
+            );
+            assert_eq!(bell_count(&output), 0, "mode={mode}, {name}: {output}");
+        }
+    }
+}
+
 #[test]
 
 fn bash_readline_and_sushline_re_read_init_file_reload_same_bindings() {

@@ -2969,6 +2969,36 @@ fn bash_and_sushline_pin_quoted_terminator_in_incremental_search() {
 }
 
 #[test]
+fn bash_and_sushline_pin_quoted_control_in_nonincremental_search() {
+    let inputrc = r#""\C-o": non-incremental-reverse-search-history"#;
+    let history = ["alp\u{16}zone one", "alptwo"];
+    // Ctrl-V quotes the next Ctrl-V byte into the query; the first Return
+    // completes the search and the second accepts the matched entry.
+    let keys = b"\x0falp\x16\x16\r\r";
+    for (editor, output) in [
+        (
+            "bash",
+            run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &history),
+        ),
+        (
+            "sushline",
+            run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history),
+        ),
+    ] {
+        let context =
+            format!("{editor}: inputrc={inputrc:?} keys={keys:?} history={history:?}: {output}");
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some("alp\u{16}zone one"),
+            "unexpected accepted line: {context}"
+        );
+        assert_eq!(bell_count(&output), 0, "unexpected bell: {context}");
+        // Bash renders the quoted byte as ^V while Sushline emits the raw
+        // control byte; display rendering is outside this fixture's scope.
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_treat_return_as_custom_isearch_terminator() {
     if !super::host_readline::host_carries(super::host_readline::MEASURED_RELEASE) {
         eprintln!("Custom isearch terminator behavior was measured on Readline 8.3");

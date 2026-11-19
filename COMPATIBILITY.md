@@ -628,6 +628,14 @@ the prompt with inline cursor motion while Sushline repaints whole prompt lines,
 so this pins prompt visibility and acceptance, not byte-identical redisplay.
 Test: [`oracle/history.rs`](readline/tests/oracle/history.rs).
 
+A paired non-incremental-search fixture,
+[`bash_and_sushline_pin_quoted_control_in_nonincremental_search`](readline/tests/oracle/history.rs),
+binds Ctrl-O to `non-incremental-reverse-search-history`: Readline 8.3-style
+Ctrl-V quoting puts the next Ctrl-V byte into the query, and with history
+`alp\u{16}zone one`, `alptwo` both editors find and accept the matching
+control-byte entry silently. Display rendering of the control byte is not
+covered by this fixture.
+
 - **C.UTF-8 lowercase:** the single-entry prefix and reverse-incremental
   `älpha`/`ÄLPHA old` cases, and the forward-incremental case with `prior`
   plus `ÄLPHA old`, match. Projections:

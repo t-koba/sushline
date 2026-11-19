@@ -785,6 +785,74 @@ fn bash_and_sushline_horizontal_scroll_records_four_byte_tail_deviation() {
 }
 
 #[test]
+fn bash_and_sushline_edit_through_scrolled_four_byte_glyph() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+    // Bytewise typing scrolls the window before 🙂 completes. Both editors
+    // step over its two cells, insert around it, and accept the same bytes.
+    // Only relative caret movement is compared here: the absolute cursor
+    // columns and window starts stay editor-specific (43 versus 52 in the
+    // tail fixture), as recorded in COMPATIBILITY.md.
+    let base = "0123456789".repeat(10);
+    let text = format!("{base}🙂");
+    let mut steps: Vec<Vec<u8>> = text.as_bytes().iter().map(|byte| vec![*byte]).collect();
+    let tail = steps.len() - 1;
+    steps.extend([vec![2], vec![b'X'], vec![6], vec![b'Y']]); // Ctrl-B, X, Ctrl-F, Y
+    let expected = format!("{base}X🙂Y");
+
+    for bash in [true, false] {
+        let frames = checkpoints_with_locale(bash, 80, "P>", &steps, "C.UTF-8");
+        let keys = ["Ctrl-B", "X", "Ctrl-F", "Y"];
+        let deltas = [-2, 1, 2, 1];
+        for (index, (key, delta)) in keys.iter().zip(deltas).enumerate() {
+            let step = tail + 1 + index;
+            let (screen, column) = &frames[step];
+            let previous = frames[step - 1].1 as isize;
+            assert_eq!(
+                *column as isize - previous,
+                delta,
+                "bash={bash}, {key}, previous column={previous}, screen={screen:?}"
+            );
+        }
+        // GNU's replay keeps stale cells after the edit; Sushline ends at the
+        // glyph. Only the contiguous inserted suffix is common to both.
+        let (screen, _) = &frames[tail + 4];
+        assert!(screen.contains("X🙂Y"), "bash={bash}, screen={screen:?}");
+
+        // A fresh redraw removes GNU's stale replay cells. Check the clean
+        // window segment as raw bytes, not through the partial screen model.
+        let mut redraw_steps = steps.clone();
+        redraw_steps.push(vec![12]); // Ctrl-L
+        let raw = checkpoint_outputs_raw_with_locale(bash, 80, "P>", &redraw_steps, "C.UTF-8");
+        let frame = String::from_utf8_lossy(raw.last().expect("Ctrl-L frame"));
+        let clean = frame.rsplit('<').next().expect("scroll window marker");
+        assert!(
+            clean.contains("X🙂Y"),
+            "bash={bash}, Ctrl-L segment={clean:?}"
+        );
+        assert!(
+            !clean.contains('\u{fffd}'),
+            "bash={bash}, replacement cell in Ctrl-L segment={clean:?}"
+        );
+
+        // Enter after the same edits accepts the exact UTF-8 buffer in both
+        // editors, independently of the inspected redisplay frames.
+        let mut keys = text.as_bytes().to_vec();
+        keys.extend([2, b'X', 6, b'Y', 12, b'\r']);
+        let accepted_steps = [("P>", keys.as_slice())];
+        let dir = tempfile::tempdir().expect("tempdir");
+        let command = horizontal_scroll_command(bash, "P>", dir.path(), "C.UTF-8");
+        let output = run_pty_steps_until(command, &accepted_steps, "SUSHLINE_ACCEPTED:");
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some(expected.as_str()),
+            "bash={bash}"
+        );
+    }
+}
+
+#[test]
 fn bash_and_sushline_horizontal_scroll_starts_the_window_on_the_byte_edge_with_a_multiline_prompt()
 {
     if !c_utf8_locale_available() {

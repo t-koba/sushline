@@ -2451,3 +2451,40 @@ fn bash_bind_v_and_sushline_store_measured_numeric_matrix() {
         }
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_share_inputrc_keymap_state_across_includes() {
+    assert_eq!(
+        super::host_readline::host_readline_identity()
+            .expect("Readline identity")
+            .release,
+        super::host_readline::MEASURED_RELEASE
+    );
+    let keys = b"abc\x0fX\r";
+    for (label, child, expected) in [
+        ("child keymap", "set keymap vi-insert\n", "abc"),
+        ("child editing-mode", "set editing-mode vi\n", "Xabc"),
+    ] {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let included = dir.path().join("included.inputrc");
+        let main = dir.path().join("inputrc");
+        fs::write(&included, child).expect("write child inputrc");
+        fs::write(
+            &main,
+            format!(
+                "$include {}\n\"\\C-o\": beginning-of-line\n",
+                included.display()
+            ),
+        )
+        .expect("write main inputrc");
+        let bash = run_bash_readline_with_inputrc_path(keys, &main);
+        let sushline = run_sushline_harness_with_inputrc_path(keys, &main);
+        for output in [&bash, &sushline] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{label}: {output}"
+            );
+        }
+    }
+}

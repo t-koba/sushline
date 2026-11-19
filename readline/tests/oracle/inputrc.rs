@@ -1301,6 +1301,47 @@ fn bash_readline_and_sushline_re_read_init_file_reload_same_bindings() {
 }
 
 #[test]
+fn bash_readline_and_sushline_re_read_init_file_rebinds_existing_key() {
+    for (case, initial, reloaded, keys, expected) in [
+        (
+            "end_to_beginning",
+            r#""\C-o": re-read-init-file
+"\C-p": end-of-line
+"#,
+            r#""\C-o": re-read-init-file
+"\C-p": beginning-of-line
+"#,
+            b"abc\x0f\x10X\r".as_slice(),
+            "Xabc",
+        ),
+        (
+            "beginning_to_end",
+            r#""\C-o": re-read-init-file
+"\C-p": beginning-of-line
+"#,
+            r#""\C-o": re-read-init-file
+"\C-p": end-of-line
+"#,
+            b"abc\x01\x0f\x10X\r".as_slice(),
+            "abcX",
+        ),
+    ] {
+        let bash = run_bash_readline_with_reloaded_inputrc(keys, initial, reloaded);
+        let sushline = run_sushline_harness_with_reloaded_inputrc(keys, initial, reloaded);
+
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "Bash {case}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "Sushline {case}: {sushline}"
+        );
+    }
+}
+#[test]
 fn bash_readline_and_sushline_dump_same_functions_variables_and_macros() {
     for (command, inputrc, expected) in [
         (

@@ -2930,6 +2930,45 @@ fn bash_readline_and_sushline_isearch_terminators_terminate_without_execute() {
 }
 
 #[test]
+fn bash_and_sushline_pin_quoted_terminator_in_incremental_search() {
+    let history = ["alpzone one", "alptwo"];
+    let inputrc = "set isearch-terminators z";
+    // Although `z` is a terminator, C-v inserts it into the query;
+    // the scoped display fragment shows the quoted byte reached the query.
+    let keys = b"\x12alp\x16z\r";
+    let query_fragment = "(reverse-i-search)`alpz'";
+    for (editor, output) in [
+        (
+            "bash",
+            run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &history),
+        ),
+        (
+            "sushline",
+            run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history),
+        ),
+    ] {
+        let context =
+            format!("{editor}: inputrc={inputrc:?} keys={keys:?} history={history:?}: {output}");
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some("alpzone one"),
+            "unexpected accepted line: {context}"
+        );
+        assert_eq!(bell_count(&output), 0, "unexpected bell: {context}");
+        // Readline redraws the query with inline cursor motion, so the
+        // fragment is visible in the rendered screen, not contiguous bytes.
+        let screen = super::screen::Screen::new(24, 80);
+        let search_rows = screen.last_rows_starting_with(output.as_bytes(), "(");
+        assert!(
+            search_rows
+                .as_ref()
+                .is_some_and(|rows| rows.iter().any(|row| row.contains(query_fragment))),
+            "query display lacks {query_fragment:?}: rows={search_rows:?}: {context}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_treat_return_as_custom_isearch_terminator() {
     if !super::host_readline::host_carries(super::host_readline::MEASURED_RELEASE) {
         eprintln!("Custom isearch terminator behavior was measured on Readline 8.3");

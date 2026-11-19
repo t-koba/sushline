@@ -250,6 +250,46 @@ fn batched_noop_universal_digits_match_fragmented_reads() {
 }
 
 #[test]
+fn batched_unbound_csi_prefix_matches_fragmented_reads() {
+    // A keymap miss on `ESC [ 9` rings once and drops those three bytes
+    // whether they arrive together or one at a time; trailing text is kept.
+    for (label, terminal) in [
+        (
+            "fragmented",
+            MemoryTerminal::with_events(vec![
+                TerminalEvent::Bytes(b"abc".to_vec()),
+                TerminalEvent::Bytes(vec![0x1b]),
+                TerminalEvent::Bytes(b"[".to_vec()),
+                TerminalEvent::Bytes(b"9".to_vec()),
+                TerminalEvent::Bytes(b"9~X".to_vec()),
+                TerminalEvent::Bytes(b"\r".to_vec()),
+            ]),
+        ),
+        (
+            "batched",
+            MemoryTerminal::with_events(vec![
+                TerminalEvent::Bytes(b"abc\x1b[99~X".to_vec()),
+                TerminalEvent::Bytes(b"\r".to_vec()),
+            ]),
+        ),
+    ] {
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        assert_eq!(
+            result,
+            ReadlineResult::Line(b"abc9~X".to_vec()),
+            "{label}: unbound CSI miss must accept abc9~X"
+        );
+        assert_eq!(
+            line.terminal.out.matches("\x07").count(),
+            1,
+            "{label}: unbound CSI miss must ring once: {:?}",
+            line.terminal.out
+        );
+    }
+}
+
+#[test]
 fn batched_unbound_ctrl_x_matches_fragmented_reads() {
     // An unbound C-x key rings once and consumes both prefix and leaf,
     // whether delivered in one chunk or separately; later input is kept.

@@ -928,6 +928,28 @@ where
             return self.handle_bytes(state, rest, hooks);
         }
 
+        // Unknown CSI/SS3 keys under a live key-sequence prefix take the same
+        // keymap-miss path as other unbound sequences: ring once, consume the
+        // live prefix plus the byte that failed lookup, then process the rest.
+        let unbound_csi_prefix = bytes.len() > 2
+            && bytes.first() == Some(&0x1b)
+            && matches!(bytes.get(1), Some(&b'[') | Some(&b'O'))
+            && self.keymap.has_prefix(self.keymap.current(), &bytes[..2]);
+        if unbound_csi_prefix {
+            let mut prefix_len = 2;
+            while prefix_len < bytes.len()
+                && self
+                    .keymap
+                    .has_prefix(self.keymap.current(), &bytes[..=prefix_len])
+            {
+                prefix_len += 1;
+            }
+            let consumed = (prefix_len + 1).min(bytes.len());
+            self.ding()?;
+            state.consume_numeric_arg_unless_prefix();
+            return self.handle_bytes(state, &bytes[consumed..], hooks);
+        }
+
         if let Ok(text) = std::str::from_utf8(bytes) {
             let mut inserted = false;
             let bytes = text

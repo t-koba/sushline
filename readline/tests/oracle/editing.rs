@@ -2402,6 +2402,37 @@ fn bash_readline_and_sushline_csi_skip_commands_consume_the_sequence() {
 }
 
 #[test]
+fn bash_readline_and_sushline_unbound_csi_sequences_consume_the_keymap_miss() {
+    // A CSI prefix that is live in the keymap but has no matching leaf is a
+    // keymap miss: GNU rings once, discards the live prefix and the first
+    // byte that failed lookup, then processes the remaining input normally.
+    for (name, seq, expected) in [
+        ("two_digits", &b"\x1b[99~"[..], "abc9~X"),
+        ("double_z", &b"\x1b[ZZ"[..], "abcZX"),
+        ("one_one_tilde", &b"\x1b[11~"[..], "abc~X"),
+        ("semicolon", &b"\x1b[;"[..], "abcX"),
+    ] {
+        let mut keys = b"abc".to_vec();
+        keys.extend_from_slice(seq);
+        keys.extend_from_slice(b"X\r");
+        let bash = run_bash_readline(&keys);
+        let sushline = run_sushline_harness(&keys);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "{name}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 1, "Bash {name}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "{name}: {sushline}"
+        );
+        assert_eq!(bell_count(&sushline), 1, "Sushline {name}: {sushline}");
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_forward_backward_delete_char_numeric_arguments_match_bash_5_3() {
     // Bash 5.3 PTY accepted-line observations at an interior point and EOL.
     let inputrc = r#""\C-o": forward-backward-delete-char"#;

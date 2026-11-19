@@ -7034,3 +7034,30 @@ fn bash_readline_and_sushline_arrow_key_prefix_rings_on_unbound_tail() {
         assert_eq!(bell_count(&sushline), 1, "Sushline {name}: {sushline}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_explicit_ss3_skip_discards_the_tail() {
+    let inputrc = "\"\\eO\": skip-csi-sequence\n";
+    for (name, seq, expected) in [
+        ("parameters", &b"\x1bO99~"[..], "abcX"),
+        ("final_byte", &b"\x1bO[A "[..], "abcA X"),
+    ] {
+        let mut keys = b"abc".to_vec();
+        keys.extend_from_slice(seq);
+        keys.extend_from_slice(b"X\r");
+        let bash = run_bash_readline_with_inputrc_file(&keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&keys, inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "Bash {name}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "Bash {name}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "Sushline {name}: {sushline}"
+        );
+        assert_eq!(bell_count(&sushline), 0, "Sushline {name}: {sushline}");
+    }
+}

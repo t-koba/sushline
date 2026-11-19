@@ -6752,6 +6752,85 @@ fn bash_and_sushline_pin_multiline_bracketed_paste_across_resize() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn bash_and_sushline_pin_bracketed_paste_across_resize_before_end_marker() {
+    use portable_pty::{CommandBuilder, PtySize};
+
+    let dir = tempfile::tempdir().expect("paste resize dir");
+    let inputrc = "set enable-bracketed-paste on\nset bell-style audible\n";
+    let inputrc_path = dir.path().join("inputrc");
+    fs::write(&inputrc_path, inputrc).expect("write inputrc");
+    // Readline does not echo a paste payload before its end marker, so the
+    // two pre-resize gates are short shell writes to the same terminal.
+    let markers = r#"( sleep 1; printf '\rPASTE_NOW\n'; sleep 1; printf '\rRESIZE_NOW\n' ) & "#;
+    let mut bash_command = CommandBuilder::new("bash");
+    bash_command.env("INPUTRC", inputrc_path.as_os_str());
+    bash_command.env("HISTFILE", dir.path().join("history").as_os_str());
+    bash_command.args([
+        "--noprofile",
+        "--norc",
+        "-i",
+        "-c",
+        &format!(
+            r#"{markers}stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+        ),
+    ]);
+    let mut sushline_command = CommandBuilder::new("bash");
+    sushline_command.env("SUSHLINE_HARNESS", env!("CARGO_BIN_EXE_sushline-harness"));
+    sushline_command.env("SUSHLINE_INPUTRC", inputrc);
+    sushline_command.env("SUSHLINE_PROMPT", READY_PROMPT);
+    sushline_command.env("SUSHLINE_HISTORY", "");
+    sushline_command.args(["-c", &format!(r#"{markers}exec "$SUSHLINE_HARNESS""#)]);
+
+    for (desc, second_step, after_keys) in [
+        ("open frame", &b"def"[..], &b"\x1b[201~\r"[..]),
+        ("partial end marker", &b"def\x1b[201"[..], &b"~\r"[..]),
+    ] {
+        for (editor, command) in [
+            ("Bash", bash_command.clone()),
+            ("Sushline", sushline_command.clone()),
+        ] {
+            let (output, post_resize) = run_pty_steps_then_resize_until_with_post_resize(
+                command,
+                &[
+                    (READY_PROMPT, &b"\x1b[200~abc"[..]),
+                    ("PASTE_NOW", second_step),
+                ],
+                dir.path(),
+                PtySize {
+                    rows: 30,
+                    cols: 100,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                },
+                PtyResizeAction {
+                    marker: "RESIZE_NOW",
+                    size: PtySize {
+                        rows: 12,
+                        cols: 20,
+                        pixel_width: 0,
+                        pixel_height: 0,
+                    },
+                    post_resize_marker: None,
+                    after_keys,
+                },
+                "SUSHLINE_ACCEPTED:",
+            );
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some("abcdef"),
+                "{editor} {desc}: {output:?}"
+            );
+            assert_eq!(bell_count(&output), 0, "{editor} {desc}: {output:?}");
+            assert!(
+                post_resize.contains("SUSHLINE_ACCEPTED:abcdef"),
+                "{editor} {desc}: acceptance did not follow the resize\n{post_resize:?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn bash_and_sushline_pin_insert_comment_default_and_numeric_toggle() {
     for (label, inputrc, keys, expected) in [

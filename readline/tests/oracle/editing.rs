@@ -2271,6 +2271,36 @@ fn bash_readline_and_sushline_match_lowercase_version_cases() {
 }
 
 #[test]
+fn bash_readline_and_sushline_match_lowercase_version_meta_dispatch() {
+    let inputrc = "set bell-style audible\nset prefer-visible-bell off\n";
+    for (case, keys, expected, expected_bells) in [
+        (
+            "meta_capitalize",
+            b"hello\x01\x1bC\r".as_slice(),
+            "Hello",
+            0,
+        ),
+        ("meta_unbound", b"\x1bA\r".as_slice(), "", 1),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{editor} {case}: {output}"
+            );
+            assert_eq!(
+                bell_count(output),
+                expected_bells,
+                "{editor} {case}: {output}"
+            );
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_accept_same_abort_command() {
     let inputrc = r#""\C-o": abort"#;
     let keys = b"abc\x0fX\r";

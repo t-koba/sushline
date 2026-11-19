@@ -7221,3 +7221,29 @@ fn bash_readline_and_sushline_bare_arrow_prefix_uses_arrow_keymap() {
         assert_eq!(bell_count(&sushline), bells, "Sushline {name}: {sushline}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_counted_bare_arrow_prefix() {
+    let inputrc = "\"[\": arrow-key-prefix\n";
+    let history = ["one", "two", "three"];
+    for (name, keys, expected, bells) in [
+        ("history", &b"abc\x1b2[A\r"[..], Some("two"), 0),
+        ("movement", &b"abc\x1b2[D X\r"[..], Some("a Xbc"), 0),
+        ("unbound", &b"abc\x1b2[H X\r"[..], Some("abc X"), 1),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            expected,
+            "Bash {name}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "Bash {name}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            expected,
+            "Sushline {name}: {sushline}"
+        );
+        assert_eq!(bell_count(&sushline), bells, "Sushline {name}: {sushline}");
+    }
+}

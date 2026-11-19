@@ -2090,3 +2090,86 @@ fn meta_alias_conditions_observe_the_last_write_without_coercion() {
         }
     }
 }
+
+#[test]
+fn crlf_conditional_directives_report_diagnostics_and_apply_gnu_bindings() {
+    // The same five placements as the PTY fixture, checked at the parser
+    // boundary: the CR is a condition-line error for `$if`, part of the
+    // unknown-directive name for `$else` and `$endif`, and `$endif\r` ends
+    // the parse so the later sentinel binding is not installed.
+    for (case, if_end, else_end, endif_end, diagnostics, ctrl_o, ctrl_t) in [
+        (
+            "all-lf",
+            "\n",
+            "\n",
+            "\n",
+            &[] as &[(usize, &str, &str)],
+            KeyBinding::Command(EditCommand::BeginningOfLine),
+            KeyBinding::Macro(b"Z".to_vec()),
+        ),
+        (
+            "if-cr",
+            "\r\n",
+            "\n",
+            "\n",
+            &[(1, "if", "trailing garbage on line")],
+            KeyBinding::Command(EditCommand::EndOfLine),
+            KeyBinding::Macro(b"Z".to_vec()),
+        ),
+        (
+            "else-cr",
+            "\n",
+            "\r\n",
+            "\n",
+            &[(3, "else\r", "unknown parser directive")],
+            KeyBinding::Command(EditCommand::EndOfLine),
+            KeyBinding::Macro(b"Z".to_vec()),
+        ),
+        (
+            "endif-cr",
+            "\n",
+            "\n",
+            "\r\n",
+            &[(5, "endif\r", "unknown parser directive")],
+            KeyBinding::Command(EditCommand::BeginningOfLine),
+            KeyBinding::Command(EditCommand::TransposeChars),
+        ),
+        (
+            "all-cr",
+            "\r\n",
+            "\r\n",
+            "\r\n",
+            &[
+                (1, "if", "trailing garbage on line"),
+                (3, "else\r", "unknown parser directive"),
+                (5, "endif\r", "unknown parser directive"),
+            ],
+            KeyBinding::NamedCommand("operate-and-get-next".to_string()),
+            KeyBinding::Command(EditCommand::TransposeChars),
+        ),
+    ] {
+        let inputrc = format!(
+            "$if version >= 8.0{if_end}\"\\C-o\": beginning-of-line\n$else{else_end}\"\\C-o\": end-of-line\n$endif{endif_end}\"\\C-t\": \"Z\"\n"
+        );
+        let mut keymap = KeyMap::emacs_default();
+        let mut variables = Variables::new();
+        let reported = InputrcParser::new()
+            .parse_str(&inputrc, &Config::default(), &mut keymap, &mut variables)
+            .unwrap();
+        let actual: Vec<_> = reported
+            .iter()
+            .map(|d| (d.line, d.variable.as_str(), d.message.as_str()))
+            .collect();
+        assert_eq!(actual, diagnostics, "{case}: {inputrc:?}");
+        assert_eq!(
+            keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
+            Some(&ctrl_o),
+            "{case}: {inputrc:?}"
+        );
+        assert_eq!(
+            keymap.lookup(KeyMapName::EmacsStandard, &[0x14]),
+            Some(&ctrl_t),
+            "{case}: {inputrc:?}"
+        );
+    }
+}

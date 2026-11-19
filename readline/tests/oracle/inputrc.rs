@@ -756,31 +756,102 @@ $endif
 }
 
 #[test]
-fn bash_readline_and_sushline_differ_on_crlf_condition_directives() {
+fn bash_readline_and_sushline_match_crlf_conditional_directive_placements() {
     assert_eq!(
         super::host_readline::host_readline_identity()
             .expect("Readline identity")
             .release,
         super::host_readline::MEASURED_RELEASE
     );
-    let keys = b"abc\x0fX\r";
-    let inputrc = "$if version >= 8.0\r\n\"\\C-o\": beginning-of-line\n$else\r\n\"\\C-o\": end-of-line\n$endif\r\n";
-    let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
-    let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
-
-    assert_eq!(accepted_line(&bash).as_deref(), Some("abc"), "{bash}");
-    assert_eq!(
-        accepted_line(&sushline).as_deref(),
-        Some("Xabc"),
-        "{sushline}"
-    );
-    assert!(bash.contains("trailing garbage on line"), "{bash}");
-    assert_eq!(
-        bash.matches("unknown parser directive").count(),
-        2,
-        "{bash}"
-    );
-    assert!(!sushline.contains("unknown parser directive"), "{sushline}");
+    // Only the five line-ending placements below were measured with this
+    // conditional shape; this is not a general CRLF inputrc rule.
+    for (case, if_end, else_end, endif_end, diagnostics, ctrl_o_line, ctrl_t_line) in [
+        ("all-lf", "\n", "\n", "\n", &[] as &[&str], "Xabc", "abcZX"),
+        (
+            "if-cr",
+            "\r\n",
+            "\n",
+            "\n",
+            &["trailing garbage on line"],
+            "abcX",
+            "abcZX",
+        ),
+        (
+            "else-cr",
+            "\n",
+            "\r\n",
+            "\n",
+            &["line 3: else\r: unknown parser directive"],
+            "abcX",
+            "abcZX",
+        ),
+        (
+            "endif-cr",
+            "\n",
+            "\n",
+            "\r\n",
+            &["line 5: endif\r: unknown parser directive"],
+            "Xabc",
+            "acbX",
+        ),
+        (
+            "all-cr",
+            "\r\n",
+            "\r\n",
+            "\r\n",
+            &[
+                "trailing garbage on line",
+                "line 3: else\r: unknown parser directive",
+                "line 5: endif\r: unknown parser directive",
+            ],
+            "abc",
+            "acbX",
+        ),
+    ] {
+        let inputrc = format!(
+            "$if version >= 8.0{if_end}\"\\C-o\": beginning-of-line\n$else{else_end}\"\\C-o\": end-of-line\n$endif{endif_end}\"\\C-t\": \"Z\"\n"
+        );
+        let garbage_count = diagnostics
+            .iter()
+            .filter(|text| text.contains("trailing garbage on line"))
+            .count();
+        let unknown_count = diagnostics
+            .iter()
+            .filter(|text| text.contains("unknown parser directive"))
+            .count();
+        for (keys, expected) in [
+            (b"abc\x0fX\r".as_slice(), ctrl_o_line),
+            (b"abc\x14X\r".as_slice(), ctrl_t_line),
+        ] {
+            let bash = run_bash_readline_with_inputrc_file(keys, &inputrc);
+            let sushline = run_sushline_harness_with_inputrc(keys, &inputrc);
+            assert_eq!(
+                accepted_line(&bash).as_deref(),
+                Some(expected),
+                "{case} bash: {bash}"
+            );
+            assert_eq!(
+                accepted_line(&sushline).as_deref(),
+                Some(expected),
+                "{case} sushline: {sushline}"
+            );
+            for output in [&bash, &sushline] {
+                for text in diagnostics {
+                    assert!(output.contains(text), "{case}: {output}");
+                }
+                assert_eq!(
+                    output.matches("trailing garbage on line").count(),
+                    garbage_count,
+                    "{case}: {output}"
+                );
+                assert_eq!(
+                    output.matches("unknown parser directive").count(),
+                    unknown_count,
+                    "{case}: {output}"
+                );
+            }
+        }
+    }
 }
 
 #[test]

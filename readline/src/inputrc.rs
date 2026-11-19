@@ -157,6 +157,10 @@ impl InputrcParser {
         let mut active_stack = vec![true];
         let mut condition_stack = Vec::new();
         let mut line_count = 0;
+        // An unknown `$endif\r` makes GNU stop parsing the rest of this
+        // inputrc. Remember it so the remaining lines are skipped and the
+        // open condition does not become an `unterminated $if` error.
+        let mut stopped_at_unknown_endif = false;
 
         for (idx, raw_bytes) in split_inputrc_lines(source).enumerate() {
             let line_no = idx + 1;
@@ -205,23 +209,34 @@ impl InputrcParser {
             }
 
             // A CRLF line ending leaves its CR as the include filename's
-            // final byte, measured on the pinned host; names split on
-            // whitespace, so the CR is otherwise inert here.
+            // final byte, measured on the pinned host. Directive names split
+            // on whitespace other than CR, so `$else\r` and `$endif\r` keep
+            // the CR that GNU reports in their unknown-directive diagnostics.
             if let Some(rest) = decoded.trim_start().strip_prefix('$') {
-                let mut parts = rest.split_whitespace();
+                let mut parts = rest.split(|c: char| c.is_whitespace() && c != '\r');
                 match parts.next() {
                     Some(name) if name.eq_ignore_ascii_case("if") => {
                         // Keep the separation before a variable operator and its raw RHS.
-                        let cond = rest.trim_start()["if".len()..].trim();
-                        let matched = eval_condition(
-                            cond,
-                            ctx.config,
-                            ctx.keymap,
-                            ctx.variables,
-                            *ctx.binding_map,
-                            self.readline_version.as_str(),
-                            std::env::var("TERM").ok().as_deref(),
-                        );
+                        let raw_cond = &rest.trim_start()["if".len()..];
+                        let matched = if trailing_cr_garbage(raw_cond) {
+                            diagnostics.push(InputrcDiagnostic {
+                                path: path.map(Path::to_path_buf),
+                                line: line_no,
+                                variable: "if".to_string(),
+                                message: "trailing garbage on line".to_string(),
+                            });
+                            false
+                        } else {
+                            eval_condition(
+                                raw_cond.trim(),
+                                ctx.config,
+                                ctx.keymap,
+                                ctx.variables,
+                                *ctx.binding_map,
+                                self.readline_version.as_str(),
+                                std::env::var("TERM").ok().as_deref(),
+                            )
+                        };
                         let parent = *active_stack.last().unwrap_or(&true);
                         condition_stack.push(matched);
                         active_stack.push(parent && matched);
@@ -263,12 +278,18 @@ impl InputrcParser {
                             )?;
                         }
                     }
-                    Some(name) => diagnostics.push(InputrcDiagnostic {
-                        path: path.map(Path::to_path_buf),
-                        line: line_no,
-                        variable: name.to_string(),
-                        message: "unknown parser directive".to_string(),
-                    }),
+                    Some(name) => {
+                        diagnostics.push(InputrcDiagnostic {
+                            path: path.map(Path::to_path_buf),
+                            line: line_no,
+                            variable: name.to_string(),
+                            message: "unknown parser directive".to_string(),
+                        });
+                        if name.eq_ignore_ascii_case("endif\r") {
+                            stopped_at_unknown_endif = true;
+                            break;
+                        }
+                    }
                     None => {}
                 }
                 continue;
@@ -314,12 +335,20 @@ impl InputrcParser {
             }
         }
 
-        if active_stack.len() != 1 {
+        if active_stack.len() != 1 && !stopped_at_unknown_endif {
             return Err(InputrcError::new(line_count, "unterminated $if"));
         }
 
         Ok(())
     }
+}
+
+/// A CR at the end of an `$if` condition is trailing garbage, not part of
+/// the condition: GNU reports it and does not evaluate that condition.
+fn trailing_cr_garbage(condition: &str) -> bool {
+    condition
+        .trim_end_matches(|c: char| c.is_whitespace() && c != '\r')
+        .ends_with('\r')
 }
 
 fn split_inputrc_lines(source: &[u8]) -> impl Iterator<Item = &[u8]> {

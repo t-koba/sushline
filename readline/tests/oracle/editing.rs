@@ -6197,6 +6197,38 @@ fn bash_and_sushline_insert_control_bytes_literally_in_bracketed_paste() {
 }
 
 #[test]
+fn bash_and_sushline_insert_multibyte_payload_literally_in_bracketed_paste() {
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    let inputrc = "set enable-bracketed-paste on\n";
+    let env = [("LC_ALL", "C.UTF-8")];
+    for payload in ["é", "中", "🦀"] {
+        let keys = format!("\x1b[200~a{payload}b\x1b[201~\r").into_bytes();
+        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, inputrc, &env);
+        let sushline = run_sushline_harness_with_inputrc_and_env(&keys, inputrc, &env);
+        let expected = format!("a{payload}b");
+        for (name, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert!(
+                output.contains("\x1b[?2004h"),
+                "{name} payload={payload:?} did not enable bracketed paste: {output:?}"
+            );
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected.as_str()),
+                "{name} payload={payload:?}: {output:?}"
+            );
+            assert_eq!(
+                bell_count(output),
+                0,
+                "{name} payload={payload:?}: {output:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn bash_and_sushline_match_cr_splitting_partial_paste_end_marker() {
     let keys = b"\x1b[200~abc\x1b[201\r~\x1b[201~\r";
     let inputrc = "set enable-bracketed-paste on\nset bell-style audible\n";

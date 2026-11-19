@@ -88,3 +88,36 @@ impl EditorState {
         bytes.len()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::prompt::Prompt;
+
+    fn bare_bracket_skip() -> EditorState {
+        let mut state = EditorState::new(Prompt::new(""), None);
+        state.input.skipping_csi = true;
+        state.input.csi_sequence_started = true;
+        state.input.csi_bare_introducer = Some(b'[');
+        state
+    }
+
+    #[test]
+    fn nested_introducer_pending_survives_a_split_read() {
+        let mut state = bare_bracket_skip();
+        assert_eq!(state.consume_csi_bytes(b"\x1b"), 1);
+        assert!(state.input.csi_introducer_pending);
+        assert_eq!(state.consume_csi_bytes(b"[A"), 2);
+        assert!(!state.input.skipping_csi);
+        assert!(!state.input.csi_introducer_pending);
+    }
+
+    #[test]
+    fn a_mismatched_introducer_is_left_for_dispatch() {
+        let mut state = bare_bracket_skip();
+        assert_eq!(state.consume_csi_bytes(b"\x1bO"), 1);
+        assert!(!state.input.skipping_csi);
+        assert!(!state.input.csi_sequence_started);
+        assert_eq!(state.input.csi_bare_introducer, None);
+    }
+}

@@ -271,9 +271,11 @@ where
                 // introducer has consumed it, so the remaining bytes are the
                 // CSI tail; start inside it instead of scanning for another
                 // introducer. A bare ESC binding still needs that scan.
-                let introducer_consumed = key
-                    .windows(2)
-                    .any(|pair| pair[0] == 0x1b && matches!(pair[1], b'[' | b'O'));
+                let introducer_consumed =
+                    key.last().is_some_and(|byte| matches!(byte, b'[' | b'O'))
+                        || key
+                            .windows(2)
+                            .any(|pair| pair[0] == 0x1b && matches!(pair[1], b'[' | b'O'));
                 if command == "skip-csi-sequence" && introducer_consumed {
                     state.input.csi_sequence_started = true;
                 }

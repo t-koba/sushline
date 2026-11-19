@@ -7117,3 +7117,30 @@ fn bash_readline_and_sushline_arrow_key_prefix_consumes_numeric_argument() {
         assert_eq!(bell_count(&sushline), 1, "Sushline {name}: {sushline}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_bare_introducer_skip_discards_the_tail() {
+    for (name, intro, seq) in [
+        ("bracket", "[", &b"[99~"[..]),
+        ("letter_o", "O", &b"O99~"[..]),
+    ] {
+        let inputrc = format!("\"{intro}\": skip-csi-sequence\n");
+        let mut keys = b"abc".to_vec();
+        keys.extend_from_slice(seq);
+        keys.extend_from_slice(b"X\r");
+        let bash = run_bash_readline_with_inputrc_file(&keys, &inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&keys, &inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some("abcX"),
+            "Bash {name}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "Bash {name}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some("abcX"),
+            "Sushline {name}: {sushline}"
+        );
+        assert_eq!(bell_count(&sushline), 0, "Sushline {name}: {sushline}");
+    }
+}

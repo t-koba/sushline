@@ -7361,3 +7361,42 @@ fn bash_readline_and_sushline_arrow_prefix_lowercase_tails() {
         assert_eq!(bell_count(&sush), 0, "Sushline {name}: {sush}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_lowercase_arrow_prefix_with_history() {
+    let history: &[&str] = &["one", "two"];
+    for (intro, inputrc) in [
+        ("[", "\"[\": arrow-key-prefix\n"),
+        ("O", "\"O\": arrow-key-prefix\n"),
+    ] {
+        let intro = intro.as_bytes()[0];
+        for (tail, expected) in [(b'a', "two!"), (b'b', "xyz!"), (b'c', "xyz!")] {
+            let mut keys = b"xyz".to_vec();
+            if tail == b'b' {
+                keys.extend_from_slice(&[intro, b'A']);
+            } else {
+                keys.push(2);
+            }
+            keys.extend_from_slice(&[intro, tail]);
+            keys.extend_from_slice(b"!\r");
+            let bash = run_bash_readline_with_inputrc_file_and_history(&keys, inputrc, history);
+            let sush = run_sushline_harness_with_inputrc_and_history(&keys, inputrc, history);
+            assert_eq!(
+                accepted_line(&bash).as_deref(),
+                Some(expected),
+                "Bash {intro:?} tail {tail:?}: {bash}"
+            );
+            assert_eq!(bell_count(&bash), 0, "Bash {intro:?} tail {tail:?}: {bash}");
+            assert_eq!(
+                accepted_line(&sush).as_deref(),
+                Some(expected),
+                "Sushline {intro:?} tail {tail:?}: {sush}"
+            );
+            assert_eq!(
+                bell_count(&sush),
+                0,
+                "Sushline {intro:?} tail {tail:?}: {sush}"
+            );
+        }
+    }
+}

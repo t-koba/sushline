@@ -285,18 +285,15 @@ where
             if bytes.is_empty() {
                 return Ok(EditorOutcome::Continue);
             }
-            // GNU switches to its arrow-key-prefix keymap: uppercase
-            // A/B/C/D and lowercase a/d are bound there to history and
-            // character movement, even when the consumed introducer was a
-            // one-byte binding such as `[`. Lowercase `a` is a silent
-            // redraw.
+            // GNU switches to its arrow-key-prefix keymap: lowercase
+            // a/b/c/d mirror A/B/C/D for history and character movement,
+            // even when the consumed introducer was a one-byte binding
+            // such as `[`.
             let command = match bytes[0] {
-                b'A' => Some("previous-history"),
-                b'B' => Some("next-history"),
-                b'C' => Some("forward-char"),
-                b'D' => Some("backward-char"),
-                b'a' => Some("redraw-current-line"),
-                b'd' => Some("backward-char"),
+                b'A' | b'a' => Some("previous-history"),
+                b'B' | b'b' => Some("next-history"),
+                b'C' | b'c' => Some("forward-char"),
+                b'D' | b'd' => Some("backward-char"),
                 _ => None,
             };
             if let Some(command) = command {

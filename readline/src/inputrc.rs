@@ -666,12 +666,12 @@ fn invalid_set_value(name: &str, value: &str) -> Option<String> {
     invalid.then(|| format!("could not set value to `{value}'"))
 }
 
-/// The `set` value GNU Readline reads for validated variables.
+/// The `set` value GNU Readline reads for numeric and validated variables.
 ///
-/// GNU removes surrounding double quotes before validating, storing, and
-/// reporting values for `bell-style`, `comment-begin`, `editing-mode`, and
-/// `keymap`. Other variable families have their own value handling; quoted
-/// boolean values are not canonicalized by this path.
+/// GNU removes surrounding double quotes before parsing numeric settings and
+/// before validating, storing, and reporting `bell-style`, `comment-begin`,
+/// `editing-mode`, and `keymap`. Single quotes and other value families are
+/// not canonicalized by this path.
 fn unquote_set_value(value: &str) -> &str {
     value
         .strip_prefix('"')
@@ -904,7 +904,9 @@ fn normalize_variable_value(name: &str, value: &str) -> Option<String> {
         // a signed decimal prefix, saturation to i64, then conversion to i32.
         // In particular, +/-40-digit overflow becomes -1/0 before the
         // setting-specific clamps. This is not a general C numeric grammar
-        // or cross-architecture compatibility claim.
+        // or cross-architecture compatibility claim. Double quotes are read
+        // around these decimal values; single quotes are not.
+        let value = unquote_set_value(value);
         let unsigned = value.strip_prefix(['+', '-']).unwrap_or(value);
         let digits = unsigned.bytes().take_while(u8::is_ascii_digit).count();
         if digits == 0 {

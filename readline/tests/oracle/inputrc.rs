@@ -2531,3 +2531,40 @@ fn bash_readline_and_sushline_match_quoted_boolean_line_endings() {
         }
     }
 }
+
+#[test]
+fn bash_and_sushline_unquote_double_quoted_numeric_inputrc_values() {
+    assert_eq!(
+        super::host_readline::host_readline_identity()
+            .expect("Readline identity")
+            .release,
+        super::host_readline::MEASURED_RELEASE
+    );
+    let keys = b"abc\x0f\r";
+    for (variable, value) in [
+        ("completion-display-width", "80"),
+        ("completion-prefix-display-length", "2"),
+        ("completion-query-items", "100"),
+        ("history-size", "3"),
+        ("keyseq-timeout", "500"),
+    ] {
+        let inputrc = format!(
+            "set {variable} \"{value}\"\n$if {variable} == {value}\n\"\\C-o\": \"M\"\n$endif\n"
+        );
+        let bash = run_bash_readline_with_inputrc_file(keys, &inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, &inputrc);
+        for output in [&bash, &sushline] {
+            assert_eq!(accepted_line(output).as_deref(), Some("abcM"), "{output}");
+        }
+    }
+    for inputrc in [
+        "set history-size '3'\n$if history-size == 3\n\"\\C-o\": \"M\"\n$endif\n",
+        "set keyseq-timeout '500'\n$if keyseq-timeout == 500\n\"\\C-o\": \"M\"\n$endif\n",
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        for output in [&bash, &sushline] {
+            assert_eq!(accepted_line(output).as_deref(), Some("abc"), "{output}");
+        }
+    }
+}

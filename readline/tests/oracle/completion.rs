@@ -12145,3 +12145,58 @@ fn bash_and_sushline_pin_prefix_display_length_over_colored_prefix() {
         }
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn bash_and_sushline_pin_file_style_color_with_prefix_display_abbreviation() {
+    let dir = tempfile::tempdir().expect("file-style abbreviation dir");
+    for name in ["longprefix-alpha", "longprefix-beta"] {
+        fs::write(dir.path().join(name), b"").expect("write candidate");
+    }
+    let typed = format!("{}/longprefix-\x0f\r", dir.path().display());
+    let accepted = format!("{}/longprefix-", dir.path().display());
+    let env = [("LS_COLORS", "fi=31")];
+    let prefix_highlight = "\x1b[01;35mlongprefix-\x1b[0m";
+
+    // The control keeps the prefix highlight; the positive length suppresses
+    // it in both editors. Both editors emit the abbreviated names with a
+    // reset only, without the fi=31 opening style, for this fixture.
+    for (label, length) in [("abbreviated", 4), ("control", 0)] {
+        let inputrc = format!(
+            "\"\\C-o\": possible-filename-completions\nset completion-query-items 999\nset colored-stats on\nset colored-completion-prefix on\nset completion-prefix-display-length {length}"
+        );
+        let bash = run_bash_readline_with_inputrc_file_and_env(typed.as_bytes(), &inputrc, &env);
+        let sushline = run_sushline_harness_with_inputrc_and_env(typed.as_bytes(), &inputrc, &env);
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            eprintln!("{label} {editor} SGR output: {output:?}");
+            assert_eq!(
+                output.contains(prefix_highlight),
+                length == 0,
+                "{label} {editor}: prefix highlight {prefix_highlight:?} state differs\n{output:?}"
+            );
+            for tail in ["alpha", "beta"] {
+                let styled = if length == 0 {
+                    format!("\x1b[31m{tail}\x1b[0m")
+                } else {
+                    format!("...{tail}\x1b[0m")
+                };
+                assert!(
+                    output.contains(&styled),
+                    "{label} {editor}: missing scoped file-style fragment {styled:?}\n{output:?}"
+                );
+                if length > 0 {
+                    let colored_abbreviation = format!("\x1b[31m...{tail}");
+                    assert!(
+                        !output.contains(&colored_abbreviation),
+                        "{label} {editor}: unexpected fi=31 on abbreviation {colored_abbreviation:?}\n{output:?}"
+                    );
+                }
+            }
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(accepted.as_str()),
+                "{label} {editor}: accepted line changed\n{output:?}"
+            );
+        }
+    }
+}

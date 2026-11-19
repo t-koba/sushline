@@ -28,10 +28,15 @@ pub(crate) fn common_prefix_bytes(candidates: &[CompletionCandidate]) -> Option<
 }
 
 pub(crate) fn abbreviate_completion_prefix(items: &mut [String], prefix: &str) {
+    if prefix.is_empty() {
+        return;
+    }
     let marker = "...";
+    let visible = prefix.chars().count();
     for item in items {
-        if let Some(rest) = item.strip_prefix(prefix) {
-            *item = format!("{marker}{rest}");
+        let (split, _) = split_ansi_visible_prefix(item, visible);
+        if strip_sgr_sequences(&item[..split]) == prefix {
+            *item = format!("{marker}{}", &item[split..]);
         }
     }
 }

@@ -606,9 +606,31 @@ pub(super) fn run_bash_readline_with_reloaded_inputrc(
     initial_inputrc: &str,
     reloaded_inputrc: &str,
 ) -> String {
+    run_bash_readline_with_reloaded_inputrc_and_history(
+        keys,
+        initial_inputrc,
+        reloaded_inputrc,
+        &[],
+    )
+}
+
+pub(super) fn run_bash_readline_with_reloaded_inputrc_and_history(
+    keys: &[u8],
+    initial_inputrc: &str,
+    reloaded_inputrc: &str,
+    history: &[&str],
+) -> String {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("inputrc");
     fs::write(&path, initial_inputrc).expect("write initial inputrc");
+    let mut history_commands = history
+        .iter()
+        .map(|entry| format!("history -s {}", shell_single_quote(entry)))
+        .collect::<Vec<_>>()
+        .join("; ");
+    if history_commands.is_empty() {
+        history_commands = ":".to_string();
+    }
     let mut command = CommandBuilder::new("bash");
     command.env("INPUTRC", path.to_string_lossy().as_ref());
     command.args([
@@ -617,7 +639,7 @@ pub(super) fn run_bash_readline_with_reloaded_inputrc(
         "-i",
         "-c",
         &format!(
-            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; {history_commands}; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
         ),
     ]);
     run_pty_after_prompt(command, keys, || {
@@ -886,12 +908,27 @@ pub(super) fn run_sushline_harness_with_reloaded_inputrc(
     initial_inputrc: &str,
     reloaded_inputrc: &str,
 ) -> String {
+    run_sushline_harness_with_reloaded_inputrc_and_history(
+        keys,
+        initial_inputrc,
+        reloaded_inputrc,
+        &[],
+    )
+}
+
+pub(super) fn run_sushline_harness_with_reloaded_inputrc_and_history(
+    keys: &[u8],
+    initial_inputrc: &str,
+    reloaded_inputrc: &str,
+    history: &[&str],
+) -> String {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("inputrc");
     fs::write(&path, initial_inputrc).expect("write initial inputrc");
     let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
     command.env("SUSHLINE_INPUTRC_FILE", path.to_string_lossy().as_ref());
     command.env("SUSHLINE_PROMPT", READY_PROMPT);
+    command.env("SUSHLINE_HISTORY", history.join("\n"));
     run_pty_after_prompt(command, keys, || {
         fs::write(&path, reloaded_inputrc).expect("write reloaded inputrc");
     })

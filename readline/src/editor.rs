@@ -256,6 +256,7 @@ where
             .parse_str(source, &self.config, &mut self.keymap, &mut self.variables)
             .map_err(|e| ReadlineError::Inputrc(format!("line {}: {}", e.line, e.message)))?;
         self.set_inputrc_diagnostics(diagnostics);
+        self.enforce_history_size_limit();
         Ok(())
     }
 
@@ -266,6 +267,7 @@ where
             .map_err(|e| ReadlineError::Inputrc(format!("line {}: {}", e.line, e.message)))?;
         self.set_inputrc_diagnostics(diagnostics);
         self.config.inputrc_path = InputrcPath::Path(path.to_path_buf());
+        self.enforce_history_size_limit();
         Ok(())
     }
 
@@ -628,7 +630,7 @@ where
                         self.history.push_bytes(bytes.clone());
                         self.history.reset_cursor();
                     }
-                    self.history.enforce_max_len(self.history_size_limit());
+                    self.enforce_history_size_limit();
                 }
                 Ok(ReadlineResult::Line(bytes))
             }
@@ -840,6 +842,12 @@ where
         self.write_diagnostic_below_rendered_line(state, message)?;
         self.terminal.flush()?;
         Ok(())
+    }
+
+    /// Apply the current `history-size` to history that already exists.
+    fn enforce_history_size_limit(&mut self) {
+        let limit = self.history_size_limit();
+        self.history.enforce_max_len_preserving_position(limit);
     }
 
     fn history_size_limit(&self) -> Option<usize> {

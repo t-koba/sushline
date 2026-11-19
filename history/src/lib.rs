@@ -332,6 +332,10 @@ pub struct History {
     event_base_offset: usize,
     max_entries: Option<usize>,
     file_loaded_len: usize,
+    // A cap reduction during active navigation leaves the position unset but
+    // keeps the saved edit for the first later forward move back to it, even
+    // across intervening backward moves.
+    pending_edit_restore: bool,
 }
 
 impl History {
@@ -359,17 +363,55 @@ impl History {
     }
 
     /// Enforce max len.
+    ///
+    /// This resets the cursor and discards the current edit. Inputrc cap
+    /// changes use [`Self::enforce_max_len_preserving_position`], which leaves
+    /// an untrimmed position and edit in place.
     pub fn enforce_max_len(&mut self, max_len: Option<usize>) {
         let Some(max_len) = max_len else {
             return;
         };
-        if self.entries.len() > max_len {
-            let remove = self.entries.len() - max_len;
+        self.remove_oldest_above(max_len);
+        self.reset_cursor();
+    }
+
+    /// Enforce a maximum length, preserving an active position and edit when
+    /// no entries are removed.
+    ///
+    /// Like [`Self::enforce_max_len`], this drops only the oldest entries
+    /// when the list exceeds `max_len`; a `None` limit is a no-op. A reload
+    /// that trims nothing leaves the cursor and stashed edit untouched. When
+    /// trimming happens during navigation, the position is unset: the next
+    /// backward move starts from the newest survivor without touching the
+    /// saved edit, and the first later forward move that reaches the end
+    /// restores the edit saved when navigation began. This is the cap path
+    /// for reloads and other mid-navigation changes.
+    pub fn enforce_max_len_preserving_position(&mut self, max_len: Option<usize>) {
+        let Some(max_len) = max_len else {
+            return;
+        };
+        let positioned = self.cursor.is_some();
+        let position = self.where_history();
+        let removed = self.remove_oldest_above(max_len);
+        if removed == 0 {
+            return;
+        }
+        if positioned {
+            self.cursor = None;
+            self.pending_edit_restore = true;
+        } else {
+            self.restore_offset(position.saturating_sub(removed));
+        }
+    }
+
+    fn remove_oldest_above(&mut self, max_len: usize) -> usize {
+        let remove = self.entries.len().saturating_sub(max_len);
+        if remove > 0 {
             self.entries.drain(..remove);
             self.search_masks.drain(..remove);
             self.file_loaded_len = self.file_loaded_len.saturating_sub(remove);
         }
-        self.reset_cursor();
+        remove
     }
 
     /// Stifle.
@@ -551,6 +593,7 @@ impl History {
 
     fn restore_offset(&mut self, pos: usize) {
         self.cursor = (pos != self.entries.len()).then_some(pos);
+        self.pending_edit_restore = false;
     }
 
     fn offset_beyond_end(&self) -> bool {
@@ -624,6 +667,7 @@ impl History {
     pub fn reset_cursor(&mut self) {
         self.cursor = None;
         self.current_edit.clear();
+        self.pending_edit_restore = false;
     }
 
     /// Revert current edit.
@@ -632,25 +676,39 @@ impl History {
     }
 
     /// Navigate bytes.
+    ///
+    /// After a history-size trim during navigation, backward steps from the
+    /// unpositioned end select the newest survivor without replacing the
+    /// saved edit. The first forward step that reaches the end restores that
+    /// edit and clears the pending restore.
     pub fn navigate_bytes(
         &mut self,
         direction: HistoryDirection,
         current: Vec<u8>,
     ) -> Option<Vec<u8>> {
+        let restoring_edit = self.pending_edit_restore;
         if self.entries.is_empty() || self.offset_beyond_end() {
+            self.pending_edit_restore = false;
             return None;
         }
 
         match (direction, self.cursor) {
             (HistoryDirection::Previous, None) => {
-                self.current_edit = current;
+                if !restoring_edit {
+                    self.current_edit = current;
+                }
                 self.cursor = Some(self.entries.len() - 1);
             }
             (HistoryDirection::Previous, Some(0)) => {}
             (HistoryDirection::Previous, Some(pos)) => self.cursor = Some(pos - 1),
+            (HistoryDirection::Next, None) if restoring_edit => {
+                self.pending_edit_restore = false;
+                return Some(self.current_edit.clone());
+            }
             (HistoryDirection::Next, None) => return None,
             (HistoryDirection::Next, Some(pos)) if pos + 1 >= self.entries.len() => {
                 self.cursor = None;
+                self.pending_edit_restore = false;
                 return Some(self.current_edit.clone());
             }
             (HistoryDirection::Next, Some(pos)) => self.cursor = Some(pos + 1),
@@ -1328,5 +1386,120 @@ mod tests {
         );
         assert_eq!(find_bytes_with_case(b"xABC", b"abc", false), None);
         assert_eq!(find_bytes_with_case(b"xABC", b"abc", true), Some(1));
+    }
+
+    #[test]
+    fn enforce_max_len_preserving_position_without_trim_keeps_navigation_and_edit() {
+        let mut history = History::new();
+        for entry in ["one", "two", "three", "four"] {
+            history.push(entry);
+        }
+        history.reset_cursor();
+        assert_eq!(
+            history.navigate_bytes(HistoryDirection::Previous, b"draft".to_vec()),
+            Some(b"four".to_vec())
+        );
+        assert_eq!(
+            history.navigate_bytes(HistoryDirection::Previous, Vec::new()),
+            Some(b"three".to_vec())
+        );
+
+        history.enforce_max_len_preserving_position(Some(5));
+        assert_eq!(history.current_index(), Some(2));
+        assert_eq!(history.current_history().unwrap().line(), "three");
+
+        history.enforce_max_len_preserving_position(None);
+        assert_eq!(history.current_index(), Some(2));
+        assert_eq!(history.current_history().unwrap().line(), "three");
+        assert_eq!(history.end_bytes(), Some(b"draft".to_vec()));
+    }
+
+    #[test]
+    fn enforce_max_len_preserving_position_trim_resets_navigation() {
+        let mut history = History::new();
+        for entry in ["one", "two", "three", "four"] {
+            history.push(entry);
+        }
+        history.reset_cursor();
+        assert_eq!(
+            history.navigate_bytes(HistoryDirection::Previous, b"draft".to_vec()),
+            Some(b"four".to_vec())
+        );
+        assert_eq!(
+            history.navigate_bytes(HistoryDirection::Previous, Vec::new()),
+            Some(b"three".to_vec())
+        );
+
+        history.enforce_max_len_preserving_position(Some(2));
+        assert_eq!(
+            history
+                .entries()
+                .iter()
+                .map(|entry| entry.line())
+                .collect::<Vec<_>>(),
+            ["three", "four"]
+        );
+        assert_eq!(history.where_history(), history.len());
+        assert_eq!(history.current_index(), None);
+        assert_eq!(history.current_history(), None);
+
+        // Down once restores the saved edit; thereafter navigation is ordinary.
+        assert_eq!(
+            history.navigate_bytes(HistoryDirection::Next, b"three".to_vec()),
+            Some(b"draft".to_vec())
+        );
+        assert_eq!(history.current_index(), None);
+        assert_eq!(
+            history.navigate_bytes(HistoryDirection::Next, Vec::new()),
+            None
+        );
+        assert_eq!(
+            history.navigate_bytes(HistoryDirection::Previous, Vec::new()),
+            Some(b"four".to_vec())
+        );
+        assert_eq!(
+            history.navigate_bytes(HistoryDirection::Previous, Vec::new()),
+            Some(b"three".to_vec())
+        );
+    }
+
+    #[test]
+    fn trimmed_edit_restore_survives_backward_then_forward() {
+        let mut history = History::new();
+        for entry in ["one", "two", "three", "four"] {
+            history.push(entry);
+        }
+        history.reset_cursor();
+        assert_eq!(
+            history.navigate_bytes(HistoryDirection::Previous, Vec::new()),
+            Some(b"four".to_vec())
+        );
+        assert_eq!(
+            history.navigate_bytes(HistoryDirection::Previous, Vec::new()),
+            Some(b"three".to_vec())
+        );
+
+        history.enforce_max_len_preserving_position(Some(2));
+        assert_eq!(history.current_index(), None);
+
+        // Back up from the unpositioned end: the buffer still shows `three`,
+        // but the newest survivor is recalled without saving that buffer.
+        assert_eq!(
+            history.navigate_bytes(HistoryDirection::Previous, b"three".to_vec()),
+            Some(b"four".to_vec())
+        );
+        assert_eq!(history.current_index(), Some(1));
+
+        // The first forward step back to the end restores the edit from
+        // before the trim, not the intervening history line.
+        assert_eq!(
+            history.navigate_bytes(HistoryDirection::Next, Vec::new()),
+            Some(Vec::new())
+        );
+        assert_eq!(history.current_index(), None);
+        assert_eq!(
+            history.navigate_bytes(HistoryDirection::Next, Vec::new()),
+            None
+        );
     }
 }

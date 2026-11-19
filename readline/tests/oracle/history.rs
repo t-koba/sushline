@@ -5025,3 +5025,104 @@ fn bash_and_sushline_pin_incremental_search_across_resize() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_pin_history_size_on_seeded_history() {
+    require_oracle_host();
+    // A setting loaded after history exists is the case under test: three
+    // seeds, a cap of two, and navigation back past the oldest surviving entry.
+    let inputrc = "set history-size 2";
+    let history = ["one", "two", "three"];
+    let keys = b"\x10\x10\x10\r";
+    let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &history);
+    let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+    assert_eq!(
+        accepted_line(&bash).as_deref(),
+        Some("two"),
+        "unexpected Bash accepted buffer: bash={bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+}
+
+#[test]
+fn bash_and_sushline_pin_history_size_reload_during_navigation() {
+    require_oracle_host();
+    // A cap above the seeded length trims nothing, so a reload in the middle
+    // of backward navigation must leave the selected entry and edit intact.
+    let inputrc = "set history-size 5";
+    let history = ["one", "two", "three"];
+    let keys = b"\x10\x18\x12\x10\r";
+    let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &history);
+    let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+    assert_eq!(
+        accepted_line(&bash).as_deref(),
+        Some("two"),
+        "unexpected Bash accepted buffer: bash={bash}"
+    );
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+}
+
+#[test]
+fn bash_and_sushline_pin_history_size_reload_trim_during_navigation() {
+    require_oracle_host();
+    // Two backward moves select the third of four entries before a reload
+    // trims the oldest two. The measured GNU outcomes distinguish an
+    // unpositioned history from one translated onto the surviving entries.
+    let initial = "set history-size 5";
+    let history = ["one", "two", "three", "four"];
+    for (label, reloaded, keys, expected) in [
+        (
+            "no_key",
+            "set history-size 2",
+            &b"\x10\x10\x18\x12\r"[..],
+            "three",
+        ),
+        (
+            "next",
+            "set history-size 2",
+            &b"\x10\x10\x18\x12\x0e\r"[..],
+            "",
+        ),
+        (
+            "previous",
+            "set history-size 2",
+            &b"\x10\x10\x18\x12\x10\r"[..],
+            "four",
+        ),
+        (
+            "no_trim_next",
+            "set history-size 5",
+            &b"\x10\x10\x18\x12\x0e\r"[..],
+            "four",
+        ),
+        (
+            "previous_then_next",
+            "set history-size 2",
+            &b"\x10\x10\x18\x12\x10\x0e\r"[..],
+            "",
+        ),
+    ] {
+        let bash =
+            run_bash_readline_with_reloaded_inputrc_and_history(keys, initial, reloaded, &history);
+        let sushline = run_sushline_harness_with_reloaded_inputrc_and_history(
+            keys, initial, reloaded, &history,
+        );
+        for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+            let context = format!("{label} {editor}: {output}");
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{context}"
+            );
+            assert_eq!(bell_count(output), 0, "{context}");
+        }
+    }
+}

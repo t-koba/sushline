@@ -552,3 +552,110 @@ fn history_navigation_search_needle_lasts_until_the_next_edit() {
         );
     }
 }
+
+#[test]
+fn history_size_set_and_reload_trim_existing_history() {
+    use std::fs;
+
+    let mut history = History::new();
+    for entry in ["one", "two", "three"] {
+        history.push(entry);
+    }
+    history.reset_cursor();
+    let terminal = MemoryTerminal::with_events(vec![]);
+    let mut editor = Editor::new_without_inputrc(Config::default(), terminal, history);
+
+    editor.load_inputrc_str("set history-size 2").unwrap();
+    assert_eq!(
+        editor
+            .history
+            .entries()
+            .iter()
+            .map(|entry| entry.line())
+            .collect::<Vec<_>>(),
+        ["two", "three"]
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("inputrc");
+    fs::write(&path, "set history-size 1").unwrap();
+    editor.load_inputrc_file(&path).unwrap();
+    editor.reload_inputrc().unwrap();
+    assert_eq!(
+        editor
+            .history
+            .entries()
+            .iter()
+            .map(|entry| entry.line())
+            .collect::<Vec<_>>(),
+        ["three"]
+    );
+}
+
+#[test]
+fn history_size_load_without_trim_preserves_navigation_and_edit() {
+    use ::history::HistoryDirection;
+
+    let mut history = History::new();
+    for entry in ["one", "two", "three"] {
+        history.push(entry);
+    }
+    history.reset_cursor();
+    assert_eq!(
+        history.navigate_bytes(HistoryDirection::Previous, b"draft".to_vec()),
+        Some(b"three".to_vec())
+    );
+    assert_eq!(
+        history.navigate_bytes(HistoryDirection::Previous, Vec::new()),
+        Some(b"two".to_vec())
+    );
+    let terminal = MemoryTerminal::with_events(vec![]);
+    let mut editor = Editor::new_without_inputrc(Config::default(), terminal, history);
+
+    editor.load_inputrc_str("set history-size 5").unwrap();
+
+    assert_eq!(editor.history.current_index(), Some(1));
+    assert_eq!(editor.history.where_history(), 1);
+    assert_eq!(
+        editor.history.end_bytes().as_deref(),
+        Some(b"draft".as_slice())
+    );
+}
+
+#[test]
+fn history_size_load_trim_during_navigation_resets_position_and_edit() {
+    use ::history::HistoryDirection;
+
+    let mut history = History::new();
+    for entry in ["one", "two", "three", "four"] {
+        history.push(entry);
+    }
+    history.reset_cursor();
+    assert_eq!(
+        history.navigate_bytes(HistoryDirection::Previous, b"draft".to_vec()),
+        Some(b"four".to_vec())
+    );
+    assert_eq!(
+        history.navigate_bytes(HistoryDirection::Previous, Vec::new()),
+        Some(b"three".to_vec())
+    );
+    let terminal = MemoryTerminal::with_events(vec![]);
+    let mut editor = Editor::new_without_inputrc(Config::default(), terminal, history);
+
+    editor.load_inputrc_str("set history-size 2").unwrap();
+
+    assert_eq!(editor.history.current_index(), None);
+    assert_eq!(editor.history.where_history(), editor.history.len());
+    assert_eq!(
+        editor
+            .history
+            .navigate_bytes(HistoryDirection::Next, b"three".to_vec()),
+        Some(b"draft".to_vec())
+    );
+    assert_eq!(
+        editor
+            .history
+            .navigate_bytes(HistoryDirection::Previous, Vec::new()),
+        Some(b"four".to_vec())
+    );
+}

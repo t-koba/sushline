@@ -2281,6 +2281,13 @@ fn bash_readline_and_sushline_match_lowercase_version_meta_dispatch() {
             0,
         ),
         ("meta_unbound", b"\x1bA\r".as_slice(), "", 1),
+        ("ctrl_x_unbound", b"abc\x18UX\r".as_slice(), "abcX", 1),
+        (
+            "ctrl_x_direct_unbound",
+            b"abc\x18qX\r".as_slice(),
+            "abcX",
+            1,
+        ),
     ] {
         let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
         let sushline = run_sushline_harness_with_inputrc(keys, inputrc);

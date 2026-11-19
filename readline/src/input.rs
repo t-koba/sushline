@@ -911,11 +911,14 @@ where
             return self.handle_bytes(state, &bytes[prefix_meta_command_len..], hooks);
         }
 
-        if unbound_meta_prefix && prefix_meta_command_len == 0 {
-            // An unbound ESC-prefixed sequence rings once, then processing
-            // continues with the bytes after it so that a batched read can
-            // never swallow trailing input (fragmentation-invariant: split
-            // and batched reads reach the same state).
+        let unbound_ctlx_prefix = prefix_meta_command_len == 0
+            && bytes.len() > 1
+            && bytes.first() == Some(&0x18)
+            && self.keymap.has_prefix(self.keymap.current(), &bytes[..1]);
+        if (unbound_meta_prefix && prefix_meta_command_len == 0) || unbound_ctlx_prefix {
+            // An unbound ESC sequence or leaf under an active C-x prefix rings
+            // once, consumes the prefix and first complete input unit, then
+            // processes any trailing bytes normally.
             self.ding()?;
             state.consume_numeric_arg_unless_prefix();
             let (_, rest) = split_first_unit(&bytes[1..]);

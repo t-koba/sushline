@@ -769,6 +769,15 @@ where
         Ok(())
     }
 
+    /// GNU leaves the completion confirmation prompt silent when the
+    /// effective bell is visible, while other completion prompts still flash.
+    pub(crate) fn ding_for_completion_confirmation(&mut self) -> Result<(), ReadlineError> {
+        if matches!(self.variables.effective_bell(), BellKind::Visible) {
+            return Ok(());
+        }
+        self.ding()
+    }
+
     pub(crate) fn expand_history_line(
         &mut self,
         line: &[u8],

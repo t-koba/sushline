@@ -372,7 +372,7 @@ where
                         break;
                     }
                     TerminalEvent::Bytes(_) => {
-                        self.ding()?;
+                        self.ding_for_completion_confirmation()?;
                     }
                     TerminalEvent::Timeout | TerminalEvent::Wakeup => {
                         unreachable!("indefinite completion waits absorb wakeups")

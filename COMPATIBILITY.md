@@ -164,6 +164,19 @@ inferred.
 | Completion redraw of invalid filename bytes | For one invalid filename byte (`0xFF`), default redraw is `\377` under `LC_ALL=C` and raw `0xFF` under `LC_ALL=C.UTF-8` when that locale is available; explicit `output-meta on` lists the raw byte in both tested locales. | Sushline matches these exact PTY cases, and accepted-line bytes remain raw in the same locales. No broader locale rule is established. Tests: [`oracle/completion.rs`](readline/tests/oracle/completion.rs). | Compatible |
 | Undo insert grouping | Pinned Bash 5.3 / Readline 8.3 PTY fixtures show: one undo removes all 20 single-byte `a` inserts but leaves 20 `a`s after 21; after `aé`, it leaves `a`; after `ab` plus `M-5 a`, one undo leaves `ab` and a second empties it. | Sushline matches those paired fixtures. Sushline-only tests additionally cover 25 inserts, incomplete UTF-8 assembled across events, a multi-byte quoted insert opening its own entry, and `tab-insert` joining the previous entry; these are not separate GNU comparisons. The pinned `ci / oracle` job passed run `43681053542` at exact SHA `815c7e667944658322531695065d9aa7d744412c`. Tests: [`oracle/editing.rs`](readline/tests/oracle/editing.rs), [`editing.rs`](readline/tests/editing.rs). | Compatible |
 
+
+### SIGCONT screen-dimension reset probe
+
+Readline 8.3 NEWS notes a screen-dimension reset after `SIGCONT`. A bounded
+Bash 5.3/Sushline PTY probe stops the child with `SIGSTOP`, resizes the PTY
+from 80 to 20 columns while it is stopped, sends `SIGCONT`, and then accepts
+`abcdefghijX`. Both editors accept `abcdefghijX`, and each editor's output
+after stop/resize/continue is byte-identical to its output after a plain
+active resize. No SIGCONT-specific redisplay or accepted-line divergence was
+observed. Sushline has no dedicated SIGCONT handler; this negative result
+makes no general screen-dimension-reset claim and leaves the existing
+per-resize redisplay boundaries in force.
+
 ## High-Level Coverage
 
 | Area | Status | Implemented surface | Boundary notes |

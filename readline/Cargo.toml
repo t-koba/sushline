@@ -19,6 +19,8 @@ oracle = []
 # without a version cannot be published.
 history = { package = "sushline-history", path = "../history", version = "0.2.0" }
 libc = "0.2"
+# Keep the 0.1.x table: GNU Readline 8.3 counts U+FF9E/U+FF9F as zero cells,
+# while 0.2.x counts them as one. See `COMPATIBILITY.md`.
 unicode-width = "0.1"
 
 [target.'cfg(windows)'.dependencies]

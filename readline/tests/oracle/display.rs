@@ -168,6 +168,34 @@ fn bash_and_sushline_redisplay_utf8_wrap_boundary_cursor_after_live_pty_growth()
     );
 }
 
+/// GNU Readline 8.3 and the pinned 0.1.x width table both treat the two
+/// halfwidth katakana voicing marks as zero cells; unicode-width 0.2.x does
+/// not. This fixture pins the GNU-visible geometry, not a general width rule.
+#[cfg(target_os = "linux")]
+#[test]
+fn bash_and_sushline_count_halfwidth_katakana_marks_as_zero_cells() {
+    assert!(
+        c_utf8_locale_available(),
+        "C.UTF-8 locale required for the katakana mark fixture"
+    );
+    let wide = PtySize {
+        rows: 4,
+        cols: 80,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let narrow = PtySize { cols: 12, ..wide };
+    assert_live_resize_redisplay_with_locale(
+        "C.UTF-8",
+        wide,
+        &[narrow],
+        "ﾊﾟｸﾞXYZ".as_bytes(),
+        b"\x0c",
+        &["P>ﾊﾟｸﾞXYZ"],
+        (0, 7),
+    );
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn bash_and_sushline_redisplay_ambiguous_width_dot_after_live_pty_growth() {

@@ -872,3 +872,46 @@ fn the_prompt_is_drawn_as_given_and_the_shell_spelling_is_opt_in() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_mark_only_modified_history_lines() {
+    let inputrc = "set mark-modified-lines on\n\"\\C-t\": revert-line\n";
+    for (label, keys, accepted, marked) in [
+        ("unmodified history", &b"\x10\r"[..], "abcdef", false),
+        ("edited history", &b"\x10X\r"[..], "abcdefX", true),
+        ("reverted history", &b"\x10X\x14\r"[..], "abcdef", false),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &["abcdef"]);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &["abcdef"]);
+        let prefix = if marked {
+            "*SUSHLINE_READY>"
+        } else {
+            "SUSHLINE_READY>"
+        };
+        for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(accepted),
+                "{label} {editor}: {output}"
+            );
+            assert_eq!(bell_count(output), 0, "{label} {editor}: {output}");
+            let mut screen = super::screen::Screen::new(24, 80);
+            screen.feed(output.as_bytes());
+            let rows = screen.rows_text();
+            assert_eq!(
+                rows.first().map(String::as_str),
+                Some(format!("{prefix}{accepted}").as_str()),
+                "{label} {editor}: {rows:?}"
+            );
+        }
+        let mut bash_screen = super::screen::Screen::new(24, 80);
+        let mut sushline_screen = super::screen::Screen::new(24, 80);
+        bash_screen.feed(bash.as_bytes());
+        sushline_screen.feed(sushline.as_bytes());
+        assert_eq!(
+            bash_screen.rows_text(),
+            sushline_screen.rows_text(),
+            "{label}"
+        );
+    }
+}

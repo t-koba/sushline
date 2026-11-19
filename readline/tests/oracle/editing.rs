@@ -6164,6 +6164,37 @@ fn bash_read_e_and_sushline_expose_bracketed_paste_cr_boundary() {
 }
 
 #[test]
+fn bash_and_sushline_insert_control_bytes_literally_in_bracketed_paste() {
+    let inputrc = "set enable-bracketed-paste on\nset bell-style audible\n";
+    for term in [Some("xterm-256color"), Some("dumb")] {
+        for (byte, expected) in [
+            (0x01, "a\u{1}b"),
+            (0x0b, "a\u{b}b"),
+            (0x12, "a\u{12}b"),
+            (0x1b, "a\u{1b}b"),
+        ] {
+            let mut keys = b"\x1b[200~a".to_vec();
+            keys.push(byte);
+            keys.extend_from_slice(b"b\x1b[201~\r");
+            let bash = run_bash_readline_with_term(&keys, inputrc, term);
+            let sushline = run_sushline_harness_with_term(&keys, inputrc, term);
+            for (name, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+                assert_eq!(
+                    accepted_line(output).as_deref(),
+                    Some(expected),
+                    "{name} TERM={term:?} byte={byte:#04x}: {output:?}"
+                );
+                assert_eq!(
+                    bell_count(output),
+                    0,
+                    "{name} TERM={term:?} byte={byte:#04x}: {output:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn bash_and_sushline_match_cr_splitting_partial_paste_end_marker() {
     let keys = b"\x1b[200~abc\x1b[201\r~\x1b[201~\r";
     let inputrc = "set enable-bracketed-paste on\nset bell-style audible\n";

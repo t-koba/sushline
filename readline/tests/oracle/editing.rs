@@ -6169,9 +6169,11 @@ fn bash_and_sushline_insert_control_bytes_literally_in_bracketed_paste() {
     for term in [Some("xterm-256color"), Some("dumb")] {
         for (byte, expected) in [
             (0x01, "a\u{1}b"),
+            (0x09, "a\u{9}b"),
             (0x0b, "a\u{b}b"),
             (0x12, "a\u{12}b"),
             (0x1b, "a\u{1b}b"),
+            (0x7f, "a\u{7f}b"),
         ] {
             let mut keys = b"\x1b[200~a".to_vec();
             keys.push(byte);

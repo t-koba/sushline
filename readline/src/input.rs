@@ -285,8 +285,22 @@ where
             if bytes.is_empty() {
                 return Ok(EditorOutcome::Continue);
             }
-            state.consume_numeric_arg_unless_prefix();
-            self.ding()?;
+            // GNU switches to its arrow-key-prefix keymap: A/B/C/D are
+            // bound there to history and character movement even when the
+            // consumed introducer was a one-byte binding such as `[`.
+            let command = match bytes[0] {
+                b'A' => Some("previous-history"),
+                b'B' => Some("next-history"),
+                b'C' => Some("forward-char"),
+                b'D' => Some("backward-char"),
+                _ => None,
+            };
+            if let Some(command) = command {
+                self.apply_named_command(state, command, &bytes[..1], hooks)?;
+            } else {
+                state.consume_numeric_arg_unless_prefix();
+                self.ding()?;
+            }
             return self.handle_bytes(state, &bytes[1..], hooks);
         }
         state.consume_csi_bytes(bytes);

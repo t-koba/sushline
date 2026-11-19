@@ -7144,3 +7144,81 @@ fn bash_readline_and_sushline_bare_introducer_skip_discards_the_tail() {
         assert_eq!(bell_count(&sushline), 0, "Sushline {name}: {sushline}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_bare_arrow_prefix_uses_arrow_keymap() {
+    let history = ["one", "two"];
+    for (name, inputrc, keys, expected, bells) in [
+        (
+            "bracket_history",
+            "\"[\": arrow-key-prefix\n",
+            &b"abc[A\r"[..],
+            Some("two"),
+            0,
+        ),
+        (
+            "bracket_history_twice",
+            "\"[\": arrow-key-prefix\n",
+            &b"abc[A[A\r"[..],
+            Some("one"),
+            0,
+        ),
+        (
+            "bracket_history_return",
+            "\"[\": arrow-key-prefix\n",
+            &b"abc[A[B\r"[..],
+            Some("abc"),
+            0,
+        ),
+        (
+            "bracket_backward",
+            "\"[\": arrow-key-prefix\n",
+            &b"abc[D X\r"[..],
+            Some("ab Xc"),
+            0,
+        ),
+        (
+            "bracket_forward",
+            "\"[\": arrow-key-prefix\n",
+            &b"abc[D[C X\r"[..],
+            Some("abc X"),
+            0,
+        ),
+        (
+            "bracket_unbound",
+            "\"[\": arrow-key-prefix\n",
+            &b"abc[D[H X\r"[..],
+            Some("ab Xc"),
+            1,
+        ),
+        (
+            "ss3_history",
+            "\"O\": arrow-key-prefix\n",
+            &b"abcOA\r"[..],
+            Some("two"),
+            0,
+        ),
+        (
+            "ss3_backward",
+            "\"O\": arrow-key-prefix\n",
+            &b"abcOD X\r"[..],
+            Some("ab Xc"),
+            0,
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            expected,
+            "Bash {name}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "Bash {name}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            expected,
+            "Sushline {name}: {sushline}"
+        );
+        assert_eq!(bell_count(&sushline), bells, "Sushline {name}: {sushline}");
+    }
+}

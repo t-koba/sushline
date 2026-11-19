@@ -373,8 +373,7 @@ fn assert_character_motion_bytes(keys: &[u8], scalar_hex: &str) {
             bash_command.args(["--noprofile", "--norc", "-i", "-c", &bash_script]);
             let bash = run_pty_until(bash_command, keys, "BASH_ACCEPTED_HEX:");
 
-            let mut sushline_command =
-                portable_pty::CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+            let mut sushline_command = sushline_harness_command();
             sushline_command.env("SUSHLINE_INPUTRC", &inputrc);
             sushline_command.env("SUSHLINE_PROMPT", READY_PROMPT);
             sushline_command.env("SUSHLINE_HISTORY", "");
@@ -6769,7 +6768,7 @@ fn bash_and_sushline_pin_multiline_bracketed_paste_across_resize() {
             r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
         ),
     ]);
-    let mut sushline_command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    let mut sushline_command = sushline_harness_command();
     sushline_command.env("SUSHLINE_INPUTRC", inputrc);
     sushline_command.env("SUSHLINE_PROMPT", READY_PROMPT);
     sushline_command.env("SUSHLINE_HISTORY", "");

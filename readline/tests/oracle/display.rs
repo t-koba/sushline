@@ -332,7 +332,7 @@ fn bash_and_sushline_redisplay_wrapped_prompt_with_invisible_runs_after_live_pty
             ]);
             command
         } else {
-            let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+            let mut command = sushline_harness_command();
             command.env("SUSHLINE_INPUTRC", inputrc);
             command.env("SUSHLINE_HISTORY", "");
             command
@@ -502,7 +502,7 @@ fn assert_live_resize_redisplay_with_locale(
             ]);
             command
         } else {
-            let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+            let mut command = sushline_harness_command();
             command.env("SUSHLINE_INPUTRC", inputrc);
             command.env("SUSHLINE_PROMPT", "P>");
             command.env("SUSHLINE_HISTORY", "");
@@ -599,7 +599,7 @@ fn unwrapped_ansi_prompt_redisplay_counts_unmarked_escapes() {
     );
 
     let run_sushline = |prompt: &str| {
-        let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+        let mut command = sushline_harness_command();
         command.env("SUSHLINE_PROMPT", prompt);
         command.env("SUSHLINE_INPUTRC", "");
         command.env("INPUTRC", &inputrc);
@@ -761,7 +761,7 @@ fn the_prompt_is_drawn_as_given_and_the_shell_spelling_is_opt_in() {
     };
 
     let run_sushline = |prompt: &str, shell_spelling: bool| {
-        let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+        let mut command = sushline_harness_command();
         command.env("SUSHLINE_PROMPT", prompt);
         command.env("SUSHLINE_INPUTRC", "");
         command.env("INPUTRC", &inputrc);

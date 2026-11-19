@@ -387,7 +387,7 @@ fn bash_dies_with_a_segmentation_fault_on_a_cyclic_inputrc_include() {
         "GNU must die from SIGSEGV: {status:?}"
     );
 
-    let mut sushline = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    let mut sushline = sushline_harness_command();
     sushline.env("SUSHLINE_INPUTRC_FILE", path.to_string_lossy().as_ref());
     sushline.env("SUSHLINE_PROMPT", READY_PROMPT);
     sushline.env("SUSHLINE_HISTORY", "");

@@ -555,8 +555,7 @@ fn bash_readline_and_sushline_render_same_reverse_isearch_query_display() {
         "SUSHLINE_ACCEPTED:",
     );
 
-    let mut sushline_command =
-        portable_pty::CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    let mut sushline_command = sushline_harness_command();
     sushline_command.env("SUSHLINE_PROMPT", READY_PROMPT);
     sushline_command.env("SUSHLINE_HISTORY", history.join("\n"));
     let sushline = run_pty_steps_until_screen_row(
@@ -710,8 +709,7 @@ fn assert_saved_history_projection(
     ]);
     let bash = run_pty_until(bash_command, keys, "SUSHLINE_ACCEPTED:");
 
-    let mut sushline_command =
-        portable_pty::CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    let mut sushline_command = sushline_harness_command();
     sushline_command.env("SUSHLINE_INPUTRC", inputrc);
     sushline_command.env("SUSHLINE_PROMPT", READY_PROMPT);
     sushline_command.env("SUSHLINE_HISTORY", history.join("\n"));
@@ -4983,7 +4981,7 @@ fn bash_and_sushline_pin_incremental_search_continuation_after_resize() {
             r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; unset HISTTIMEFORMAT HISTCONTROL HISTIGNORE; history -c; {seed}; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
         ),
     ]);
-    let mut sushline_command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    let mut sushline_command = sushline_harness_command();
     sushline_command.env("SUSHLINE_PROMPT", READY_PROMPT);
     sushline_command.env("SUSHLINE_HISTORY", history.join("\n"));
 

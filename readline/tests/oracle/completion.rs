@@ -79,7 +79,7 @@ set page-completions off"#;
         "SUSHLINE_ACCEPTED:",
     );
 
-    let mut sushline = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    let mut sushline = sushline_harness_command();
     sushline.env("SUSHLINE_INPUTRC", inputrc);
     sushline.env("SUSHLINE_PROMPT", READY_PROMPT);
     sushline.env("SUSHLINE_HISTORY", "");
@@ -3216,7 +3216,7 @@ fn complete_filename_quotes_line_feed_filenames_like_bash_5_3() {
         )
     };
     let run_sushline = |keys: &[u8], inputrc: &str| {
-        let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+        let mut command = sushline_harness_command();
         command.env("SUSHLINE_INPUTRC", inputrc);
         command.env("SUSHLINE_PROMPT", READY_PROMPT);
         command.env("SUSHLINE_HISTORY", "");
@@ -3522,8 +3522,7 @@ fn assert_batched_completion_cases(
         bash_command.env(name, value);
     }
     bash_command.args(["--noprofile", "--norc", "-i", "-c", &bash_script]);
-    let mut sushline_command =
-        portable_pty::CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    let mut sushline_command = sushline_harness_command();
     sushline_command.env("SUSHLINE_INPUTRC", inputrc);
     sushline_command.env("SUSHLINE_PROMPT", READY_PROMPT);
     sushline_command.env("SUSHLINE_HISTORY", "");
@@ -7394,7 +7393,7 @@ set page-completions off"#;
                 "BASH_READLINE_HEX:",
             );
 
-            let mut sushline_command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+            let mut sushline_command = sushline_harness_command();
             sushline_command.env("SUSHLINE_INPUTRC", inputrc);
             sushline_command.env("SUSHLINE_PROMPT", READY_PROMPT);
             sushline_command.env("SUSHLINE_HISTORY", "");
@@ -7487,7 +7486,7 @@ fn run_filename_line_buffer_hex_pair_with_env(
     }
     bash_command.args(["--noprofile", "--norc", "-i", "-c", &bash_script]);
 
-    let mut sushline_command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    let mut sushline_command = sushline_harness_command();
     sushline_command.env("SUSHLINE_INPUTRC", inputrc);
     sushline_command.env("SUSHLINE_PROMPT", READY_PROMPT);
     sushline_command.env("SUSHLINE_HISTORY", "");
@@ -7567,7 +7566,7 @@ fn run_raw_filename_completion_pair(
         r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "SUSHLINE_READY>" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#,
     ]);
 
-    let mut sushline_command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    let mut sushline_command = sushline_harness_command();
     sushline_command.env(
         "INPUTRC",
         sushline_initial_inputrc_path.to_string_lossy().as_ref(),
@@ -8112,7 +8111,7 @@ set page-completions on"#;
                 r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
             ),
         ]);
-        let mut sushline = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+        let mut sushline = sushline_harness_command();
         sushline.env("SUSHLINE_INPUTRC", inputrc);
         sushline.env("SUSHLINE_PROMPT", READY_PROMPT);
         sushline.env("SUSHLINE_HISTORY", "");
@@ -8212,7 +8211,7 @@ set page-completions on"#;
         "SUSHLINE_ACCEPTED:",
     );
 
-    let mut sushline = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    let mut sushline = sushline_harness_command();
     sushline.env("SUSHLINE_INPUTRC", inputrc);
     sushline.env("SUSHLINE_PROMPT", READY_PROMPT);
     sushline.env("SUSHLINE_HISTORY", "");
@@ -11301,7 +11300,7 @@ set page-completions off"#;
                 r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
             ),
         ]);
-        let mut sushline = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+        let mut sushline = sushline_harness_command();
         sushline.env("SUSHLINE_INPUTRC", inputrc);
         sushline.env("SUSHLINE_PROMPT", READY_PROMPT);
         sushline.env("SUSHLINE_HISTORY", "");
@@ -11400,7 +11399,7 @@ set page-completions on"#,
                 r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
             ),
         ]);
-        let mut sushline = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+        let mut sushline = sushline_harness_command();
         sushline.env("SUSHLINE_INPUTRC", inputrc);
         sushline.env("SUSHLINE_PROMPT", READY_PROMPT);
         sushline.env("SUSHLINE_HISTORY", "");
@@ -11492,7 +11491,7 @@ set page-completions on"#
                 r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
             ),
         ]);
-        let mut sushline = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+        let mut sushline = sushline_harness_command();
         sushline.env("SUSHLINE_INPUTRC", inputrc);
         sushline.env("SUSHLINE_PROMPT", READY_PROMPT);
         sushline.env("SUSHLINE_HISTORY", "");
@@ -11604,7 +11603,7 @@ set page-completions off"#
                     r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
                 ),
             ]);
-            let mut sushline = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+            let mut sushline = sushline_harness_command();
             sushline.env("SUSHLINE_INPUTRC", &inputrc);
             sushline.env("SUSHLINE_PROMPT", READY_PROMPT);
             sushline.env("SUSHLINE_HISTORY", "");
@@ -11671,10 +11670,7 @@ set page-completions on"#;
     for (label, rows, cols, expected_highest) in [("taller", 16, 40, 22), ("narrower", 8, 20, 14)] {
         for (editor, command) in [
             ("Bash", CommandBuilder::new("bash")),
-            (
-                "Sushline",
-                CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness")),
-            ),
+            ("Sushline", sushline_harness_command()),
         ] {
             let mut command = command;
             command.env("TERM", "xterm-256color");
@@ -11774,10 +11770,7 @@ set print-completions-horizontally off"#;
     for (label, rows, cols) in [("taller", 14, 40), ("narrow", 8, 20)] {
         for (editor, mut command) in [
             ("Bash", CommandBuilder::new("bash")),
-            (
-                "Sushline",
-                CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness")),
-            ),
+            ("Sushline", sushline_harness_command()),
         ] {
             command.cwd(&cwd);
             if editor == "Bash" {
@@ -11873,10 +11866,7 @@ set completion-display-width 21"#;
         };
         for (editor, mut command) in [
             ("Bash", CommandBuilder::new("bash")),
-            (
-                "Sushline",
-                CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness")),
-            ),
+            ("Sushline", sushline_harness_command()),
         ] {
             command.cwd(&cwd);
             if editor == "Bash" {
@@ -11957,10 +11947,7 @@ set print-completions-horizontally on"#;
         let steps = [(READY_PROMPT, keys.as_bytes())];
         for (editor, mut command) in [
             ("Bash", CommandBuilder::new("bash")),
-            (
-                "Sushline",
-                CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness")),
-            ),
+            ("Sushline", sushline_harness_command()),
         ] {
             command.cwd(&cwd);
             command.env("COLUMNS", "21");
@@ -12038,10 +12025,7 @@ set print-completions-horizontally on"#;
 
     for (editor, mut command) in [
         ("Bash", CommandBuilder::new("bash")),
-        (
-            "Sushline",
-            CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness")),
-        ),
+        ("Sushline", sushline_harness_command()),
     ] {
         command.cwd(&cwd);
         command.env("COLUMNS", "40");

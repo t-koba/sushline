@@ -227,6 +227,19 @@ impl PtySession {
 /// budget.
 const INTERRUPT_HANG_BOUND: Duration = Duration::from_secs(5);
 
+/// Builds the Sushline harness with no inherited startup inputrc.
+///
+/// Paired fixtures supply their configuration explicitly through
+/// `SUSHLINE_INPUTRC`; `Editor::new` otherwise discovers ambient
+/// `INPUTRC`/`HOME/.inputrc` before that overlay is applied. Starting from an
+/// empty file keeps host configuration from changing the oracle result.
+/// Fixtures that test discovery or layering set `INPUTRC` after this helper.
+pub(super) fn sushline_harness_command() -> CommandBuilder {
+    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    command.env("INPUTRC", if cfg!(windows) { "NUL" } else { "/dev/null" });
+    command
+}
+
 pub(super) fn run_bash_readline_eof_with_inputrc(keys: &[u8], inputrc: &str) -> String {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("inputrc");
@@ -364,7 +377,7 @@ pub(super) fn run_sushline_harness_with_term(
     inputrc: &str,
     term: Option<&str>,
 ) -> String {
-    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    let mut command = sushline_harness_command();
     command.env("SUSHLINE_INPUTRC", inputrc);
     command.env("SUSHLINE_PROMPT", READY_PROMPT);
     command.env("SUSHLINE_HISTORY", "");
@@ -792,7 +805,7 @@ pub(super) fn run_sushline_harness_with_inputrc(keys: &[u8], inputrc: &str) -> S
 }
 
 pub(super) fn run_sushline_harness_until(keys: &[u8], inputrc: &str, stop_marker: &str) -> String {
-    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    let mut command = sushline_harness_command();
     // These interrupt fixtures exercise the explicit return-to-caller policy,
     // not the terminal's default re-delivery to SIG_DFL.
     command.env("SUSHLINE_SIGINT_POLICY", "interrupted");
@@ -831,7 +844,7 @@ pub(super) fn run_sushline_harness_after_ctrl_c() -> String {
 /// The keys may carry input that arrives with the interrupt, so the case can
 /// observe whether the editor accepts it in the next read.
 pub(super) fn run_sushline_harness_after_ctrl_c_with_keys(keys: &[u8]) -> String {
-    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    let mut command = sushline_harness_command();
     command.env("SUSHLINE_INPUTRC", "");
     command.env("SUSHLINE_PROMPT", "SUSHLINE_READY");
     command.env("SUSHLINE_NUMBERED_PROMPTS", "1");
@@ -864,7 +877,7 @@ pub(super) fn run_sushline_harness_with_inputrc_and_env_in_dir(
     env: &[(&str, &str)],
     cwd: &std::path::Path,
 ) -> String {
-    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    let mut command = sushline_harness_command();
     command.env("SUSHLINE_INPUTRC", inputrc);
     command.env("SUSHLINE_PROMPT", READY_PROMPT);
     command.env("SUSHLINE_HISTORY", "");
@@ -880,7 +893,7 @@ pub(super) fn run_sushline_harness_with_inputrc_and_env_removing(
     env: &[(&str, &str)],
     removed_env: &[&str],
 ) -> String {
-    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    let mut command = sushline_harness_command();
     command.env("SUSHLINE_INPUTRC", inputrc);
     command.env("SUSHLINE_PROMPT", READY_PROMPT);
     command.env("SUSHLINE_HISTORY", "");
@@ -897,7 +910,7 @@ pub(super) fn run_sushline_harness_with_inputrc_path(
     keys: &[u8],
     path: &std::path::Path,
 ) -> String {
-    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    let mut command = sushline_harness_command();
     command.env("SUSHLINE_INPUTRC_FILE", path.to_string_lossy().as_ref());
     command.env("SUSHLINE_PROMPT", READY_PROMPT);
     run_pty(command, keys)
@@ -925,7 +938,7 @@ pub(super) fn run_sushline_harness_with_reloaded_inputrc_and_history(
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("inputrc");
     fs::write(&path, initial_inputrc).expect("write initial inputrc");
-    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    let mut command = sushline_harness_command();
     command.env("SUSHLINE_INPUTRC_FILE", path.to_string_lossy().as_ref());
     command.env("SUSHLINE_PROMPT", READY_PROMPT);
     command.env("SUSHLINE_HISTORY", history.join("\n"));
@@ -997,7 +1010,7 @@ fn run_sushline_harness_with_size_and_env(
     size: PtySize,
     env: &[(&str, &str)],
 ) -> String {
-    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    let mut command = sushline_harness_command();
     command.env("SUSHLINE_INPUTRC", inputrc);
     command.env("SUSHLINE_PROMPT", READY_PROMPT);
     command.env("SUSHLINE_HISTORY", history.join("\n"));
@@ -1012,7 +1025,7 @@ pub(super) fn run_sushline_harness_two_reads_with_inputrc_and_history(
     inputrc: &str,
     history: &[&str],
 ) -> String {
-    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    let mut command = sushline_harness_command();
     command.env("SUSHLINE_INPUTRC", inputrc);
     command.env("SUSHLINE_PROMPT", READY_PROMPT);
     command.env("SUSHLINE_HISTORY", history.join("\n"));
@@ -1021,7 +1034,7 @@ pub(super) fn run_sushline_harness_two_reads_with_inputrc_and_history(
 }
 
 pub(super) fn run_sushline_harness_three_reads_with_inputrc(keys: &[u8], inputrc: &str) -> String {
-    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    let mut command = sushline_harness_command();
     command.env("SUSHLINE_INPUTRC", inputrc);
     command.env("SUSHLINE_PROMPT", READY_PROMPT);
     command.env("SUSHLINE_HISTORY", "");
@@ -1087,7 +1100,7 @@ pub(super) fn run_bash_readline_with_canonical_paste_eof(suffix: &[u8]) -> Strin
 
 #[cfg(target_os = "linux")]
 pub(super) fn run_sushline_harness_with_canonical_paste_eof(suffix: &[u8]) -> String {
-    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    let mut command = sushline_harness_command();
     command.env("SUSHLINE_INPUTRC", "set enable-bracketed-paste on\n");
     command.env("SUSHLINE_PROMPT", READY_PROMPT);
     command.env("SUSHLINE_HISTORY", "");
@@ -2425,7 +2438,7 @@ pub(super) fn run_sushline_harness_steps_with_inputrc(
     steps: &[(&str, &[u8])],
     inputrc: &str,
 ) -> String {
-    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+    let mut command = sushline_harness_command();
     command.env("SUSHLINE_INPUTRC", inputrc);
     command.env("SUSHLINE_PROMPT", READY_PROMPT);
     command.env("SUSHLINE_HISTORY", "");

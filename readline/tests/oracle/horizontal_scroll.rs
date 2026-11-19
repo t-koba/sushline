@@ -137,7 +137,7 @@ fn horizontal_scroll_command(
         ]);
         command
     } else {
-        let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+        let mut command = sushline_harness_command();
         command.env("SUSHLINE_INPUTRC", inputrc);
         command.env("SUSHLINE_PROMPT", prompt);
         command.env("SUSHLINE_HISTORY", "");
@@ -913,7 +913,7 @@ fn sushline_unicode_width_probe_baseline_fixtures() {
         let mut movement = vec![1]; // Ctrl-A
         movement.extend(std::iter::repeat_n(6, scalar_count));
         let steps = vec![bytes.to_vec(), movement];
-        let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+        let mut command = sushline_harness_command();
         command.env(
             "SUSHLINE_INPUTRC",
             "set horizontal-scroll-mode off\nset enable-bracketed-paste off\nset bell-style audible\n",
@@ -936,7 +936,7 @@ fn sushline_unicode_width_probe_baseline_fixtures() {
         keys.push(1); // Ctrl-A
         keys.extend(std::iter::repeat_n(6, scalar_count)); // Ctrl-F once per scalar
         keys.push(b'\r');
-        let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
+        let mut command = sushline_harness_command();
         command.env(
             "SUSHLINE_INPUTRC",
             "set horizontal-scroll-mode off\nset enable-bracketed-paste off\nset bell-style audible\n",

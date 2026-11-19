@@ -250,6 +250,45 @@ fn batched_noop_universal_digits_match_fragmented_reads() {
 }
 
 #[test]
+fn batched_unbound_ctrl_x_matches_fragmented_reads() {
+    // An unbound C-x key rings once and consumes both prefix and leaf,
+    // whether delivered in one chunk or separately; later input is kept.
+    for (label, terminal) in [
+        (
+            "fragmented",
+            MemoryTerminal::with_events(vec![
+                TerminalEvent::Bytes(b"abc".to_vec()),
+                TerminalEvent::Bytes(vec![0x18]),
+                TerminalEvent::Bytes(b"q".to_vec()),
+                TerminalEvent::Bytes(b"X".to_vec()),
+                TerminalEvent::Bytes(b"\r".to_vec()),
+            ]),
+        ),
+        (
+            "batched",
+            MemoryTerminal::with_events(vec![
+                TerminalEvent::Bytes(b"abc\x18qX".to_vec()),
+                TerminalEvent::Bytes(b"\r".to_vec()),
+            ]),
+        ),
+    ] {
+        let mut line = Editor::new(Config::default(), terminal, History::new());
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        assert_eq!(
+            result,
+            ReadlineResult::Line(b"abcX".to_vec()),
+            "{label}: unbound C-x must accept abcX"
+        );
+        assert_eq!(
+            line.terminal.out.matches("\x07").count(),
+            1,
+            "{label}: unbound C-x must ring exactly once: {:?}",
+            line.terminal.out
+        );
+    }
+}
+
+#[test]
 fn batched_invalid_multibyte_chunk_preserves_both_bytes() {
     // Pin-independent lock: a single `Bytes([0xFF, 0x41])` chunk through the
     // live dispatch preserves both bytes. Each byte is bound to `self-insert`

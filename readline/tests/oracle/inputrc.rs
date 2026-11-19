@@ -891,7 +891,7 @@ fn bash_readline_and_sushline_continue_after_unknown_endif_cr() {
 }
 
 #[test]
-fn bash_readline_and_sushline_report_unmatched_bare_endif_and_continue() {
+fn bash_readline_and_sushline_report_unmatched_bare_directives_and_continue() {
     assert_eq!(
         super::host_readline::host_readline_identity()
             .expect("Readline identity")
@@ -900,18 +900,78 @@ fn bash_readline_and_sushline_report_unmatched_bare_endif_and_continue() {
     );
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("inputrc");
-    fs::write(&path, "$endif\n\"\\C-o\": \"X\"\n").expect("write inputrc");
     let keys = b"abc\x0f\r";
-    let bash = run_bash_readline_with_inputrc_path(keys, &path);
-    let sushline = run_sushline_harness_with_inputrc_path(keys, &path);
-    let diagnostic = format!(
-        "readline: {}: line 1: $endif without matching $if",
-        path.display()
+    for (case, inputrc, message) in [
+        (
+            "endif",
+            "$endif\n\"\\C-o\": \"X\"\n",
+            "$endif without matching $if",
+        ),
+        (
+            "else",
+            "$else\n\"\\C-o\": \"X\"\n",
+            "$else found without matching $if",
+        ),
+    ] {
+        fs::write(&path, inputrc).expect("write inputrc");
+        let bash = run_bash_readline_with_inputrc_path(keys, &path);
+        let sushline = run_sushline_harness_with_inputrc_path(keys, &path);
+        let diagnostic = format!("readline: {}: line 1: {message}", path.display());
+        for output in [&bash, &sushline] {
+            assert!(output.contains(READY_PROMPT), "{case}: {output}");
+            assert!(output.contains(&diagnostic), "{case}: {output}");
+            assert_eq!(output.matches("readline:").count(), 1, "{case}: {output}");
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some("abcX"),
+                "{case}: {output}"
+            );
+        }
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_share_inputrc_conditionals_across_includes() {
+    assert_eq!(
+        super::host_readline::host_readline_identity()
+            .expect("Readline identity")
+            .release,
+        super::host_readline::MEASURED_RELEASE
     );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let child = dir.path().join("child.inputrc");
+    let parent = dir.path().join("inputrc");
+    let keys = b"abc\x0f\r";
+
+    // The child's unclosed `$if` stays on the shared stack; the parent's
+    // `$endif` closes it rather than reporting an unmatched directive.
+    fs::write(&child, "$if mode=emacs\n\"\\C-o\": \"C\"\n").expect("write child");
+    fs::write(&parent, format!("$include {}\n$endif\n", child.display())).expect("write parent");
+    let bash = run_bash_readline_with_inputrc_path(keys, &parent);
+    let sushline = run_sushline_harness_with_inputrc_path(keys, &parent);
     for output in [&bash, &sushline] {
         assert!(output.contains(READY_PROMPT), "{output}");
-        assert!(output.contains(&diagnostic), "{output}");
-        assert_eq!(accepted_line(output).as_deref(), Some("abcX"), "{output}");
+        assert!(!output.contains("readline:"), "{output}");
+        assert_eq!(accepted_line(output).as_deref(), Some("abcC"), "{output}");
+    }
+
+    // The child's orphan `$else` flips the parent's open frame, so the
+    // child's binding is skipped and the parent's earlier binding remains.
+    fs::write(&child, "$else\n\"\\C-o\": \"C\"\n").expect("write child");
+    fs::write(
+        &parent,
+        format!(
+            "$if mode=emacs\n\"\\C-o\": \"A\"\n$include {}\n$endif\n",
+            child.display()
+        ),
+    )
+    .expect("write parent");
+    let bash = run_bash_readline_with_inputrc_path(keys, &parent);
+    let sushline = run_sushline_harness_with_inputrc_path(keys, &parent);
+    for output in [&bash, &sushline] {
+        assert!(output.contains(READY_PROMPT), "{output}");
+        assert!(!output.contains("readline:"), "{output}");
+        assert_eq!(accepted_line(output).as_deref(), Some("abcA"), "{output}");
     }
 }
 

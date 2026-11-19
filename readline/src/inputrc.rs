@@ -41,6 +41,10 @@ struct ParseContext<'a> {
     keymap: &'a mut KeyMap,
     variables: &'a mut Variables,
     binding_map: &'a mut KeyMapName,
+    // GNU Readline keeps conditional state for the whole inputrc load, so an
+    // include pushes its conditionals onto the same stack as its parent.
+    active_stack: Vec<bool>,
+    condition_stack: Vec<bool>,
 }
 
 impl InputrcError {
@@ -86,6 +90,8 @@ impl InputrcParser {
             keymap,
             variables,
             binding_map: &mut binding_map,
+            active_stack: vec![true],
+            condition_stack: Vec::new(),
         };
         let mut diagnostics = Vec::new();
         self.parse_bytes_inner(source.as_bytes(), &mut ctx, 0, None, &mut diagnostics)?;
@@ -117,6 +123,8 @@ impl InputrcParser {
             keymap,
             variables,
             binding_map: &mut binding_map,
+            active_stack: vec![true],
+            condition_stack: Vec::new(),
         };
         let mut diagnostics = Vec::new();
         self.parse_bytes_inner(source, &mut ctx, 0, None, &mut diagnostics)?;
@@ -139,6 +147,8 @@ impl InputrcParser {
             keymap,
             variables,
             binding_map: &mut binding_map,
+            active_stack: vec![true],
+            condition_stack: Vec::new(),
         };
         let mut diagnostics = Vec::new();
         self.parse_bytes_inner(&bytes, &mut ctx, 0, Some(path), &mut diagnostics)?;
@@ -157,8 +167,6 @@ impl InputrcParser {
             return Err(InputrcError::new(0, "inputrc include depth exceeded"));
         }
 
-        let mut active_stack = vec![true];
-        let mut condition_stack = Vec::new();
         let mut line_count = 0;
         // An unknown `$endif\r` leaves the conditional stack open, but GNU
         // does not emit an `unterminated $if` error at EOF. Remember it for
@@ -182,7 +190,7 @@ impl InputrcParser {
                     // must respect the active conditional itself. A raw byte
                     // inside a double-quoted key binds as that byte (measured
                     // for `0xFF`); value normalization below is separate.
-                    if *active_stack.last().unwrap_or(&true)
+                    if *ctx.active_stack.last().unwrap_or(&true)
                         && try_bind_raw_quoted_key(trimmed_bytes, ctx)
                     {
                         continue;
@@ -241,26 +249,30 @@ impl InputrcParser {
                                 std::env::var("TERM").ok().as_deref(),
                             )
                         };
-                        let parent = *active_stack.last().unwrap_or(&true);
-                        condition_stack.push(matched);
-                        active_stack.push(parent && matched);
+                        let parent = *ctx.active_stack.last().unwrap_or(&true);
+                        ctx.condition_stack.push(matched);
+                        ctx.active_stack.push(parent && matched);
                     }
                     Some(name) if name.eq_ignore_ascii_case("else") => {
-                        let parent = active_stack
-                            .get(active_stack.len().saturating_sub(2))
-                            .copied()
-                            .unwrap_or(true);
-                        let prev = condition_stack
-                            .last_mut()
-                            .ok_or_else(|| InputrcError::new(line_no, "$else without $if"))?;
+                        let Some(prev) = ctx.condition_stack.last_mut() else {
+                            diagnostics.push(InputrcDiagnostic {
+                                path: path.map(Path::to_path_buf),
+                                line: line_no,
+                                variable: String::new(),
+                                message: "$else found without matching $if".to_string(),
+                                directive_message: true,
+                            });
+                            continue;
+                        };
+                        let parent = ctx.active_stack[ctx.active_stack.len() - 2];
                         *prev = !*prev;
-                        if let Some(active) = active_stack.last_mut() {
+                        if let Some(active) = ctx.active_stack.last_mut() {
                             *active = parent && *prev;
                         }
                     }
                     Some(name) if name.eq_ignore_ascii_case("endif") => {
-                        if condition_stack.pop().is_some() {
-                            active_stack.pop();
+                        if ctx.condition_stack.pop().is_some() {
+                            ctx.active_stack.pop();
                         } else {
                             diagnostics.push(InputrcDiagnostic {
                                 path: path.map(Path::to_path_buf),
@@ -272,7 +284,7 @@ impl InputrcParser {
                         }
                     }
                     Some(name) if name.eq_ignore_ascii_case("include") => {
-                        if *active_stack.last().unwrap_or(&true) {
+                        if *ctx.active_stack.last().unwrap_or(&true) {
                             let path = rest.trim_start()["include".len()..].trim_start();
                             let Some(path) = expand_include_path(path) else {
                                 continue;
@@ -306,7 +318,7 @@ impl InputrcParser {
                 continue;
             }
 
-            if !*active_stack.last().unwrap_or(&true) {
+            if !*ctx.active_stack.last().unwrap_or(&true) {
                 continue;
             }
 
@@ -347,7 +359,9 @@ impl InputrcParser {
             }
         }
 
-        if active_stack.len() != 1 && !unknown_endif_seen {
+        // An include leaves its open conditional frames to its parent, as
+        // GNU does; only the top-level file's EOF is checked.
+        if include_depth == 0 && ctx.active_stack.len() != 1 && !unknown_endif_seen {
             return Err(InputrcError::new(line_count, "unterminated $if"));
         }
 

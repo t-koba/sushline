@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn editor_new_retains_initial_inputrc_error_and_try_new_reports_it() {
+fn editor_reports_orphan_else_without_failing_the_inputrc_load() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("inputrc");
     std::fs::write(&path, "$else\n").unwrap();
@@ -11,18 +11,21 @@ fn editor_new_retains_initial_inputrc_error_and_try_new_reports_it() {
     };
 
     let line = Editor::new(config.clone(), MemoryTerminal::default(), History::new());
-    assert!(
-        line.initial_inputrc_error()
-            .is_some_and(|err| err.contains("$else without $if")),
-        "{:?}",
-        line.initial_inputrc_error()
+    assert_eq!(line.initial_inputrc_error(), None);
+    assert_eq!(
+        line.inputrc_diagnostics()
+            .iter()
+            .map(|d| d.message.as_str())
+            .collect::<Vec<_>>(),
+        vec!["$else found without matching $if"]
     );
 
-    let err = match Editor::try_new(config, MemoryTerminal::default(), History::new()) {
-        Ok(_) => panic!("try_new unexpectedly accepted invalid inputrc"),
-        Err(err) => err,
-    };
-    assert!(err.to_string().contains("$else without $if"), "{err:?}");
+    let line = Editor::try_new(config, MemoryTerminal::default(), History::new())
+        .expect("an orphan $else is non-fatal");
+    assert_eq!(
+        line.inputrc_diagnostics()[0].message,
+        "$else found without matching $if"
+    );
 }
 
 #[test]

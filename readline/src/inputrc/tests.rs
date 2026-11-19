@@ -2268,3 +2268,120 @@ fn bare_endif_after_unknown_endif_cr_reports_both_and_keeps_parsing() {
         Some(&KeyBinding::Macro(b"Z".to_vec()))
     );
 }
+
+#[test]
+fn bare_else_reports_a_diagnostic_and_keeps_parsing() {
+    let inputrc = "\"\\C-o\": \"A\"\n$else\n\"\\C-o\": \"C\"\n";
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    let reported = InputrcParser::new()
+        .parse_str(inputrc, &Config::default(), &mut keymap, &mut variables)
+        .unwrap();
+    let actual: Vec<_> = reported
+        .iter()
+        .map(|d| {
+            (
+                d.line,
+                d.variable.as_str(),
+                d.message.as_str(),
+                d.directive_message,
+            )
+        })
+        .collect();
+    assert_eq!(
+        actual,
+        vec![(2, "", "$else found without matching $if", true)]
+    );
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
+        Some(&KeyBinding::Macro(b"C".to_vec()))
+    );
+}
+
+#[test]
+fn bare_else_in_include_reports_the_child_path_and_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let child = dir.path().join("child.inputrc");
+    let parent = dir.path().join("inputrc");
+    fs::write(&child, "$else\n\"\\C-o\": \"C\"\n").unwrap();
+    fs::write(
+        &parent,
+        format!("$include {}\n\"\\C-o\": \"X\"\n", child.display()),
+    )
+    .unwrap();
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    let reported = InputrcParser::new()
+        .parse_file(&parent, &Config::default(), &mut keymap, &mut variables)
+        .unwrap();
+    assert_eq!(reported.len(), 1, "{reported:?}");
+    assert_eq!(reported[0].path.as_deref(), Some(child.as_path()));
+    assert_eq!(reported[0].line, 1);
+    assert_eq!(reported[0].message, "$else found without matching $if");
+    assert!(reported[0].directive_message);
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
+        Some(&KeyBinding::Macro(b"X".to_vec()))
+    );
+}
+
+#[test]
+fn include_shares_conditional_frames_with_its_parent() {
+    let dir = tempfile::tempdir().unwrap();
+    let child = dir.path().join("child.inputrc");
+    let parent = dir.path().join("inputrc");
+    fs::write(&child, "$if mode=emacs\n\"\\C-o\": \"C\"\n").unwrap();
+    fs::write(&parent, format!("$include {}\n$endif\n", child.display())).unwrap();
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    let reported = InputrcParser::new()
+        .parse_file(&parent, &Config::default(), &mut keymap, &mut variables)
+        .unwrap();
+    assert!(reported.is_empty(), "{reported:?}");
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
+        Some(&KeyBinding::Macro(b"C".to_vec()))
+    );
+}
+
+#[test]
+fn orphan_else_in_include_toggles_the_parents_open_frame() {
+    let dir = tempfile::tempdir().unwrap();
+    let child = dir.path().join("child.inputrc");
+    let parent = dir.path().join("inputrc");
+    fs::write(&child, "$else\n\"\\C-o\": \"C\"\n").unwrap();
+    fs::write(
+        &parent,
+        format!(
+            "$if mode=emacs\n\"\\C-o\": \"A\"\n$include {}\n$endif\n",
+            child.display()
+        ),
+    )
+    .unwrap();
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    let reported = InputrcParser::new()
+        .parse_file(&parent, &Config::default(), &mut keymap, &mut variables)
+        .unwrap();
+    assert!(reported.is_empty(), "{reported:?}");
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
+        Some(&KeyBinding::Macro(b"A".to_vec()))
+    );
+}
+
+#[test]
+fn top_level_unclosed_if_still_fails_at_eof() {
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    let err = InputrcParser::new()
+        .parse_str(
+            "$if mode=emacs\n\"\\C-o\": \"C\"\n",
+            &Config::default(),
+            &mut keymap,
+            &mut variables,
+        )
+        .unwrap_err();
+    assert_eq!(err.line, 2);
+    assert_eq!(err.message, "unterminated $if");
+}

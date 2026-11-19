@@ -2490,48 +2490,94 @@ fn bash_readline_and_sushline_share_inputrc_keymap_state_across_includes() {
 }
 
 #[test]
-fn bash_readline_and_sushline_match_quoted_boolean_line_endings() {
+fn bash_bind_v_and_sushline_store_quoted_boolean_line_endings() {
+    use readline::{BindQuery, Config, Editor, History, Terminal};
+
+    // The stored value is read directly: a final bare CR cannot be followed
+    // by a conditional in the same file, so an appended macro would not prove
+    // anything about the value set on that line.
     assert_eq!(
         super::host_readline::host_readline_identity()
             .expect("Readline identity")
             .release,
         super::host_readline::MEASURED_RELEASE
     );
-    let keys = b"abc\x0f\r";
-    for (label, inputrc, expected) in [
-        (
-            "LF quoted on",
-            "set horizontal-scroll-mode \"on\"\n$if horizontal-scroll-mode == on\n\"\\C-o\": \"M\"\n$endif\n",
-            "abc",
-        ),
-        (
-            "CRLF quoted on",
-            "set horizontal-scroll-mode \"on\"\r\n$if horizontal-scroll-mode == on\n\"\\C-o\": \"M\"\n$endif\n",
-            "abc",
-        ),
-        (
-            "final bare CR quoted on",
-            "set horizontal-scroll-mode \"on\"\r$if horizontal-scroll-mode == on\n\"\\C-o\": \"M\"\n$endif\n",
-            "abcM",
-        ),
-        (
-            "LF unquoted on",
-            "set horizontal-scroll-mode on\n$if horizontal-scroll-mode == on\n\"\\C-o\": \"M\"\n$endif\n",
-            "abcM",
-        ),
+    for (label, ending, expected) in [
+        ("LF quoted on", "\"on\"\n", "off"),
+        ("CRLF quoted on", "\"on\"\r\n", "off"),
+        ("final bare CR quoted on", "\"on\"\r", "off"),
+        ("LF unquoted on", "on\n", "on"),
     ] {
-        let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
-        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
-        for output in [&bash, &sushline] {
-            assert_eq!(
-                accepted_line(output).as_deref(),
-                Some(expected),
-                "{label}: {output}"
+        let root = tempfile::tempdir().expect("line-ending root");
+        let home = root.path().join("home");
+        fs::create_dir(&home).expect("create fixture HOME");
+        let inputrc = root.path().join("inputrc");
+        fs::write(
+            &inputrc,
+            format!("set comment-begin line-ending-loaded\nset horizontal-scroll-mode {ending}"),
+        )
+        .expect("write line-ending inputrc");
+        let histfile = root.path().join("history").to_string_lossy().into_owned();
+        let mut command = CommandBuilder::new("bash");
+        command.args(["--noprofile", "--norc", "-i"]);
+        command.env("PS1", "READY>");
+        command.env("PROMPT_COMMAND", "");
+        command.env("HOME", home.to_string_lossy().as_ref());
+        command.env("HISTFILE", histfile.as_str());
+        command.env("INPUTRC", inputrc.to_string_lossy().as_ref());
+        command.env("LC_ALL", "C.UTF-8");
+        let script = "bind -v; printf 'QUOTED_BOOLEAN_DONE:%s\\n' ok\r";
+        let bash = run_pty_steps_with_size_until(
+            command,
+            &[("READY>", script.as_bytes())],
+            PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+            "QUOTED_BOOLEAN_DONE:ok",
+        );
+        assert!(bash.contains("QUOTED_BOOLEAN_DONE:ok"), "{label}: {bash:?}");
+        for record in [
+            "set comment-begin line-ending-loaded",
+            &format!("set horizontal-scroll-mode {expected}"),
+        ] {
+            assert!(
+                bash.lines().any(|line| line == record),
+                "{label}: missing `{record}` in {bash:?}"
             );
         }
+        assert!(
+            reported_inputrc_diagnostics(&bash, &inputrc).is_empty(),
+            "{label}: {bash:?}"
+        );
+
+        // Sushline reads the same file through the public API, so the state
+        // assertion does not depend on a conditional appended after the CR.
+        let mut line = Editor::new(Config::default(), Terminal::default(), History::new());
+        line.load_inputrc_file(&inputrc)
+            .expect("sushline inputrc applies");
+        let printed = line.bind_api().print(BindQuery::PrintVariablesReusable);
+        for record in [
+            "set comment-begin line-ending-loaded",
+            &format!("set horizontal-scroll-mode {expected}"),
+        ] {
+            assert!(
+                printed.lines().any(|item| item == record),
+                "sushline {label}: missing `{record}` in {printed:?}"
+            );
+        }
+
+        let sushline = run_sushline_harness_with_inputrc_path(b"abc\r", &inputrc);
+        assert_eq!(accepted_line(&sushline).as_deref(), Some("abc"));
+        assert_eq!(
+            sushline.matches("readline:").count(),
+            0,
+            "{label}: {sushline}"
+        );
     }
 }
-
 #[test]
 fn bash_and_sushline_unquote_double_quoted_numeric_inputrc_values() {
     assert_eq!(

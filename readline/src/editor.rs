@@ -74,10 +74,12 @@ fn format_inputrc_diagnostic(diagnostic: &InputrcDiagnostic) -> String {
         text.push_str(&path.display().to_string());
         text.push_str(": ");
     }
-    text.push_str(&format!(
-        "line {}: {}: {}",
-        diagnostic.line, diagnostic.variable, diagnostic.message
-    ));
+    let detail = if diagnostic.directive_message {
+        diagnostic.message.clone()
+    } else {
+        format!("{}: {}", diagnostic.variable, diagnostic.message)
+    };
+    text.push_str(&format!("line {}: {detail}", diagnostic.line));
     text
 }
 

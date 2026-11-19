@@ -2207,15 +2207,64 @@ fn unknown_endif_cr_reports_a_diagnostic_and_keeps_parsing() {
 }
 
 #[test]
-fn unknown_endif_cr_keeps_unmatched_endif_fatal() {
+fn bare_endif_reports_a_diagnostic_and_keeps_parsing() {
+    let inputrc = "$endif\n\"\\C-o\": \"X\"\n";
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    let reported = InputrcParser::new()
+        .parse_str(inputrc, &Config::default(), &mut keymap, &mut variables)
+        .unwrap();
+    let actual: Vec<_> = reported
+        .iter()
+        .map(|d| {
+            (
+                d.line,
+                d.variable.as_str(),
+                d.message.as_str(),
+                d.directive_message,
+            )
+        })
+        .collect();
+    assert_eq!(actual, vec![(1, "", "$endif without matching $if", true)]);
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
+        Some(&KeyBinding::Macro(b"X".to_vec())),
+        "{inputrc:?}"
+    );
+}
+
+#[test]
+fn bare_endif_after_unknown_endif_cr_reports_both_and_keeps_parsing() {
     let inputrc = "$endif\r\n\"\\C-o\": backward-char\n$endif\n\"\\C-t\": \"Z\"\n";
     let mut keymap = KeyMap::emacs_default();
     let mut variables = Variables::new();
-    let err = InputrcParser::new()
+    let reported = InputrcParser::new()
         .parse_str(inputrc, &Config::default(), &mut keymap, &mut variables)
-        .unwrap_err();
-    assert!(
-        format!("{err:?}").contains("$endif without $if"),
-        "{inputrc:?}: {err:?}"
+        .unwrap();
+    let actual: Vec<_> = reported
+        .iter()
+        .map(|d| {
+            (
+                d.line,
+                d.variable.as_str(),
+                d.message.as_str(),
+                d.directive_message,
+            )
+        })
+        .collect();
+    assert_eq!(
+        actual,
+        vec![
+            (1, "endif\r", "unknown parser directive", false),
+            (3, "", "$endif without matching $if", true),
+        ]
+    );
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
+        Some(&KeyBinding::Command(EditCommand::BackwardChar))
+    );
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, &[0x14]),
+        Some(&KeyBinding::Macro(b"Z".to_vec()))
     );
 }

@@ -31,6 +31,9 @@ pub struct InputrcDiagnostic {
     pub variable: String,
     /// Message text, like GNU Readline's diagnostic.
     pub message: String,
+    /// True when `message` is the whole text after `line <n>:`, without a
+    /// `variable:` prefix, as for GNU's unmatched conditional diagnostics.
+    pub directive_message: bool,
 }
 
 struct ParseContext<'a> {
@@ -224,6 +227,7 @@ impl InputrcParser {
                                 line: line_no,
                                 variable: "if".to_string(),
                                 message: "trailing garbage on line".to_string(),
+                                directive_message: false,
                             });
                             false
                         } else {
@@ -255,10 +259,17 @@ impl InputrcParser {
                         }
                     }
                     Some(name) if name.eq_ignore_ascii_case("endif") => {
-                        condition_stack
-                            .pop()
-                            .ok_or_else(|| InputrcError::new(line_no, "$endif without $if"))?;
-                        active_stack.pop();
+                        if condition_stack.pop().is_some() {
+                            active_stack.pop();
+                        } else {
+                            diagnostics.push(InputrcDiagnostic {
+                                path: path.map(Path::to_path_buf),
+                                line: line_no,
+                                variable: String::new(),
+                                message: "$endif without matching $if".to_string(),
+                                directive_message: true,
+                            });
+                        }
                     }
                     Some(name) if name.eq_ignore_ascii_case("include") => {
                         if *active_stack.last().unwrap_or(&true) {
@@ -284,6 +295,7 @@ impl InputrcParser {
                             line: line_no,
                             variable: name.to_string(),
                             message: "unknown parser directive".to_string(),
+                            directive_message: false,
                         });
                         if name.eq_ignore_ascii_case("endif\r") {
                             unknown_endif_seen = true;
@@ -314,6 +326,7 @@ impl InputrcParser {
                         line: line_no,
                         variable: name.to_string(),
                         message,
+                        directive_message: false,
                     });
                 }
                 if name.eq_ignore_ascii_case("keymap")

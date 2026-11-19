@@ -891,6 +891,31 @@ fn bash_readline_and_sushline_continue_after_unknown_endif_cr() {
 }
 
 #[test]
+fn bash_readline_and_sushline_report_unmatched_bare_endif_and_continue() {
+    assert_eq!(
+        super::host_readline::host_readline_identity()
+            .expect("Readline identity")
+            .release,
+        super::host_readline::MEASURED_RELEASE
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    fs::write(&path, "$endif\n\"\\C-o\": \"X\"\n").expect("write inputrc");
+    let keys = b"abc\x0f\r";
+    let bash = run_bash_readline_with_inputrc_path(keys, &path);
+    let sushline = run_sushline_harness_with_inputrc_path(keys, &path);
+    let diagnostic = format!(
+        "readline: {}: line 1: $endif without matching $if",
+        path.display()
+    );
+    for output in [&bash, &sushline] {
+        assert!(output.contains(READY_PROMPT), "{output}");
+        assert!(output.contains(&diagnostic), "{output}");
+        assert_eq!(accepted_line(output).as_deref(), Some("abcX"), "{output}");
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_match_crlf_set_value_and_lf_control() {
     let identity = super::host_readline::host_readline_identity().expect("Readline identity");
     assert_eq!(identity.release, super::host_readline::MEASURED_RELEASE);

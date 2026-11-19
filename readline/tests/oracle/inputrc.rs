@@ -2618,6 +2618,37 @@ fn bash_and_sushline_unquote_double_quoted_numeric_inputrc_values() {
 }
 
 #[test]
+fn bash_and_sushline_compare_numeric_variable_rhs_spellings() {
+    assert_eq!(
+        super::host_readline::host_readline_identity()
+            .expect("Readline identity")
+            .release,
+        super::host_readline::MEASURED_RELEASE
+    );
+    let keys = b"abc\x0f\r";
+    for (rhs, expected) in [
+        ("123", "abcM"),
+        ("\"123\"", "abc"),
+        ("\" 123\"", "abc"),
+        ("\"123\" trailing", "abc"),
+        ("0123", "abc"),
+        ("123junk", "abc"),
+    ] {
+        let inputrc = format!(
+            "set keyseq-timeout 123\n$if keyseq-timeout == {rhs}\n\"\\C-o\": \"M\"\n$endif\n"
+        );
+        let bash = run_bash_readline_with_inputrc_file(keys, &inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, &inputrc);
+        for output in [&bash, &sushline] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "RHS {rhs}: {output}"
+            );
+        }
+    }
+}
+#[test]
 fn bash_and_sushline_scope_quoted_nonnumeric_inputrc_values() {
     assert_eq!(
         super::host_readline::host_readline_identity()

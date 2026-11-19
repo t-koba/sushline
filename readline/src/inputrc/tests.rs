@@ -2205,3 +2205,17 @@ fn unknown_endif_cr_reports_a_diagnostic_and_keeps_parsing() {
         );
     }
 }
+
+#[test]
+fn unknown_endif_cr_keeps_unmatched_endif_fatal() {
+    let inputrc = "$endif\r\n\"\\C-o\": backward-char\n$endif\n\"\\C-t\": \"Z\"\n";
+    let mut keymap = KeyMap::emacs_default();
+    let mut variables = Variables::new();
+    let err = InputrcParser::new()
+        .parse_str(inputrc, &Config::default(), &mut keymap, &mut variables)
+        .unwrap_err();
+    assert!(
+        format!("{err:?}").contains("$endif without $if"),
+        "{inputrc:?}: {err:?}"
+    );
+}

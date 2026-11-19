@@ -2351,13 +2351,15 @@ fn bash_readline_and_sushline_meta_alias_conditions_observe_the_last_write() {
 fn bash_bind_v_and_sushline_store_measured_numeric_matrix() {
     use readline::{BindQuery, Config, Editor, History, Terminal};
 
-    // Eighteen measured spellings for each of five settings. Expected columns
+    // Twenty measured spellings for each of five settings. Expected columns
     // are display width, history size, and the three nonnegative settings.
     // Each inputrc file seeds 100 then applies the value before Bash's first
     // prompt. Only bind -v observes the result; no bind command sets values.
     // This finite matrix makes no general parsing/range claim.
-    const CASES: [(&str, [&str; 3]); 18] = [
+    const CASES: [(&str, [&str; 3]); 20] = [
         ("100", ["100", "100", "100"]),
+        ("\" 123\"", ["123", "123", "123"]),
+        ("\"123\" trailing", ["123", "123", "123"]),
         ("0100", ["100", "100", "100"]),
         ("+100", ["100", "100", "100"]),
         ("-1", ["-1", "-1", "0"]),

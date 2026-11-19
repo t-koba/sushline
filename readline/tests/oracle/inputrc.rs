@@ -976,6 +976,60 @@ fn bash_readline_and_sushline_share_inputrc_conditionals_across_includes() {
 }
 
 #[test]
+fn bash_readline_and_sushline_recover_from_open_inputrc_conditional_at_eof() {
+    assert_eq!(
+        super::host_readline::host_readline_identity()
+            .expect("Readline identity")
+            .release,
+        super::host_readline::MEASURED_RELEASE
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    for (inputrc, keys, expected) in [
+        (
+            "$if mode=emacs\n\"\\C-o\": \"X\"\n$endif\n",
+            &b"abc\x0f\r"[..],
+            "abcX",
+        ),
+        (
+            "$if mode=emacs\n\"\\C-o\": backward-char\r\n$endif\n",
+            &b"abc\x0fX\r"[..],
+            "abcX",
+        ),
+        (
+            "$if mode=emacs\n\"\\C-o\": \"X\"\n",
+            &b"abc\x0f\r"[..],
+            "abcX",
+        ),
+    ] {
+        fs::write(&path, inputrc).expect("write inputrc");
+        let bash = run_bash_readline_with_inputrc_path(keys, &path);
+        let sushline = run_sushline_harness_with_inputrc_path(keys, &path);
+        for output in [&bash, &sushline] {
+            assert!(output.contains(READY_PROMPT), "{inputrc:?}: {output}");
+            assert!(!output.contains("readline:"), "{inputrc:?}: {output}");
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{inputrc:?}: {output}"
+            );
+        }
+    }
+
+    let child = dir.path().join("child.inputrc");
+    fs::write(&child, "$if mode=emacs\n\"\\C-o\": \"C\"\n").expect("write child");
+    fs::write(&path, format!("$include {}\n", child.display())).expect("write parent");
+    let keys = b"abc\x0f\r";
+    let bash = run_bash_readline_with_inputrc_path(keys, &path);
+    let sushline = run_sushline_harness_with_inputrc_path(keys, &path);
+    for output in [&bash, &sushline] {
+        assert!(output.contains(READY_PROMPT), "{output}");
+        assert!(!output.contains("readline:"), "{output}");
+        assert_eq!(accepted_line(output).as_deref(), Some("abcC"), "{output}");
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_match_crlf_set_value_and_lf_control() {
     let identity = super::host_readline::host_readline_identity().expect("Readline identity");
     assert_eq!(identity.release, super::host_readline::MEASURED_RELEASE);

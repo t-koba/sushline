@@ -167,15 +167,8 @@ impl InputrcParser {
             return Err(InputrcError::new(0, "inputrc include depth exceeded"));
         }
 
-        let mut line_count = 0;
-        // An unknown `$endif\r` leaves the conditional stack open, but GNU
-        // does not emit an `unterminated $if` error at EOF. Remember it for
-        // that EOF check only; parsing of the following lines continues.
-        let mut unknown_endif_seen = false;
-
         for (idx, raw_bytes) in split_inputrc_lines(source).enumerate() {
             let line_no = idx + 1;
-            line_count = line_no;
             // Byte-level fast path: blank lines and `#` comments survive
             // even when the rest of the line is not valid UTF-8.
             let trimmed_bytes = trim_ascii(raw_bytes);
@@ -309,9 +302,6 @@ impl InputrcParser {
                             message: "unknown parser directive".to_string(),
                             directive_message: false,
                         });
-                        if name.eq_ignore_ascii_case("endif\r") {
-                            unknown_endif_seen = true;
-                        }
                     }
                     None => {}
                 }
@@ -357,12 +347,6 @@ impl InputrcParser {
             {
                 return Err(InputrcError::new(line_no, message));
             }
-        }
-
-        // An include leaves its open conditional frames to its parent, as
-        // GNU does; only the top-level file's EOF is checked.
-        if include_depth == 0 && ctx.active_stack.len() != 1 && !unknown_endif_seen {
-            return Err(InputrcError::new(line_count, "unterminated $if"));
         }
 
         Ok(())

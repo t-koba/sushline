@@ -2371,17 +2371,19 @@ fn orphan_else_in_include_toggles_the_parents_open_frame() {
 }
 
 #[test]
-fn top_level_unclosed_if_still_fails_at_eof() {
+fn top_level_unclosed_if_is_recovered_at_eof() {
     let mut keymap = KeyMap::emacs_default();
     let mut variables = Variables::new();
-    let err = InputrcParser::new()
+    InputrcParser::new()
         .parse_str(
             "$if mode=emacs\n\"\\C-o\": \"C\"\n",
             &Config::default(),
             &mut keymap,
             &mut variables,
         )
-        .unwrap_err();
-    assert_eq!(err.line, 2);
-    assert_eq!(err.message, "unterminated $if");
+        .expect("open conditional at EOF is recoverable");
+    assert_eq!(
+        keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
+        Some(&KeyBinding::Macro(b"C".to_vec()))
+    );
 }

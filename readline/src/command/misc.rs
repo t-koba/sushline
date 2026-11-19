@@ -276,6 +276,15 @@ where
                         || key
                             .windows(2)
                             .any(|pair| pair[0] == 0x1b && matches!(pair[1], b'[' | b'O'));
+                state.input.csi_bare_introducer = if command == "skip-csi-sequence"
+                    && key.len() == 1
+                    && matches!(key[0], b'[' | b'O')
+                {
+                    Some(key[0])
+                } else {
+                    None
+                };
+                state.input.csi_introducer_pending = false;
                 if command == "skip-csi-sequence" && introducer_consumed {
                     state.input.csi_sequence_started = true;
                 }

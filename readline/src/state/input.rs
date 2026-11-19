@@ -15,6 +15,10 @@ pub(crate) struct InputState {
     pub(crate) pending_char_bytes: Vec<u8>,
     pub(crate) skipping_csi: bool,
     pub(crate) csi_sequence_started: bool,
+    /// The one-byte `[`/`O` introducer that started a skip, if any.
+    pub(crate) csi_bare_introducer: Option<u8>,
+    /// A fresh ESC inside that skip is waiting for its matching introducer.
+    pub(crate) csi_introducer_pending: bool,
     pub(crate) arrow_key_prefix: bool,
     pub(crate) pending_replace: bool,
     pub(crate) named_command: Option<PendingNamedCommand>,
@@ -42,8 +46,23 @@ pub(crate) struct PendingNamedCommand {
 }
 
 impl EditorState {
-    pub(crate) fn consume_csi_bytes(&mut self, bytes: &[u8]) {
-        for byte in bytes {
+    /// Consumes skip-csi-sequence bytes, returning how many were taken.
+    ///
+    /// A byte after a fresh ESC that does not match the bare introducer is
+    /// left for normal dispatch instead of being swallowed by the skip.
+    pub(crate) fn consume_csi_bytes(&mut self, bytes: &[u8]) -> usize {
+        for (index, byte) in bytes.iter().enumerate() {
+            if self.input.csi_introducer_pending {
+                self.input.csi_introducer_pending = false;
+                if Some(*byte) == self.input.csi_bare_introducer {
+                    self.input.csi_sequence_started = true;
+                    continue;
+                }
+                self.input.skipping_csi = false;
+                self.input.csi_sequence_started = false;
+                self.input.csi_bare_introducer = None;
+                return index;
+            }
             if !self.input.csi_sequence_started {
                 if *byte == 0x1b {
                     continue;
@@ -55,11 +74,17 @@ impl EditorState {
                 self.input.skipping_csi = false;
                 break;
             }
+            if self.input.csi_bare_introducer.is_some() && *byte == 0x1b {
+                self.input.csi_introducer_pending = true;
+                continue;
+            }
             if (0x40..=0x7e).contains(byte) {
                 self.input.skipping_csi = false;
                 self.input.csi_sequence_started = false;
+                self.input.csi_bare_introducer = None;
                 break;
             }
         }
+        bytes.len()
     }
 }

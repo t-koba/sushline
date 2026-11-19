@@ -7247,3 +7247,35 @@ fn bash_readline_and_sushline_counted_bare_arrow_prefix() {
         assert_eq!(bell_count(&sushline), bells, "Sushline {name}: {sushline}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_bare_skip_restarts_matching_introducer() {
+    for (name, intro, tail, expected) in [
+        ("bracket_csi", b'[', &b"\x1b[A"[..], Some("abcX")),
+        ("bracket_ss3", b'[', &b"\x1bOA"[..], Some("abcOAX")),
+        ("bracket_other", b'[', &b"\x1bX Z"[..], Some("abcX ZX")),
+        ("letter_o_ss3", b'O', &b"\x1bOA"[..], Some("abcX")),
+        ("letter_o_csi", b'O', &b"\x1b[A"[..], Some("abc[AX")),
+        ("letter_o_other", b'O', &b"\x1bX Z"[..], Some("abcX ZX")),
+    ] {
+        let inputrc = format!("\"{}\": skip-csi-sequence\n", intro as char);
+        let mut keys = b"abc".to_vec();
+        keys.push(intro);
+        keys.extend_from_slice(tail);
+        keys.extend_from_slice(b"X\r");
+        let bash = run_bash_readline_with_inputrc_file(&keys, &inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&keys, &inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            expected,
+            "Bash {name}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "Bash {name}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            expected,
+            "Sushline {name}: {sushline}"
+        );
+        assert_eq!(bell_count(&sushline), 0, "Sushline {name}: {sushline}");
+    }
+}

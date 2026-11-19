@@ -106,6 +106,8 @@ impl EditorState {
         self.input.quoted_insert_remaining = 0;
         self.input.skipping_csi = false;
         self.input.csi_sequence_started = false;
+        self.input.csi_bare_introducer = None;
+        self.input.csi_introducer_pending = false;
         self.input.arrow_key_prefix = false;
         self.take_numeric_arg();
         self.search.reverse_search = None;

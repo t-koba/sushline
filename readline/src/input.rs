@@ -303,7 +303,10 @@ where
             }
             return self.handle_bytes(state, &bytes[1..], hooks);
         }
-        state.consume_csi_bytes(bytes);
+        let consumed = state.consume_csi_bytes(bytes);
+        if consumed < bytes.len() {
+            return self.handle_bytes(state, &bytes[consumed..], hooks);
+        }
         Ok(EditorOutcome::Continue)
     }
 

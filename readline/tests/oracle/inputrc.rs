@@ -2488,3 +2488,46 @@ fn bash_readline_and_sushline_share_inputrc_keymap_state_across_includes() {
         }
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_match_quoted_boolean_line_endings() {
+    assert_eq!(
+        super::host_readline::host_readline_identity()
+            .expect("Readline identity")
+            .release,
+        super::host_readline::MEASURED_RELEASE
+    );
+    let keys = b"abc\x0f\r";
+    for (label, inputrc, expected) in [
+        (
+            "LF quoted on",
+            "set horizontal-scroll-mode \"on\"\n$if horizontal-scroll-mode == on\n\"\\C-o\": \"M\"\n$endif\n",
+            "abc",
+        ),
+        (
+            "CRLF quoted on",
+            "set horizontal-scroll-mode \"on\"\r\n$if horizontal-scroll-mode == on\n\"\\C-o\": \"M\"\n$endif\n",
+            "abc",
+        ),
+        (
+            "final bare CR quoted on",
+            "set horizontal-scroll-mode \"on\"\r$if horizontal-scroll-mode == on\n\"\\C-o\": \"M\"\n$endif\n",
+            "abcM",
+        ),
+        (
+            "LF unquoted on",
+            "set horizontal-scroll-mode on\n$if horizontal-scroll-mode == on\n\"\\C-o\": \"M\"\n$endif\n",
+            "abcM",
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        for output in [&bash, &sushline] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{label}: {output}"
+            );
+        }
+    }
+}

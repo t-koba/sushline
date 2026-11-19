@@ -5,6 +5,7 @@ use crate::keymap::{
     SUSHLINE_VI_REGISTER_COMMAND, bind_function_names, is_bindable_function_name_with_registers,
 };
 use crate::variables::Variables;
+use history::History;
 use std::fs;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,20 +58,41 @@ impl From<InputrcError> for BindError {
 pub struct BindApi<'a> {
     keymap: &'a mut KeyMap,
     variables: &'a mut Variables,
+    history: Option<&'a mut History>,
     config: Config,
     target_map: KeyMapName,
 }
 
 impl<'a> BindApi<'a> {
+    #[cfg(test)]
     pub(crate) fn with_config(
         keymap: &'a mut KeyMap,
         variables: &'a mut Variables,
         config: &Config,
     ) -> Self {
+        Self::new(keymap, variables, config, None)
+    }
+
+    pub(crate) fn with_history(
+        keymap: &'a mut KeyMap,
+        variables: &'a mut Variables,
+        config: &Config,
+        history: &'a mut History,
+    ) -> Self {
+        Self::new(keymap, variables, config, Some(history))
+    }
+
+    fn new(
+        keymap: &'a mut KeyMap,
+        variables: &'a mut Variables,
+        config: &Config,
+        history: Option<&'a mut History>,
+    ) -> Self {
         let target_map = keymap.current();
         Self {
             keymap,
             variables,
+            history,
             config: config.clone(),
             target_map,
         }
@@ -84,6 +106,11 @@ impl<'a> BindApi<'a> {
             let name = parts.next().unwrap_or_default();
             let value = parts.next().unwrap_or("").trim();
             apply_variable(self.keymap, self.variables, name, value);
+            if name.eq_ignore_ascii_case("history-size")
+                && let Some(history) = self.history.as_deref_mut()
+            {
+                history.enforce_max_len_preserving_position(self.variables.history_size_limit());
+            }
             if name.eq_ignore_ascii_case("keymap")
                 && let Some(map) = KeyMapName::parse(value)
             {

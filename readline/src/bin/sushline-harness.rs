@@ -106,6 +106,18 @@ fn main() -> ExitCode {
         eprintln!("SUSHLINE_INPUTRC_FILE_ERROR:{err:?}");
         return ExitCode::from(1);
     }
+    // Oracle fixtures apply bind API lines after history is seeded, matching
+    // `bind 'set ...'` run by the shell before its readline prompt.
+    for setting in std::env::var("SUSHLINE_BIND_LINES")
+        .unwrap_or_default()
+        .lines()
+        .filter(|line| !line.is_empty())
+    {
+        if let Err(err) = line.bind_api().apply_line(setting) {
+            eprintln!("SUSHLINE_BIND_ERROR:{err:?}");
+            return ExitCode::from(1);
+        }
+    }
 
     let reads = std::env::var("SUSHLINE_READS")
         .ok()

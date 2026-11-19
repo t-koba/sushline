@@ -190,6 +190,13 @@ impl Variables {
         }
     }
 
+    /// The `history-size` cap, when the stored value names a nonnegative size.
+    pub(crate) fn history_size_limit(&self) -> Option<usize> {
+        self.get("history-size")
+            .and_then(|value| value.parse::<isize>().ok())
+            .and_then(|value| (value >= 0).then_some(value as usize))
+    }
+
     /// Get the text view of a value.
     ///
     /// Values inserted with [`Self::insert_bytes`] are decoded lossily: invalid

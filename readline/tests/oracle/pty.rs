@@ -934,6 +934,25 @@ pub(super) fn run_sushline_harness_with_reloaded_inputrc_and_history(
     })
 }
 
+pub(super) fn run_sushline_harness_with_bind_lines_and_history(
+    keys: &[u8],
+    bind_lines: &str,
+    history: &[&str],
+) -> String {
+    run_sushline_harness_with_size_and_env(
+        keys,
+        "",
+        history,
+        PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        },
+        &[("SUSHLINE_BIND_LINES", bind_lines)],
+    )
+}
+
 pub(super) fn run_sushline_harness_with_inputrc_and_history(
     keys: &[u8],
     inputrc: &str,

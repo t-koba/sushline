@@ -659,3 +659,136 @@ fn history_size_load_trim_during_navigation_resets_position_and_edit() {
         Some(b"four".to_vec())
     );
 }
+
+#[test]
+fn history_size_bind_set_trims_existing_history_immediately() {
+    let mut history = History::new();
+    for entry in ["one", "two", "three"] {
+        history.push(entry);
+    }
+    history.reset_cursor();
+    let terminal = MemoryTerminal::with_events(vec![]);
+    let mut editor = Editor::new_without_inputrc(Config::default(), terminal, history);
+
+    editor.bind_api().apply_line("set history-size 2").unwrap();
+    assert_eq!(
+        editor
+            .history
+            .entries()
+            .iter()
+            .map(|entry| entry.line())
+            .collect::<Vec<_>>(),
+        ["two", "three"]
+    );
+    assert_eq!(
+        editor.variables().get("history-size").map(String::as_str),
+        Some("2")
+    );
+
+    editor.bind_api().apply_line("set HISTORY-SIZE 1").unwrap();
+    assert_eq!(
+        editor
+            .history
+            .entries()
+            .iter()
+            .map(|entry| entry.line())
+            .collect::<Vec<_>>(),
+        ["three"]
+    );
+}
+
+#[test]
+fn history_size_bind_set_without_trim_preserves_navigation_and_edit() {
+    use ::history::HistoryDirection;
+
+    let mut history = History::new();
+    for entry in ["one", "two", "three"] {
+        history.push(entry);
+    }
+    history.reset_cursor();
+    assert_eq!(
+        history.navigate_bytes(HistoryDirection::Previous, b"draft".to_vec()),
+        Some(b"three".to_vec())
+    );
+    assert_eq!(
+        history.navigate_bytes(HistoryDirection::Previous, Vec::new()),
+        Some(b"two".to_vec())
+    );
+    let terminal = MemoryTerminal::with_events(vec![]);
+    let mut editor = Editor::new_without_inputrc(Config::default(), terminal, history);
+
+    editor.bind_api().apply_line("set history-size 5").unwrap();
+
+    assert_eq!(editor.history.current_index(), Some(1));
+    assert_eq!(editor.history.where_history(), 1);
+    assert_eq!(
+        editor.history.end_bytes().as_deref(),
+        Some(b"draft".as_slice())
+    );
+}
+
+#[test]
+fn history_size_bind_set_trim_during_navigation_resets_position_and_edit() {
+    use ::history::HistoryDirection;
+
+    let mut history = History::new();
+    for entry in ["one", "two", "three", "four"] {
+        history.push(entry);
+    }
+    history.reset_cursor();
+    assert_eq!(
+        history.navigate_bytes(HistoryDirection::Previous, b"draft".to_vec()),
+        Some(b"four".to_vec())
+    );
+    assert_eq!(
+        history.navigate_bytes(HistoryDirection::Previous, Vec::new()),
+        Some(b"three".to_vec())
+    );
+    let terminal = MemoryTerminal::with_events(vec![]);
+    let mut editor = Editor::new_without_inputrc(Config::default(), terminal, history);
+
+    editor.bind_api().apply_line("set history-size 2").unwrap();
+
+    assert_eq!(editor.history.current_index(), None);
+    assert_eq!(editor.history.where_history(), editor.history.len());
+    assert_eq!(
+        editor
+            .history
+            .navigate_bytes(HistoryDirection::Next, b"three".to_vec()),
+        Some(b"draft".to_vec())
+    );
+    assert_eq!(
+        editor
+            .history
+            .navigate_bytes(HistoryDirection::Previous, Vec::new()),
+        Some(b"four".to_vec())
+    );
+}
+
+#[test]
+fn history_size_bind_set_uses_the_inputrc_value_normalization() {
+    let mut history = History::new();
+    for entry in ["one", "two", "three"] {
+        history.push(entry);
+    }
+    history.reset_cursor();
+    let terminal = MemoryTerminal::with_events(vec![]);
+    let mut editor = Editor::new_without_inputrc(Config::default(), terminal, history);
+
+    editor.bind_api().apply_line("set history-size -3").unwrap();
+    assert_eq!(
+        editor.variables().get("history-size").map(String::as_str),
+        Some("-1")
+    );
+    assert_eq!(editor.history.len(), 3);
+
+    editor
+        .bind_api()
+        .apply_line("set history-size many")
+        .unwrap();
+    assert_eq!(
+        editor.variables().get("history-size").map(String::as_str),
+        Some("0")
+    );
+    assert_eq!(editor.history.len(), 0);
+}

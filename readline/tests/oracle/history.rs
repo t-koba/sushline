@@ -5049,6 +5049,30 @@ fn bash_and_sushline_pin_history_size_on_seeded_history() {
 }
 
 #[test]
+fn bash_and_sushline_pin_bind_set_history_size_on_seeded_history() {
+    require_oracle_host();
+    // The shell runs `bind 'set history-size N'` after seeding three entries;
+    // Sushline applies the same line through `Editor::bind_api()`. The first
+    // case trims, so a third backward move stays at the oldest survivor; the
+    // second does not trim, so a forward move returns to the newest entry.
+    let history = ["one", "two", "three"];
+    for (set, keys, expected) in [
+        ("set history-size 2", &b"\x10\x10\x10\r"[..], "two"),
+        ("set history-size 5", &b"\x10\x10\x0e\r"[..], "three"),
+    ] {
+        let bash = run_bash_readline_with_bindings_and_history(keys, set, &history);
+        let sushline = run_sushline_harness_with_bind_lines_and_history(keys, set, &history);
+        for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{set} {editor}: {output}"
+            );
+        }
+    }
+}
+
+#[test]
 fn bash_and_sushline_pin_history_size_reload_during_navigation() {
     require_oracle_host();
     // A cap above the seeded length trims nothing, so a reload in the middle

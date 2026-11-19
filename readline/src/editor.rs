@@ -217,7 +217,12 @@ where
 
     /// Bind api.
     pub fn bind_api(&mut self) -> BindApi<'_> {
-        BindApi::with_config(&mut self.keymap, &mut self.variables, &self.config)
+        BindApi::with_history(
+            &mut self.keymap,
+            &mut self.variables,
+            &self.config,
+            &mut self.history,
+        )
     }
 
     /// Terminal.
@@ -846,15 +851,8 @@ where
 
     /// Apply the current `history-size` to history that already exists.
     fn enforce_history_size_limit(&mut self) {
-        let limit = self.history_size_limit();
+        let limit = self.variables.history_size_limit();
         self.history.enforce_max_len_preserving_position(limit);
-    }
-
-    fn history_size_limit(&self) -> Option<usize> {
-        self.variables
-            .get("history-size")
-            .and_then(|value| value.parse::<isize>().ok())
-            .and_then(|value| (value >= 0).then_some(value as usize))
     }
 
     pub(crate) fn read_input_event(

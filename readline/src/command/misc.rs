@@ -267,13 +267,14 @@ where
                 // rings and consumes exactly that byte.
                 state.input.arrow_key_prefix = command == "arrow-key-prefix"
                     && key.last().is_some_and(|byte| matches!(byte, b'[' | b'O'));
-                // A `skip-csi-sequence` binding on `[` or `O` has already
-                // consumed the introducer, so the remaining bytes are the
+                // A binding that already contains an ESC [ or ESC O
+                // introducer has consumed it, so the remaining bytes are the
                 // CSI tail; start inside it instead of scanning for another
-                // introducer.
-                if command == "skip-csi-sequence"
-                    && key.last().is_some_and(|byte| matches!(byte, b'[' | b'O'))
-                {
+                // introducer. A bare ESC binding still needs that scan.
+                let introducer_consumed = key
+                    .windows(2)
+                    .any(|pair| pair[0] == 0x1b && matches!(pair[1], b'[' | b'O'));
+                if command == "skip-csi-sequence" && introducer_consumed {
                     state.input.csi_sequence_started = true;
                 }
                 state.after_non_kill_command();

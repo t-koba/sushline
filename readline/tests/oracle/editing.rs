@@ -7061,3 +7061,37 @@ fn bash_readline_and_sushline_explicit_ss3_skip_discards_the_tail() {
         assert_eq!(bell_count(&sushline), 0, "Sushline {name}: {sushline}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_full_key_skip_starts_in_the_tail() {
+    for (name, inputrc, seq) in [
+        (
+            "csi_key",
+            "\"\\e[1~\": skip-csi-sequence\n",
+            &b"\x1b[1~99~"[..],
+        ),
+        (
+            "ss3_key",
+            "\"\\eOA\": skip-csi-sequence\n",
+            &b"\x1bOA99~"[..],
+        ),
+    ] {
+        let mut keys = b"abc".to_vec();
+        keys.extend_from_slice(seq);
+        keys.extend_from_slice(b"X\r");
+        let bash = run_bash_readline_with_inputrc_file(&keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&keys, inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some("abcX"),
+            "Bash {name}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "Bash {name}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some("abcX"),
+            "Sushline {name}: {sushline}"
+        );
+        assert_eq!(bell_count(&sushline), 0, "Sushline {name}: {sushline}");
+    }
+}

@@ -886,6 +886,10 @@ fn is_double_quoted(value: &str) -> bool {
     value.starts_with('"') && is_quoted(value)
 }
 
+fn is_single_quoted(value: &str) -> bool {
+    value.starts_with('\'') && is_quoted(value)
+}
+
 fn trim_set_value<'a>(name: &str, value: &'a str) -> &'a str {
     // Preserve CR in the measured completion-ignore-case set-value fixture;
     // do not extend this line-ending rule to unmeasured variables.
@@ -943,20 +947,14 @@ fn normalize_variable_value(name: &str, value: &str) -> Option<String> {
     }
     if matches!(
         name,
-        "active-region-start-color" | "active-region-end-color"
+        "active-region-start-color"
+            | "active-region-end-color"
+            | "emacs-mode-string"
+            | "vi-cmd-mode-string"
+            | "vi-ins-mode-string"
     ) {
-        return Some(if is_double_quoted(value) {
-            decode_inputrc_string(name, value).unwrap_or_else(|_| value.to_string())
-        } else {
-            value.to_string()
-        });
-    }
-    if matches!(
-        name,
-        "emacs-mode-string" | "vi-cmd-mode-string" | "vi-ins-mode-string"
-    ) {
-        return Some(if is_double_quoted(value) {
-            decode_inputrc_string(name, value).unwrap_or_else(|_| value.to_string())
+        return Some(if is_quoted(value) {
+            decode_inputrc_string(value, true).unwrap_or_else(|_| value.to_string())
         } else {
             value.to_string()
         });
@@ -970,7 +968,7 @@ fn normalize_variable_value(name: &str, value: &str) -> Option<String> {
     }
     if name == "isearch-terminators" {
         return Some(if is_quoted(value) {
-            decode_inputrc_string(name, value).unwrap_or_else(|_| value.to_string())
+            decode_inputrc_string(value, false).unwrap_or_else(|_| value.to_string())
         } else {
             value.to_string()
         });
@@ -1004,13 +1002,9 @@ fn normalize_variable_value_bytes(name: &str, value: &str) -> Option<Vec<u8>> {
             | "vi-cmd-mode-string"
             | "vi-ins-mode-string"
     ) {
-        let quoted = if name == "isearch-terminators" {
-            is_quoted(value)
-        } else {
-            is_double_quoted(value)
-        };
-        return Some(if quoted {
-            decode_inputrc_bytes(value, true).ok()?
+        return Some(if is_quoted(value) {
+            let preserve_single_quotes = name != "isearch-terminators";
+            decode_inputrc_value_bytes(value, preserve_single_quotes).ok()?
         } else {
             value.as_bytes().to_vec()
         });
@@ -1018,16 +1012,32 @@ fn normalize_variable_value_bytes(name: &str, value: &str) -> Option<Vec<u8>> {
     normalize_variable_value(name, value).map(String::into_bytes)
 }
 
-fn decode_inputrc_string(name: &str, value: &str) -> Result<String, String> {
-    let quoted = if name == "isearch-terminators" {
-        is_quoted(value)
+/// Decode an inputrc string value, optionally retaining single quotes.
+///
+/// GNU's color and mode-string variables keep the single quotes in the
+/// stored value but decode escapes inside them; `isearch-terminators` drops
+/// either kind of surrounding quote. No broader quoting grammar is claimed.
+fn decode_inputrc_value_bytes(
+    value: &str,
+    preserve_single_quotes: bool,
+) -> Result<Vec<u8>, String> {
+    let decoded = decode_inputrc_bytes(value, true)?;
+    if preserve_single_quotes && is_single_quoted(value) {
+        let mut bytes = Vec::with_capacity(decoded.len() + 2);
+        bytes.push(b'\'');
+        bytes.extend_from_slice(&decoded);
+        bytes.push(b'\'');
+        Ok(bytes)
     } else {
-        is_double_quoted(value)
-    };
-    if !quoted {
+        Ok(decoded)
+    }
+}
+
+fn decode_inputrc_string(value: &str, preserve_single_quotes: bool) -> Result<String, String> {
+    if !is_quoted(value) {
         return Err("expected quoted string".to_string());
     }
-    let bytes = decode_inputrc_bytes(value, true)?;
+    let bytes = decode_inputrc_value_bytes(value, preserve_single_quotes)?;
     String::from_utf8(bytes).map_err(|_| "decoded string is not valid utf-8".to_string())
 }
 

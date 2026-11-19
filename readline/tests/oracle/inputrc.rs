@@ -2615,3 +2615,36 @@ fn bash_and_sushline_scope_quoted_nonnumeric_inputrc_values() {
         }
     }
 }
+
+#[test]
+fn bash_and_sushline_decode_escapes_in_single_quoted_inputrc_values() {
+    assert_eq!(
+        super::host_readline::host_readline_identity()
+            .expect("Readline identity")
+            .release,
+        super::host_readline::MEASURED_RELEASE
+    );
+    let keys = b"abc\x0f\r";
+    for variable in [
+        "active-region-start-color",
+        "active-region-end-color",
+        "emacs-mode-string",
+        "vi-cmd-mode-string",
+        "vi-ins-mode-string",
+    ] {
+        for (rhs, accepted) in [(r#"'abAcd'"#, true), (r#"'ab\101cd'"#, false)] {
+            let inputrc = format!(
+                "set {variable} 'ab\\101cd'\n$if {variable} == {rhs}\n\"\\C-o\": \"M\"\n$else\n\"\\C-o\": \"F\"\n$endif\n"
+            );
+            let bash = run_bash_readline_with_inputrc_file(keys, &inputrc);
+            let sushline = run_sushline_harness_with_inputrc(keys, &inputrc);
+            for output in [&bash, &sushline] {
+                assert_eq!(
+                    accepted_line(output).as_deref(),
+                    Some(if accepted { "abcM" } else { "abcF" }),
+                    "{variable} {rhs}: {output}"
+                );
+            }
+        }
+    }
+}

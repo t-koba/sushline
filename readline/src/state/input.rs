@@ -15,6 +15,7 @@ pub(crate) struct InputState {
     pub(crate) pending_char_bytes: Vec<u8>,
     pub(crate) skipping_csi: bool,
     pub(crate) csi_sequence_started: bool,
+    pub(crate) arrow_key_prefix: bool,
     pub(crate) pending_replace: bool,
     pub(crate) named_command: Option<PendingNamedCommand>,
     pub(crate) prefix_meta: bool,

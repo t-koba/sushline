@@ -262,6 +262,11 @@ where
         match command {
             "arrow-key-prefix" | "skip-csi-sequence" => {
                 state.input.skipping_csi = true;
+                // GNU's arrow-key-prefix on an already-consumed SS3/CSI
+                // introducer accepts one bound tail byte; anything else
+                // rings and consumes exactly that byte.
+                state.input.arrow_key_prefix = command == "arrow-key-prefix"
+                    && key.last().is_some_and(|byte| matches!(byte, b'[' | b'O'));
                 // A `skip-csi-sequence` binding on `[` has already consumed
                 // the introducer, so the remaining bytes are the CSI tail;
                 // start inside it instead of scanning for another introducer.

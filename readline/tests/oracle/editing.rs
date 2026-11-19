@@ -6983,3 +6983,54 @@ fn bash_readline_and_sushline_explicit_skip_csi_sequence_discards_the_tail() {
         assert_eq!(bell_count(&sushline), 0, "Sushline {name}: {sushline}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_arrow_key_prefix_rings_on_unbound_tail() {
+    // GNU's arrow-key-prefix accepts a bound arrow code after the consumed
+    // introducer. Any other tail rings once and consumes exactly one byte;
+    // it is not a full CSI sequence, so a following final byte stays input.
+    for (name, inputrc, seq, expected) in [
+        (
+            "ss3_digit",
+            "\"\\eO\": arrow-key-prefix\n",
+            &b"\x1bO99~"[..],
+            "abc9~X",
+        ),
+        (
+            "ss3_unbound_code",
+            "\"\\eO\": arrow-key-prefix\n",
+            &b"\x1bOP"[..],
+            "abcX",
+        ),
+        (
+            "ss3_second_introducer",
+            "\"\\eO\": arrow-key-prefix\n",
+            &b"\x1bO[A"[..],
+            "abcAX",
+        ),
+        (
+            "csi_digit",
+            "\"\\e[\": arrow-key-prefix\n",
+            &b"\x1b[1"[..],
+            "abcX",
+        ),
+    ] {
+        let mut keys = b"abc".to_vec();
+        keys.extend_from_slice(seq);
+        keys.extend_from_slice(b"X\r");
+        let bash = run_bash_readline_with_inputrc_file(&keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&keys, inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "Bash {name}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 1, "Bash {name}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "Sushline {name}: {sushline}"
+        );
+        assert_eq!(bell_count(&sushline), 1, "Sushline {name}: {sushline}");
+    }
+}

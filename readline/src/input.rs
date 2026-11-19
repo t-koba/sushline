@@ -76,7 +76,7 @@ where
             return self.handle_meta_prefix(state, bytes, hooks);
         }
         if state.input.skipping_csi {
-            return Ok(self.handle_csi_skip(state, bytes));
+            return self.handle_csi_skip(state, bytes, hooks);
         }
         if state.input.quoted_insert {
             return self.handle_quoted_insert(state, bytes, hooks);
@@ -272,9 +272,24 @@ where
         self.handle_bytes(state, rest, hooks)
     }
 
-    fn handle_csi_skip(&mut self, state: &mut EditorState, bytes: &[u8]) -> EditorOutcome {
+    fn handle_csi_skip(
+        &mut self,
+        state: &mut EditorState,
+        bytes: &[u8],
+        hooks: &mut impl Hooks,
+    ) -> Result<EditorOutcome, ReadlineError> {
+        if state.input.arrow_key_prefix {
+            state.input.skipping_csi = false;
+            state.input.csi_sequence_started = false;
+            state.input.arrow_key_prefix = false;
+            if bytes.is_empty() {
+                return Ok(EditorOutcome::Continue);
+            }
+            self.ding()?;
+            return self.handle_bytes(state, &bytes[1..], hooks);
+        }
         state.consume_csi_bytes(bytes);
-        EditorOutcome::Continue
+        Ok(EditorOutcome::Continue)
     }
 
     fn handle_quoted_insert(

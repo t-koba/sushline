@@ -157,10 +157,10 @@ impl InputrcParser {
         let mut active_stack = vec![true];
         let mut condition_stack = Vec::new();
         let mut line_count = 0;
-        // An unknown `$endif\r` makes GNU stop parsing the rest of this
-        // inputrc. Remember it so the remaining lines are skipped and the
-        // open condition does not become an `unterminated $if` error.
-        let mut stopped_at_unknown_endif = false;
+        // An unknown `$endif\r` leaves the conditional stack open, but GNU
+        // does not emit an `unterminated $if` error at EOF. Remember it for
+        // that EOF check only; parsing of the following lines continues.
+        let mut unknown_endif_seen = false;
 
         for (idx, raw_bytes) in split_inputrc_lines(source).enumerate() {
             let line_no = idx + 1;
@@ -286,8 +286,7 @@ impl InputrcParser {
                             message: "unknown parser directive".to_string(),
                         });
                         if name.eq_ignore_ascii_case("endif\r") {
-                            stopped_at_unknown_endif = true;
-                            break;
+                            unknown_endif_seen = true;
                         }
                     }
                     None => {}
@@ -335,7 +334,7 @@ impl InputrcParser {
             }
         }
 
-        if active_stack.len() != 1 && !stopped_at_unknown_endif {
+        if active_stack.len() != 1 && !unknown_endif_seen {
             return Err(InputrcError::new(line_count, "unterminated $if"));
         }
 

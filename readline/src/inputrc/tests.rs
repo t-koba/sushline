@@ -2095,8 +2095,9 @@ fn meta_alias_conditions_observe_the_last_write_without_coercion() {
 fn crlf_conditional_directives_report_diagnostics_and_apply_gnu_bindings() {
     // The same five placements as the PTY fixture, checked at the parser
     // boundary: the CR is a condition-line error for `$if`, part of the
-    // unknown-directive name for `$else` and `$endif`, and `$endif\r` ends
-    // the parse so the later sentinel binding is not installed.
+    // unknown-directive name for `$else` and `$endif`. The post-block
+    // sentinel is skipped because `$else` left the branch inactive, not
+    // because parsing stopped.
     for (case, if_end, else_end, endif_end, diagnostics, ctrl_o, ctrl_t) in [
         (
             "all-lf",
@@ -2170,6 +2171,37 @@ fn crlf_conditional_directives_report_diagnostics_and_apply_gnu_bindings() {
             keymap.lookup(KeyMapName::EmacsStandard, &[0x14]),
             Some(&ctrl_t),
             "{case}: {inputrc:?}"
+        );
+    }
+}
+
+#[test]
+fn unknown_endif_cr_reports_a_diagnostic_and_keeps_parsing() {
+    for (inputrc, endif_line) in [
+        ("$endif\r\n\"\\C-o\": backward-char\n", 1),
+        (
+            "$if version >= 8.0\n\"\\C-o\": beginning-of-line\n$endif\r\n\"\\C-o\": backward-char\n",
+            3,
+        ),
+    ] {
+        let mut keymap = KeyMap::emacs_default();
+        let mut variables = Variables::new();
+        let reported = InputrcParser::new()
+            .parse_str(inputrc, &Config::default(), &mut keymap, &mut variables)
+            .unwrap();
+        let actual: Vec<_> = reported
+            .iter()
+            .map(|d| (d.line, d.variable.as_str(), d.message.as_str()))
+            .collect();
+        assert_eq!(
+            actual,
+            vec![(endif_line, "endif\r", "unknown parser directive")],
+            "{inputrc:?}"
+        );
+        assert_eq!(
+            keymap.lookup(KeyMapName::EmacsStandard, &[0x0f]),
+            Some(&KeyBinding::Command(EditCommand::BackwardChar)),
+            "{inputrc:?}"
         );
     }
 }

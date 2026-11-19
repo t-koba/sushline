@@ -855,6 +855,42 @@ fn bash_readline_and_sushline_match_crlf_conditional_directive_placements() {
 }
 
 #[test]
+fn bash_readline_and_sushline_continue_after_unknown_endif_cr() {
+    assert_eq!(
+        super::host_readline::host_readline_identity()
+            .expect("Readline identity")
+            .release,
+        super::host_readline::MEASURED_RELEASE
+    );
+    // Only the two shapes below were measured on Bash 5.3 / Readline 8.3.
+    for (inputrc, line) in [
+        ("$endif\r\n\"\\C-o\": backward-char\n", 1),
+        (
+            "$if version >= 8.0\n\"\\C-o\": beginning-of-line\n$endif\r\n\"\\C-o\": backward-char\n",
+            3,
+        ),
+    ] {
+        let keys = b"abc\x0fX\r";
+        let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        let diagnostic = format!("line {line}: endif\r: unknown parser directive");
+        for output in [&bash, &sushline] {
+            assert!(output.contains(&diagnostic), "{inputrc:?}: {output}");
+            assert_eq!(
+                output.matches("unknown parser directive").count(),
+                1,
+                "{inputrc:?}: {output}"
+            );
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some("abXc"),
+                "{inputrc:?}: {output}"
+            );
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_match_crlf_set_value_and_lf_control() {
     let identity = super::host_readline::host_readline_identity().expect("Readline identity");
     assert_eq!(identity.release, super::host_readline::MEASURED_RELEASE);

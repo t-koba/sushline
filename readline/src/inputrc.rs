@@ -666,10 +666,12 @@ fn invalid_set_value(name: &str, value: &str) -> Option<String> {
     invalid.then(|| format!("could not set value to `{value}'"))
 }
 
-/// The `set` value GNU Readline reads.
+/// The `set` value GNU Readline reads for validated variables.
 ///
-/// GNU removes the surrounding double quotes from a value before it
-/// validates, stores, and reports it.
+/// GNU removes surrounding double quotes before validating, storing, and
+/// reporting values for `bell-style`, `comment-begin`, `editing-mode`, and
+/// `keymap`. Other variable families have their own value handling; quoted
+/// boolean values are not canonicalized by this path.
 fn unquote_set_value(value: &str) -> &str {
     value
         .strip_prefix('"')

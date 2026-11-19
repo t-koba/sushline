@@ -2568,3 +2568,50 @@ fn bash_and_sushline_unquote_double_quoted_numeric_inputrc_values() {
         }
     }
 }
+
+#[test]
+fn bash_and_sushline_scope_quoted_nonnumeric_inputrc_values() {
+    assert_eq!(
+        super::host_readline::host_readline_identity()
+            .expect("Readline identity")
+            .release,
+        super::host_readline::MEASURED_RELEASE
+    );
+    let keys = b"abc\x0f\r";
+    for (variable, value, double_quoted, single_quoted) in [
+        ("comment-begin", "abc", r#""abc""#, r#"'abc'"#),
+        ("active-region-start-color", "xyz", r#""xyz""#, r#"'xyz'"#),
+        ("active-region-end-color", "xyz", r#""xyz""#, r#"'xyz'"#),
+        ("emacs-mode-string", "xyz", r#""xyz""#, r#"'xyz'"#),
+        ("vi-cmd-mode-string", "xyz", r#""xyz""#, r#"'xyz'"#),
+        ("vi-ins-mode-string", "xyz", r#""xyz""#, r#"'xyz'"#),
+    ] {
+        for (quoted, accepted) in [(double_quoted, true), (single_quoted, false)] {
+            let inputrc = format!(
+                "set {variable} {quoted}\n$if {variable} == {value}\n\"\\C-o\": \"M\"\n$endif\n"
+            );
+            let bash = run_bash_readline_with_inputrc_file(keys, &inputrc);
+            let sushline = run_sushline_harness_with_inputrc(keys, &inputrc);
+            for output in [&bash, &sushline] {
+                assert_eq!(
+                    accepted_line(output).as_deref(),
+                    Some(if accepted { "abcM" } else { "abc" }),
+                    "{variable} {quoted}: {output}"
+                );
+            }
+        }
+    }
+    for (variable, quoted, expected) in [
+        ("isearch-terminators", r#"'xyz'"#, "xyz"),
+        ("keymap", r#"'emacs'"#, "emacs"),
+    ] {
+        let inputrc = format!(
+            "set {variable} {quoted}\n$if {variable} == {expected}\n\"\\C-o\": \"M\"\n$endif\n"
+        );
+        let bash = run_bash_readline_with_inputrc_file(keys, &inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, &inputrc);
+        for output in [&bash, &sushline] {
+            assert_eq!(accepted_line(output).as_deref(), Some("abcM"), "{output}");
+        }
+    }
+}

@@ -882,6 +882,10 @@ fn is_quoted(value: &str) -> bool {
     quoted_value_end(value.as_bytes()) == Some(value.len())
 }
 
+fn is_double_quoted(value: &str) -> bool {
+    value.starts_with('"') && is_quoted(value)
+}
+
 fn trim_set_value<'a>(name: &str, value: &'a str) -> &'a str {
     // Preserve CR in the measured completion-ignore-case set-value fixture;
     // do not extend this line-ending rule to unmeasured variables.
@@ -939,10 +943,10 @@ fn normalize_variable_value(name: &str, value: &str) -> Option<String> {
     }
     if matches!(
         name,
-        "active-region-start-color" | "active-region-end-color" | "isearch-terminators"
+        "active-region-start-color" | "active-region-end-color"
     ) {
-        return Some(if is_quoted(value) {
-            decode_inputrc_string(value).unwrap_or_else(|_| value.to_string())
+        return Some(if is_double_quoted(value) {
+            decode_inputrc_string(name, value).unwrap_or_else(|_| value.to_string())
         } else {
             value.to_string()
         });
@@ -951,15 +955,22 @@ fn normalize_variable_value(name: &str, value: &str) -> Option<String> {
         name,
         "emacs-mode-string" | "vi-cmd-mode-string" | "vi-ins-mode-string"
     ) {
-        return Some(if is_quoted(value) {
-            decode_inputrc_string(value).unwrap_or_else(|_| value.to_string())
+        return Some(if is_double_quoted(value) {
+            decode_inputrc_string(name, value).unwrap_or_else(|_| value.to_string())
         } else {
             value.to_string()
         });
     }
     if name == "comment-begin" {
-        return Some(if is_quoted(value) {
+        return Some(if is_double_quoted(value) {
             value[1..value.len() - 1].to_string()
+        } else {
+            value.to_string()
+        });
+    }
+    if name == "isearch-terminators" {
+        return Some(if is_quoted(value) {
+            decode_inputrc_string(name, value).unwrap_or_else(|_| value.to_string())
         } else {
             value.to_string()
         });
@@ -993,7 +1004,12 @@ fn normalize_variable_value_bytes(name: &str, value: &str) -> Option<Vec<u8>> {
             | "vi-cmd-mode-string"
             | "vi-ins-mode-string"
     ) {
-        return Some(if is_quoted(value) {
+        let quoted = if name == "isearch-terminators" {
+            is_quoted(value)
+        } else {
+            is_double_quoted(value)
+        };
+        return Some(if quoted {
             decode_inputrc_bytes(value, true).ok()?
         } else {
             value.as_bytes().to_vec()
@@ -1002,7 +1018,15 @@ fn normalize_variable_value_bytes(name: &str, value: &str) -> Option<Vec<u8>> {
     normalize_variable_value(name, value).map(String::into_bytes)
 }
 
-fn decode_inputrc_string(value: &str) -> Result<String, String> {
+fn decode_inputrc_string(name: &str, value: &str) -> Result<String, String> {
+    let quoted = if name == "isearch-terminators" {
+        is_quoted(value)
+    } else {
+        is_double_quoted(value)
+    };
+    if !quoted {
+        return Err("expected quoted string".to_string());
+    }
     let bytes = decode_inputrc_bytes(value, true)?;
     String::from_utf8(bytes).map_err(|_| "decoded string is not valid utf-8".to_string())
 }

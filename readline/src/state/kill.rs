@@ -38,6 +38,7 @@ impl EditorState {
         allow_append: bool,
     ) {
         let text = text.into();
+        self.note_history_edit();
         self.kill.last_yank = None;
         if text.is_empty() {
             self.kill.last_was_kill = true;

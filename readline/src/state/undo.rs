@@ -19,9 +19,6 @@ pub(crate) struct UndoEntry {
 
 impl EditorState {
     pub(crate) fn record_undo(&mut self) {
-        if self.history_entry_index.is_some() {
-            self.history_modified = true;
-        }
         self.undo
             .pending_undo
             .get_or_insert_with(|| self.buffer.clone());

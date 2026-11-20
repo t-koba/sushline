@@ -164,8 +164,17 @@ impl EditorState {
         arg
     }
 
+    pub(crate) fn note_history_edit(&mut self) {
+        if self.history_entry_index.is_some()
+            && self.buffer.as_bytes() != self.original_line.as_slice()
+        {
+            self.history_modified = true;
+        }
+    }
+
     pub(crate) fn after_self_insert(&mut self) {
         // Coalesced typed input can bypass command dispatch.
+        self.note_history_edit();
         self.search.history_navigation_needle = None;
         self.kill.last_yank = None;
         self.search.reverse_search = None;
@@ -188,6 +197,7 @@ impl EditorState {
     }
 
     pub(crate) fn after_non_kill_command(&mut self) {
+        self.note_history_edit();
         self.commit_pending_undo();
         self.kill.last_was_kill = false;
         self.kill.last_yank = None;

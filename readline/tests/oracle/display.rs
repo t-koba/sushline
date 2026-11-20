@@ -876,12 +876,21 @@ fn the_prompt_is_drawn_as_given_and_the_shell_spelling_is_opt_in() {
 #[test]
 fn bash_and_sushline_mark_only_modified_history_lines() {
     let inputrc = "set mark-modified-lines on\n\"\\C-t\": revert-line\n";
-    for (label, keys, accepted, marked) in [
-        ("unmodified history", &b"\x10\r"[..], "abcdef", false),
-        ("edited history", &b"\x10X\r"[..], "abcdefX", true),
-        ("reverted history", &b"\x10X\x14\r"[..], "abcdef", false),
-        ("erased history", &b"\x10X\x7f\r"[..], "abcdef", true),
-        ("undone history", &b"\x10X\x1f\r"[..], "abcdef", false),
+    for (label, keys, accepted, marked, bells) in [
+        ("unmodified history", &b"\x10\r"[..], "abcdef", false, 0),
+        ("edited history", &b"\x10X\r"[..], "abcdefX", true, 0),
+        ("reverted history", &b"\x10X\x14\r"[..], "abcdef", false, 0),
+        ("erased history", &b"\x10X\x7f\r"[..], "abcdef", true, 0),
+        ("undone history", &b"\x10X\x1f\r"[..], "abcdef", false, 0),
+        ("no-op revert", &b"\x10\x14\r"[..], "abcdef", false, 1),
+        (
+            "no-op backward delete",
+            &b"\x10\x01\x7f\r"[..],
+            "abcdef",
+            false,
+            1,
+        ),
+        ("no-op kill line", &b"\x10\x0b\r"[..], "abcdef", false, 0),
     ] {
         let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &["abcdef"]);
         let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &["abcdef"]);
@@ -896,7 +905,7 @@ fn bash_and_sushline_mark_only_modified_history_lines() {
                 Some(accepted),
                 "{label} {editor}: {output}"
             );
-            assert_eq!(bell_count(output), 0, "{label} {editor}: {output}");
+            assert_eq!(bell_count(output), bells, "{label} {editor}: {output}");
             let mut screen = super::screen::Screen::new(24, 80);
             screen.feed(output.as_bytes());
             let rows = screen.rows_text();

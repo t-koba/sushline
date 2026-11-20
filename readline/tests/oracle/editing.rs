@@ -7583,3 +7583,36 @@ fn bash_and_sushline_vi_backward_word_stops_at_punctuation_run() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_end_word_stops_at_punctuation_run() {
+    // GNU Readline's vi `e` keeps a contiguous punctuation run as its own
+    // word class: from inside a run it stops at the run's end, and from the
+    // end of a run it advances to the next run's end across any whitespace.
+    // This is Bash 5.3 PTY evidence for these fixtures, not GNU source proof.
+    let inputrc = "set editing-mode vi";
+    for (desc, left, motion, expected) in [
+        ("word_interior", 0, "eiX", "onXe--two three"),
+        ("word_end", 2, "eiX", "one-X-two three"),
+        ("run_start", 3, "eiX", "one-X-two three"),
+        ("run_end", 4, "eiX", "one--twXo three"),
+        ("across_space", 7, "eiX", "one--two threXe"),
+        ("change_run", 2, "ceX", "onXtwo three"),
+        ("change_after_run", 4, "ceX", "one-X three"),
+        ("big_end_unchanged", 2, "EiX", "one--twXo three"),
+    ] {
+        let keys = format!("one--two three\x1b0{}{}\r", "l".repeat(left), motion);
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

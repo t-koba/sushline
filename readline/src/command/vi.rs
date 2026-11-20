@@ -182,7 +182,7 @@ where
                 let word_breaks = self.editing_word_breaks(hooks);
                 self.apply_vi_motion_with_operator(state, key, true, |state| {
                     repeat(state, |state| {
-                        state.buffer.end_word(word_breaks.as_deref());
+                        state.buffer.vi_end_word(word_breaks.as_deref());
                     });
                 });
             }

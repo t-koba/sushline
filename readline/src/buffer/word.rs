@@ -850,6 +850,77 @@ impl LineBuffer {
         self.point != start
     }
 
+    /// Vi end word (lowercase `e`).
+    ///
+    /// Like [`vi_forward_word_by`](LineBuffer::vi_forward_word_by), a
+    /// contiguous punctuation run is its own word class. From inside a run
+    /// `e` stops at its end; from the end of a run it advances to the end of
+    /// the following run, skipping whitespace on the way.
+    pub fn vi_end_word(&mut self, break_chars: Option<&str>) -> bool {
+        let is_word = word_matcher(break_chars);
+        let class = |ch: char| {
+            if ch.is_whitespace() {
+                0u8
+            } else if is_word(ch) {
+                1
+            } else {
+                2
+            }
+        };
+
+        let start = self.point;
+        if self.char_at(self.point).is_none() {
+            return false;
+        }
+        let current = class(self.char_at(self.point).unwrap());
+        if current == 0 {
+            self.skip_whitespace_in(&class);
+        } else if self
+            .next_char(self.point)
+            .is_some_and(|(_, ch)| class(ch) == current)
+        {
+            self.advance_run_in(&class, current);
+        } else {
+            // Already at the end of a run: vi `e` moves to the end of the
+            // following run, crossing a whitespace gap if there is one.
+            if let Some((next, _)) = self.next_char(self.point) {
+                self.point = next;
+            }
+            self.skip_whitespace_in(&class);
+            if let Some(ch) = self.char_at(self.point) {
+                let target = class(ch);
+                if target != 0 {
+                    self.advance_run_in(&class, target);
+                }
+            }
+        }
+        self.point != start
+    }
+
+    fn skip_whitespace_in<F>(&mut self, class: &F)
+    where
+        F: Fn(char) -> u8,
+    {
+        while self.char_at(self.point).is_some_and(|ch| class(ch) == 0) {
+            let Some((next, _)) = self.next_char(self.point) else {
+                break;
+            };
+            self.point = next;
+        }
+    }
+
+    fn advance_run_in<F>(&mut self, class: &F, target: u8)
+    where
+        F: Fn(char) -> u8,
+    {
+        while let Some((next, ch)) = self.next_char(self.point) {
+            if class(ch) != target {
+                break;
+            }
+            self.point = next;
+        }
+    }
+
     /// Backward bigword.
     pub fn backward_bigword(&mut self) -> bool {
         let start = self.point;

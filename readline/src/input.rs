@@ -424,7 +424,10 @@ where
             }
             match last_replaced {
                 Some(start) => state.buffer.set_point(start),
-                None => self.ding()?,
+                None => {
+                    state.record_noop_undo();
+                    self.ding()?;
+                }
             }
             if let Some(mut change) = state.vi.vi_insert_change.take() {
                 change.extend_from_slice(first);

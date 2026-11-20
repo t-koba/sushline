@@ -4404,6 +4404,10 @@ fn bash_readline_and_sushline_accept_same_vi_counted_replace() {
             0,
         ),
         ("empty_line", b"\x1b3rX\r", "", 1),
+        ("failed_then_undo", b"\x1b3rXu\r", "", 1),
+        ("failed_then_two_undos", b"\x1b3rXuu\r", "", 2),
+        ("failed_then_undo_all", b"\x1b3rXU\r", "", 1),
+        ("failed_uncounted_then_undo", b"\x1brXu\r", "", 1),
         ("undo", b"abcdef\x1b03rXu\r", "abcdef", 0),
     ];
     for (name, keys, expected_line, expected_bells) in cases {
@@ -8426,5 +8430,26 @@ fn bash_and_sushline_vi_redo_initial_insert_per_read() {
             "{desc}: bash={bash}\nsushline={sushline}"
         );
         assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
+    }
+}
+
+#[test]
+fn probe_multibyte_vi_replace() {
+    let inputrc = "set editing-mode vi";
+    for (desc, keys) in [
+        ("single", "abc\x1b0rあ\r"),
+        ("counted_two", "abc\x1b02rあ\r"),
+        ("at_eol", "abc\x1b$rあ\r"),
+        ("redo", "abc\x1b0rあ.\r"),
+        ("undo", "abc\x1b02rあu\r"),
+        ("four_byte", "abc\x1b0r𝄞\r"),
+        ("mixed_width", "aéllo\x1b0r日\r"),
+        ("ascii_repl_of_multibyte", "aéllo\x1b0rX\r"),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sush = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        println!("{desc}: bash=({:?},{}) sush=({:?},{})",
+            accepted_line(&bash), bell_count(&bash),
+            accepted_line(&sush), bell_count(&sush));
     }
 }

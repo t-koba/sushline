@@ -59,6 +59,18 @@ impl EditorState {
         }
     }
 
+    /// GNU pushes an undo entry even when a command such as a failed vi
+    /// replace leaves the buffer unchanged, so the next undo consumes it
+    /// silently instead of ringing on an empty list.
+    pub(crate) fn record_noop_undo(&mut self) {
+        self.commit_pending_undo();
+        self.undo.undo_stack.push(UndoEntry {
+            start: self.buffer.point(),
+            deleted: Vec::new(),
+            inserted: Vec::new(),
+        });
+    }
+
     pub(crate) fn undo(&mut self) -> bool {
         self.commit_pending_undo();
         let undone = if let Some(entry) = self.undo.undo_stack.pop() {

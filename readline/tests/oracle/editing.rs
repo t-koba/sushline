@@ -9567,3 +9567,51 @@ fn bash_and_sushline_vi_undo_after_cancelled_redo_survives_reads() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_undo_leaves_point_on_last_character() {
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, expected) in [
+        ("delete_at_end_then_insert", "abcdef\x1bxuiX\r", "abcdeXf"),
+        ("delete_at_end_then_delete", "abcdef\x1bxux\r", "abcde"),
+        (
+            "change_then_undo_then_dot",
+            "abcdef\x1bcwZ\x1bu.\r",
+            "abcdeZ",
+        ),
+        (
+            "change_then_undo_then_insert",
+            "abcdef\x1bcwZ\x1buiX\r",
+            "abcdeXf",
+        ),
+        ("insert_at_end_then_insert", "abc\x1bAX\x1buiY\r", "abYc"),
+        ("insert_at_end_then_delete", "abc\x1bAX\x1bux\r", "ab"),
+        (
+            "insert_in_middle_then_insert",
+            "abc\x1b0lxX\x1buiY\r",
+            "aYc",
+        ),
+        ("last_character_then_delete", "a\x1bxux\r", ""),
+        ("two_undos", "abcdef\x1bxxuux\r", "abcde"),
+        ("counted_undo", "abcdef\x1bxx2ux\r", "abcde"),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            0,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

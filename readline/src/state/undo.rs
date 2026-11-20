@@ -75,6 +75,12 @@ impl EditorState {
         self.commit_pending_undo();
         let undone = if let Some(entry) = self.undo.undo_stack.pop() {
             entry.undo(&mut self.buffer);
+            // GNU leaves vi point on the last character when an undo restores
+            // text at the end of the line; the raw buffer edit lands just
+            // past it, where the next vi command would be blocked.
+            if !self.buffer.is_empty() && self.buffer.point() == self.buffer.as_bytes().len() {
+                self.buffer.move_backward();
+            }
             true
         } else {
             false

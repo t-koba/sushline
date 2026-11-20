@@ -67,6 +67,10 @@ pub(crate) struct EditorState {
     pub(crate) original_line: Vec<u8>,
     /// History entry represented by the buffer; a search overlay can differ from the cursor.
     pub(crate) history_entry_index: Option<usize>,
+    /// Whether the buffer has been edited since that history entry was recalled.
+    /// Manual erases keep this set even when the bytes match again; undo and
+    /// revert-line clear it when they restore the recalled text.
+    pub(crate) history_modified: bool,
 }
 
 impl EditorState {
@@ -95,6 +99,7 @@ impl EditorState {
             overwrite_mode: false,
             original_line,
             history_entry_index: None,
+            history_modified: false,
         }
     }
 

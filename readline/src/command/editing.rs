@@ -125,6 +125,7 @@ where
                     self.ding()?;
                 } else {
                     state.buffer = LineBuffer::from_bytes(state.original_line.clone());
+                    state.history_modified = false;
                 }
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)

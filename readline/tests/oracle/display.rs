@@ -880,6 +880,8 @@ fn bash_and_sushline_mark_only_modified_history_lines() {
         ("unmodified history", &b"\x10\r"[..], "abcdef", false),
         ("edited history", &b"\x10X\r"[..], "abcdefX", true),
         ("reverted history", &b"\x10X\x14\r"[..], "abcdef", false),
+        ("erased history", &b"\x10X\x7f\r"[..], "abcdef", true),
+        ("undone history", &b"\x10X\x1f\r"[..], "abcdef", false),
     ] {
         let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &["abcdef"]);
         let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &["abcdef"]);

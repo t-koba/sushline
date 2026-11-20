@@ -945,6 +945,7 @@ where
         state.buffer = LineBuffer::from_bytes(line.to_vec());
         state.original_line = line.to_vec();
         state.history_entry_index = target;
+        state.history_modified = false;
         state.undo.undo_stack.clear();
         state.undo.pending_undo = None;
         if !self.flag(BoolVariable::RevertAllAtNewline)

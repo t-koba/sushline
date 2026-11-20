@@ -103,10 +103,8 @@ where
     fn prompt_decorations(&self, state: &EditorState) -> String {
         let mut decorations = String::new();
         if self.flag(BoolVariable::MarkModifiedLines)
-            && self
-                .history
-                .current_history()
-                .is_some_and(|entry| entry.line_bytes != state.buffer.as_bytes())
+            && state.history_entry_index.is_some()
+            && state.history_modified
         {
             decorations.push('*');
         }

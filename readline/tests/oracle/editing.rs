@@ -7763,3 +7763,52 @@ fn bash_and_sushline_vi_change_word_follows_gnu_whitespace_boundaries() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_backward_word_from_end_of_line() {
+    // GNU `rl_vi_bword` reads the NUL at end of line as non-whitespace, so
+    // `b` from the end crosses trailing whitespace to the previous word.
+    // Bash 5.3 PTY observations for these trailing gaps.
+    let inputrc = "set editing-mode vi";
+    for (desc, text, left, motion, expected) in [
+        ("one_space", "ab ", 3, "biX", "Xab "),
+        ("two_spaces", "ab  ", 4, "biX", "Xab  "),
+        (
+            "long_line",
+            "one--two three ",
+            15,
+            "biX",
+            "one--two Xthree ",
+        ),
+        (
+            "long_line_two_spaces",
+            "one--two three  ",
+            16,
+            "biX",
+            "one--two Xthree  ",
+        ),
+        ("no_trailing_space", "ab", 2, "biX", "Xab"),
+        (
+            "punctuation_line",
+            "one--two three",
+            14,
+            "biX",
+            "one--two Xthree",
+        ),
+        ("delete_from_end", "ab ", 3, "bdwiX", "X"),
+    ] {
+        let keys = format!("{text}\x1b0{}{motion}\r", "l".repeat(left));
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

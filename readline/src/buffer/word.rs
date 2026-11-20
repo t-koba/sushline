@@ -900,7 +900,7 @@ impl LineBuffer {
         // At the start of a word backed by whitespace, step into the gap.
         if let Some((prev, ch)) = self.prev_char(self.point)
             && ch.is_whitespace()
-            && self.char_at(self.point).is_some_and(|c| !c.is_whitespace())
+            && self.char_at(self.point).is_none_or(|c| !c.is_whitespace())
         {
             self.point = prev;
             if self.point == 0 {

@@ -677,6 +677,14 @@ where
                 self.handle_noop_argument_key(state, *byte, false, true)?;
             } else if update_numeric_argument(state, &[*byte]) {
                 overflowed = true;
+            } else if state.vi.vi_operator.is_some() {
+                if let Some(change) = state.vi.vi_operator_key.as_mut() {
+                    change.push(*byte);
+                }
+            } else {
+                // Continuation digits are part of the same vi count and must
+                // be saved for dot-replay, just like the first digit.
+                state.vi.vi_count_keys.push(*byte);
             }
         }
         if overflowed {

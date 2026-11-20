@@ -8,6 +8,61 @@ fn back_off_vi_delete_point(state: &mut EditorState, reached_end: bool) {
     }
 }
 
+/// GNU dot-replays `p`/`P` by yanking at the current point without the
+/// command's usual forward motion: that motion already happened when the put
+/// was first executed, and repeating it would place the text after the cursor.
+fn vi_put_redo(change: &[u8]) -> Option<(u8, i32)> {
+    let digit_len = change
+        .iter()
+        .take_while(|byte| byte.is_ascii_digit())
+        .count();
+    let command = *change.get(digit_len)?;
+    if !matches!(command, b'p' | b'P') || change.len() != digit_len + 1 {
+        return None;
+    }
+    let count = if digit_len == 0 {
+        1
+    } else {
+        std::str::from_utf8(&change[..digit_len])
+            .ok()?
+            .parse()
+            .ok()?
+    };
+    Some((command, count))
+}
+
+/// A saved vi insertion is replayed by stuffing its text at the current point
+/// and backing up over the last inserted character. A count typed before
+/// `i`/`I`/`a`/`A` does not multiply the insertion, so its saved repeat is one.
+struct ViInsertRedo {
+    command: u8,
+    text: Vec<u8>,
+}
+
+fn vi_insert_redo(change: &[u8]) -> Option<ViInsertRedo> {
+    let digit_len = change
+        .iter()
+        .take_while(|byte| byte.is_ascii_digit())
+        .count();
+    let rest = &change[digit_len..];
+    let command = *rest.first()?;
+    if !matches!(command, b'i' | b'I' | b'a' | b'A') {
+        return None;
+    }
+    let end = if rest.last() == Some(&0x1b) {
+        rest.len() - 1
+    } else {
+        rest.len()
+    };
+    if end <= 1 {
+        return None;
+    }
+    Some(ViInsertRedo {
+        command,
+        text: rest[1..end].to_vec(),
+    })
+}
+
 impl<T> Editor<T>
 where
     T: TerminalIo,
@@ -507,13 +562,51 @@ where
                     self.ding()?;
                     return Ok(EditorOutcome::Continue);
                 }
-                if let Some(bytes) = state.vi.last_vi_change.clone() {
-                    let bytes = match state.take_numeric_arg() {
-                        Some(count) if count != 0 => {
-                            EditorState::vi_change_with_count(&bytes, count)
-                        }
-                        _ => bytes,
+                if let Some(original) = state.vi.last_vi_change.clone() {
+                    let bytes = original.clone();
+                    let explicit = state.take_numeric_arg().filter(|count| *count != 0);
+                    let bytes = match explicit {
+                        Some(count) => EditorState::vi_change_with_count(&bytes, count),
+                        None => bytes,
                     };
+                    if let Some((command, saved_count)) = vi_put_redo(&bytes) {
+                        state.record_undo();
+                        let count = explicit.unwrap_or(saved_count).max(1) as usize;
+                        for _ in 0..count {
+                            let yanked = if command == b'P' {
+                                state.vi_put_before()
+                            } else {
+                                state.vi_put()
+                            };
+                            if !yanked {
+                                break;
+                            }
+                        }
+                        state.set_vi_redo(original);
+                        state.after_non_kill_command();
+                        return Ok(EditorOutcome::Continue);
+                    }
+                    if let Some(insert) = vi_insert_redo(&bytes) {
+                        state.record_undo();
+                        match insert.command {
+                            b'I' => state.buffer.move_beginning(),
+                            b'a' => {
+                                state.buffer.move_forward();
+                            }
+                            b'A' => state.buffer.move_end(),
+                            _ => {}
+                        }
+                        let count = explicit.unwrap_or(1).max(1) as usize;
+                        for _ in 0..count {
+                            state.buffer.insert_bytes(&insert.text);
+                        }
+                        if state.buffer.point() > 0 {
+                            state.buffer.move_backward();
+                        }
+                        state.set_vi_redo(original);
+                        state.after_non_kill_command();
+                        return Ok(EditorOutcome::Continue);
+                    }
                     return self.replay_vi_change(state, &bytes, hooks);
                 }
                 state.after_non_kill_command();

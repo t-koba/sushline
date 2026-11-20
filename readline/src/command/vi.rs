@@ -587,7 +587,9 @@ where
                                 break;
                             }
                         }
-                        state.set_vi_redo(original);
+                        // GNU remembers a count typed for this put: a later
+                        // plain dot repeats that count, not the older one.
+                        state.set_vi_redo(bytes);
                         state.after_non_kill_command();
                         return Ok(EditorOutcome::Continue);
                     }

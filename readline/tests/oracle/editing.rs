@@ -9366,6 +9366,17 @@ fn bash_and_sushline_vi_dot_replay_count() {
         ("put_plain", "abc\x1b0xp2.\r", "baaac"),
         ("put_counted", "abc\x1b0x3p2.\r", "baaaaac"),
         ("put_before", "abc\x1b0xP2.\r", "aaabc"),
+        ("put_count_then_plain_dot", "abc\x1b0xp2..\r", "baaaaac"),
+        (
+            "put_counted_then_count_then_plain",
+            "abc\x1b0x3p2..\r",
+            "baaaaaaac",
+        ),
+        (
+            "put_before_count_then_plain_dot",
+            "abc\x1b0xP2..\r",
+            "aaaaabc",
+        ),
         (
             "two_digit_leading_zero",
             "abcdefghijklmnopqrstuvwxyz\x1b023rx.\r",

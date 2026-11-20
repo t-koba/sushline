@@ -8126,3 +8126,35 @@ fn bash_and_sushline_vi_change_undo_restores_original_line() {
         assert_eq!(bell_count(&sushline), 0, "{desc}: {sushline}");
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_uppercase_u_undoes_the_whole_undo_list() {
+    // GNU binds U to revert-line, but in vi mode that command undoes every
+    // undo entry, rings on an empty list and leaves point at byte zero. The
+    // emacs revert-line behavior stays unchanged.
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, expected, bells) in [
+        ("after_insert", "abc\x1biX\x1bU\r", "abc", 0),
+        ("after_delete", "abc\x1b0llx\x1bU\r", "abc", 0),
+        ("after_change", "abc\x1b0llcwX\x1bU\r", "abc", 0),
+        ("empty_after_undo", "abc\x1b0llcwX\x1bu\x1bU\r", "abc", 1),
+        ("empty_on_fresh_line", "abc\x1bU\r", "abc", 1),
+        ("point_at_start", "abc\x1b0llx\x1bUiZ\x1b\r", "Zabc", 0),
+        ("two_empty_commands", "abc\x1bU\x1bu\r", "abc", 2),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
+    }
+}

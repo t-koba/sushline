@@ -120,12 +120,27 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::RevertLine => {
-                state.record_undo();
-                if state.buffer.as_bytes() == state.original_line.as_slice() {
-                    self.ding()?;
+                if self.keymap.current() == KeyMapName::ViCommand {
+                    // GNU binds U to revert-line; in vi mode it undoes the
+                    // whole undo list rather than restoring the line as it
+                    // was when the read began, and leaves point at zero.
+                    let mut undone = false;
+                    while state.undo() {
+                        undone = true;
+                    }
+                    if !undone {
+                        self.ding()?;
+                    }
+                    state.buffer.set_point(0);
+                    state.mark = Some(0);
                 } else {
-                    state.buffer = LineBuffer::from_bytes(state.original_line.clone());
-                    state.history_modified = false;
+                    state.record_undo();
+                    if state.buffer.as_bytes() == state.original_line.as_slice() {
+                        self.ding()?;
+                    } else {
+                        state.buffer = LineBuffer::from_bytes(state.original_line.clone());
+                        state.history_modified = false;
+                    }
                 }
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)

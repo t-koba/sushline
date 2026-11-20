@@ -10000,6 +10000,41 @@ fn bash_and_sushline_counted_vi_put_undo_chunks() {
             "xb漢漢漢漢漢漢漢漢漢",
         ),
         ("multibyte_uppercase_put", "xéb\x1b0lx10Pu\r", "xéééééééééb"),
+        (
+            "upper_dot_one_undo",
+            "xab\x1b0lx45P.u\r",
+            "xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab",
+        ),
+        (
+            "upper_dot_two_undos",
+            "xab\x1b0lx45P.uu\r",
+            "xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab",
+        ),
+        (
+            "upper_dot_three_undos",
+            "xab\x1b0lx45P.uuu\r",
+            "xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab",
+        ),
+        (
+            "multibyte_dot_one_undo",
+            "xéb\x1b0lx10p.u\r",
+            "xbééééééééééééééééééé",
+        ),
+        (
+            "multibyte_dot_two_undos",
+            "xéb\x1b0lx10p.uu\r",
+            "xbéééééééééééééééééé",
+        ),
+        (
+            "multibyte_dot_three_undos",
+            "xéb\x1b0lx10p.uuu\r",
+            "xbééééééééééééééééé",
+        ),
+        (
+            "three_byte_dot_one_undo",
+            "x漢b\x1b0lx10p.u\r",
+            "xb漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢",
+        ),
     ] {
         let bash = run_bash_readline_with_bindings(keys.as_bytes(), "set editing-mode vi");
         let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), "set editing-mode vi");

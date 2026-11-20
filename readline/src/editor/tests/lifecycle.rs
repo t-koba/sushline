@@ -758,6 +758,24 @@ fn vi_register_extension_binds_from_inputrc_and_controls_kill_put() {
 }
 
 #[test]
+fn empty_vi_register_put_with_kill_ring_fallback_does_not_hang() {
+    let terminal = super::MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(vec![0x1b]),
+        TerminalEvent::Bytes(b"0xQzp\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str(
+        "set editing-mode vi\nset sushline-vi-registers on\nset keymap vi-command\n\"Q\": vi-set-register",
+    )
+    .unwrap();
+    assert_eq!(
+        line.read_line(Prompt::new("> "), &mut ()).unwrap(),
+        ReadlineResult::Line(b"bac".to_vec())
+    );
+}
+
+#[test]
 fn vi_register_extension_runs_through_execute_named_command() {
     let terminal = super::MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"abc".to_vec()),

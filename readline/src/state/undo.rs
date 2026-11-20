@@ -94,6 +94,12 @@ impl EditorState {
     /// makes one entry per put. Returns the buffer just before the final
     /// chunk, which anchors the next put/dot group.
     fn chunk_put_undo(&mut self, before: &LineBuffer, yank_len: usize) -> Option<LineBuffer> {
+        // An empty yank has no repeat unit to split on. Put callers may still
+        // fall back to the kill ring and insert text, so leave that insertion
+        // as a single undo entry rather than looping on a zero-length chunk.
+        if yank_len == 0 {
+            return None;
+        }
         let chunk_len = if yank_len == 1 {
             MAX_PUT_UNDO_BYTES
         } else {

@@ -613,7 +613,7 @@ where
                                 yank_len,
                             )
                         {
-                            state.clear_vi_put_undo();
+                            state.start_vi_put_undo(&before_edit, state.buffer.point(), yank_len);
                         }
                         return Ok(EditorOutcome::Continue);
                     }

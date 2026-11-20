@@ -120,6 +120,8 @@ impl EditorState {
         self.search.quoted_pending = false;
         self.input.named_command = None;
         self.input.pending_replace = false;
+        self.input.pending_replace_esc = false;
+        self.input.pending_replace_esc_run = false;
         self.vi.pending_char_search = None;
         self.vi.pending_char_search_count = None;
         self.vi.pending_char_search_operator = None;

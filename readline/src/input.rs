@@ -104,6 +104,30 @@ where
         if state.input.pending_replace {
             return self.handle_replace_input(state, bytes, hooks);
         }
+        if state.input.pending_replace_esc {
+            state.input.pending_replace_esc = false;
+            if bytes.first() == Some(&0x1b) {
+                // A second ESC starts a redundant bare ESC run. GNU consumes
+                // the run before the next key sequence, so this replacement
+                // ESC must not become part of it.
+                if let Some(outcome) = self.handle_replace_esc_run(state, bytes, hooks)? {
+                    return Ok(outcome);
+                }
+                return Ok(EditorOutcome::Continue);
+            }
+            state.input.pending_key.push(0x1b);
+        } else if state.input.pending_replace_esc_run {
+            if bytes.first() == Some(&0x1b) {
+                if let Some(outcome) = self.handle_replace_esc_run(state, bytes, hooks)? {
+                    return Ok(outcome);
+                }
+                return Ok(EditorOutcome::Continue);
+            }
+            state.input.pending_replace_esc_run = false;
+            if matches!(bytes.first(), Some(b'[' | b'O')) {
+                state.input.pending_key.push(0x1b);
+            }
+        }
         if let Some(outcome) = self.handle_numeric_argument_continuation(state, bytes, hooks)? {
             return Ok(outcome);
         }
@@ -390,6 +414,28 @@ where
         state.mark = Some(start);
     }
 
+    /// Consume a bare ESC run that followed an ignored replacement ESC.
+    /// Returns `None` while the run is still open and `Some` once the rest of
+    /// the event has been dispatched with a fresh sequence prefix.
+    fn handle_replace_esc_run(
+        &mut self,
+        state: &mut EditorState,
+        bytes: &[u8],
+        hooks: &mut impl Hooks,
+    ) -> Result<Option<EditorOutcome>, ReadlineError> {
+        let esc_run = bytes.iter().take_while(|byte| **byte == 0x1b).count();
+        if esc_run == bytes.len() {
+            state.input.pending_replace_esc_run = true;
+            return Ok(None);
+        }
+        state.input.pending_replace_esc_run = false;
+        let rest = &bytes[esc_run..];
+        if matches!(rest.first(), Some(b'[' | b'O')) {
+            state.input.pending_key.push(0x1b);
+        }
+        self.handle_bytes(state, rest, hooks).map(Some)
+    }
+
     fn handle_replace_input(
         &mut self,
         state: &mut EditorState,
@@ -426,8 +472,10 @@ where
         if replacement.is_empty() && first == [0x1b] {
             // An ESC used as the replacement is ignored, but GNU still lets
             // it introduce the next key sequence, so a following arrow moves
-            // the cursor. Keep it as a keymap prefix instead of dropping it.
-            state.input.pending_key = first.to_vec();
+            // the cursor. Decide on the next input event: an ESC there starts
+            // a redundant ESC run and must not inherit this prefix, while any
+            // other byte needs it to complete its sequence.
+            state.input.pending_replace_esc = true;
         }
         if !replacement.is_empty() {
             // Vi command-mode `$` leaves the byte point just past the last

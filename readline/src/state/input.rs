@@ -21,6 +21,10 @@ pub(crate) struct InputState {
     pub(crate) csi_introducer_pending: bool,
     pub(crate) arrow_key_prefix: bool,
     pub(crate) pending_replace: bool,
+    /// An ignored vi replacement ESC is waiting for the next input event.
+    pub(crate) pending_replace_esc: bool,
+    /// Consecutive bare ESCs after an ignored replacement are being skipped.
+    pub(crate) pending_replace_esc_run: bool,
     pub(crate) named_command: Option<PendingNamedCommand>,
     pub(crate) prefix_meta: bool,
     /// Whether the last dispatched key ran a command.

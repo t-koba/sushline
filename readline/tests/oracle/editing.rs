@@ -9284,3 +9284,40 @@ fn bash_and_sushline_vi_redo_after_failed_search() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_replace_ignored_esc_runs() {
+    // After an ignored replacement ESC, GNU consumes any redundant bare ESC
+    // run and starts a fresh sequence for the following CSI/SS3 key. Retaining
+    // the replacement ESC in that run resolves to a destructive vi command.
+    let inputrc = "set editing-mode vi";
+    for escapes in 1..=5 {
+        for (desc, tail, expected, bells) in [
+            ("csi_right", "[C", "ac", 0),
+            ("csi_left", "[D", "bc", 1),
+            ("ss3_right", "OC", "ac", 0),
+            ("plain_key", "x", "c", 0),
+        ] {
+            let keys = format!("abc\x1b0r{}{}x\r", "\x1b".repeat(escapes), tail);
+            let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+            let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+            let case = format!("{desc} after {escapes} ESCs");
+            assert_eq!(
+                accepted_line(&bash),
+                Some(expected.to_string()),
+                "{case}: {bash}"
+            );
+            assert_eq!(bell_count(&bash), bells, "{case}: {bash}");
+            assert_eq!(
+                accepted_line(&sushline),
+                accepted_line(&bash),
+                "{case}: bash={bash}\nsushline={sushline}"
+            );
+            assert_eq!(
+                bell_count(&sushline),
+                bells,
+                "{case}: bash={bash}\nsushline={sushline}"
+            );
+        }
+    }
+}

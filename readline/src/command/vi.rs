@@ -111,6 +111,7 @@ where
                 if !state.vi.command_mode_entered {
                     state.undo.undo_stack.clear();
                     state.undo.pending_undo = None;
+                    state.undo.vi_put_undo_before = None;
                     state.vi.command_mode_entered = true;
                     // The redo synthesis is separate from the undo reset: a
                     // cancelled operator persists across reads and must keep
@@ -543,6 +544,7 @@ where
                 state.after_non_kill_command();
             }
             "vi-put" => {
+                let before_edit = state.buffer.clone();
                 state.record_undo();
                 let yanked = if key == b"P" {
                     state.vi_put_before()
@@ -553,6 +555,13 @@ where
                 if yanked {
                     let change = state.vi_key_sequence_for_change(key);
                     state.set_vi_redo(change);
+                    state.after_non_kill_command();
+                    // GNU keeps a lowercase put and its dot-replays in one
+                    // undo entry; an uppercase put starts a separate group.
+                    if !(key == b"p" && state.extend_vi_put_undo(&before_edit)) {
+                        state.start_vi_put_undo(&before_edit);
+                    }
+                    return Ok(EditorOutcome::Continue);
                 } else {
                     // GNU leaves the previous redo command intact when the
                     // unnamed register is empty.
@@ -575,6 +584,7 @@ where
                         None => bytes,
                     };
                     if let Some((command, saved_count)) = vi_put_redo(&bytes) {
+                        let before_edit = state.buffer.clone();
                         state.record_undo();
                         let count = explicit.unwrap_or(saved_count).max(1) as usize;
                         for _ in 0..count {
@@ -591,6 +601,9 @@ where
                         // plain dot repeats that count, not the older one.
                         state.set_vi_redo(bytes);
                         state.after_non_kill_command();
+                        if command != b'p' || !state.extend_vi_put_undo(&before_edit) {
+                            state.clear_vi_put_undo();
+                        }
                         return Ok(EditorOutcome::Continue);
                     }
                     if let Some(insert) = vi_insert_redo(&bytes) {

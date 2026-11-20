@@ -8,6 +8,9 @@ pub(crate) struct UndoState {
     pub(crate) undo_stack: Vec<UndoEntry>,
     pub(crate) pending_undo: Option<LineBuffer>,
     pub(crate) last_undo_was_insert: bool,
+    /// Buffer before a vi put and its dot-replays, kept so their undo entries
+    /// can be merged into the single GNU entry as each replay commits.
+    pub(crate) vi_put_undo_before: Option<LineBuffer>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,8 +74,40 @@ impl EditorState {
         });
     }
 
+    pub(crate) fn start_vi_put_undo(&mut self, before: &LineBuffer) {
+        self.undo.vi_put_undo_before = Some(before.clone());
+    }
+
+    pub(crate) fn clear_vi_put_undo(&mut self) {
+        self.undo.vi_put_undo_before = None;
+    }
+
+    /// Merge the just-committed put entry into the earlier put entry when
+    /// both are part of the same uninterrupted put/dot sequence.
+    pub(crate) fn extend_vi_put_undo(&mut self, before_edit: &LineBuffer) -> bool {
+        let Some(before) = self.undo.vi_put_undo_before.clone() else {
+            return false;
+        };
+        let stack = &self.undo.undo_stack;
+        if stack.len() < 2
+            || UndoEntry::from_buffers(&before, before_edit).as_ref()
+                != Some(&stack[stack.len() - 2])
+            || UndoEntry::from_buffers(before_edit, &self.buffer).as_ref() != stack.last()
+        {
+            self.undo.vi_put_undo_before = None;
+            return false;
+        }
+        self.undo.undo_stack.pop();
+        self.undo.undo_stack.pop();
+        if let Some(combined) = UndoEntry::from_buffers(&before, &self.buffer) {
+            self.undo.undo_stack.push(combined);
+        }
+        true
+    }
+
     pub(crate) fn undo(&mut self) -> bool {
         self.commit_pending_undo();
+        self.undo.vi_put_undo_before = None;
         let undone = if let Some(entry) = self.undo.undo_stack.pop() {
             entry.undo(&mut self.buffer);
             // GNU leaves vi point on the last character when an undo restores
@@ -109,6 +144,7 @@ impl EditorState {
     }
 
     pub(crate) fn restore_undo_snapshot_lines(&mut self, lines: &[HistoryUndoEntry]) {
+        self.undo.vi_put_undo_before = None;
         self.undo.undo_stack = lines
             .iter()
             .map(|entry| UndoEntry {

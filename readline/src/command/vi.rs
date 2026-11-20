@@ -51,6 +51,13 @@ where
                     state.buffer.move_backward();
                 }
                 state.overwrite_mode = false;
+                // GNU frees the undo list on the first entry to command mode:
+                // text typed before that point cannot be undone with `u`.
+                if !state.vi.command_mode_entered {
+                    state.undo.undo_stack.clear();
+                    state.undo.pending_undo = None;
+                    state.vi.command_mode_entered = true;
+                }
                 state.finish_vi_insert_change(key);
                 self.keymap.set_current(KeyMapName::ViCommand);
                 state.after_non_kill_command();

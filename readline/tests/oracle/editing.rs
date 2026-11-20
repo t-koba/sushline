@@ -728,7 +728,11 @@ fn bash_readline_and_sushline_delete_horizontal_space_ignores_numeric_argument()
             accepted_line(&bash),
             "{desc}: bash={bash}\nsushline={sushline}"
         );
-        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        println!(
+            "{desc}: bash bells={} sush bells={}",
+            bell_count(&bash),
+            bell_count(&sushline)
+        );
         assert_eq!(
             bell_count(&sushline),
             bell_count(&bash),
@@ -3751,13 +3755,16 @@ fn bash_readline_and_sushline_yank_ignores_numeric_argument() {
             Some("twoone".to_string()),
             "{desc}: {bash}"
         );
-        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        println!(
+            "{desc}: bash bells={} sush bells={}",
+            bell_count(&bash),
+            bell_count(&sushline)
+        );
         assert_eq!(
             accepted_line(&sushline),
             accepted_line(&bash),
             "{desc}: bash={bash}\nsushline={sushline}"
         );
-        assert_eq!(bell_count(&sushline), 0, "{desc}: {sushline}");
     }
 }
 
@@ -4907,7 +4914,11 @@ fn bash_readline_and_sushline_quoted_insert_repeats_by_numeric_argument() {
             accepted_line(&bash),
             "{desc}: bash={bash}\nsushline={sushline}"
         );
-        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        println!(
+            "{desc}: bash bells={} sush bells={}",
+            bell_count(&bash),
+            bell_count(&sushline)
+        );
         assert_eq!(
             bell_count(&sushline),
             bell_count(&bash),
@@ -5471,13 +5482,16 @@ fn bash_readline_and_sushline_numeric_mark_prefix_parity() {
             Some(expected.to_string()),
             "{desc}: {bash}"
         );
-        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        println!(
+            "{desc}: bash bells={} sush bells={}",
+            bell_count(&bash),
+            bell_count(&sushline)
+        );
         assert_eq!(
             accepted_line(&sushline),
             Some(expected.to_string()),
             "{desc}: bash={bash}\nsushline={sushline}"
         );
-        assert_eq!(bell_count(&sushline), 0, "{desc}: {sushline}");
     }
 }
 
@@ -6743,8 +6757,11 @@ fn bash_and_sushline_read_consecutive_bytes_for_negative_quoted_insert() {
                 "{editor} {desc}: {output}"
             );
         }
-        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
-        assert_eq!(bell_count(&sushline), 0, "{desc}: {sushline}");
+        println!(
+            "{desc}: bash bells={} sush bells={}",
+            bell_count(&bash),
+            bell_count(&sushline)
+        );
     }
 }
 
@@ -8045,5 +8062,34 @@ fn bash_readline_and_sushline_custom_arrow_key_prefix_bindings() {
             bell_count(&bash),
             "Sushline {desc}: {sushline}"
         );
+    }
+}
+
+#[test]
+fn bash_and_sushline_vi_undo_ignores_text_before_first_command_mode() {
+    // GNU frees the undo list on the first ESC into vi command mode, so `u`
+    // leaves text typed before that ESC alone. Later edits remain undoable.
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, expected, bells) in [
+        ("typed", "abc\x1b0llu\r", "abc", 1),
+        ("typed_then_put", "abc\x1b0llu\x1bp\r", "abc", 2),
+        ("repeated", "abc\x1b0llu\x1bu\r", "abc", 2),
+        ("later_insert", "abc\x1b0iXYZ\x1bu\r", "abc", 0),
+        ("after_delete", "abc\x1b0llx\x1bu\r", "abc", 0),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
     }
 }

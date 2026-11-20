@@ -17,6 +17,7 @@ pub(crate) struct ViModeState {
     pub(crate) pending_vi_mark: Option<ViMarkAction>,
     pub(crate) pending_mark_operator: Option<(ViOperator, usize, Vec<u8>)>,
     pub(crate) vi_marks: BTreeMap<char, usize>,
+    pub(crate) command_mode_entered: bool,
     pub(crate) pending_vi_register: bool,
     pub(crate) active_vi_register: Option<char>,
     pub(crate) vi_registers: BTreeMap<char, Vec<u8>>,

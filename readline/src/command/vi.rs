@@ -298,14 +298,19 @@ where
             "vi-delete" => {
                 state.record_undo();
                 let mut reached_end = false;
+                let mut deleted = Vec::new();
                 repeat(state, |state| {
-                    if state.buffer.delete_char_bytes().is_some()
-                        && state.buffer.point() == state.buffer.len_chars()
-                    {
-                        reached_end = true;
+                    if let Some(bytes) = state.buffer.delete_char_bytes() {
+                        deleted.extend_from_slice(&bytes);
+                        if state.buffer.point() == state.buffer.len_chars() {
+                            reached_end = true;
+                        }
                     }
                 });
                 back_off_vi_delete_point(state, reached_end);
+                if !deleted.is_empty() {
+                    state.push_kill(deleted, KillDirection::Forward, self.kill_append_allowed());
+                }
                 state.vi.last_vi_change = Some(state.vi_key_sequence_for_change(key));
                 state.after_non_kill_command();
             }

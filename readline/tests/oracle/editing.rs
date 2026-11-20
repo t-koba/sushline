@@ -7758,6 +7758,34 @@ fn bash_and_sushline_vi_delete_to_end_keeps_point_on_last_character() {
 }
 
 #[test]
+fn bash_and_sushline_vi_delete_stores_text_for_put() {
+    // GNU puts text removed by `x` or a counted `x`; without a stored
+    // register a following `p`/`P` leaves the line shortened. Bash 5.3 PTY
+    // observations for these counted and placement cases.
+    let inputrc = "set editing-mode vi";
+    for (desc, line, left, keys, expected) in [
+        ("put_after", "abc", 2, "xp", "abc"),
+        ("put_before", "abc", 2, "xP", "acb"),
+        ("counted_from_start", "abc", 0, "2xp", "cab"),
+        ("count_overrun", "abc", 2, "3xp", "abc"),
+    ] {
+        let keys = format!("{line}\x1b0{}{keys}\r", "l".repeat(left));
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_and_sushline_vi_change_word_matches_punctuation_runs() {
     // GNU Readline's vi `cw` changes one word-class run, treating a
     // punctuation run as its own class and preserving the whitespace after a

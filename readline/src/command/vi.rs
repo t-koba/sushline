@@ -57,6 +57,19 @@ where
                     state.undo.undo_stack.clear();
                     state.undo.pending_undo = None;
                     state.vi.command_mode_entered = true;
+                    // GNU keeps the initial insertion as the default vi redo
+                    // change. It is not started by `i`, so synthesize the
+                    // same key sequence from the line as typed, without
+                    // making the initial text undoable.
+                    if state.vi.last_vi_change.is_none()
+                        && state.vi.vi_insert_change.is_none()
+                        && !state.buffer.as_bytes().is_empty()
+                    {
+                        let mut change = vec![b'i'];
+                        change.extend_from_slice(state.buffer.as_bytes());
+                        change.push(b'\x1b');
+                        state.vi.last_vi_change = Some(change);
+                    }
                 }
                 state.finish_vi_insert_change(key);
                 self.keymap.set_current(KeyMapName::ViCommand);
@@ -417,10 +430,13 @@ where
                     state.buffer.move_forward();
                     state.vi_put()
                 };
-                if !yanked {
+                if yanked {
+                    state.vi.last_vi_change = Some(state.vi_key_sequence_for_change(key));
+                } else {
+                    // GNU leaves the previous redo command intact when the
+                    // unnamed register is empty.
                     self.ding()?;
                 }
-                state.vi.last_vi_change = Some(state.vi_key_sequence_for_change(key));
             }
             "vi-redo" => {
                 if let Some(bytes) = state.vi.last_vi_change.clone() {

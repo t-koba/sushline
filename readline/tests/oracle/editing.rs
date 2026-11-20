@@ -8158,3 +8158,40 @@ fn bash_and_sushline_vi_uppercase_u_undoes_the_whole_undo_list() {
         assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_redo_initial_insert() {
+    // GNU saves the text typed before the first ESC as the vi redo change.
+    // It is replayed at the current point even when a failed `p`/`P` in
+    // between did not establish an explicit change.
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, expected, bells) in [
+        ("at_end_once", "abc\x1b.\r", "ababcc", 0),
+        ("at_end_twice", "abc\x1b..\r", "abababccc", 0),
+        ("at_start", "abc\x1b0.\r", "abcabc", 0),
+        ("after_motion", "abc\x1b0ll..\r", "abababccc", 0),
+        ("failed_put", "abc\x1b0llp.\r", "abcabc", 1),
+        ("failed_put_before", "abc\x1b0llP.\r", "ababcc", 1),
+        (
+            "explicit_insert_overrides",
+            "abc\x1biZ\x1b..\r",
+            "abZZZc",
+            0,
+        ),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
+    }
+}

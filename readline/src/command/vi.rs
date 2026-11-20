@@ -214,14 +214,16 @@ where
                 }
                 let word_breaks = self.editing_word_breaks(hooks);
                 let change_operator = matches!(state.vi.vi_operator, Some(ViOperator::Change));
+                let change_count =
+                    change_operator.then(|| state.take_numeric_arg().unwrap_or(1).unsigned_abs());
                 self.apply_vi_motion_with_operator(state, key, false, |state| {
-                    repeat(state, |state| {
-                        if change_operator {
-                            state.buffer.forward_word(word_breaks.as_deref());
-                        } else {
+                    if let Some(count) = change_count {
+                        state.buffer.vi_change_words(count, word_breaks.as_deref());
+                    } else {
+                        repeat(state, |state| {
                             state.buffer.vi_forward_word(word_breaks.as_deref());
-                        }
-                    });
+                        });
+                    }
                 });
             }
             _ => unreachable!("named vi motion command mismatch"),

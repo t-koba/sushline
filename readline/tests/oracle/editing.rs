@@ -7616,3 +7616,42 @@ fn bash_and_sushline_vi_end_word_stops_at_punctuation_run() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_change_word_matches_punctuation_runs() {
+    // GNU Readline's vi `cw` changes one word-class run, treating a
+    // punctuation run as its own class and preserving the whitespace after a
+    // word; `dw` crosses that whitespace. These are Bash 5.3 PTY observations
+    // for this line and these counts, not a general vi word-class rule.
+    let inputrc = "set editing-mode vi";
+    for (desc, left, motion, expected) in [
+        ("change_run_start", 3, "cwX", "oneXtwo three"),
+        ("change_run_end", 4, "cwX", "one-Xtwo three"),
+        ("change_word_space", 5, "cwX", "one--X three"),
+        ("change_word_end", 7, "cwX", "one--twX three"),
+        ("change_whitespace", 8, "cwX", "one--twoXthree"),
+        ("delete_run_start", 3, "dwiX", "oneXtwo three"),
+        ("delete_run_end", 4, "dwiX", "one-Xtwo three"),
+        ("delete_word_space", 5, "dwiX", "one--Xthree"),
+        ("change_twice_word", 0, "c2wX", "Xtwo three"),
+        ("change_twice_run", 2, "c2wX", "onXtwo three"),
+        ("change_twice_space", 5, "c2wX", "one--X"),
+        ("delete_twice", 3, "d2wiX", "oneXthree"),
+        ("change_bigword", 0, "cWX", "X three"),
+        ("delete_bigword", 0, "dWiX", "Xthree"),
+    ] {
+        let keys = format!("one--two three\x1b0{}{}\r", "l".repeat(left), motion);
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

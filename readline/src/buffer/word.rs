@@ -770,16 +770,55 @@ impl LineBuffer {
 
     /// Vi forward word.
     pub fn vi_forward_word(&mut self, break_chars: Option<&str>) -> bool {
-        self.vi_forward_word_by(word_matcher(break_chars))
+        self.vi_word_motion_by(word_matcher(break_chars), true)
     }
 
-    fn vi_forward_word_by<F>(&mut self, is_word: F) -> bool
+    /// Vi change-word motion (lowercase `cw`, with a numeric argument).
+    ///
+    /// GNU Readline's `cw` stops at the boundary of the current word class
+    /// without crossing the whitespace that follows it, unlike `w`. Further
+    /// repetitions cross that whitespace and change one more class run.
+    pub fn vi_change_words(&mut self, count: u32, break_chars: Option<&str>) -> bool {
+        let is_word = word_matcher(break_chars);
+        let class = |ch: char| {
+            if ch.is_whitespace() {
+                0u8
+            } else if is_word(ch) {
+                1
+            } else {
+                2
+            }
+        };
+        let start = self.point;
+        for i in 0..count {
+            if i > 0 {
+                self.skip_whitespace_in(&class);
+            }
+            if let Some(ch) = self.char_at(self.point) {
+                if class(ch) == 0 {
+                    self.skip_whitespace_in(&class);
+                } else {
+                    self.advance_to_boundary_in(&class, class(ch));
+                }
+            }
+        }
+        self.point != start
+    }
+
+    fn vi_word_motion_by<F>(&mut self, is_word: F, skip_whitespace: bool) -> bool
     where
         F: Fn(char) -> bool + Copy,
     {
         let start = self.point;
         match self.char_at(self.point) {
-            Some(ch) if ch.is_whitespace() => {}
+            Some(ch) if ch.is_whitespace() => {
+                while let Some(ch) = self.char_at(self.point) {
+                    if !ch.is_whitespace() {
+                        break;
+                    }
+                    self.point = self.next_char_boundary(self.point);
+                }
+            }
             Some(ch) if is_word(ch) => {
                 while let Some(ch) = self.char_at(self.point) {
                     if !is_word(ch) {
@@ -798,11 +837,13 @@ impl LineBuffer {
             }
             None => return false,
         }
-        while let Some(ch) = self.char_at(self.point) {
-            if !ch.is_whitespace() {
-                break;
+        if skip_whitespace {
+            while let Some(ch) = self.char_at(self.point) {
+                if !ch.is_whitespace() {
+                    break;
+                }
+                self.point = self.next_char_boundary(self.point);
             }
-            self.point = self.next_char_boundary(self.point);
         }
         self.point != start
     }
@@ -812,7 +853,7 @@ impl LineBuffer {
     /// Unlike the Emacs `backward_word`, a contiguous run of punctuation is
     /// its own word class: `b` stops at the start of that run rather than
     /// skipping over it. This mirrors the three classes in
-    /// [`vi_forward_word_by`](LineBuffer::vi_forward_word_by).
+    /// [`vi_word_motion_by`](LineBuffer::vi_word_motion_by).
     pub fn vi_backward_word(&mut self, break_chars: Option<&str>) -> bool {
         self.vi_backward_word_by(word_matcher(break_chars))
     }
@@ -852,7 +893,7 @@ impl LineBuffer {
 
     /// Vi end word (lowercase `e`).
     ///
-    /// Like [`vi_forward_word_by`](LineBuffer::vi_forward_word_by), a
+    /// Like [`vi_word_motion_by`](LineBuffer::vi_word_motion_by), a
     /// contiguous punctuation run is its own word class. From inside a run
     /// `e` stops at its end; from the end of a run it advances to the end of
     /// the following run, skipping whitespace on the way.
@@ -918,6 +959,18 @@ impl LineBuffer {
                 break;
             }
             self.point = next;
+        }
+    }
+
+    fn advance_to_boundary_in<F>(&mut self, class: &F, target: u8)
+    where
+        F: Fn(char) -> u8,
+    {
+        while self
+            .char_at(self.point)
+            .is_some_and(|ch| class(ch) == target)
+        {
+            self.point = self.next_char_boundary(self.point);
         }
     }
 

@@ -108,6 +108,23 @@ impl EditorState {
         }
     }
 
+    /// Replace the count recorded in a vi change sequence. GNU keeps an
+    /// explicit count typed before `.` and remembers it for later replays.
+    pub(crate) fn vi_change_with_count(change: &[u8], count: i32) -> Vec<u8> {
+        let mut digits = change;
+        if digits.first() == Some(&b'-') {
+            digits = &digits[1..];
+        }
+        let digit_len = digits
+            .iter()
+            .take_while(|byte| byte.is_ascii_digit())
+            .count();
+        let prefix_len = change.len() - digits.len() + digit_len;
+        let mut result = count.to_string().into_bytes();
+        result.extend_from_slice(&change[prefix_len..]);
+        result
+    }
+
     pub(crate) fn vi_key_sequence_for_change(&mut self, key: &[u8]) -> Vec<u8> {
         let mut change = std::mem::take(&mut self.vi.vi_count_keys);
         change.extend_from_slice(key);

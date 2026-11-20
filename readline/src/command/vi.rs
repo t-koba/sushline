@@ -509,6 +509,12 @@ where
                     return Ok(EditorOutcome::Continue);
                 }
                 if let Some(bytes) = state.vi.last_vi_change.clone() {
+                    let bytes = match state.take_numeric_arg() {
+                        Some(count) if count != 0 => {
+                            EditorState::vi_change_with_count(&bytes, count)
+                        }
+                        _ => bytes,
+                    };
                     return self.replay_vi_change(state, &bytes, hooks);
                 }
                 state.after_non_kill_command();

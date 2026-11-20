@@ -244,6 +244,13 @@ application service names (`shell-expand-line`, `spell-correct-word`,
 names is the Bash 5.3 host's own command, and the status column gives
 Sushline's behavior for every name.
 
+The paired PTY harness leaves application hooks unimplemented, so its GNU
+accepted lines for the default vi command key `v` reflect Bash launching an
+external editor while Sushline rings; that is not a line-editing comparison.
+`vi_default_v_invokes_edit_and_execute_hook` pins Sushline's `v` dispatch to
+the hook, and [`bind_golden.rs`](readline/tests/bind_golden.rs) pins the
+command name in the vi command keymap.
+
 The classification was measured on the development host, whose Bash links
 Readline statically and carries the 8.3 release; the scope above states the
 signals that release identity rests on. Its `bind -l` output lists the

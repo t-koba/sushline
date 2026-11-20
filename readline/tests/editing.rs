@@ -996,6 +996,22 @@ fn hook_backed_commands_use_application_supplied_behavior() {
 }
 
 #[test]
+fn vi_default_v_invokes_edit_and_execute_hook() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"abc".to_vec()),
+        TerminalEvent::Bytes(vec![0x1b, b'v']),
+    ]);
+    let mut hooks = EditingHook;
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set editing-mode vi").unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut hooks).unwrap();
+    assert_eq!(
+        result,
+        ReadlineResult::Line("abc edited".as_bytes().to_vec())
+    );
+}
+
+#[test]
 fn contextual_shell_expand_hook_can_set_line_and_point() {
     struct ContextShellExpandHook {
         seen: bool,

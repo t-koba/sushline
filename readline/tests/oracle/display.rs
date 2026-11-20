@@ -882,6 +882,13 @@ fn bash_and_sushline_mark_only_modified_history_lines() {
         ("reverted history", &b"\x10X\x14\r"[..], "abcdef", false, 0),
         ("erased history", &b"\x10X\x7f\r"[..], "abcdef", true, 0),
         ("undone history", &b"\x10X\x1f\r"[..], "abcdef", false, 0),
+        (
+            "yanked history",
+            &b"Z\x15\x10\x19\r"[..],
+            "abcdefZ",
+            true,
+            0,
+        ),
         ("no-op revert", &b"\x10\x14\r"[..], "abcdef", false, 1),
         (
             "no-op backward delete",

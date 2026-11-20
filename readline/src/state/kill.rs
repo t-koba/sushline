@@ -98,6 +98,7 @@ impl EditorState {
             end: last_yank.start + text.len(),
             kill_index: next_index,
         });
+        self.note_history_edit();
         true
     }
 
@@ -116,6 +117,7 @@ impl EditorState {
             end: self.buffer.point(),
             kill_index: index,
         });
+        self.note_history_edit();
     }
 
     pub(crate) fn vi_put(&mut self) -> bool {
@@ -131,6 +133,7 @@ impl EditorState {
                 state.buffer.insert_bytes(&text);
             });
             self.kill.last_yank = None;
+            self.note_history_edit();
             return true;
         }
         self.put_from_kill_ring()
@@ -149,6 +152,7 @@ impl EditorState {
                 state.buffer.insert_bytes(&text);
             });
             self.kill.last_yank = None;
+            self.note_history_edit();
             return true;
         }
         self.put_from_kill_ring()

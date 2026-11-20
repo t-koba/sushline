@@ -915,3 +915,31 @@ fn bash_and_sushline_mark_only_modified_history_lines() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_do_not_mark_fresh_lines() {
+    let inputrc = "set mark-modified-lines on\n\"\\C-t\": revert-line\n";
+    for (label, keys, accepted) in [
+        ("fresh typed", &b"abc\r"[..], "abc"),
+        ("fresh reverted", &b"abc\x01X\x14\r"[..], ""),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &[]);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &[]);
+        for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(accepted),
+                "{label} {editor}: {output}"
+            );
+            assert_eq!(bell_count(output), 0, "{label} {editor}: {output}");
+            let mut screen = super::screen::Screen::new(24, 80);
+            screen.feed(output.as_bytes());
+            let rows = screen.rows_text();
+            assert_eq!(
+                rows.first().map(String::as_str),
+                Some(format!("SUSHLINE_READY>{accepted}").as_str()),
+                "{label} {editor}: {rows:?}"
+            );
+        }
+    }
+}

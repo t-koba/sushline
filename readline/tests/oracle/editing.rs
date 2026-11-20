@@ -7460,3 +7460,77 @@ fn bash_and_sushline_delete_on_empty_line_does_not_signal_eof() {
         }
     }
 }
+
+#[test]
+fn bash_and_sushline_end_of_file_command_signals_eof_only_for_eof_key() {
+    // GNU Readline's `end-of-file` command signals EOF only when the terminal
+    // EOF byte is invoked on an empty line; otherwise it rings once and does
+    // not edit the line. Bash 5.3 PTY observation, not GNU source proof, and
+    // limited to the bindings below (no numeric-argument cases).
+    for (desc, inputrc, keys, accepted, bells, eof) in [
+        (
+            "eof_key_empty",
+            "\"X\": end-of-file\n",
+            b"XY\r".as_slice(),
+            Some("Y"),
+            1,
+            false,
+        ),
+        (
+            "eof_key_eol",
+            "\"X\": end-of-file\n",
+            b"abcX\r".as_slice(),
+            Some("abc"),
+            1,
+            false,
+        ),
+        (
+            "eof_key_interior",
+            "\"X\": end-of-file\n",
+            b"abXc\r".as_slice(),
+            Some("abc"),
+            1,
+            false,
+        ),
+        (
+            "ctrl_d_empty",
+            "\"\\C-d\": end-of-file\n",
+            b"\x04\r".as_slice(),
+            None,
+            0,
+            true,
+        ),
+        (
+            "ctrl_d_eol",
+            "\"\\C-d\": end-of-file\n",
+            b"abc\x04\r".as_slice(),
+            Some("abc"),
+            1,
+            false,
+        ),
+        (
+            "ctrl_d_interior",
+            "\"\\C-d\": end-of-file\n",
+            b"ab\x04c\r".as_slice(),
+            Some("abc"),
+            1,
+            false,
+        ),
+    ] {
+        let bash = run_bash_readline_eof_with_inputrc(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        for (side, output) in [("bash", &bash), ("sushline", &sushline)] {
+            assert_eq!(
+                output.contains("SUSHLINE_EOF"),
+                eof,
+                "{desc} {side}: {output}"
+            );
+            assert_eq!(
+                accepted_line(output),
+                accepted.map(str::to_string),
+                "{desc} {side}: {output}"
+            );
+            assert_eq!(bell_count(output), bells, "{desc} {side}: {output}");
+        }
+    }
+}

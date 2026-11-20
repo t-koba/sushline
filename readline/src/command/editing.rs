@@ -229,11 +229,12 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::Eof => {
-                if state.buffer.is_empty() {
+                if state.buffer.is_empty() && self.is_eof_key(key) {
                     Ok(EditorOutcome::Eof)
                 } else {
-                    state.record_undo();
-                    state.buffer.delete_char();
+                    // GNU's `end-of-file` command rings and edits nothing
+                    // unless the EOF byte is invoked on an empty line.
+                    self.ding()?;
                     state.after_non_kill_command();
                     Ok(EditorOutcome::Continue)
                 }

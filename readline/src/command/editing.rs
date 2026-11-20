@@ -128,11 +128,14 @@ where
                     while state.undo() {
                         undone = true;
                     }
-                    if !undone {
+                    if undone {
+                        state.buffer.set_point(0);
+                        state.mark = Some(0);
+                    } else {
+                        // GNU rings on an empty undo list without moving
+                        // point or mark.
                         self.ding()?;
                     }
-                    state.buffer.set_point(0);
-                    state.mark = Some(0);
                 } else {
                     state.record_undo();
                     if state.buffer.as_bytes() == state.original_line.as_slice() {

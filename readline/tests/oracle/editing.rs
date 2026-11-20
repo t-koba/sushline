@@ -8140,6 +8140,14 @@ fn bash_and_sushline_vi_uppercase_u_undoes_the_whole_undo_list() {
         ("empty_after_undo", "abc\x1b0llcwX\x1bu\x1bU\r", "abc", 1),
         ("empty_on_fresh_line", "abc\x1bU\r", "abc", 1),
         ("point_at_start", "abc\x1b0llx\x1bUiZ\x1b\r", "Zabc", 0),
+        ("empty_keeps_point_mid_line", "abc\x1bUiZ\r", "abZc", 1),
+        (
+            "empty_keeps_point_after_motion",
+            "abcdef\x1b0lllUiZ\r",
+            "abcZdef",
+            1,
+        ),
+        ("two_empty_keep_point", "abc\x1bUUiZ\r", "abZc", 2),
         ("two_empty_commands", "abc\x1bU\x1bu\r", "abc", 2),
     ] {
         let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);

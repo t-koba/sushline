@@ -8586,3 +8586,45 @@ fn bash_and_sushline_vi_change_case_counts_keep_point_on_final_character() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_forward_char_stays_on_last_character() {
+    // In vi command mode, forward-char cannot leave point past the final
+    // character. Starting there rings once; a counted motion that only runs
+    // out partway is silent. Space and right-arrow share the binding.
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, expected, bells) in [
+        ("one_short", "abc\x1b0ll\r", "abc", 0),
+        ("past_end", "abc\x1b0lll\r", "abc", 1),
+        ("twice_past_end", "abc\x1b0llll\r", "abc", 2),
+        ("count_reaches_end", "abc\x1b03l\r", "abc", 0),
+        ("count_exceeds_end", "abc\x1b05l\r", "abc", 0),
+        ("count_then_single", "abc\x1b02ll\r", "abc", 1),
+        ("count_from_end", "abc\x1b2l\r", "abc", 1),
+        ("multibyte_past_end", "a\u{e9}\x1b0lll\r", "a\u{e9}", 2),
+        ("multibyte_then_delete", "a\u{e9}\x1b0llx\r", "a", 1),
+        ("space_past_end", "abc\x1b0   \r", "abc", 1),
+        ("arrow_past_end", "abc\x1b0\x1b[C\x1b[C\x1b[C\r", "abc", 1),
+        ("backward_at_start", "abc\x1b0h\r", "abc", 1),
+        ("empty_line", "\x1bl\r", "", 1),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bells,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

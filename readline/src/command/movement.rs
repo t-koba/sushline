@@ -78,7 +78,12 @@ where
             EditCommand::ForwardChar => {
                 let op_start = state.take_vi_operator();
                 let bytewise = self.char_motion_is_bytewise();
-                if !move_by_char(state, true, bytewise) {
+                let moved = if matches!(self.keymap.current(), KeyMapName::ViCommand) {
+                    move_by_char_vi_forward(state, bytewise)
+                } else {
+                    move_by_char(state, true, bytewise)
+                };
+                if !moved {
                     self.ding()?;
                 }
                 self.finish_vi_motion_operator(state, op_start, key, false);
@@ -206,6 +211,28 @@ fn char_motion_is_bytewise(byte_oriented: bool, utf8_locale: bool) -> bool {
 /// fixtures show a direction asymmetry: a backward walk that cannot satisfy
 /// its count rings even after moving, while a forward walk rings only when
 /// no step at all was possible. A zero count or a satisfied count is silent.
+/// Vi command mode keeps point on the last character. A counted motion that
+/// runs out after moving at least once is silent; starting on that character
+/// rings once without moving.
+fn move_by_char_vi_forward(state: &mut EditorState, bytewise: bool) -> bool {
+    let count = state.take_numeric_arg().unwrap_or(1).unsigned_abs();
+    let mut moved = false;
+    for _ in 0..count {
+        let before = state.buffer.byte_point();
+        let stepped = if bytewise {
+            state.buffer.move_forward_byte()
+        } else {
+            state.buffer.move_forward()
+        };
+        if !stepped || state.buffer.byte_point() >= state.buffer.len_chars() {
+            state.buffer.set_point(before);
+            return moved;
+        }
+        moved = true;
+    }
+    true
+}
+
 fn move_by_char(state: &mut EditorState, forward: bool, bytewise: bool) -> bool {
     let arg = state.take_numeric_arg().unwrap_or(1);
     let moving_forward = forward != (arg < 0);

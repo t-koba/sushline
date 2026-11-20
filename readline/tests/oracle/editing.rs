@@ -8093,3 +8093,36 @@ fn bash_and_sushline_vi_undo_ignores_text_before_first_command_mode() {
         assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_change_undo_restores_original_line() {
+    // GNU keeps a change operator's deletion and the inserted replacement in
+    // one undo entry, so one `u` restores the original line. `r` is a control:
+    // it replaces without deleting a range and already had one undo entry.
+    let inputrc = "set editing-mode vi";
+    for (desc, motion) in [
+        ("change_word", "cwX"),
+        ("change_two_chars", "cwXY"),
+        ("counted_change_word", "2cwX"),
+        ("change_line", "ccX"),
+        ("change_to_end", "Cx"),
+        ("substitute", "sX"),
+        ("replace_char", "rx"),
+    ] {
+        let keys = format!("abc\x1b0ll{motion}\x1bu\r");
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some("abc".to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), 0, "{desc}: {sushline}");
+    }
+}

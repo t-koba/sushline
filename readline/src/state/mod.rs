@@ -198,7 +198,11 @@ impl EditorState {
 
     pub(crate) fn after_non_kill_command(&mut self) {
         self.note_history_edit();
-        self.commit_pending_undo();
+        if self.vi.defer_undo_commit {
+            self.vi.defer_undo_commit = false;
+        } else {
+            self.commit_pending_undo();
+        }
         self.kill.last_was_kill = false;
         self.kill.last_yank = None;
         self.search.reverse_search = None;

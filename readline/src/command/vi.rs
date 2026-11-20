@@ -346,6 +346,7 @@ where
             }
             "vi-subst" => {
                 state.record_undo();
+                state.vi.defer_undo_commit = true;
                 if key == b"S" {
                     let killed = state.buffer.kill_whole_line();
                     state.push_kill(killed, KillDirection::Forward, self.kill_append_allowed());
@@ -796,6 +797,9 @@ where
                 let killed = state.buffer.delete_range_bytes(start, end);
                 state.push_kill(killed, KillDirection::Forward, self.kill_append_allowed());
                 if matches!(op, ViOperator::Change) {
+                    // Keep the deletion pending so the following insert joins
+                    // it in one undo entry, as GNU does for change commands.
+                    state.vi.defer_undo_commit = true;
                     self.keymap.set_current(KeyMapName::ViInsert);
                 } else {
                     back_off_vi_delete_point(state, delete_to_end);

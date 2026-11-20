@@ -8803,3 +8803,147 @@ fn bash_and_sushline_vi_backward_delete_redo_replays_count() {
         );
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn bash_and_sushline_c_locale_vi_replace_pins_raw_bytes_and_bells() {
+    // C/POSIX bytewise mode consumes one replacement byte; UTF-8 mode consumes
+    // the whole character. Assert raw accepted bytes, not lossy strings.
+    use portable_pty::{CommandBuilder, PtySize};
+    use std::fs;
+
+    require_oracle_host();
+    let root = tempfile::tempdir().expect("tempdir");
+    let home = tempfile::tempdir().expect("home");
+    let home_path = home.path().to_string_lossy().into_owned();
+    let inputrc_path = root.path().join("inputrc");
+    let inputrc =
+        "set editing-mode vi\nset input-meta on\nset output-meta on\nset convert-meta off\n";
+    let script = r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "SUSHLINE_READY>" line; printf 'SUSHLINE_ACCEPTED_HEX:'; printf '%s' "$line" | od -An -tx1 | tr -d ' \n'; printf '\nSUSHLINE_DONE\n'"#;
+    let size = PtySize {
+        rows: 24,
+        cols: 80,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+
+    let run_bash = |keys: &[u8], locale: &str| {
+        fs::write(&inputrc_path, inputrc).expect("write inputrc");
+        let mut command = CommandBuilder::new("bash");
+        command.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
+        command.env("LC_ALL", locale);
+        command.env("HOME", &home_path);
+        command.args(["--noprofile", "--norc", "-i", "-c", script]);
+        run_pty_in_dir_with_size_raw_until(
+            command,
+            keys,
+            root.path(),
+            size,
+            "SUSHLINE_ACCEPTED_HEX:",
+        )
+    };
+    let run_sushline = |keys: &[u8], locale: &str| {
+        let mut command = sushline_harness_command();
+        command.env("SUSHLINE_INPUTRC", inputrc);
+        command.env("SUSHLINE_PROMPT", "SUSHLINE_READY>");
+        command.env("SUSHLINE_HISTORY", "");
+        command.env("SUSHLINE_ACCEPTED_HEX", "1");
+        command.env("LC_ALL", locale);
+        command.env("HOME", &home_path);
+        run_pty_in_dir_with_size_raw_until(
+            command,
+            keys,
+            root.path(),
+            size,
+            "SUSHLINE_ACCEPTED_HEX:",
+        )
+    };
+    fn accepted_bytes(output: &[u8]) -> Option<Vec<u8>> {
+        let marker = b"SUSHLINE_ACCEPTED_HEX:";
+        let start = output
+            .windows(marker.len())
+            .position(|window| window == marker)?
+            + marker.len();
+        let hex = output[start..]
+            .iter()
+            .skip_while(|byte| byte.is_ascii_whitespace())
+            .take_while(|byte| byte.is_ascii_hexdigit())
+            .copied()
+            .collect::<Vec<_>>();
+        let hex = std::str::from_utf8(&hex).unwrap();
+        if !hex.len().is_multiple_of(2) {
+            return None;
+        }
+        (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
+            .collect()
+    }
+    fn bells(output: &[u8]) -> usize {
+        output.iter().filter(|byte| **byte == 7).count()
+    }
+
+    for (desc, keys, locale, expected, expected_bells) in [
+        (
+            "c_replace_one_byte",
+            b"abc\x1b0r\xe3\x81\x82\r".as_slice(),
+            "C",
+            vec![0xe3, b'b', b'c'],
+            2,
+        ),
+        (
+            "c_redo_one_byte",
+            b"abc\x1b0r\xe3\x81\x82l.\r".as_slice(),
+            "C",
+            vec![0xe3, 0xe3, b'c'],
+            2,
+        ),
+        (
+            "c_ascii_redo",
+            b"abc\x1b0rZl.\r".as_slice(),
+            "C",
+            b"ZZc".to_vec(),
+            0,
+        ),
+        (
+            "utf8_replace_whole_char",
+            b"abc\x1b0r\xe3\x81\x82\r".as_slice(),
+            "C.UTF-8",
+            vec![0xe3, 0x81, 0x82, b'b', b'c'],
+            0,
+        ),
+        (
+            "utf8_redo_whole_char",
+            b"abc\x1b0r\xe3\x81\x82l.\r".as_slice(),
+            "C.UTF-8",
+            vec![0xe3, 0x81, 0x82, 0xe3, 0x81, 0x82, b'c'],
+            0,
+        ),
+        (
+            "utf8_ascii_redo",
+            b"abc\x1b0rZl.\r".as_slice(),
+            "C.UTF-8",
+            b"ZZc".to_vec(),
+            0,
+        ),
+    ] {
+        let bash = run_bash(keys, locale);
+        let sushline = run_sushline(keys, locale);
+        assert_eq!(
+            accepted_bytes(&bash),
+            Some(expected.clone()),
+            "{desc}: bash"
+        );
+        assert_eq!(bells(&bash), expected_bells, "{desc}: bash");
+        assert_eq!(
+            accepted_bytes(&sushline),
+            accepted_bytes(&bash),
+            "{desc}: sushline={sushline:?}"
+        );
+        assert_eq!(
+            bells(&sushline),
+            expected_bells,
+            "{desc}: sushline={sushline:?}"
+        );
+    }
+}

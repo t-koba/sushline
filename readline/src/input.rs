@@ -396,12 +396,14 @@ where
         bytes: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
-        // GNU reads a whole character as the replacement key. Hold an
-        // incomplete character across split reads, or a lead byte would be
-        // committed as the replacement and its continuations ring as keys.
+        // GNU reads a whole character as the replacement key in a UTF-8
+        // locale, but only one byte when byte motion is in effect. Hold an
+        // incomplete character across split reads in the character path, or
+        // a lead byte would be committed and its continuations ring as keys.
+        let bytewise = self.char_motion_is_bytewise();
         let mut buffered = std::mem::take(&mut state.input.pending_char_bytes);
         buffered.extend_from_slice(bytes);
-        if is_incomplete_utf8_prefix(&buffered) {
+        if !bytewise && is_incomplete_utf8_prefix(&buffered) {
             state.input.pending_char_bytes = buffered;
             return Ok(EditorOutcome::Continue);
         }
@@ -413,7 +415,11 @@ where
             state.consume_numeric_arg_unless_prefix();
             return Ok(EditorOutcome::Continue);
         }
-        let (first, rest) = split_first_unit(bytes);
+        let (first, rest) = if bytewise {
+            split_first_byte(bytes)
+        } else {
+            split_first_unit(bytes)
+        };
         let count = repeat_count(state.take_numeric_arg());
         state.input.pending_replace = false;
         let replacement = replacement_unit(first);

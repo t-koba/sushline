@@ -141,7 +141,7 @@ where
     /// Character motion steps a single byte when `byte-oriented` is on or
     /// the locale is non-UTF-8 (measured Bash 5.3 `LC_ALL=C` PTY behavior);
     /// otherwise it keeps UTF-8 scalar/grapheme motion.
-    fn char_motion_is_bytewise(&self) -> bool {
+    pub(crate) fn char_motion_is_bytewise(&self) -> bool {
         char_motion_is_bytewise(
             self.flag(BoolVariable::ByteOriented),
             self.variables.utf8_locale(),

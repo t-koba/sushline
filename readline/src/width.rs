@@ -12,6 +12,12 @@ pub(crate) fn char_width(ch: char) -> usize {
     if ch.is_control() {
         return 0;
     }
+    // Bash 5.3 under C.UTF-8 advances one physical column for each halfwidth
+    // katakana voicing mark. The pinned 0.1.x table assigns them zero cells,
+    // so correct only these two scalars instead of upgrading the table.
+    if matches!(ch, '\u{ff9e}' | '\u{ff9f}') {
+        return 1;
+    }
     unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0)
 }
 

@@ -168,16 +168,28 @@ fn bash_and_sushline_redisplay_utf8_wrap_boundary_cursor_after_live_pty_growth()
     );
 }
 
-/// GNU Readline 8.3 and the pinned 0.1.x width table both treat the two
-/// halfwidth katakana voicing marks as zero cells; unicode-width 0.2.x does
-/// not. This fixture pins the GNU-visible geometry, not a general width rule.
+/// Raw Bash 5.3 PTY cursor motion under C.UTF-8 advances one column for each
+/// halfwidth katakana voicing mark. GNU's redraw after two `forward-char`
+/// moves from line start emits a carriage return plus four cursor-forwards
+/// for both voiced and unvoiced forms; this fixture reads those bytes rather
+/// than deriving the width from `oracle/screen.rs` or Sushline's table.
 #[cfg(target_os = "linux")]
 #[test]
-fn bash_and_sushline_count_halfwidth_katakana_marks_as_zero_cells() {
+fn bash_and_sushline_advance_one_cell_for_halfwidth_katakana_marks() {
+    use super::host::require_oracle_host;
+    use super::host_readline::{MEASURED_RELEASE, host_carries};
+    use portable_pty::CommandBuilder;
+
+    require_oracle_host();
+    assert!(host_carries(MEASURED_RELEASE));
     assert!(
         c_utf8_locale_available(),
         "C.UTF-8 locale required for the katakana mark fixture"
     );
+    let root = tempfile::tempdir().expect("katakana PTY root");
+    let inputrc = "set editing-mode emacs\nset horizontal-scroll-mode off\nset enable-bracketed-paste off\nset bell-style audible\n";
+    let path = root.path().join("inputrc");
+    std::fs::write(&path, inputrc).expect("write katakana inputrc");
     let wide = PtySize {
         rows: 4,
         cols: 80,
@@ -185,15 +197,55 @@ fn bash_and_sushline_count_halfwidth_katakana_marks_as_zero_cells() {
         pixel_height: 0,
     };
     let narrow = PtySize { cols: 12, ..wide };
-    assert_live_resize_redisplay_with_locale(
-        "C.UTF-8",
-        wide,
-        &[narrow],
-        "ﾊﾟｸﾞXYZ".as_bytes(),
-        b"\x0c",
-        &["P>ﾊﾟｸﾞXYZ"],
-        (0, 7),
-    );
+
+    for text in ["ﾊﾟXYZ", "ﾊｸXYZ"] {
+        for bash in [true, false] {
+            let mut command = if bash {
+                let mut command = CommandBuilder::new("bash");
+                command.args([
+                    "--noprofile",
+                    "--norc",
+                    "-i",
+                    "-c",
+                    "IFS= read -r -e -p 'P>' line; printf 'SUSHLINE_ACCEPTED:%s\\n' \"$line\"",
+                ]);
+                command
+            } else {
+                let mut command = sushline_harness_command();
+                command.env("SUSHLINE_INPUTRC", inputrc);
+                command.env("SUSHLINE_PROMPT", "P>");
+                command.env("SUSHLINE_HISTORY", "");
+                command
+            };
+            command.env("INPUTRC", path.to_str().expect("inputrc path"));
+            command.env("HOME", root.path());
+            command.env("HISTFILE", root.path().join("history"));
+            command.env("LC_ALL", "C.UTF-8");
+            command.env_remove("COLUMNS");
+            command.env_remove("LINES");
+            let (_, output) = run_pty_resize_checkpoint(
+                command,
+                "P>",
+                text.as_bytes(),
+                wide,
+                &[narrow],
+                b"\x01\x06\x06\x0c",
+            );
+            if bash {
+                assert!(
+                    output.contains("\r\u{1b}[C\u{1b}[C\u{1b}[C\u{1b}[C"),
+                    "{text}: {output:?}"
+                );
+            } else {
+                assert!(output.contains("\u{1b}[5G"), "{text}: {output:?}");
+            }
+            assert_eq!(
+                accepted_line(&output),
+                Some(text.to_string()),
+                "{text}: {output:?}"
+            );
+        }
+    }
 }
 
 #[cfg(target_os = "linux")]

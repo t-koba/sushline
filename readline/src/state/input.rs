@@ -87,6 +87,14 @@ impl EditorState {
                 }
                 continue;
             }
+            if *byte < 0x20 || *byte == 0x7f {
+                // GNU ends an explicit skip at a control byte or DEL and
+                // consumes it; later bytes are ordinary input.
+                self.input.skipping_csi = false;
+                self.input.csi_sequence_started = false;
+                self.input.csi_bare_introducer = None;
+                return index + 1;
+            }
             if (0x40..=0x7e).contains(byte) {
                 self.input.skipping_csi = false;
                 self.input.csi_sequence_started = false;

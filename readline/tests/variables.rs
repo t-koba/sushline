@@ -123,15 +123,12 @@ fn csi_skip_commands_handle_terminal_escape_sequence() {
         line.load_inputrc_str(&format!("\"\\C-o\": {command}"))
             .unwrap();
         let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
-        // GNU's skip-csi-sequence consumes the whole CSI sequence. Its
-        // arrow-key-prefix instead switches to the arrow keymap, where `[`
-        // is unbound, so the CSI tail is inserted. Pinned against Bash 5.3
-        // by bash_readline_and_sushline_custom_arrow_key_prefix_bindings.
-        let expected = if command == "skip-csi-sequence" {
-            "X"
-        } else {
-            "[1;5CX"
-        };
+        // A nested ESC ends GNU's skip-csi-sequence after that ESC, so the
+        // CSI tail is inserted. Its arrow-key-prefix switches to the arrow
+        // keymap, where `[` is unbound, leaving the tail as input too. Pinned
+        // against Bash 5.3 by bash_readline_and_sushline_custom_skip_starts_at_the_next_byte
+        // and bash_readline_and_sushline_custom_arrow_key_prefix_bindings.
+        let expected = "[1;5CX";
         assert_eq!(
             result,
             ReadlineResult::Line(expected.as_bytes().to_vec()),

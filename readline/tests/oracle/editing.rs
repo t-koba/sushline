@@ -7180,6 +7180,30 @@ fn bash_readline_and_sushline_custom_skip_starts_at_the_next_byte() {
             &b"abcy1[D X\r"[..],
             "abcD X",
         ),
+        (
+            "control_byte_tabs",
+            "\"y\": skip-csi-sequence\n",
+            &b"abcy\x0931~X\r"[..],
+            "abc31~X",
+        ),
+        (
+            "control_byte_nul",
+            "\"y\": skip-csi-sequence\n",
+            &b"abcy\x0031~X\r"[..],
+            "abc31~X",
+        ),
+        (
+            "control_byte_del",
+            "\"y\": skip-csi-sequence\n",
+            &b"abcy\x7f31~X\r"[..],
+            "abc31~X",
+        ),
+        (
+            "control_byte_ctrl_a",
+            "\"y\": skip-csi-sequence\n",
+            &b"abcy\x01X\r"[..],
+            "abcX",
+        ),
     ] {
         let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
         let sushline = run_sushline_harness_with_inputrc(keys, inputrc);

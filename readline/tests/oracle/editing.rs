@@ -10021,3 +10021,31 @@ fn bash_and_sushline_counted_vi_put_undo_chunks() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_emacs_undo_cap_after_vi_mode_switch() {
+    let inputrc = r#"set editing-mode vi
+"\C-o": emacs-editing-mode"#;
+    for (desc, inserted) in [("twenty_one", 21), ("twenty_five", 25)] {
+        let keys = "abc\x1bA\x0f".to_owned() + &"a".repeat(inserted) + "\x1f\r";
+        let expected = "abc".to_owned() + &"a".repeat(20);
+        let bash = run_bash_readline_with_inputrc_file(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.clone()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            0,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

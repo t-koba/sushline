@@ -41,7 +41,7 @@ impl EditorState {
     /// Record the start of an insert run with GNU `rl_insert_text` grouping:
     /// only single-byte inserts extend the pending entry while it holds fewer
     /// than 20 inserted bytes; anything wider commits the run first.
-    pub(crate) fn record_insert_undo(&mut self, single_byte: bool) {
+    pub(crate) fn record_insert_undo(&mut self, single_byte: bool, vi_insert_keymap: bool) {
         if !self.undo.last_undo_was_insert {
             // Continuing an insert run keeps the pending point open: a change
             // operator may have deliberately deferred its commit so the
@@ -54,7 +54,8 @@ impl EditorState {
         // GNU's 20-byte merge cap applies to emacs insertion and to the
         // initial vi buffer, but a vi insert/replace run entered with a
         // command stays one undo entry regardless of length or byte width.
-        let vi_insert_run = self.vi.command_mode_entered && self.vi.vi_insert_change.is_some();
+        let vi_insert_run =
+            vi_insert_keymap && self.vi.command_mode_entered && self.vi.vi_insert_change.is_some();
         if vi_insert_run {
             return;
         }

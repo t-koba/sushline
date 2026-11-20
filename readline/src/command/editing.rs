@@ -164,7 +164,10 @@ where
                 // forms matched GNU in paired PTY runs, so no general
                 // negative-count rule is inferred (see COMPATIBILITY.md).
                 let count: u32 = if raw < 0 { 0 } else { raw as u32 };
-                state.record_insert_undo(count == 1 && key.len() == 1);
+                state.record_insert_undo(
+                    count == 1 && key.len() == 1,
+                    self.keymap.current() == KeyMapName::ViInsert,
+                );
                 if key.iter().any(|byte| byte.is_ascii_control()) {
                     for _ in 0..count {
                         if state.overwrite_mode && state.buffer.point() < state.buffer.len_chars() {
@@ -461,7 +464,7 @@ where
                 let raw = state.take_numeric_arg().unwrap_or(1);
                 // Like `self-insert`, negative repeat counts insert nothing.
                 let count: u32 = if raw < 0 { 0 } else { raw as u32 };
-                state.record_insert_undo(count == 1);
+                state.record_insert_undo(count == 1, self.keymap.current() == KeyMapName::ViInsert);
                 for _ in 0..count {
                     state.buffer.insert_char('\t');
                 }

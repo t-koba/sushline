@@ -533,7 +533,10 @@ where
         record_macro: bool,
     ) {
         state.display.pending_text = true;
-        state.record_insert_undo(count == 1 && bytes.len() == 1);
+        state.record_insert_undo(
+            count == 1 && bytes.len() == 1,
+            self.keymap.current() == KeyMapName::ViInsert,
+        );
         for _ in 0..count {
             if state.overwrite_mode {
                 for byte in bytes {

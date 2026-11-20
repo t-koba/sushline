@@ -9509,3 +9509,50 @@ fn bash_and_sushline_vi_replacement_esc_expires_on_keyseq_timeout() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_undo_after_cancelled_redo_survives_reads() {
+    // A cancelled redo persists, but GNU still frees the undo list on the
+    // next read's first entry to command mode.
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, second, bells) in [
+        ("undo", "abc\x1b0dq\rdef\x1bu\r", "def", 1),
+        ("redo_then_undo", "abc\x1b0dq\rdef\x1b.u\r", "def ", 2),
+        ("undo_all", "abc\x1b0dq\rdef\x1bU\r", "def", 1),
+        ("redo_then_undo_all", "abc\x1b0dq\rdef\x1b.U\r", "def ", 2),
+    ] {
+        let bash = run_bash_readline_two_reads_with_inputrc_file_and_history(
+            keys.as_bytes(),
+            inputrc,
+            &[],
+        );
+        let sushline =
+            run_sushline_harness_two_reads_with_inputrc_and_history(keys.as_bytes(), inputrc, &[]);
+        assert_eq!(
+            accepted_numbered_line(&bash, 1),
+            Some("abc".to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(
+            accepted_numbered_line(&bash, 2),
+            Some(second.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_numbered_line(&sushline, 1),
+            accepted_numbered_line(&bash, 1),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            accepted_numbered_line(&sushline, 2),
+            accepted_numbered_line(&bash, 2),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bells,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

@@ -108,43 +108,48 @@ where
                 state.overwrite_mode = false;
                 // GNU frees the undo list on the first entry to command mode:
                 // text typed before that point cannot be undone with `u`.
-                if !state.vi.command_mode_entered && !state.vi.last_change_is_cancelled_operator {
+                if !state.vi.command_mode_entered {
                     state.undo.undo_stack.clear();
                     state.undo.pending_undo = None;
                     state.vi.command_mode_entered = true;
-                    // GNU keeps an uninterrupted initial insertion as the
-                    // default vi redo change. It is not started by `i`, so
-                    // synthesize the same key sequence from the line as typed,
-                    // without making the initial text undoable. A persisted
-                    // non-insert command (`x`, `cw`, ...) remains the redo
-                    // command across reads.
-                    let prior_is_insert = state
-                        .vi
-                        .last_vi_change
-                        .as_ref()
-                        .and_then(|change| {
-                            change.iter().copied().find(|byte| !byte.is_ascii_digit())
-                        })
-                        .is_none_or(|byte| matches!(byte, b'i' | b'I' | b'a' | b'A'));
-                    if prior_is_insert {
-                        if state.vi.vi_insert_change.is_none()
-                            && !state.vi.initial_insert_bytes.is_empty()
-                            && state.vi.initial_insert_bytes == state.buffer.as_bytes()
-                        {
-                            let bytes = state.buffer.as_bytes();
-                            let mut change = vec![b'i'];
-                            change.extend_from_slice(&bytes[vi_initial_redo_start(bytes)..]);
-                            change.push(b'\x1b');
-                            state.set_initial_insert_vi_redo(change);
-                        } else if !state.vi.initial_insert_bytes.is_empty()
-                            || !state.vi.last_change_is_initial_insert
-                        {
-                            // Editing the initial text before this read's
-                            // first ESC, or carrying an explicit insert redo
-                            // into an empty read, drops GNU's redo change.
-                            state.vi.last_vi_change = None;
-                            state.vi.last_change_is_cancelled_operator = false;
-                            state.vi.last_change_is_initial_insert = false;
+                    // The redo synthesis is separate from the undo reset: a
+                    // cancelled operator persists across reads and must keep
+                    // its redo, but GNU still frees the undo list each read.
+                    if !state.vi.last_change_is_cancelled_operator {
+                        // GNU keeps an uninterrupted initial insertion as the
+                        // default vi redo change. It is not started by `i`, so
+                        // synthesize the same key sequence from the line as typed,
+                        // without making the initial text undoable. A persisted
+                        // non-insert command (`x`, `cw`, ...) remains the redo
+                        // command across reads.
+                        let prior_is_insert = state
+                            .vi
+                            .last_vi_change
+                            .as_ref()
+                            .and_then(|change| {
+                                change.iter().copied().find(|byte| !byte.is_ascii_digit())
+                            })
+                            .is_none_or(|byte| matches!(byte, b'i' | b'I' | b'a' | b'A'));
+                        if prior_is_insert {
+                            if state.vi.vi_insert_change.is_none()
+                                && !state.vi.initial_insert_bytes.is_empty()
+                                && state.vi.initial_insert_bytes == state.buffer.as_bytes()
+                            {
+                                let bytes = state.buffer.as_bytes();
+                                let mut change = vec![b'i'];
+                                change.extend_from_slice(&bytes[vi_initial_redo_start(bytes)..]);
+                                change.push(b'\x1b');
+                                state.set_initial_insert_vi_redo(change);
+                            } else if !state.vi.initial_insert_bytes.is_empty()
+                                || !state.vi.last_change_is_initial_insert
+                            {
+                                // Editing the initial text before this read's
+                                // first ESC, or carrying an explicit insert redo
+                                // into an empty read, drops GNU's redo change.
+                                state.vi.last_vi_change = None;
+                                state.vi.last_change_is_cancelled_operator = false;
+                                state.vi.last_change_is_initial_insert = false;
+                            }
                         }
                     }
                 }

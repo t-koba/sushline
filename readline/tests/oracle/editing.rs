@@ -7592,7 +7592,7 @@ fn bash_and_sushline_end_of_file_command_signals_eof_only_for_eof_key() {
         (
             "eof_key_interior",
             "\"X\": end-of-file\n",
-            b"abXc\r".as_slice(),
+            b"abc\x1b[DX\r".as_slice(),
             Some("abc"),
             1,
             false,
@@ -7616,7 +7616,7 @@ fn bash_and_sushline_end_of_file_command_signals_eof_only_for_eof_key() {
         (
             "ctrl_d_interior",
             "\"\\C-d\": end-of-file\n",
-            b"ab\x04c\r".as_slice(),
+            b"abc\x1b[D\x04\r".as_slice(),
             Some("abc"),
             1,
             false,
@@ -7803,23 +7803,23 @@ fn bash_and_sushline_vi_backward_word_follows_gnu_boundaries() {
     // short run when the next class boundary belongs to a one-character
     // word. Bash 5.3 PTY observations for these line shapes and counts.
     let inputrc = "set editing-mode vi";
-    for (desc, text, left, expected) in [
-        ("one_char_word", "a-b", 2, "@a-b"),
-        ("one_char_word_long_run", "a--b", 3, "@a--b"),
-        ("long_word", "aa-b", 3, "aa@-b"),
-        ("long_word_long_run", "aa--b", 4, "aa@--b"),
-        ("one_char_two_letter_target", "a-bb", 2, "@a-bb"),
-        ("inside_target", "a-bb", 3, "a-@bb"),
-        ("long_words", "one--two", 5, "one@--two"),
-        ("across_space", "a b", 2, "@a b"),
-        ("previous_one_char_word", "a b c", 4, "a @b c"),
-        ("count_two", "one--two three", 5, "one@--two three"),
-        ("one_char_eol", "one--b", 6, "one@--b"),
-        ("one_char_after_space_eol", "abc d", 5, "@abc d"),
-        ("two_char_eol", "one-bb", 6, "one-@bb"),
-        ("one_char_only", "b", 1, "@b"),
+    for (desc, text, left, motion, expected) in [
+        ("one_char_word", "a-b", 2, "b", "@a-b"),
+        ("one_char_word_long_run", "a--b", 3, "b", "@a--b"),
+        ("long_word", "aa-b", 3, "b", "aa@-b"),
+        ("long_word_long_run", "aa--b", 4, "b", "aa@--b"),
+        ("one_char_two_letter_target", "a-bb", 2, "b", "@a-bb"),
+        ("inside_target", "a-bb", 3, "b", "a-@bb"),
+        ("long_words", "one--two", 5, "b", "one@--two"),
+        ("across_space", "a b", 2, "b", "@a b"),
+        ("previous_one_char_word", "a b c", 4, "b", "a @b c"),
+        ("count_two", "one--two three", 5, "2b", "@one--two three"),
+        ("one_char_eol", "one--b", 6, "b", "one@--b"),
+        ("one_char_after_space_eol", "abc d", 5, "b", "@abc d"),
+        ("two_char_eol", "one-bb", 6, "b", "one-@bb"),
+        ("one_char_only", "b", 1, "b", "@b"),
     ] {
-        let keys = format!("{text}\x1b0{}bi@\r", "l".repeat(left));
+        let keys = format!("{text}\x1b0{}{motion}i@\r", "l".repeat(left));
         let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
         let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
         assert_eq!(

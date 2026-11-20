@@ -423,6 +423,12 @@ where
         let count = repeat_count(state.take_numeric_arg());
         state.input.pending_replace = false;
         let replacement = replacement_unit(first);
+        if replacement.is_empty() && first == [0x1b] {
+            // An ESC used as the replacement is ignored, but GNU still lets
+            // it introduce the next key sequence, so a following arrow moves
+            // the cursor. Keep it as a keymap prefix instead of dropping it.
+            state.input.pending_key = first.to_vec();
+        }
         if !replacement.is_empty() {
             // Vi command-mode `$` leaves the byte point just past the last
             // character; GNU replaces the last character under the cursor.

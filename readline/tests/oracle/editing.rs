@@ -9147,3 +9147,37 @@ fn bash_and_sushline_vi_char_search_keeps_esc_prefix() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_replace_esc_keeps_key_prefix() {
+    // An ESC used as the replacement character is ignored, but GNU still
+    // treats it as the start of the next key sequence.
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, expected, bells) in [
+        ("csi_arrow", "abc\x1b0r\x1b[Cx\r", "ac", 0),
+        ("ss3_arrow", "abc\x1b0r\x1bOCx\r", "ac", 0),
+        ("meta_x", "abc\x1b0r\x1bxx\r", "c", 0),
+        ("bare_esc", "abc\x1b0r\x1bx\r", "bc", 0),
+        ("ordinary_target", "abc\x1b0rZx\r", "bc", 0),
+        ("multibyte_target", "a\u{e9}b\x1b0r\u{e9}x\r", "\u{e9}b", 0),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bells,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

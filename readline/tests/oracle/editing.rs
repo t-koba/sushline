@@ -8961,6 +8961,41 @@ fn bash_and_sushline_vi_operator_motions_distinguish_arrow_from_l() {
         ("delete_space", "abc\x1b0lld \r", "ab", 0),
         ("plain_arrow", "abc\x1b0ll\x1b[Cx\r", "ab", 1),
         ("delete_ss3_arrow", "abc\x1b0lld\x1bOC\r", "abc", 1),
+        ("delete_arrow_from_start", "abc\x1b0d\x1b[C\r", "abc", 0),
+        (
+            "delete_arrow_long_line",
+            "abcdefghi\x1b0ld\x1b[C\r",
+            "abcdefghi",
+            0,
+        ),
+        (
+            "delete_arrow_after_blocked_l",
+            "abc\x1b0hld\x1b[C\r",
+            "abc",
+            1,
+        ),
+        (
+            "delete_arrow_count_3",
+            "abc def\x1b0d3\x1b[C\r",
+            "abc def",
+            0,
+        ),
+        (
+            "delete_arrow_count_9",
+            "abc def\x1b0d9\x1b[C\r",
+            "abc def",
+            0,
+        ),
+        ("change_arrow_mid_line", "abc\x1b0hlc\x1b[CZ\r", "abc", 2),
+        ("yank_arrow_mid_line", "abc\x1b0hly\x1b[Cp\r", "abc", 2),
+        ("delete_ss3_arrow_from_start", "abc\x1b0d\x1bOC\r", "abc", 0),
+        (
+            "arrow_moves_point_after_cancel",
+            "abc\x1b0ld\x1b[CX\r",
+            "ac",
+            0,
+        ),
+        ("operator_space_still_applies", "abc\x1b0hld \r", "ac", 1),
     ] {
         let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
         let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);

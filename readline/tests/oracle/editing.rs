@@ -7720,3 +7720,46 @@ fn bash_and_sushline_vi_end_word_from_whitespace_follows_gnu() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_change_word_follows_gnu_whitespace_boundaries() {
+    // GNU `cw` runs `rl_vi_fword` and then backs the end point up to the end
+    // of the current run, so whitespace under the cursor changes one
+    // character. Bash 5.3 PTY observations for these gaps and counts,
+    // including trailing whitespace where GNU temporarily appends a blank.
+    let inputrc = "set editing-mode vi";
+    for (desc, text, left, motion, expected) in [
+        ("interior_run", "one  two", 3, "cwX", "oneX two"),
+        ("interior_run_middle", "one  two", 4, "cwX", "one Xtwo"),
+        ("leading_run", "  leading", 0, "cwX", "X leading"),
+        ("longer_run", "one   two", 3, "cwX", "oneX  two"),
+        ("longer_run_middle", "one   two", 4, "cwX", "one X two"),
+        ("last_trailing_space", "one ", 2, "cwX", "onX"),
+        ("at_end_after_space", "one ", 3, "cwX", "oneX"),
+        ("last_of_trailing_run", "one  ", 4, "cwX", "one X"),
+        ("first_of_trailing_run", "one  ", 3, "cwX", "oneX"),
+        (
+            "counted_from_space",
+            "one  two three",
+            3,
+            "c2wX",
+            "oneX three",
+        ),
+        ("counted_from_leading", "  leading two", 0, "c2wX", "X two"),
+        ("word_at_end", "one", 2, "cwX", "onX"),
+    ] {
+        let keys = format!("{text}\x1b0{}{motion}\r", "l".repeat(left));
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

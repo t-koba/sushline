@@ -775,9 +775,10 @@ impl LineBuffer {
 
     /// Vi change-word motion (lowercase `cw`, with a numeric argument).
     ///
-    /// GNU Readline's `cw` stops at the boundary of the current word class
-    /// without crossing the whitespace that follows it, unlike `w`. Further
-    /// repetitions cross that whitespace and change one more class run.
+    /// GNU Readline runs `rl_vi_fword` for the motion, then backs the end
+    /// point up to the end of the current run. The cursor itself stays at
+    /// the start of the change, so `cw` never crosses the whitespace after
+    /// a word on its first repetition.
     pub fn vi_change_words(&mut self, count: u32, break_chars: Option<&str>) -> bool {
         let is_word = word_matcher(break_chars);
         let class = |ch: char| {
@@ -790,19 +791,47 @@ impl LineBuffer {
             }
         };
         let start = self.point;
-        for i in 0..count {
-            if i > 0 {
-                self.skip_whitespace_in(&class);
+        let end = self.len_chars();
+        if start >= end {
+            return false;
+        }
+        let mut point = start;
+
+        // GNU appends a blank for the motion so the last character can be
+        // reached; our boundary helpers already stop at the buffer end.
+        for _ in 0..count {
+            if point >= end {
+                break;
             }
-            if let Some(ch) = self.char_at(self.point) {
-                if class(ch) == 0 {
-                    self.skip_whitespace_in(&class);
-                } else {
-                    self.advance_to_boundary_in(&class, class(ch));
+            let current = class(self.char_at(point).unwrap());
+            if current != 0 {
+                while self.char_at(point).is_some_and(|ch| class(ch) == current) {
+                    point = self.next_char_boundary(point);
                 }
             }
+            while self.char_at(point).is_some_and(|ch| class(ch) == 0) {
+                point = self.next_char_boundary(point);
+            }
         }
-        self.point != start
+
+        // Back up from the first character of the next word, then reduce the
+        // range to the current run. Starting in whitespace or at a run end
+        // leaves a single character to change; starting earlier in a run
+        // advances over its last character so `cw` behaves like `ce`.
+        if point < end && self.char_at(point).is_some_and(|ch| class(ch) != 0) {
+            point = self.prev_char(point).map(|(prev, _)| prev).unwrap_or(point);
+        }
+        while point > start && self.char_at(point).is_some_and(|ch| class(ch) == 0) {
+            point = self.prev_char(point).map(|(prev, _)| prev).unwrap_or(point);
+        }
+        let advance = point == start
+            || (point < end.saturating_sub(1)
+                && self.char_at(point).is_some_and(|ch| class(ch) != 0));
+        if advance {
+            point = self.next_char_boundary(point);
+        }
+        self.point = point;
+        point != start
     }
 
     fn vi_word_motion_by<F>(&mut self, is_word: F, skip_whitespace: bool) -> bool
@@ -996,18 +1025,6 @@ impl LineBuffer {
                 break;
             }
             self.point = next;
-        }
-    }
-
-    fn advance_to_boundary_in<F>(&mut self, class: &F, target: u8)
-    where
-        F: Fn(char) -> u8,
-    {
-        while self
-            .char_at(self.point)
-            .is_some_and(|ch| class(ch) == target)
-        {
-            self.point = self.next_char_boundary(self.point);
         }
     }
 

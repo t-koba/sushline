@@ -11,6 +11,9 @@ pub(crate) struct UndoState {
     /// Buffer before a vi put and its dot-replays, kept so their undo entries
     /// can be merged into the single GNU entry as each replay commits.
     pub(crate) vi_put_undo_before: Option<LineBuffer>,
+    /// Point after the most recent put in the current undo group. GNU groups
+    /// consecutive puts and dot replays, but a motion between puts splits it.
+    pub(crate) vi_put_undo_point: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,27 +77,38 @@ impl EditorState {
         });
     }
 
-    pub(crate) fn start_vi_put_undo(&mut self, before: &LineBuffer) {
+    pub(crate) fn start_vi_put_undo(&mut self, before: &LineBuffer, after_point: usize) {
         self.undo.vi_put_undo_before = Some(before.clone());
+        self.undo.vi_put_undo_point = Some(after_point);
     }
 
     pub(crate) fn clear_vi_put_undo(&mut self) {
         self.undo.vi_put_undo_before = None;
+        self.undo.vi_put_undo_point = None;
     }
 
     /// Merge the just-committed put entry into the earlier put entry when
     /// both are part of the same uninterrupted put/dot sequence.
-    pub(crate) fn extend_vi_put_undo(&mut self, before_edit: &LineBuffer) -> bool {
+    pub(crate) fn extend_vi_put_undo(
+        &mut self,
+        before_edit: &LineBuffer,
+        after_point: usize,
+    ) -> bool {
         let Some(before) = self.undo.vi_put_undo_before.clone() else {
             return false;
         };
+        if self.undo.vi_put_undo_point != Some(before_edit.point()) {
+            self.undo.vi_put_undo_before = None;
+            self.undo.vi_put_undo_point = None;
+            return false;
+        }
         let stack = &self.undo.undo_stack;
         if stack.len() < 2
             || UndoEntry::from_buffers(&before, before_edit).as_ref()
                 != Some(&stack[stack.len() - 2])
             || UndoEntry::from_buffers(before_edit, &self.buffer).as_ref() != stack.last()
         {
-            self.undo.vi_put_undo_before = None;
+            self.clear_vi_put_undo();
             return false;
         }
         self.undo.undo_stack.pop();
@@ -102,12 +116,13 @@ impl EditorState {
         if let Some(combined) = UndoEntry::from_buffers(&before, &self.buffer) {
             self.undo.undo_stack.push(combined);
         }
+        self.undo.vi_put_undo_point = Some(after_point);
         true
     }
 
     pub(crate) fn undo(&mut self) -> bool {
         self.commit_pending_undo();
-        self.undo.vi_put_undo_before = None;
+        self.clear_vi_put_undo();
         let undone = if let Some(entry) = self.undo.undo_stack.pop() {
             entry.undo(&mut self.buffer);
             // GNU leaves vi point on the last character when an undo restores
@@ -148,7 +163,7 @@ impl EditorState {
     }
 
     pub(crate) fn restore_undo_snapshot_lines(&mut self, lines: &[HistoryUndoEntry]) {
-        self.undo.vi_put_undo_before = None;
+        self.clear_vi_put_undo();
         self.undo.undo_stack = lines
             .iter()
             .map(|entry| UndoEntry {

@@ -9679,3 +9679,70 @@ fn bash_and_sushline_emacs_undo_keeps_end_point() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_put_leaves_point_on_last_character() {
+    for (desc, keys, expected) in [
+        ("lower_insert", "abc\x1b0xpiX\x1b\r", "bXac"),
+        ("lower_delete", "abc\x1b0xpx\r", "bc"),
+        ("lower_forward", "abc\x1b0xpl\r", "bac"),
+        ("upper_insert", "abc\x1b0xPiX\x1b\r", "Xabc"),
+        ("upper_delete", "abc\x1b0xPx\r", "bc"),
+        ("counted_insert", "abc\x1b0x2piX\x1b\r", "baXac"),
+        ("yanked_insert", "abc\x1byl0p iX\x1b\r", "acXbc"),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), "set editing-mode vi");
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), "set editing-mode vi");
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            0,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
+fn bash_and_sushline_vi_put_dot_replay_moves_forward() {
+    for (desc, keys, expected) in [
+        ("dot_insert", "abc\x1b0xp.iX\x1b\r", "baXac"),
+        ("double_dot_insert", "abc\x1b0xp..iX\x1b\r", "baaXac"),
+        ("counted_dot_insert", "abc\x1b0x2p.iX\x1b\r", "baaaXac"),
+        ("upper_dot_insert", "abc\x1b0xP.iX\x1b\r", "Xaabc"),
+        ("put_undo_dot", "abc\x1b0xpu.\r", "bca"),
+        ("put_dot_undo_dot", "abc\x1b0xp.u.\r", "bca"),
+        ("counted_put_undo_dot", "abc\x1b0x2pu.\r", "bcaa"),
+        ("put_undo_double_dot", "abc\x1b0xpu..\r", "bcaa"),
+        ("lower_put_after_l", "abc\x1b0xplp\r", "baca"),
+        ("put_after_l_undo", "abc\x1b0xplpu\r", "bac"),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), "set editing-mode vi");
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), "set editing-mode vi");
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            0,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

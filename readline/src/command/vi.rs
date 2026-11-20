@@ -111,7 +111,7 @@ where
                 if !state.vi.command_mode_entered {
                     state.undo.undo_stack.clear();
                     state.undo.pending_undo = None;
-                    state.undo.vi_put_undo_before = None;
+                    state.clear_vi_put_undo();
                     state.vi.command_mode_entered = true;
                     // The redo synthesis is separate from the undo reset: a
                     // cancelled operator persists across reads and must keep
@@ -558,8 +558,10 @@ where
                     state.after_non_kill_command();
                     // GNU keeps a lowercase put and its dot-replays in one
                     // undo entry; an uppercase put starts a separate group.
-                    if !(key == b"p" && state.extend_vi_put_undo(&before_edit)) {
-                        state.start_vi_put_undo(&before_edit);
+                    if !(key == b"p"
+                        && state.extend_vi_put_undo(&before_edit, state.buffer.point()))
+                    {
+                        state.start_vi_put_undo(&before_edit, state.buffer.point());
                     }
                     return Ok(EditorOutcome::Continue);
                 } else {
@@ -591,6 +593,7 @@ where
                             let yanked = if command == b'P' {
                                 state.vi_put_before()
                             } else {
+                                state.buffer.move_forward();
                                 state.vi_put()
                             };
                             if !yanked {
@@ -601,7 +604,9 @@ where
                         // plain dot repeats that count, not the older one.
                         state.set_vi_redo(bytes);
                         state.after_non_kill_command();
-                        if command != b'p' || !state.extend_vi_put_undo(&before_edit) {
+                        if command != b'p'
+                            || !state.extend_vi_put_undo(&before_edit, state.buffer.point())
+                        {
                             state.clear_vi_put_undo();
                         }
                         return Ok(EditorOutcome::Continue);

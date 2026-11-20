@@ -18,6 +18,9 @@ pub(crate) struct ViModeState {
     pub(crate) pending_mark_operator: Option<(ViOperator, usize, Vec<u8>)>,
     pub(crate) vi_marks: BTreeMap<char, usize>,
     pub(crate) command_mode_entered: bool,
+    /// Bytes inserted before this read's first vi command-mode entry.
+    pub(crate) initial_insert_bytes: Vec<u8>,
+    pub(crate) initial_insert_recorded: bool,
     pub(crate) defer_undo_commit: bool,
     pub(crate) pending_vi_register: bool,
     pub(crate) active_vi_register: Option<char>,
@@ -67,6 +70,9 @@ impl EditorState {
     }
 
     pub(crate) fn record_vi_insert_bytes(&mut self, key: &[u8]) {
+        if !self.vi.command_mode_entered {
+            self.vi.initial_insert_bytes.extend_from_slice(key);
+        }
         if let Some(change) = self.vi.vi_insert_change.as_mut() {
             change.extend_from_slice(key);
         }

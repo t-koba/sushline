@@ -57,18 +57,33 @@ where
                     state.undo.undo_stack.clear();
                     state.undo.pending_undo = None;
                     state.vi.command_mode_entered = true;
-                    // GNU keeps the initial insertion as the default vi redo
-                    // change. It is not started by `i`, so synthesize the
-                    // same key sequence from the line as typed, without
-                    // making the initial text undoable.
-                    if state.vi.last_vi_change.is_none()
-                        && state.vi.vi_insert_change.is_none()
-                        && !state.buffer.as_bytes().is_empty()
-                    {
-                        let mut change = vec![b'i'];
-                        change.extend_from_slice(state.buffer.as_bytes());
-                        change.push(b'\x1b');
-                        state.vi.last_vi_change = Some(change);
+                    // GNU keeps an uninterrupted initial insertion as the
+                    // default vi redo change. It is not started by `i`, so
+                    // synthesize the same key sequence from the line as typed,
+                    // without making the initial text undoable. A persisted
+                    // non-insert command (`x`, `cw`, ...) remains the redo
+                    // command across reads.
+                    if !state.vi.initial_insert_recorded {
+                        state.vi.initial_insert_recorded = true;
+                        let prior_is_insert = state
+                            .vi
+                            .last_vi_change
+                            .as_ref()
+                            .and_then(|change| {
+                                change.iter().copied().find(|byte| !byte.is_ascii_digit())
+                            })
+                            .is_none_or(|byte| matches!(byte, b'i' | b'I' | b'a' | b'A'));
+                        if prior_is_insert
+                            && state.vi.vi_insert_change.is_none()
+                            && state.vi.initial_insert_bytes == state.buffer.as_bytes()
+                            && !state.buffer.as_bytes().is_empty()
+                        {
+                            let bytes = state.buffer.as_bytes();
+                            let mut change = vec![b'i'];
+                            change.extend_from_slice(&bytes[vi_initial_redo_start(bytes)..]);
+                            change.push(b'\x1b');
+                            state.vi.last_vi_change = Some(change);
+                        }
                     }
                 }
                 state.finish_vi_insert_change(key);
@@ -630,6 +645,20 @@ where
             _ => unreachable!("named vi mode command mismatch"),
         }
         Ok(EditorOutcome::Continue)
+    }
+}
+
+// GNU's recorded initial insert starts at the last multibyte character of
+// the typed line; ASCII lines are recorded in full.
+fn vi_initial_redo_start(bytes: &[u8]) -> usize {
+    match std::str::from_utf8(bytes) {
+        Ok(text) => text
+            .char_indices()
+            .filter(|(_, ch)| !ch.is_ascii())
+            .map(|(index, _)| index)
+            .next_back()
+            .unwrap_or(0),
+        Err(_) => 0,
     }
 }
 

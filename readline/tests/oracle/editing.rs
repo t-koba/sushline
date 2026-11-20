@@ -8186,6 +8186,22 @@ fn bash_and_sushline_vi_redo_initial_insert() {
             "abZZZc",
             0,
         ),
+        ("last_multibyte", "a\u{e9}\x1b.\r", "a\u{e9}\u{e9}", 0),
+        (
+            "two_multibyte",
+            "\u{65e5}\u{672c}\x1b.\r",
+            "\u{65e5}\u{672c}\u{672c}",
+            0,
+        ),
+        ("mixed_width", "h\u{e9}llo\x1b.\r", "h\u{e9}ll\u{e9}lloo", 0),
+        (
+            "mixed_width_tail",
+            "ab\u{e9}cd\x1b.\r",
+            "ab\u{e9}c\u{e9}cdd",
+            0,
+        ),
+        ("backspace_breaks_initial", "abcd\x08\x1b.\r", "abc", 0),
+        ("word_kill_breaks_initial", "abc def\x17\x1b.\r", "abc ", 0),
     ] {
         let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
         let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
@@ -8228,6 +8244,55 @@ fn bash_and_sushline_vi_undo_honors_count() {
         assert_eq!(
             accepted_line(&sushline),
             accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
+    }
+}
+
+#[test]
+fn bash_and_sushline_vi_redo_initial_insert_per_read() {
+    // GNU refreshes the initial-insert redo change on each read when the
+    // persisted redo command was an insertion. A persisted operator such as
+    // `x` stays the redo command instead.
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, first, second, bells) in [
+        ("no_prior_change", "abc\x1b\rxyz\x1b.\r", "abc", "xyxyzz", 0),
+        (
+            "prior_insert",
+            "abc\x1biX\x1b\rdef\x1b.\r",
+            "abXc",
+            "dedeff",
+            0,
+        ),
+        ("prior_operator", "abc\x1b0x\rdef\x1b.\r", "bc", "de", 0),
+    ] {
+        let bash = run_bash_readline_two_reads_with_inputrc_file_and_history(
+            keys.as_bytes(),
+            inputrc,
+            &[],
+        );
+        let sushline =
+            run_sushline_harness_two_reads_with_inputrc_and_history(keys.as_bytes(), inputrc, &[]);
+        assert_eq!(
+            accepted_numbered_line(&bash, 1),
+            Some(first.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(
+            accepted_numbered_line(&bash, 2),
+            Some(second.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_numbered_line(&sushline, 1),
+            accepted_numbered_line(&bash, 1),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            accepted_numbered_line(&sushline, 2),
+            accepted_numbered_line(&bash, 2),
             "{desc}: bash={bash}\nsushline={sushline}"
         );
         assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");

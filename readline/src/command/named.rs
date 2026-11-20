@@ -102,6 +102,10 @@ where
         // A named command is a command, so it redraws like the binding
         // that runs one.
         state.input.applied_command = true;
+        if self.vi_operator_blocks_command(state, key) {
+            self.cancel_vi_operator(state);
+            return Ok(EditorOutcome::Continue);
+        }
         if command == "vi-set-register" && !self.variables.is_on("sushline-vi-registers") {
             return self.apply_named_misc_command(state, command, key, hooks);
         }

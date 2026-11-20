@@ -85,6 +85,44 @@ const TYPED_COMMAND_TABLE: &[(EditCommand, TypedCommandGroup)] = &[
     (EditCommand::Undo, TypedCommandGroup::Editing),
 ];
 
+/// Vi motions that may follow a pending operator. Other keys cancel the
+/// operator in GNU vi mode; movement commands still move point, while other
+/// commands are dropped by the dispatch guard.
+fn is_vi_operator_motion_key(key: &[u8]) -> bool {
+    key.len() == 1
+        && matches!(
+            key[0],
+            b'0'..=b'9'
+                | b' '
+                | b'$'
+                | b'%'
+                | b'\''
+                | b'`'
+                | b'^'
+                | b'b'
+                | b'B'
+                | b'c'
+                | b'd'
+                | b'e'
+                | b'E'
+                | b'f'
+                | b'F'
+                | b'g'
+                | b'G'
+                | b'h'
+                | b'l'
+                | b'w'
+                | b'W'
+                | b't'
+                | b'T'
+                | b'y'
+                | b'|'
+                | b','
+                | b';'
+                | b'"'
+        )
+}
+
 fn typed_command_group(command: EditCommand) -> TypedCommandGroup {
     TYPED_COMMAND_TABLE
         .iter()
@@ -96,6 +134,17 @@ impl<T> Editor<T>
 where
     T: TerminalIo,
 {
+    pub(super) fn vi_operator_blocks_command(&self, state: &EditorState, key: &[u8]) -> bool {
+        matches!(self.keymap.current(), KeyMapName::ViCommand)
+            && state.vi.vi_operator.is_some()
+            && !is_vi_operator_motion_key(key)
+    }
+
+    pub(super) fn cancel_vi_operator(&self, state: &mut EditorState) {
+        state.take_vi_operator();
+        state.take_numeric_arg();
+    }
+
     pub(super) fn apply_command(
         &mut self,
         state: &mut EditorState,
@@ -123,6 +172,12 @@ where
             command,
             EditCommand::DigitArgument | EditCommand::UniversalArgument
         );
+        if self.vi_operator_blocks_command(state, key)
+            && typed_command_group(command) != TypedCommandGroup::Movement
+        {
+            self.cancel_vi_operator(state);
+            return Ok(EditorOutcome::Continue);
+        }
         if !builds_arg {
             state.completion.menu_completion = None;
         }

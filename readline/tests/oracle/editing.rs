@@ -9074,3 +9074,38 @@ fn bash_and_sushline_vi_operators_cancel_on_non_motion_keys() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_operators_skip_non_motion_commands() {
+    // GNU drops a pending operator and ignores a bound command that is not a
+    // vi motion. Movement keys still move point after cancellation.
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, expected, bells) in [
+        ("delete_char", "abc\x1b0dx\r", "abc", 0),
+        ("backward_delete_char", "abc\x1b0dX\r", "abc", 0),
+        ("put", "abc\x1b0dp\r", "abc", 0),
+        ("undo", "abc\x1b0du\r", "abc", 0),
+        ("change_case", "abc\x1b0ld~\r", "abc", 0),
+        ("redo", "abc def\x1b0ld.\r", "abc def", 0),
+        ("delete_to_end", "abc def\x1b0ldD\r", "abc def", 0),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bells,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

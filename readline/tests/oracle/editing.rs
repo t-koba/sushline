@@ -4430,6 +4430,32 @@ fn bash_readline_and_sushline_accept_same_vi_counted_replace() {
     }
 }
 
+#[test]
+fn bash_and_sushline_vi_replace_whole_multibyte_character() {
+    // GNU vi `r` consumes one whole character as the replacement key and
+    // replaces whole characters in the line, even when the PTY delivers the
+    // replacement bytes one at a time. These pin only the measured forms.
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, expected, bells) in [
+        ("single", "abc\x1b0rあ\r", "あbc", 0),
+        ("counted_two", "abc\x1b02rあ\r", "ああc", 0),
+        ("at_eol", "abc\x1b$rあ\r", "abあ", 0),
+        ("redo", "abc\x1b0rあ.\r", "あbc", 0),
+        ("undo", "abc\x1b02rあu\r", "abc", 0),
+        ("four_byte", "abc\x1b0r𝄞\r", "𝄞bc", 0),
+        ("mixed_width", "aéllo\x1b0r日\r", "日éllo", 0),
+        ("ascii_replacement", "aéllo\x1b0rX\r", "Xéllo", 0),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        let expected = Some(expected.to_string());
+        assert_eq!(accepted_line(&bash), expected, "{desc}: {bash}");
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(accepted_line(&sushline), expected, "{desc}: {sushline}");
+        assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
+    }
+}
+
 /// Paired Bash 5.3 PTY cases for GNU numeric counts on vi `s`.
 ///
 /// These pin the counted deletions, end-of-line clamping, the empty-line bell,
@@ -8430,26 +8456,5 @@ fn bash_and_sushline_vi_redo_initial_insert_per_read() {
             "{desc}: bash={bash}\nsushline={sushline}"
         );
         assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
-    }
-}
-
-#[test]
-fn probe_multibyte_vi_replace() {
-    let inputrc = "set editing-mode vi";
-    for (desc, keys) in [
-        ("single", "abc\x1b0rあ\r"),
-        ("counted_two", "abc\x1b02rあ\r"),
-        ("at_eol", "abc\x1b$rあ\r"),
-        ("redo", "abc\x1b0rあ.\r"),
-        ("undo", "abc\x1b02rあu\r"),
-        ("four_byte", "abc\x1b0r𝄞\r"),
-        ("mixed_width", "aéllo\x1b0r日\r"),
-        ("ascii_repl_of_multibyte", "aéllo\x1b0rX\r"),
-    ] {
-        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
-        let sush = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
-        println!("{desc}: bash=({:?},{}) sush=({:?},{})",
-            accepted_line(&bash), bell_count(&bash),
-            accepted_line(&sush), bell_count(&sush));
     }
 }

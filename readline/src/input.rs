@@ -396,6 +396,16 @@ where
         bytes: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
+        // GNU reads a whole character as the replacement key. Hold an
+        // incomplete character across split reads, or a lead byte would be
+        // committed as the replacement and its continuations ring as keys.
+        let mut buffered = std::mem::take(&mut state.input.pending_char_bytes);
+        buffered.extend_from_slice(bytes);
+        if is_incomplete_utf8_prefix(&buffered) {
+            state.input.pending_char_bytes = buffered;
+            return Ok(EditorOutcome::Continue);
+        }
+        let bytes = buffered.as_slice();
         // Fragmentation-invariant: only the first unit is the replacement;
         // trailing bytes are separate input like split reads.
         if bytes.is_empty() {

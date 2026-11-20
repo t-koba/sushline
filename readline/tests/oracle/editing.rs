@@ -8982,3 +8982,60 @@ fn bash_and_sushline_vi_operator_motions_distinguish_arrow_from_l() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_operators_cancel_on_non_motion_keys() {
+    // GNU applies a pending vi operator only to the vi motion bound to the
+    // movement command. Arrow/Home/End keys and unbound keys cancel it
+    // silently, while h/l/space/0/$ and word motions still apply it.
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, expected, bells) in [
+        ("left_from_zero", "abc\x1b0d\x1b[D\r", "abc", 1),
+        ("left_from_one", "abc\x1b0ld\x1b[D\r", "abc", 0),
+        ("left_ss3", "abc\x1b0ld\x1bOD\r", "abc", 0),
+        ("left_count", "abc\x1b0l2d\x1b[D\r", "abc", 0),
+        ("left_multibyte", "a\u{e9}\x1bld\x1b[D\r", "a\u{e9}", 1),
+        ("change_left", "abc\x1b0lc\x1b[DZ\r", "abc", 1),
+        ("yank_left", "abc\x1b0ly\x1b[Dp\r", "abc", 1),
+        ("ctrl_b", "abc\x1b0ld\x02\r", "abc", 0),
+        ("ctrl_f", "abc\x1b0ld\x06\r", "abc", 0),
+        ("ctrl_a", "abc\x1b0ld\x01\r", "abc", 0),
+        ("ctrl_e", "abc\x1b0ld\x05\r", "abc", 0),
+        ("unbound_printable", "abc\x1b0ldQ\r", "abc", 0),
+        ("unbound_csi", "abc\x1b0ld\x1b[Z\r", "abc", 2),
+        ("end_key", "abc def\x1b0ld\x1b[F\r", "abc def", 0),
+        ("home_key", "abc def\x1bld\x1b[H\r", "abc def", 1),
+        ("h", "abc\x1b0ldh\r", "bc", 0),
+        ("backspace", "abc\x1b0ld\x08\r", "abc", 0),
+        ("l", "abc\x1b0lldl\r", "ab", 0),
+        ("space", "abc\x1b0lld \r", "ab", 0),
+        ("backward_word", "abc def\x1b$db\r", "abc f", 0),
+        ("forward_word", "abc def\x1b$dw\r", "abc de", 0),
+        ("end_word", "abc def\x1b0de\r", " def", 0),
+        ("first_non_blank", "abc\x1bd^\r", "c", 0),
+        ("zero", "abc\x1bd0\r", "c", 0),
+        ("dollar", "abc\x1b0d$\r", "", 0),
+        ("find", "abc def\x1b0dfd\r", "ef", 0),
+        ("find_backward", "abc def\x1b$dFd\r", "abc f", 0),
+        ("till", "abc def\x1b0dte\r", "ef", 0),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bells,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

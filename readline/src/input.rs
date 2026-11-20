@@ -942,6 +942,9 @@ where
         }
 
         if matches!(self.keymap.current(), KeyMapName::ViCommand) {
+            // GNU cancels a pending vi operator silently when the next key is
+            // unbound; an ordinary unbound key would ring here.
+            let pending_operator = state.vi.vi_operator.is_some();
             state.cancel_pending_command();
             // Redundant bare ESCs are silent no-ops in vi command mode:
             // Bash accepts after them without ringing. Drop the whole
@@ -955,7 +958,9 @@ where
                 }
                 return self.handle_bytes(state, rest, hooks);
             }
-            self.ding()?;
+            if !pending_operator {
+                self.ding()?;
+            }
             state.consume_numeric_arg_unless_prefix();
             let (_, rest) = split_first_unit(bytes);
             if rest.is_empty() {

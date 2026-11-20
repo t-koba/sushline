@@ -30,7 +30,7 @@ where
     ) -> Result<EditorOutcome, ReadlineError> {
         match command {
             EditCommand::BackwardChar => {
-                let op_start = state.take_vi_operator();
+                let op_start = take_vi_motion_operator(state, command, key);
                 let bytewise = self.char_motion_is_bytewise();
                 if !move_by_char(state, false, bytewise) {
                     self.ding()?;
@@ -54,14 +54,14 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::BeginningOfLine => {
-                let op_start = state.take_vi_operator();
+                let op_start = take_vi_motion_operator(state, command, key);
                 state.buffer.move_beginning();
                 self.finish_vi_motion_operator(state, op_start, key, false);
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::EndOfLine => {
-                let op_start = state.take_vi_operator();
+                let op_start = take_vi_motion_operator(state, command, key);
                 state.buffer.move_end();
                 // Vi command mode keeps point on the final character; insert
                 // mode and emacs keep it at the buffer end.
@@ -87,14 +87,13 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::ForwardChar => {
-                let op_start = state.take_vi_operator();
+                let op_start = take_vi_motion_operator(state, command, key);
                 let bytewise = self.char_motion_is_bytewise();
                 // A pending operator needs the end-of-line position to build
-                // its range when the motion is `l` or space. GNU treats an
-                // arrow key differently: it cancels the operator and rings at
-                // the final character, so it keeps the clamped motion.
-                let clamp_to_last_char = matches!(self.keymap.current(), KeyMapName::ViCommand)
-                    && (op_start.is_none() || is_forward_arrow_key(key));
+                // its range. Arrow keys cancel the operator above and keep the
+                // clamped vi-command motion.
+                let clamp_to_last_char =
+                    matches!(self.keymap.current(), KeyMapName::ViCommand) && op_start.is_none();
                 let moved = if clamp_to_last_char {
                     move_by_char_vi_forward(state, bytewise)
                 } else {
@@ -216,9 +215,31 @@ where
     }
 }
 
-/// Whether the key sequence is a default forward-arrow binding.
-fn is_forward_arrow_key(key: &[u8]) -> bool {
-    key == b"\x1bOC" || key == b"\x1b[C"
+/// Whether a key is the vi motion for one of the shared character/line
+/// movement commands. GNU applies a pending operator only for the vi motion;
+/// arrows, Home/End and other bindings of the same command cancel it.
+fn take_vi_motion_operator(
+    state: &mut EditorState,
+    command: EditCommand,
+    key: &[u8],
+) -> Option<(ViOperator, usize, Vec<u8>)> {
+    let operator = state.take_vi_operator();
+    if operator.is_some() && !is_vi_motion_key(command, key) {
+        // GNU drops the count along with the cancelled operator.
+        state.take_numeric_arg();
+        return None;
+    }
+    operator
+}
+
+fn is_vi_motion_key(command: EditCommand, key: &[u8]) -> bool {
+    match command {
+        EditCommand::BackwardChar => key == b"h",
+        EditCommand::ForwardChar => key == b"l" || key == b" ",
+        EditCommand::BeginningOfLine => key == b"0",
+        EditCommand::EndOfLine => key == b"$",
+        _ => true,
+    }
 }
 
 /// Whether character motion steps bytes rather than UTF-8 scalars/graphemes.

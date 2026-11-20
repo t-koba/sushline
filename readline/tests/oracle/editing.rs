@@ -8253,6 +8253,7 @@ fn bash_and_sushline_vi_uppercase_u_undoes_the_whole_undo_list() {
     let inputrc = "set editing-mode vi";
     for (desc, keys, expected, bells) in [
         ("after_insert", "abc\x1biX\x1bU\r", "abc", 0),
+        ("two_inserts", "abc\x1biX\x1biY\x1bU\r", "abc", 0),
         ("after_delete", "abc\x1b0llx\x1bU\r", "abc", 0),
         ("after_change", "abc\x1b0llcwX\x1bU\r", "abc", 0),
         ("empty_after_undo", "abc\x1b0llcwX\x1bu\x1bU\r", "abc", 1),

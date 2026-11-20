@@ -8203,3 +8203,33 @@ fn bash_and_sushline_vi_redo_initial_insert() {
         assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_undo_honors_count() {
+    // GNU vi-undo repeats up to the typed count and rings once when it runs
+    // out of undo entries. A zero or absent count undoes one entry.
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, expected, bells) in [
+        ("uncounted", "abc\x1biX\x1biY\x1b0u\r", "abXc", 0),
+        ("count_two", "abc\x1biX\x1biY\x1b02u\r", "abc", 0),
+        ("count_overrun", "abc\x1biX\x1biY\x1b03u\r", "abc", 1),
+        ("then_count_two", "abc\x1biX\x1biY\x1b0u2u\r", "abc", 1),
+        ("zero_count", "abc\x1biX\x1biY\x1b00u\r", "abXc", 0),
+        ("single_overrun", "abc\x1biX\x1b02u\r", "abc", 1),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
+    }
+}

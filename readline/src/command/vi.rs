@@ -451,7 +451,15 @@ where
                 state.after_non_kill_command();
             }
             "vi-undo" => {
-                if !state.undo() {
+                let count = state.take_numeric_arg().unwrap_or(1).max(1) as usize;
+                let mut exhausted = false;
+                for _ in 0..count {
+                    if !state.undo() {
+                        exhausted = true;
+                        break;
+                    }
+                }
+                if exhausted {
                     self.ding()?;
                 }
             }

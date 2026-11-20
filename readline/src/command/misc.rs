@@ -266,15 +266,10 @@ where
                 // introducer accepts one bound tail byte; anything else
                 // rings and consumes exactly that byte.
                 state.input.arrow_key_prefix = command == "arrow-key-prefix";
-                // A binding that already contains an ESC [ or ESC O
-                // introducer has consumed it, so the remaining bytes are the
-                // CSI tail; start inside it instead of scanning for another
-                // introducer. A bare ESC binding still needs that scan.
-                let introducer_consumed =
-                    key.last().is_some_and(|byte| matches!(byte, b'[' | b'O'))
-                        || key
-                            .windows(2)
-                            .any(|pair| pair[0] == 0x1b && matches!(pair[1], b'[' | b'O'));
+                // GNU starts the skip at the very next byte, whatever the
+                // invoking binding was. Only a bare `[`/`O` binding keeps the
+                // special restart: after a nested ESC it waits for that same
+                // introducer before scanning the tail again.
                 state.input.csi_bare_introducer = if command == "skip-csi-sequence"
                     && key.len() == 1
                     && matches!(key[0], b'[' | b'O')
@@ -284,7 +279,7 @@ where
                     None
                 };
                 state.input.csi_introducer_pending = false;
-                if command == "skip-csi-sequence" && introducer_consumed {
+                if command == "skip-csi-sequence" {
                     state.input.csi_sequence_started = true;
                 }
                 state.after_non_kill_command();

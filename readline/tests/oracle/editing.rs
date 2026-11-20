@@ -7120,6 +7120,85 @@ fn bash_readline_and_sushline_arrow_key_prefix_consumes_numeric_argument() {
 }
 
 #[test]
+fn bash_readline_and_sushline_custom_skip_starts_at_the_next_byte() {
+    // GNU starts skipping at the next byte after any skip-csi-sequence
+    // binding, not only after an ESC [ or ESC O introducer. It consumes
+    // parameter/intermediate bytes through the first final byte; a nested
+    // ESC ends the skip after being consumed.
+    for (name, inputrc, keys, expected) in [
+        (
+            "single_byte_csi_final",
+            "\"y\": skip-csi-sequence\n",
+            &b"abcy[D X\r"[..],
+            "abcD X",
+        ),
+        (
+            "single_byte_parameters",
+            "\"y\": skip-csi-sequence\n",
+            &b"abcy[99~X\r"[..],
+            "abc99~X",
+        ),
+        (
+            "single_byte_without_introducer",
+            "\"y\": skip-csi-sequence\n",
+            &b"abcy9Z\r"[..],
+            "abc",
+        ),
+        (
+            "single_byte_space_parameter",
+            "\"y\": skip-csi-sequence\n",
+            &b"abcy Z\r"[..],
+            "abc",
+        ),
+        (
+            "single_byte_final_byte",
+            "\"y\": skip-csi-sequence\n",
+            &b"abcyZZ\r"[..],
+            "abcZ",
+        ),
+        (
+            "single_byte_ss3_final",
+            "\"y\": skip-csi-sequence\n",
+            &b"abcyOA X\r"[..],
+            "abcA X",
+        ),
+        (
+            "single_byte_nested_escape",
+            "\"y\": skip-csi-sequence\n",
+            &b"abcy\x1b[D X\r"[..],
+            "abc[D X",
+        ),
+        (
+            "escape_binding",
+            "\"\\eY\": skip-csi-sequence\n",
+            &b"abc\x1bY[D X\r"[..],
+            "abcD X",
+        ),
+        (
+            "multi_byte_binding",
+            "\"y1\": skip-csi-sequence\n",
+            &b"abcy1[D X\r"[..],
+            "abcD X",
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "Bash {name}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "Bash {name}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "Sushline {name}: {sushline}"
+        );
+        assert_eq!(bell_count(&sushline), 0, "Sushline {name}: {sushline}");
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_bare_introducer_skip_discards_the_tail() {
     for (name, intro, seq) in [
         ("bracket", "[", &b"[99~"[..]),

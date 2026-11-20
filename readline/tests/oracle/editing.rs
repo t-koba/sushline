@@ -7400,3 +7400,63 @@ fn bash_readline_and_sushline_lowercase_arrow_prefix_with_history() {
         }
     }
 }
+
+#[test]
+fn bash_and_sushline_delete_on_empty_line_does_not_signal_eof() {
+    // GNU Readline ties end-of-file to the terminal EOF character (Ctrl-D by
+    // default), not to the `delete-char` command. A Delete key or any other
+    // key bound to `delete-char` rings once on an empty line and keeps
+    // reading; only the EOF character signals EOF. Bash 5.3 PTY observation,
+    // not GNU source proof, and independent of `bind-tty-special-chars`.
+    for (desc, inputrc, keys, accepted, bells, eof) in [
+        (
+            "delete_key",
+            "\"\\e[3~\": delete-char\n",
+            b"\x1b[3~X\r".as_slice(),
+            Some("X"),
+            1,
+            false,
+        ),
+        (
+            "delete_key_tty_off",
+            "set bind-tty-special-chars off\n\"\\e[3~\": delete-char\n",
+            b"\x1b[3~X\r".as_slice(),
+            Some("X"),
+            1,
+            false,
+        ),
+        (
+            "custom_delete_char",
+            "\"X\": delete-char\n",
+            b"XY\r".as_slice(),
+            Some("Y"),
+            1,
+            false,
+        ),
+        ("ctrl_d", "", b"\x04\r".as_slice(), None, 0, true),
+        (
+            "ctrl_d_tty_off",
+            "set bind-tty-special-chars off\n",
+            b"\x04\r".as_slice(),
+            None,
+            0,
+            true,
+        ),
+    ] {
+        let bash = run_bash_readline_eof_with_inputrc(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        for (side, output) in [("bash", &bash), ("sushline", &sushline)] {
+            assert_eq!(
+                output.contains("SUSHLINE_EOF"),
+                eof,
+                "{desc} {side}: {output}"
+            );
+            assert_eq!(
+                accepted_line(output),
+                accepted.map(str::to_string),
+                "{desc} {side}: {output}"
+            );
+            assert_eq!(bell_count(output), bells, "{desc} {side}: {output}");
+        }
+    }
+}

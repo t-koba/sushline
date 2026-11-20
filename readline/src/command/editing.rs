@@ -6,6 +6,23 @@ impl<T> Editor<T>
 where
     T: TerminalIo,
 {
+    /// GNU Readline signals end-of-file only for the terminal EOF character
+    /// (Ctrl-D by default), even though other keys such as `\e[3~` may be
+    /// bound to `delete-char`. Those other keys only ring on an empty line.
+    /// The EOF byte comes from the terminal's `end-of-file` special binding,
+    /// falling back to Ctrl-D when no terminal byte is available.
+    fn is_eof_key(&self, key: &[u8]) -> bool {
+        let [byte] = key else {
+            return false;
+        };
+        self.terminal
+            .tty_special_bindings()
+            .into_iter()
+            .find_map(|(candidate, name)| (name == "end-of-file").then_some(candidate))
+            .unwrap_or(0x04)
+            == *byte
+    }
+
     pub(super) fn apply_editing_command(
         &mut self,
         state: &mut EditorState,
@@ -50,7 +67,7 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::DeleteChar => {
-                if state.buffer.is_empty() && state.numeric_arg.is_none() {
+                if state.buffer.is_empty() && state.numeric_arg.is_none() && self.is_eof_key(key) {
                     return Ok(EditorOutcome::Eof);
                 }
                 state.record_undo();

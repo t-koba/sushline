@@ -11,6 +11,7 @@ use super::host::require_oracle_host;
 use super::pty::*;
 use super::screen::Screen;
 use std::fs;
+use std::time::Duration;
 
 #[test]
 fn bash_readline_and_sushline_accept_same_basic_emacs_edit() {
@@ -9438,6 +9439,44 @@ fn bash_and_sushline_vi_cancelled_redo_survives_reads() {
         assert_eq!(
             accepted_numbered_line(&sushline, 2),
             accepted_numbered_line(&bash, 2),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bells,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
+fn bash_and_sushline_vi_replacement_esc_expires_on_keyseq_timeout() {
+    // The ignored replacement ESC still introduces the next sequence when it
+    // arrives promptly. After keyseq-timeout, GNU has expired that prefix and
+    // the following CSI sequence is an unbound command.
+    let before = b"abc\x1b0r\x1b";
+    let after = b"[Cx\r";
+    for (desc, pause, line, bells) in [
+        ("prompt", Duration::from_millis(20), "ac", 0),
+        ("expired", Duration::from_millis(900), "x", 1),
+    ] {
+        let bash =
+            run_bash_readline_paused_with_bindings("set editing-mode vi", before, pause, after);
+        let sushline = run_sushline_harness_paused_with_inputrc(
+            "set editing-mode vi\nset keyseq-timeout 100",
+            before,
+            pause,
+            after,
+        );
+        assert_eq!(
+            accepted_line(&bash),
+            Some(line.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
             "{desc}: bash={bash}\nsushline={sushline}"
         );
         assert_eq!(

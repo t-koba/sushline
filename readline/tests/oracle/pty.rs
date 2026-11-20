@@ -281,6 +281,83 @@ pub(super) fn run_bash_readline_with_bindings_and_env(
     )
 }
 
+/// Runs an interactive command, types `before` at the prompt, waits for a
+/// key-sequence timeout, then types `after` in the same read.
+pub(super) fn run_pty_paused_until(
+    mut command: CommandBuilder,
+    before: &[u8],
+    pause: Duration,
+    after: &[u8],
+    stop_marker: &str,
+) -> String {
+    require_oracle_host();
+    command.env("TERM", "xterm-256color");
+    command.cwd("/");
+    let size = PtySize {
+        rows: 24,
+        cols: 80,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let mut session = PtySession::spawn(command, size);
+    let deadline = Instant::now() + PTY_HANG_BOUND;
+    let mut out = Vec::new();
+    let mut sent = false;
+    while Instant::now() < deadline {
+        match session.read(Duration::from_millis(20)) {
+            PtyOutput::Chunk(chunk) => {
+                out.extend_from_slice(&chunk);
+                if !sent && find_bytes(&out, READY_PROMPT.as_bytes()).is_some() {
+                    session.write(before);
+                    thread::sleep(pause);
+                    session.write(after);
+                    sent = true;
+                }
+                if stop_marker_line_complete(&out, stop_marker) {
+                    break;
+                }
+            }
+            PtyOutput::Timeout => {}
+            PtyOutput::Closed => break,
+        }
+    }
+    session.finish();
+    lossy_output(&out)
+}
+
+pub(super) fn run_bash_readline_paused_with_bindings(
+    bindings: &str,
+    before: &[u8],
+    pause: Duration,
+    after: &[u8],
+) -> String {
+    let bind_command = shell_single_quote(bindings);
+    let mut command = CommandBuilder::new("bash");
+    command.args([
+        "--noprofile",
+        "--norc",
+        "-i",
+        "-c",
+        &format!(
+            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; if [ -n {bind_command} ]; then bind {bind_command}; fi; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+        ),
+    ]);
+    run_pty_paused_until(command, before, pause, after, "SUSHLINE_ACCEPTED:")
+}
+
+pub(super) fn run_sushline_harness_paused_with_inputrc(
+    inputrc: &str,
+    before: &[u8],
+    pause: Duration,
+    after: &[u8],
+) -> String {
+    let mut command = sushline_harness_command();
+    command.env("SUSHLINE_INPUTRC", inputrc);
+    command.env("SUSHLINE_PROMPT", READY_PROMPT);
+    command.env("SUSHLINE_HISTORY", "");
+    run_pty_paused_until(command, before, pause, after, "SUSHLINE_ACCEPTED:")
+}
+
 /// Runs the shell's own history expansion and returns the separated streams.
 fn bash_history_expand_output(expansion: &str, history: &[&str]) -> std::process::Output {
     let history_commands = history

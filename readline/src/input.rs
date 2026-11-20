@@ -105,6 +105,10 @@ where
             return self.handle_replace_input(state, bytes, hooks);
         }
         if state.input.pending_replace_esc {
+            // The retained ESC armed keyseq-timeout. Take it here: the
+            // branches below decide afresh whether it prefixes this key,
+            // and a timeout has already delivered it to `handle_unbound`.
+            state.input.pending_key.clear();
             state.input.pending_replace_esc = false;
             if bytes.first() == Some(&0x1b) {
                 // A second ESC starts a redundant bare ESC run. GNU consumes
@@ -476,6 +480,10 @@ where
             // a redundant ESC run and must not inherit this prefix, while any
             // other byte needs it to complete its sequence.
             state.input.pending_replace_esc = true;
+            // Keep the ESC in the ordinary pending-key buffer so the
+            // editor's keyseq-timeout expires this prefix; the flag above
+            // only records how the next key should be interpreted.
+            state.input.pending_key = first.to_vec();
         }
         if !replacement.is_empty() {
             // Vi command-mode `$` leaves the byte point just past the last

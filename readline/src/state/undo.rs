@@ -14,6 +14,8 @@ pub(crate) struct UndoState {
     /// Point after the most recent put in the current undo group. GNU groups
     /// consecutive puts and dot replays, but a motion between puts splits it.
     pub(crate) vi_put_undo_point: Option<usize>,
+    /// Yank length when the group started; GNU only merges one-byte yanks.
+    pub(crate) vi_put_undo_yank_len: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,14 +79,21 @@ impl EditorState {
         });
     }
 
-    pub(crate) fn start_vi_put_undo(&mut self, before: &LineBuffer, after_point: usize) {
+    pub(crate) fn start_vi_put_undo(
+        &mut self,
+        before: &LineBuffer,
+        after_point: usize,
+        yank_len: usize,
+    ) {
         self.undo.vi_put_undo_before = Some(before.clone());
         self.undo.vi_put_undo_point = Some(after_point);
+        self.undo.vi_put_undo_yank_len = Some(yank_len);
     }
 
     pub(crate) fn clear_vi_put_undo(&mut self) {
         self.undo.vi_put_undo_before = None;
         self.undo.vi_put_undo_point = None;
+        self.undo.vi_put_undo_yank_len = None;
     }
 
     /// Merge the just-committed put entry into the earlier put entry when
@@ -93,13 +102,16 @@ impl EditorState {
         &mut self,
         before_edit: &LineBuffer,
         after_point: usize,
+        yank_len: usize,
     ) -> bool {
         let Some(before) = self.undo.vi_put_undo_before.clone() else {
             return false;
         };
-        if self.undo.vi_put_undo_point != Some(before_edit.point()) {
-            self.undo.vi_put_undo_before = None;
-            self.undo.vi_put_undo_point = None;
+        if self.undo.vi_put_undo_point != Some(before_edit.point())
+            || self.undo.vi_put_undo_yank_len != Some(1)
+            || yank_len != 1
+        {
+            self.clear_vi_put_undo();
             return false;
         }
         let stack = &self.undo.undo_stack;
@@ -117,6 +129,7 @@ impl EditorState {
             self.undo.undo_stack.push(combined);
         }
         self.undo.vi_put_undo_point = Some(after_point);
+        self.undo.vi_put_undo_yank_len = Some(yank_len);
         true
     }
 

@@ -544,6 +544,7 @@ where
                 state.after_non_kill_command();
             }
             "vi-put" => {
+                let yank_len = state.vi_put_yank_len();
                 let before_edit = state.buffer.clone();
                 state.record_undo();
                 let yanked = if key == b"P" {
@@ -559,9 +560,9 @@ where
                     // GNU keeps a lowercase put and its dot-replays in one
                     // undo entry; an uppercase put starts a separate group.
                     if !(key == b"p"
-                        && state.extend_vi_put_undo(&before_edit, state.buffer.point()))
+                        && state.extend_vi_put_undo(&before_edit, state.buffer.point(), yank_len))
                     {
-                        state.start_vi_put_undo(&before_edit, state.buffer.point());
+                        state.start_vi_put_undo(&before_edit, state.buffer.point(), yank_len);
                     }
                     return Ok(EditorOutcome::Continue);
                 } else {
@@ -586,6 +587,7 @@ where
                         None => bytes,
                     };
                     if let Some((command, saved_count)) = vi_put_redo(&bytes) {
+                        let yank_len = state.vi_put_yank_len();
                         let before_edit = state.buffer.clone();
                         state.record_undo();
                         let count = explicit.unwrap_or(saved_count).max(1) as usize;
@@ -605,7 +607,11 @@ where
                         state.set_vi_redo(bytes);
                         state.after_non_kill_command();
                         if command != b'p'
-                            || !state.extend_vi_put_undo(&before_edit, state.buffer.point())
+                            || !state.extend_vi_put_undo(
+                                &before_edit,
+                                state.buffer.point(),
+                                yank_len,
+                            )
                         {
                             state.clear_vi_put_undo();
                         }

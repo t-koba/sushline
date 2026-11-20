@@ -120,6 +120,19 @@ impl EditorState {
         self.note_history_edit();
     }
 
+    /// Length of the text the next vi put will yank, used to decide whether
+    /// GNU keeps a put and its dot replay in one undo entry.
+    pub(crate) fn vi_put_yank_len(&self) -> usize {
+        if let Some(register) = self.vi.active_vi_register {
+            self.vi
+                .vi_registers
+                .get(&register.to_ascii_lowercase())
+                .map_or(0, Vec::len)
+        } else {
+            self.kill.kill_ring.last().map_or(0, Vec::len)
+        }
+    }
+
     /// GNU vi puts leave point on the last inserted character, like the
     /// position after typing the inserted text in insert mode.
     fn leave_point_on_put(&mut self, start: usize) {

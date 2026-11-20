@@ -9746,3 +9746,62 @@ fn bash_and_sushline_vi_put_dot_replay_moves_forward() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_put_undo_group_uses_one_byte_yanks() {
+    for (desc, keys, expected) in [
+        ("yank_two", "abcd\x1b02xp.u\r", "cabd"),
+        ("yank_three", "abcdef\x1b03xp.u\r", "dabcef"),
+        ("yank_two_two_undos", "abcd\x1b02xp.uu\r", "cd"),
+        ("single_byte_control", "abc\x1b0xp.u\r", "bc"),
+        ("single_byte_count_control", "abc\x1b0x2pu\r", "bc"),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), "set editing-mode vi");
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), "set editing-mode vi");
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            0,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
+fn bash_and_sushline_vi_put_undo_group_splits_on_motion() {
+    for (desc, keys, expected) in [
+        ("backward", "abc\x1b0xph.u\r", "bac"),
+        ("line_start", "abc\x1b0xp0.u\r", "bac"),
+        ("line_end", "abc\x1b0xp$.u\r", "bac"),
+        ("after_dot", "abc\x1b0xp.0.u\r", "baac"),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), "set editing-mode vi");
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), "set editing-mode vi");
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            0,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

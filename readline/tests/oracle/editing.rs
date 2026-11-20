@@ -6132,6 +6132,7 @@ fn run_bracketed_paste_checkpoints(paste: &[u8], include_hex: bool) -> (Vec<Stri
     );
     bash.args(["--noprofile", "--norc", "-i", "-c", &script]);
     let mut sushline = CommandBuilder::new("sh");
+    isolate_startup_inputrc(&mut sushline);
     sushline.env("LC_ALL", "C");
     sushline.env("TERM", "xterm-256color");
     sushline.env("SUSHLINE_INPUTRC", inputrc);
@@ -6844,6 +6845,7 @@ fn bash_and_sushline_pin_bracketed_paste_across_resize_before_end_marker() {
         ),
     ]);
     let mut sushline_command = CommandBuilder::new("bash");
+    isolate_startup_inputrc(&mut sushline_command);
     sushline_command.env("SUSHLINE_HARNESS", env!("CARGO_BIN_EXE_sushline-harness"));
     sushline_command.env("SUSHLINE_INPUTRC", inputrc);
     sushline_command.env("SUSHLINE_PROMPT", READY_PROMPT);

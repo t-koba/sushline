@@ -295,6 +295,7 @@ fn bash_readline_and_sushline_write_inputrc_diagnostics_to_standard_error() {
 
     let bash_stderr = dir.path().join("bash-stderr");
     let mut bash = CommandBuilder::new("sh");
+    isolate_startup_inputrc(&mut bash);
     bash.args([
         "-c",
         &format!(
@@ -311,6 +312,7 @@ fn bash_readline_and_sushline_write_inputrc_diagnostics_to_standard_error() {
 
     let sushline_stderr = dir.path().join("sushline-stderr");
     let mut sushline = CommandBuilder::new("sh");
+    isolate_startup_inputrc(&mut sushline);
     sushline.args([
         "-c",
         &format!(
@@ -366,6 +368,7 @@ fn bash_dies_with_a_segmentation_fault_on_a_cyclic_inputrc_include() {
     // the trailing exit keeps the shell from replacing itself with the child.
     // Disable core dumps before launching the intentionally crashing child.
     let mut bash = CommandBuilder::new("bash");
+    isolate_startup_inputrc(&mut bash);
     bash.args([
         "-c",
         &format!(
@@ -1900,6 +1903,7 @@ fn bash_and_sushline_write_the_macro_nesting_diagnostic_to_standard_error() {
 
     let bash_stderr = dir.path().join("bash-stderr");
     let mut bash = CommandBuilder::new("bash");
+    isolate_startup_inputrc(&mut bash);
     bash.args([
         "-c",
         &format!(
@@ -1916,6 +1920,7 @@ fn bash_and_sushline_write_the_macro_nesting_diagnostic_to_standard_error() {
 
     let sushline_stderr = dir.path().join("sushline-stderr");
     let mut sushline = CommandBuilder::new("bash");
+    isolate_startup_inputrc(&mut sushline);
     sushline.args([
         "-c",
         &format!(

@@ -227,16 +227,20 @@ impl PtySession {
 /// budget.
 const INTERRUPT_HANG_BOUND: Duration = Duration::from_secs(5);
 
-/// Builds the Sushline harness with no inherited startup inputrc.
+/// Clears any inherited startup inputrc from a launch.
 ///
-/// Paired fixtures supply their configuration explicitly through
-/// `SUSHLINE_INPUTRC`; `Editor::new` otherwise discovers ambient
-/// `INPUTRC`/`HOME/.inputrc` before that overlay is applied. Starting from an
-/// empty file keeps host configuration from changing the oracle result.
+/// Sushline discovers ambient `INPUTRC`/`HOME/.inputrc` before applying an
+/// explicit overlay, and shell wrappers pass that environment through. An
+/// empty startup file keeps host configuration from changing oracle results.
 /// Fixtures that test discovery or layering set `INPUTRC` after this helper.
+pub(super) fn isolate_startup_inputrc(command: &mut CommandBuilder) {
+    command.env("INPUTRC", if cfg!(windows) { "NUL" } else { "/dev/null" });
+}
+
+/// Builds the Sushline harness with no inherited startup inputrc.
 pub(super) fn sushline_harness_command() -> CommandBuilder {
     let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_sushline-harness"));
-    command.env("INPUTRC", if cfg!(windows) { "NUL" } else { "/dev/null" });
+    isolate_startup_inputrc(&mut command);
     command
 }
 
@@ -1344,6 +1348,7 @@ pub(super) fn run_bash_interactive_with_sink(
 ) -> String {
     require_oracle_host();
     let mut command = CommandBuilder::new("sh");
+    isolate_startup_inputrc(&mut command);
     command.args([
         "-c",
         &format!(

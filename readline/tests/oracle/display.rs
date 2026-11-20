@@ -198,7 +198,7 @@ fn bash_and_sushline_advance_one_cell_for_halfwidth_katakana_marks() {
     };
     let narrow = PtySize { cols: 12, ..wide };
 
-    for text in ["ﾊﾟXYZ", "ﾊｸXYZ"] {
+    for text in ["ﾊﾟXYZ", "ｸﾞXYZ", "ﾊｸXYZ"] {
         for bash in [true, false] {
             let mut command = if bash {
                 let mut command = CommandBuilder::new("bash");

@@ -1,5 +1,13 @@
 use super::*;
 
+/// GNU leaves vi point on the last remaining character after a delete ran
+/// to the end of the line. Both operator deletes and `vi-delete` use this.
+fn back_off_vi_delete_point(state: &mut EditorState, reached_end: bool) {
+    if reached_end && !state.buffer.is_empty() {
+        state.buffer.move_backward();
+    }
+}
+
 impl<T> Editor<T>
 where
     T: TerminalIo,
@@ -289,9 +297,15 @@ where
             }
             "vi-delete" => {
                 state.record_undo();
+                let mut reached_end = false;
                 repeat(state, |state| {
-                    state.buffer.delete_char();
+                    if state.buffer.delete_char_bytes().is_some()
+                        && state.buffer.point() == state.buffer.len_chars()
+                    {
+                        reached_end = true;
+                    }
                 });
+                back_off_vi_delete_point(state, reached_end);
                 state.vi.last_vi_change = Some(state.vi_key_sequence_for_change(key));
                 state.after_non_kill_command();
             }
@@ -771,8 +785,8 @@ where
                 state.push_kill(killed, KillDirection::Forward, self.kill_append_allowed());
                 if matches!(op, ViOperator::Change) {
                     self.keymap.set_current(KeyMapName::ViInsert);
-                } else if delete_to_end && !state.buffer.is_empty() {
-                    state.buffer.move_backward();
+                } else {
+                    back_off_vi_delete_point(state, delete_to_end);
                 }
             }
             ViOperator::Yank => {

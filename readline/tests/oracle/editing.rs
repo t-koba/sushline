@@ -7736,6 +7736,10 @@ fn bash_and_sushline_vi_delete_to_end_keeps_point_on_last_character() {
         ("punctuation", "one--two three", 5, "d2wiX", "one-X-"),
         ("punctuation_late", "one--two three", 6, "d2wiX", "one--Xt"),
         ("three_words", "one--two three", 3, "d3wiX", "onXe"),
+        ("x", "abc", 2, "xiX", "aXb"),
+        ("two_x", "abc", 2, "2xiX", "aXb"),
+        ("three_x", "abcd", 3, "3xiX", "abXc"),
+        ("x_multibyte", "aéb", 2, "xiX", "aXé"),
     ] {
         let keys = format!("{line}\x1b0{}{motion}\r", "l".repeat(left));
         let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);

@@ -8458,3 +8458,90 @@ fn bash_and_sushline_vi_redo_initial_insert_per_read() {
         assert_eq!(bell_count(&sushline), bells, "{desc}: {sushline}");
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_delete_rings_on_empty_line() {
+    // A `vi-delete` with no character to remove rings once, both when typed
+    // directly and when replayed as a persisted `vi-redo` change. Other
+    // operators that do nothing on an empty line stay silent.
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, first, second, bells) in [
+        ("empty_line", "\x1bx\r", "", None, 1),
+        ("zero_count", "\x1b00x\r", "", None, 1),
+        ("large_count", "\x1b10x\r", "", None, 1),
+        ("after_emptying_line", "abc\x1b0xxx.\r", "", None, 1),
+        (
+            "redo_after_empty_read",
+            "abc\x1b0x\r\x1b.\r",
+            "bc",
+            Some(""),
+            1,
+        ),
+        (
+            "counted_redo_after_empty_read",
+            "abc\x1b0x\r\x1b2.\r",
+            "bc",
+            Some(""),
+            1,
+        ),
+        (
+            "two_redos_after_empty_read",
+            "abc\x1b0x\r\x1b..\r",
+            "bc",
+            Some(""),
+            2,
+        ),
+        (
+            "redo_on_nonempty_read",
+            "abc\x1b0x\rdef\x1b.\r",
+            "bc",
+            Some("de"),
+            0,
+        ),
+        ("redo_of_delete_line", "abc\x1bdd\r\x1b.\r", "", Some(""), 0),
+        ("redo_of_delete_to", "abc\x1bD\r\x1b.\r", "ab", Some(""), 0),
+        (
+            "redo_of_insert",
+            "abc\x1biX\x1b\r\x1b.\r",
+            "abXc",
+            Some(""),
+            0,
+        ),
+        ("no_redo", "\x1b.\r", "", None, 0),
+    ] {
+        let bash = run_bash_readline_two_reads_with_inputrc_file_and_history(
+            keys.as_bytes(),
+            inputrc,
+            &[],
+        );
+        let sushline =
+            run_sushline_harness_two_reads_with_inputrc_and_history(keys.as_bytes(), inputrc, &[]);
+        let expected_second = second.map(str::to_string);
+        assert_eq!(
+            accepted_numbered_line(&bash, 1),
+            Some(first.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(
+            accepted_numbered_line(&bash, 2),
+            expected_second,
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_numbered_line(&sushline, 1),
+            accepted_numbered_line(&bash, 1),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            accepted_numbered_line(&sushline, 2),
+            accepted_numbered_line(&bash, 2),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bells,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

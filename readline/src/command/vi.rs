@@ -350,7 +350,9 @@ where
                     }
                 });
                 back_off_vi_delete_point(state, reached_end);
-                if !deleted.is_empty() {
+                if deleted.is_empty() {
+                    self.ding()?;
+                } else {
                     state.push_kill(deleted, KillDirection::Forward, self.kill_append_allowed());
                 }
                 let change = state.vi_key_sequence_for_change(key);

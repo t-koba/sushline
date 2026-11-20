@@ -9966,3 +9966,58 @@ fn bash_and_sushline_first_counted_vi_put_respects_byte_cap() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_counted_vi_put_undo_chunks() {
+    for (desc, keys, expected) in [
+        ("count_forty", "xab\x1b0lx40pu\r", "xbaaaaaaaaaaaaaaaaaaaa"),
+        (
+            "count_forty_five",
+            "xab\x1b0lx45pu\r",
+            "xbaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ),
+        (
+            "count_forty_five_two_undos",
+            "xab\x1b0lx45puu\r",
+            "xbaaaaaaaaaaaaaaaaaaaa",
+        ),
+        ("count_forty_five_three_undos", "xab\x1b0lx45puuu\r", "xb"),
+        ("count_sixty_three_undos", "xab\x1b0lx60puuu\r", "xb"),
+        (
+            "dot_after_count_forty_five",
+            "xab\x1b0lx45p.u\r",
+            "xbaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ),
+        ("multibyte_two_yank", "xéb\x1b0lx10pu\r", "xbééééééééé"),
+        (
+            "multibyte_two_yank_two_undos",
+            "xéb\x1b0lx10puu\r",
+            "xbéééééééé",
+        ),
+        (
+            "multibyte_three_yank",
+            "x漢b\x1b0lx10pu\r",
+            "xb漢漢漢漢漢漢漢漢漢",
+        ),
+        ("multibyte_uppercase_put", "xéb\x1b0lx10Pu\r", "xéééééééééb"),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), "set editing-mode vi");
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), "set editing-mode vi");
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            0,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

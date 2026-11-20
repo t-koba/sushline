@@ -88,38 +88,55 @@ impl EditorState {
         });
     }
 
+    /// Split the last pure insertion into GNU-sized undo entries: every
+    /// one-byte put is capped at MAX_PUT_UNDO_BYTES, while a multi-byte yank
+    /// makes one entry per put. Returns the buffer just before the final
+    /// chunk, which anchors the next put/dot group.
+    fn chunk_put_undo(&mut self, before: &LineBuffer, yank_len: usize) -> Option<LineBuffer> {
+        let chunk_len = if yank_len == 1 {
+            MAX_PUT_UNDO_BYTES
+        } else {
+            yank_len
+        };
+        let entry = self.undo.undo_stack.last()?.clone();
+        if !entry.deleted.is_empty() || entry.inserted.len() <= chunk_len {
+            return None;
+        }
+        self.undo.undo_stack.pop();
+        let mut remaining = entry.inserted.as_slice();
+        let mut start = entry.start;
+        let mut group_before = before.clone();
+        while remaining.len() > chunk_len {
+            let (chunk, tail) = remaining.split_at(chunk_len);
+            self.undo.undo_stack.push(UndoEntry {
+                start,
+                deleted: Vec::new(),
+                inserted: chunk.to_vec(),
+            });
+            group_before.set_point(start);
+            group_before.insert_bytes(chunk);
+            start += chunk_len;
+            remaining = tail;
+        }
+        self.undo.undo_stack.push(UndoEntry {
+            start,
+            deleted: Vec::new(),
+            inserted: remaining.to_vec(),
+        });
+        Some(group_before)
+    }
+
     pub(crate) fn start_vi_put_undo(
         &mut self,
         before: &LineBuffer,
         after_point: usize,
         yank_len: usize,
     ) {
-        self.undo.vi_put_undo_before = Some(before.clone());
         self.undo.vi_put_undo_point = Some(after_point);
         self.undo.vi_put_undo_yank_len = Some(yank_len);
-        // A counted put of one-byte yanks is GNU's own insertion run: even as
-        // the first edit it is capped at 20 bytes per undo entry. Longer yanks
-        // keep one entry, as measured with paired GNU fixtures.
-        if yank_len != 1 {
-            return;
-        }
-        let Some(mut entry) = self.undo.undo_stack.last().cloned() else {
-            return;
-        };
-        if !entry.deleted.is_empty() || entry.inserted.len() <= MAX_PUT_UNDO_BYTES {
-            return;
-        }
-        let remainder = entry.inserted.split_off(MAX_PUT_UNDO_BYTES);
-        self.undo.undo_stack.pop();
-        self.undo.undo_stack.push(entry.clone());
-        self.undo.undo_stack.push(UndoEntry {
-            start: entry.start + MAX_PUT_UNDO_BYTES,
-            deleted: Vec::new(),
-            inserted: remainder,
-        });
-        let mut group_before = before.clone();
-        group_before.set_point(entry.start);
-        group_before.insert_bytes(&entry.inserted);
+        let group_before = self
+            .chunk_put_undo(before, yank_len)
+            .unwrap_or_else(|| before.clone());
         self.undo.vi_put_undo_before = Some(group_before);
     }
 
@@ -176,24 +193,12 @@ impl EditorState {
         self.undo
             .undo_stack
             .truncate(self.undo.undo_stack.len() - 2);
-        let capacity = MAX_PUT_UNDO_BYTES.saturating_sub(prior_entry.inserted.len());
-        let merged_len = capacity.min(new_entry.inserted.len());
         let mut merged = prior_entry;
-        merged
-            .inserted
-            .extend_from_slice(&new_entry.inserted[..merged_len]);
-        self.undo.undo_stack.push(merged.clone());
-        let mut group_before = before.clone();
-        if merged_len < new_entry.inserted.len() {
-            group_before = before_edit.clone();
-            group_before.set_point(new_entry.start);
-            group_before.insert_bytes(&new_entry.inserted[..merged_len]);
-            self.undo.undo_stack.push(UndoEntry {
-                start: merged.start + merged.inserted.len(),
-                deleted: Vec::new(),
-                inserted: new_entry.inserted[merged_len..].to_vec(),
-            });
-        }
+        merged.inserted.extend_from_slice(&new_entry.inserted);
+        self.undo.undo_stack.push(merged);
+        let group_before = self
+            .chunk_put_undo(&before, 1)
+            .unwrap_or_else(|| before.clone());
         self.undo.vi_put_undo_before = Some(group_before);
         self.undo.vi_put_undo_point = Some(after_point);
         self.undo.vi_put_undo_yank_len = Some(yank_len);

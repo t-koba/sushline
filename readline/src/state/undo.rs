@@ -123,11 +123,46 @@ impl EditorState {
             self.clear_vi_put_undo();
             return false;
         }
-        self.undo.undo_stack.pop();
-        self.undo.undo_stack.pop();
-        if let Some(combined) = UndoEntry::from_buffers(&before, &self.buffer) {
-            self.undo.undo_stack.push(combined);
+        let Some(new_entry) = self.undo.undo_stack.last().cloned() else {
+            self.clear_vi_put_undo();
+            return false;
+        };
+        let Some(prior_entry) = self
+            .undo
+            .undo_stack
+            .get(self.undo.undo_stack.len() - 2)
+            .cloned()
+        else {
+            self.clear_vi_put_undo();
+            return false;
+        };
+        if !new_entry.deleted.is_empty() || !prior_entry.deleted.is_empty() {
+            self.clear_vi_put_undo();
+            return false;
         }
+        self.undo
+            .undo_stack
+            .truncate(self.undo.undo_stack.len() - 2);
+        const MAX_PUT_UNDO_BYTES: usize = 20;
+        let capacity = MAX_PUT_UNDO_BYTES.saturating_sub(prior_entry.inserted.len());
+        let merged_len = capacity.min(new_entry.inserted.len());
+        let mut merged = prior_entry;
+        merged
+            .inserted
+            .extend_from_slice(&new_entry.inserted[..merged_len]);
+        self.undo.undo_stack.push(merged.clone());
+        let mut group_before = before.clone();
+        if merged_len < new_entry.inserted.len() {
+            group_before = before_edit.clone();
+            group_before.set_point(new_entry.start);
+            group_before.insert_bytes(&new_entry.inserted[..merged_len]);
+            self.undo.undo_stack.push(UndoEntry {
+                start: merged.start + merged.inserted.len(),
+                deleted: Vec::new(),
+                inserted: new_entry.inserted[merged_len..].to_vec(),
+            });
+        }
+        self.undo.vi_put_undo_before = Some(group_before);
         self.undo.vi_put_undo_point = Some(after_point);
         self.undo.vi_put_undo_yank_len = Some(yank_len);
         true

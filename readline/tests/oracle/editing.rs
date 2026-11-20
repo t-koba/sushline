@@ -9239,6 +9239,8 @@ fn bash_and_sushline_vi_redo_after_cancelled_operator() {
         ("without_prior_edit", "abc\x1b0dq.\r", "abc ", 1),
         ("after_insert", "abc\x1b0iZ\x1bdq.\r", "Zabc ", 1),
         ("after_undo", "abc\x1b0xdqu.\r", "abc ", 1),
+        ("undo_after_redo", "abc\x1b0xdq.u\r", "abc ", 1),
+        ("undo_after_repeated_redo", "abc\x1b0xdq.u.\r", "abc  ", 2),
         ("repeated", "abc\x1b0xd\x1b[C..\r", "bc  ", 2),
     ] {
         let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
@@ -9382,6 +9384,65 @@ fn bash_and_sushline_vi_dot_replay_count() {
         assert_eq!(
             bell_count(&sushline),
             bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
+fn bash_and_sushline_vi_cancelled_redo_survives_reads() {
+    // A cancelled operator remains the redo change into the next read, where
+    // GNU's initial-insert refresh does not replace it.
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, first, second, bells) in [
+        (
+            "with_initial_text",
+            "abc\x1b0dq\rdef\x1b.\r",
+            "abc",
+            "def ",
+            1,
+        ),
+        ("empty_read", "abc\x1b0dq\r\x1b.\r", "abc", " ", 1),
+        ("after_deletion", "abc\x1b0xdq\rdef\x1b.\r", "bc", "def ", 1),
+        (
+            "motion_before_redo",
+            "abc\x1b0dq\rdef\x1b0.\r",
+            "abc",
+            "def ",
+            1,
+        ),
+    ] {
+        let bash = run_bash_readline_two_reads_with_inputrc_file_and_history(
+            keys.as_bytes(),
+            inputrc,
+            &[],
+        );
+        let sushline =
+            run_sushline_harness_two_reads_with_inputrc_and_history(keys.as_bytes(), inputrc, &[]);
+        assert_eq!(
+            accepted_numbered_line(&bash, 1),
+            Some(first.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(
+            accepted_numbered_line(&bash, 2),
+            Some(second.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_numbered_line(&sushline, 1),
+            accepted_numbered_line(&bash, 1),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            accepted_numbered_line(&sushline, 2),
+            accepted_numbered_line(&bash, 2),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bells,
             "{desc}: bash={bash}\nsushline={sushline}"
         );
     }

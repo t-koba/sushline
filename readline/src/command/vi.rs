@@ -53,7 +53,7 @@ where
                 state.overwrite_mode = false;
                 // GNU frees the undo list on the first entry to command mode:
                 // text typed before that point cannot be undone with `u`.
-                if !state.vi.command_mode_entered {
+                if !state.vi.command_mode_entered && !state.vi.last_change_is_cancelled_operator {
                     state.undo.undo_stack.clear();
                     state.undo.pending_undo = None;
                     state.vi.command_mode_entered = true;
@@ -501,7 +501,6 @@ where
             }
             "vi-redo" => {
                 if state.vi.last_change_is_cancelled_operator {
-                    state.record_undo();
                     state.buffer.move_end();
                     state.buffer.insert_bytes(b" ");
                     state.after_non_kill_command();

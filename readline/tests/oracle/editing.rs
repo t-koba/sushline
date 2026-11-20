@@ -7814,6 +7814,10 @@ fn bash_and_sushline_vi_backward_word_follows_gnu_boundaries() {
         ("across_space", "a b", 2, "@a b"),
         ("previous_one_char_word", "a b c", 4, "a @b c"),
         ("count_two", "one--two three", 5, "one@--two three"),
+        ("one_char_eol", "one--b", 6, "one@--b"),
+        ("one_char_after_space_eol", "abc d", 5, "@abc d"),
+        ("two_char_eol", "one-bb", 6, "one-@bb"),
+        ("one_char_only", "b", 1, "@b"),
     ] {
         let keys = format!("{text}\x1b0{}bi@\r", "l".repeat(left));
         let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);

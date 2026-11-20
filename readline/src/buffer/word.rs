@@ -893,6 +893,16 @@ impl LineBuffer {
         F: Fn(char) -> bool + Copy,
     {
         let start = self.point;
+        // GNU Readline steps off end-of-line before scanning backward. A
+        // one-character final word is then treated as the starting word
+        // rather than skipped, and punctuation/space runs keep their normal
+        // boundaries.
+        if self.point == self.as_bytes().len() && self.point > 0 {
+            self.backup_point();
+            if self.point == 0 {
+                return true;
+            }
+        }
         if self.point == 0 {
             return false;
         }

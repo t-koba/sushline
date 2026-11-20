@@ -4378,6 +4378,94 @@ fn bash_readline_and_sushline_accept_same_vi_replace_redo() {
     );
 }
 
+/// Paired Bash 5.3 PTY cases for GNU numeric counts on vi `r`.
+///
+/// These pin the counted replacements, end-of-line clamping, the point left on
+/// the last replaced character, the empty-line bell, and one undo entry.
+#[test]
+fn bash_readline_and_sushline_accept_same_vi_counted_replace() {
+    let inputrc = "set editing-mode vi";
+    let cases: &[(&str, &[u8], &str, usize)] = &[
+        ("count_three", b"abcdef\x1b03rX\r", "XXXdef", 0),
+        ("count_past_end", b"abcdef\x1b010rX\r", "XXXXXX", 0),
+        (
+            "count_past_end_after_motion",
+            b"abcde\x1b0l10rX\r",
+            "aXXXX",
+            0,
+        ),
+        ("clamped_at_eol", b"abcde\x1b$3rX\r", "abcdX", 0),
+        ("eol_uncounted", b"abcde\x1b$rX\r", "abcdX", 0),
+        ("point_on_last_replaced", b"abcdef\x1b03rXx\r", "XXdef", 0),
+        (
+            "point_after_last_replaced",
+            b"abcdef\x1b03rXlx\r",
+            "XXXef",
+            0,
+        ),
+        ("empty_line", b"\x1b3rX\r", "", 1),
+        ("undo", b"abcdef\x1b03rXu\r", "abcdef", 0),
+    ];
+    for (name, keys, expected_line, expected_bells) in cases {
+        let bash = run_bash_readline_with_bindings(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        let expected_line = Some((*expected_line).to_string());
+
+        assert_eq!(accepted_line(&bash), expected_line, "{name}: Bash: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            expected_line,
+            "{name}: Sushline: {sushline}"
+        );
+        assert_eq!(bell_count(&bash), *expected_bells, "{name}: Bash: {bash}");
+        assert_eq!(
+            bell_count(&sushline),
+            *expected_bells,
+            "{name}: Sushline: {sushline}"
+        );
+    }
+}
+
+/// Paired Bash 5.3 PTY cases for GNU numeric counts on vi `s`.
+///
+/// These pin the counted deletions, end-of-line clamping, the empty-line bell,
+/// and one undo entry for the deletion and its following insert.
+#[test]
+fn bash_readline_and_sushline_accept_same_vi_counted_subst() {
+    let inputrc = "set editing-mode vi";
+    let cases: &[(&str, &[u8], &str, usize)] = &[
+        ("count_three", b"abcdef\x1b03sXY\x1b\r", "XYdef", 0),
+        (
+            "count_past_end_after_motion",
+            b"abcde\x1b0l10sXY\x1b\r",
+            "aXY",
+            0,
+        ),
+        ("clamped_at_eol", b"abcde\x1b$3sXY\x1b\r", "abcdXY", 0),
+        ("eol_uncounted", b"abcde\x1b$sXY\x1b\r", "abcdXY", 0),
+        ("empty_line", b"\x1b3sXY\x1b\r", "XY", 1),
+        ("undo", b"abcdef\x1b03sXY\x1bu\r", "abcdef", 0),
+    ];
+    for (name, keys, expected_line, expected_bells) in cases {
+        let bash = run_bash_readline_with_bindings(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        let expected_line = Some((*expected_line).to_string());
+
+        assert_eq!(accepted_line(&bash), expected_line, "{name}: Bash: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            expected_line,
+            "{name}: Sushline: {sushline}"
+        );
+        assert_eq!(bell_count(&bash), *expected_bells, "{name}: Bash: {bash}");
+        assert_eq!(
+            bell_count(&sushline),
+            *expected_bells,
+            "{name}: Sushline: {sushline}"
+        );
+    }
+}
+
 #[test]
 fn bash_readline_and_sushline_accept_same_vi_compound_redo_and_mark_failure() {
     let inputrc = "set editing-mode vi";

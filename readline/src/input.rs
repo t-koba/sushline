@@ -404,14 +404,28 @@ where
             return Ok(EditorOutcome::Continue);
         }
         let (first, rest) = split_first_unit(bytes);
+        let count = repeat_count(state.take_numeric_arg());
         state.input.pending_replace = false;
-        state.consume_numeric_arg_unless_prefix();
         let replacement = replacement_unit(first);
         if !replacement.is_empty() {
-            let point = state.buffer.point();
+            // Vi command-mode `$` leaves the byte point just past the last
+            // character; GNU replaces the last character under the cursor.
+            if state.buffer.point() == state.buffer.len_chars() && !state.buffer.is_empty() {
+                state.buffer.move_backward();
+            }
             state.record_undo();
-            state.buffer.replace_char_at_point_bytes(&replacement);
-            state.buffer.set_point(point);
+            let mut last_replaced = None;
+            for _ in 0..count {
+                let start = state.buffer.point();
+                if !state.buffer.replace_char_at_point_bytes(&replacement) {
+                    break;
+                }
+                last_replaced = Some(start);
+            }
+            match last_replaced {
+                Some(start) => state.buffer.set_point(start),
+                None => self.ding()?,
+            }
             if let Some(mut change) = state.vi.vi_insert_change.take() {
                 change.extend_from_slice(first);
                 state.vi.last_vi_change = Some(change);

@@ -378,8 +378,27 @@ where
                 if key == b"S" {
                     let killed = state.buffer.kill_whole_line();
                     state.push_kill(killed, KillDirection::Forward, self.kill_append_allowed());
-                } else if let Some(killed) = state.buffer.delete_char_bytes() {
-                    state.push_kill(killed, KillDirection::Forward, self.kill_append_allowed());
+                } else {
+                    let count = repeat_count(state.take_numeric_arg());
+                    // Vi command-mode `$` leaves the byte point just past the
+                    // last character; GNU treats the last character as the one
+                    // under the cursor for `s`.
+                    if state.buffer.point() == state.buffer.len_chars() && !state.buffer.is_empty()
+                    {
+                        state.buffer.move_backward();
+                    }
+                    let mut killed = Vec::new();
+                    for _ in 0..count {
+                        match state.buffer.delete_char_bytes() {
+                            Some(bytes) => killed.extend_from_slice(&bytes),
+                            None => break,
+                        }
+                    }
+                    if killed.is_empty() {
+                        self.ding()?;
+                    } else {
+                        state.push_kill(killed, KillDirection::Forward, self.kill_append_allowed());
+                    }
                 }
                 self.keymap.set_current(KeyMapName::ViInsert);
                 state.begin_vi_insert_change(key);

@@ -49,6 +49,13 @@ impl EditorState {
                 .get_or_insert_with(|| self.buffer.clone());
             return;
         }
+        // GNU's 20-byte merge cap applies to emacs insertion and to the
+        // initial vi buffer, but a vi insert/replace run entered with a
+        // command stays one undo entry regardless of length or byte width.
+        let vi_insert_run = self.vi.command_mode_entered && self.vi.vi_insert_change.is_some();
+        if vi_insert_run {
+            return;
+        }
         if !single_byte {
             self.commit_pending_undo();
             self.record_undo();

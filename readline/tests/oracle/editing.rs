@@ -9858,3 +9858,75 @@ fn bash_and_sushline_vi_put_undo_respects_byte_cap() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_insert_undo_keeps_long_run() {
+    for (desc, keys, expected, mode) in [
+        (
+            "insert_twenty",
+            "abc\x1b0iaaaaaaaaaaaaaaaaaaaa\x1bu\r",
+            "abc",
+            "vi",
+        ),
+        (
+            "insert_twenty_one",
+            "abc\x1b0iaaaaaaaaaaaaaaaaaaaaa\x1bu\r",
+            "abc",
+            "vi",
+        ),
+        (
+            "insert_forty",
+            "abc\x1b0iaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\x1bu\r",
+            "abc",
+            "vi",
+        ),
+        (
+            "insert_multibyte_twenty_two",
+            "abc\x1b0iééééééééééé\x1bu\r",
+            "abc",
+            "vi",
+        ),
+        (
+            "replace_twenty_one",
+            "abc\x1b0RXXXXXXXXXXXXXXXXXXXXX\x1bu\r",
+            "abc",
+            "vi",
+        ),
+        (
+            "insert_dot_twenty_one",
+            "abc\x1biX\x1b.....................u\r",
+            "abXXXXXXXXXXXXXXXXXXXXXc",
+            "vi",
+        ),
+        (
+            "emacs_twenty_one",
+            "aaaaaaaaaaaaaaaaaaaaa\x1fX\r",
+            "aaaaaaaaaaaaaaaaaaaaX",
+            "emacs",
+        ),
+    ] {
+        let inputrc = if mode == "vi" {
+            "set editing-mode vi"
+        } else {
+            ""
+        };
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            0,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

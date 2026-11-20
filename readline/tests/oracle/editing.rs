@@ -8546,3 +8546,43 @@ fn bash_and_sushline_vi_delete_rings_on_empty_line() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_change_case_counts_keep_point_on_final_character() {
+    // GNU repeats a counted `~` on the final character when point cannot
+    // advance, so even counts restore it and odd counts change it. Point must
+    // also stay on that character for a following `x`.
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, expected, bells) in [
+        ("once_at_start", "abc\x1b0~\r", "Abc", 0),
+        ("counted_from_start", "abc\x1b02~\r", "ABc", 0),
+        ("counted_mid_line", "abc\x1b0l2~\r", "aBC", 0),
+        ("final_twice", "abc\x1b0ll2~\r", "abc", 0),
+        ("final_thrice", "abc\x1b0ll3~\r", "abC", 0),
+        ("final_four_times", "abc\x1b0ll4~\r", "abc", 0),
+        ("final_five_times", "abc\x1b0ll5~\r", "abC", 0),
+        ("initial_point_count_two", "abc\x1b2~\r", "abc", 0),
+        ("initial_point_count_three", "abc\x1b3~\r", "abC", 0),
+        ("final_then_delete", "abc\x1b0ll~x\r", "ab", 0),
+        ("multibyte_counted", "a\u{e9}llo\x1b0~~~\r", "A\u{c9}Llo", 0),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bells,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

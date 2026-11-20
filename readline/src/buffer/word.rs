@@ -701,9 +701,14 @@ impl LineBuffer {
         let Some(end) = self.next_char_boundary_checked(self.point) else {
             return false;
         };
+        let replacement_len = replacement.len();
         self.bytes
             .splice(self.point..end, replacement.as_bytes().iter().copied());
-        self.move_forward();
+        // GNU keeps point on the final character. A count then toggles that
+        // same character again instead of leaving it after one change.
+        if self.point + replacement_len < self.bytes.len() {
+            self.move_forward();
+        }
         true
     }
 

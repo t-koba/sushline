@@ -111,7 +111,7 @@ fn enable_keypad_has_terminal_side_effects() {
 }
 
 #[test]
-fn csi_skip_commands_consume_terminal_escape_sequence() {
+fn csi_skip_commands_handle_terminal_escape_sequence() {
     for command in ["skip-csi-sequence", "arrow-key-prefix"] {
         let terminal = MemoryTerminal::with_events(vec![
             TerminalEvent::Bytes(vec![0x0f]),
@@ -123,9 +123,18 @@ fn csi_skip_commands_consume_terminal_escape_sequence() {
         line.load_inputrc_str(&format!("\"\\C-o\": {command}"))
             .unwrap();
         let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        // GNU's skip-csi-sequence consumes the whole CSI sequence. Its
+        // arrow-key-prefix instead switches to the arrow keymap, where `[`
+        // is unbound, so the CSI tail is inserted. Pinned against Bash 5.3
+        // by bash_readline_and_sushline_custom_arrow_key_prefix_bindings.
+        let expected = if command == "skip-csi-sequence" {
+            "X"
+        } else {
+            "[1;5CX"
+        };
         assert_eq!(
             result,
-            ReadlineResult::Line("X".as_bytes().to_vec()),
+            ReadlineResult::Line(expected.as_bytes().to_vec()),
             "{command}"
         );
     }

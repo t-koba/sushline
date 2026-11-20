@@ -7812,3 +7812,66 @@ fn bash_and_sushline_vi_backward_word_from_end_of_line() {
         );
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_custom_arrow_key_prefix_bindings() {
+    // GNU selects the arrow keymap from the command, not from whether the
+    // binding ends in `[` or `O`. Bash 5.3 PTY observations for a single-byte
+    // custom prefix and for a bare ESC binding, with bound and unbound tails.
+    let custom = "\"x\": arrow-key-prefix\n";
+    let escape = "\"\\e\": arrow-key-prefix\n";
+    let ctrl_o = "\"\\C-o\": arrow-key-prefix\n";
+    for (desc, inputrc, keys, expected, bells) in [
+        ("backward", custom, &b"abcxDX\r"[..], Some("abXc"), 0),
+        ("lowercase_tail", custom, &b"abcxDx\r"[..], None, 1),
+        ("forward", custom, &b"abcxCX\r"[..], Some("abcX"), 1),
+        ("unbound_tail", custom, &b"abcxHX\r"[..], Some("abcX"), 1),
+        (
+            "escape_csi",
+            escape,
+            &b"abc\x1b[D X\r"[..],
+            Some("ab Xc"),
+            0,
+        ),
+        (
+            "escape_ss3",
+            escape,
+            &b"abc\x1bOD X\r"[..],
+            Some("ab Xc"),
+            0,
+        ),
+        (
+            "ctrl_o_csi",
+            ctrl_o,
+            &b"abc\x0f\x1b[1;5CX\r"[..],
+            Some("abc[1;5CX"),
+            1,
+        ),
+        (
+            "ctrl_o_backward",
+            ctrl_o,
+            &b"abc\x0fDX\r"[..],
+            Some("abXc"),
+            0,
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            expected,
+            "Bash {desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "Bash {desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "Sushline {desc}: {sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bell_count(&bash),
+            "Sushline {desc}: {sushline}"
+        );
+    }
+}

@@ -90,9 +90,11 @@ where
                 let op_start = state.take_vi_operator();
                 let bytewise = self.char_motion_is_bytewise();
                 // A pending operator needs the end-of-line position to build
-                // its range; only plain motion keeps point on the last char.
-                let clamp_to_last_char =
-                    op_start.is_none() && matches!(self.keymap.current(), KeyMapName::ViCommand);
+                // its range when the motion is `l` or space. GNU treats an
+                // arrow key differently: it cancels the operator and rings at
+                // the final character, so it keeps the clamped motion.
+                let clamp_to_last_char = matches!(self.keymap.current(), KeyMapName::ViCommand)
+                    && (op_start.is_none() || is_forward_arrow_key(key));
                 let moved = if clamp_to_last_char {
                     move_by_char_vi_forward(state, bytewise)
                 } else {
@@ -212,6 +214,11 @@ where
         }
         Ok(EditorOutcome::Continue)
     }
+}
+
+/// Whether the key sequence is a default forward-arrow binding.
+fn is_forward_arrow_key(key: &[u8]) -> bool {
+    key == b"\x1bOC" || key == b"\x1b[C"
 }
 
 /// Whether character motion steps bytes rather than UTF-8 scalars/graphemes.

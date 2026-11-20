@@ -8947,3 +8947,38 @@ fn bash_and_sushline_c_locale_vi_replace_pins_raw_bytes_and_bells() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_operator_motions_distinguish_arrow_from_l() {
+    // GNU cancels a pending operator when a right arrow reaches the final
+    // character, while `l` and space extend the operator range to it.
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, expected, bells) in [
+        ("delete_arrow", "abc\x1b0lld\x1b[C\r", "abc", 1),
+        ("change_arrow", "abc\x1b0llc\x1b[CZ\r", "abc", 2),
+        ("yank_arrow", "abc\x1b0lly\x1b[Cp\r", "abc", 2),
+        ("delete_l", "abc\x1b0lldl\r", "ab", 0),
+        ("delete_space", "abc\x1b0lld \r", "ab", 0),
+        ("plain_arrow", "abc\x1b0ll\x1b[Cx\r", "ab", 1),
+        ("delete_ss3_arrow", "abc\x1b0lld\x1bOC\r", "abc", 1),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bells,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

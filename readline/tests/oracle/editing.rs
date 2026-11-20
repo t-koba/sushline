@@ -9651,3 +9651,31 @@ fn bash_and_sushline_vi_put_dot_undo_group() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_emacs_undo_keeps_end_point() {
+    for (desc, keys, expected) in [
+        ("undo_rubout_then_insert", "abc\x7f\x1fX\r", "abcX"),
+        ("undo_rubout_then_rubout", "abc\x7f\x1f\x7f\r", "ab"),
+        ("undo_rubout_left_insert", "abc\x7f\x1f\x1b[DX\r", "abXc"),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), "");
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), "");
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            0,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

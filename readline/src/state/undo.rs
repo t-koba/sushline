@@ -112,8 +112,12 @@ impl EditorState {
             entry.undo(&mut self.buffer);
             // GNU leaves vi point on the last character when an undo restores
             // text at the end of the line; the raw buffer edit lands just
-            // past it, where the next vi command would be blocked.
-            if !self.buffer.is_empty() && self.buffer.point() == self.buffer.as_bytes().len() {
+            // past it, where the next vi command would be blocked. Emacs mode
+            // keeps the end-of-line point and must not be clamped.
+            if self.vi.command_mode_entered
+                && !self.buffer.is_empty()
+                && self.buffer.point() == self.buffer.as_bytes().len()
+            {
                 self.buffer.move_backward();
             }
             true

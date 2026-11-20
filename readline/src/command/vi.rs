@@ -477,6 +477,8 @@ where
                 if deleted != count {
                     self.ding()?;
                 }
+                let change = state.vi_key_sequence_for_change(key);
+                state.set_vi_redo(change);
                 state.after_non_kill_command();
             }
             "vi-put" => {

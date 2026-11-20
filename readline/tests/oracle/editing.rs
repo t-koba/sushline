@@ -8768,3 +8768,38 @@ fn bash_and_sushline_vi_backward_delete_honors_count_and_rings() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_backward_delete_redo_replays_count() {
+    // GNU records X (and its count) as the redo command even when it rings.
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, expected, bells) in [
+        ("no_op_then_redo", "abc\x1b0X.\r", "abc", 2),
+        ("after_delete_then_redo", "abc\x1b0xX.\r", "bc", 2),
+        ("after_replace_then_redo", "abc\x1b0rZX.\r", "Zbc", 2),
+        ("no_op_then_replace_redo", "abc\x1b0XrZ.\r", "Zbc", 1),
+        ("counted_redo", "abc def\x1b$2X.\r", "abf", 0),
+        ("counted_redo_twice", "abc def\x1b$2X..\r", "f", 0),
+        ("undo_then_redo", "abc def\x1b$2Xu.\r", "abc f", 0),
+        ("redo_after_motion", "abc def\x1b$2X0.\r", "abc f", 1),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bells,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

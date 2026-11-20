@@ -9022,7 +9022,8 @@ fn bash_and_sushline_vi_operator_motions_distinguish_arrow_from_l() {
 fn bash_and_sushline_vi_operators_cancel_on_non_motion_keys() {
     // GNU applies a pending vi operator only to the vi motion bound to the
     // movement command. Arrow/Home/End keys and unbound keys cancel it
-    // silently, while h/l/space/0/$ and word motions still apply it.
+    // silently, while h/l/space/0/$ and word motions still apply it. The
+    // Ctrl-H case measures cancellation without moving point, unlike h.
     let inputrc = "set editing-mode vi";
     for (desc, keys, expected, bells) in [
         ("left_from_zero", "abc\x1b0d\x1b[D\r", "abc", 1),
@@ -9319,5 +9320,69 @@ fn bash_and_sushline_vi_replace_ignored_esc_runs() {
                 "{case}: bash={bash}\nsushline={sushline}"
             );
         }
+    }
+}
+
+#[test]
+fn bash_and_sushline_vi_dot_replay_count() {
+    // An explicit count before `.` replaces the saved count and becomes the
+    // new saved count for later replays.
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, expected) in [
+        ("replace_then_dot", "abcdefghij\x1b03ry0fe.\r", "yyydyyyhij"),
+        (
+            "replace_then_counted_dot",
+            "abcdefghij\x1b03ry02.\r",
+            "yyydefghij",
+        ),
+        (
+            "counted_dot_then_dot",
+            "abcdefghij\x1b03ry02.0fe.\r",
+            "yyydyyghij",
+        ),
+        (
+            "replace_char_then_counted_dot",
+            "abcdefghij\x1b03rx2.\r",
+            "xxxxefghij",
+        ),
+        (
+            "multi_digit_change",
+            "abcdefghijklmnop\x1b010ry2.\r",
+            "yyyyyyyyyyylmnop",
+        ),
+        ("delete_then_counted_dot", "abcdefghij\x1b02x3.\r", "fghij"),
+        ("delete_then_dot", "abcdefghij\x1b02x.\r", "efghij"),
+        ("delete_line_then_counted_dot", "abcdefghij\x1b02dd3.\r", ""),
+        ("zero_before_dot", "abcdefghij\x1b03ry0.\r", "yyydefghij"),
+        ("no_saved_count", "abcdefghij\x1b0x3.\r", "efghij"),
+        (
+            "negative_count",
+            "abcdefghij\x1b03ry\x1b-2.\r",
+            "yyyyefghij",
+        ),
+        (
+            "counted_dot_then_plain_dot",
+            "abcdefghij\x1b03ry02..2.\r",
+            "yyyyefghij",
+        ),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
     }
 }

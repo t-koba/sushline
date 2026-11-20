@@ -19,6 +19,10 @@ pub(crate) struct UndoEntry {
 
 impl EditorState {
     pub(crate) fn record_undo(&mut self) {
+        // A non-insert edit closes the pending insert run, so each command
+        // gets its own undo entry. Without this, an insert immediately undone
+        // by a delete leaves no entry and GNU's per-command undo diverges.
+        self.commit_pending_undo();
         self.undo
             .pending_undo
             .get_or_insert_with(|| self.buffer.clone());
@@ -29,7 +33,12 @@ impl EditorState {
     /// than 20 inserted bytes; anything wider commits the run first.
     pub(crate) fn record_insert_undo(&mut self, single_byte: bool) {
         if !self.undo.last_undo_was_insert {
-            self.record_undo();
+            // Continuing an insert run keeps the pending point open: a change
+            // operator may have deliberately deferred its commit so the
+            // following insert joins it in one entry.
+            self.undo
+                .pending_undo
+                .get_or_insert_with(|| self.buffer.clone());
             return;
         }
         if !single_byte {
@@ -58,7 +67,11 @@ impl EditorState {
         } else {
             false
         };
-        if undone && self.buffer.as_bytes() == self.original_line.as_slice() {
+        // GNU keeps the modified marker until the whole edit sequence for
+        // this history line has been undone. Byte equality alone clears it
+        // too early when a partial undo happens to restore the original text
+        // while earlier edits remain on the undo stack.
+        if undone && self.undo.undo_stack.is_empty() {
             self.history_modified = false;
         }
         self.after_non_kill_command();

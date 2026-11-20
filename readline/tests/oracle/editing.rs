@@ -8693,3 +8693,39 @@ fn bash_and_sushline_vi_dollar_keeps_point_on_last_character() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_forward_char_operator_reaches_line_end() {
+    // A pending operator needs `l` to reach the end-of-line position, while
+    // plain `l` alone stays on the final character.
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, expected, bells) in [
+        ("delete_last", "abc\x1b0lldl\r", "ab", 0),
+        ("change_last", "abc\x1b0llclZ\r", "abZ", 0),
+        ("yank_last", "abc\x1b0llylp\r", "abcc", 0),
+        ("delete_only_character", "a\x1b0dl\r", "", 0),
+        ("delete_count_to_end", "abc\x1b0d3l\r", "", 0),
+        ("delete_count_past_end", "abc\x1b0d5l\r", "", 0),
+        ("counted_from_middle", "abc\x1b0ld2l\r", "a", 0),
+        ("multibyte_delete_last", "a\u{e9}\x1b0ldl\r", "a", 0),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bells,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

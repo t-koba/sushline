@@ -89,7 +89,11 @@ where
             EditCommand::ForwardChar => {
                 let op_start = state.take_vi_operator();
                 let bytewise = self.char_motion_is_bytewise();
-                let moved = if matches!(self.keymap.current(), KeyMapName::ViCommand) {
+                // A pending operator needs the end-of-line position to build
+                // its range; only plain motion keeps point on the last char.
+                let clamp_to_last_char =
+                    op_start.is_none() && matches!(self.keymap.current(), KeyMapName::ViCommand);
+                let moved = if clamp_to_last_char {
                     move_by_char_vi_forward(state, bytewise)
                 } else {
                     move_by_char(state, true, bytewise)

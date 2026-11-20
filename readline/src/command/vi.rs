@@ -8,9 +8,9 @@ fn back_off_vi_delete_point(state: &mut EditorState, reached_end: bool) {
     }
 }
 
-/// GNU dot-replays `p`/`P` by yanking at the current point without the
-/// command's usual forward motion: that motion already happened when the put
-/// was first executed, and repeating it would place the text after the cursor.
+/// GNU dot-replays lowercase `p` with its forward motion: a put leaves point
+/// on the last inserted character, so replay steps forward before yanking.
+/// Uppercase `P` replays at the current point without that motion.
 fn vi_put_redo(change: &[u8]) -> Option<(u8, i32)> {
     let digit_len = change
         .iter()

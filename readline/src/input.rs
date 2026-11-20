@@ -920,6 +920,12 @@ where
         } else {
             state.cancel_pending_command();
             self.ding()?;
+            if first == [0x1b] {
+                // The failed search consumed ESC, but GNU still lets that ESC
+                // start a fresh key sequence: a following CSI/SS3 arrow moves
+                // the cursor. Re-inject it as a keymap prefix.
+                self.handle_key_dispatch(state, &first, hooks)?;
+            }
         }
 
         if !rest.is_empty() {

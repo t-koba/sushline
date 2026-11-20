@@ -9109,3 +9109,41 @@ fn bash_and_sushline_vi_operators_skip_non_motion_commands() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_char_search_keeps_esc_prefix() {
+    // When ESC is the failed search target, GNU still uses it to start a key
+    // sequence, so a following CSI/SS3 arrow moves the cursor.
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, expected, bells) in [
+        ("forward_csi", "abc def\x1b0f\x1b[Cx\r", "ac def", 1),
+        ("forward_ss3", "abc def\x1b0f\x1bOCx\r", "ac def", 1),
+        ("forward_csi_only", "abc def\x1b0f\x1b[C\r", "abc def", 1),
+        ("backward_csi", "abc def\x1b$f\x1b[Dx\r", "abc df", 1),
+        ("till_csi", "abc def\x1b0t\x1b[Cx\r", "ac def", 1),
+        ("backward_till_csi", "abc def\x1b$T\x1b[Dx\r", "abc df", 1),
+        ("esc_x", "abc def\x1b0f\x1bx\r", "bc def", 1),
+        ("esc_bracket", "abc def\x1b0f\x1b[x\r", "bc def", 2),
+        ("multibyte_target", "a\u{e9}b\x1b0f\u{e9}x\r", "ab", 0),
+        ("failed_search_operator", "abc def\x1b0fqdx\r", "abc def", 1),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bells,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

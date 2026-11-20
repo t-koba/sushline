@@ -153,7 +153,7 @@ where
                 let word_breaks = self.editing_word_breaks(hooks);
                 self.apply_vi_motion_with_operator(state, key, false, |state| {
                     repeat(state, |state| {
-                        state.buffer.backward_word(word_breaks.as_deref());
+                        state.buffer.vi_backward_word(word_breaks.as_deref());
                     });
                 });
             }

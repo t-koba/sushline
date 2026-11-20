@@ -7534,3 +7534,52 @@ fn bash_and_sushline_end_of_file_command_signals_eof_only_for_eof_key() {
         }
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_backward_word_stops_at_punctuation_run() {
+    // GNU Readline's vi `b` treats a contiguous punctuation run as its own
+    // word class: from inside or just after the run it lands at the run's
+    // start, and only the next `b` reaches the preceding word. Bash 5.3 PTY
+    // observation, not GNU source proof, and limited to these fixtures.
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, expected) in [
+        (
+            "after_run",
+            b"one--two three\x1b0lllllbiX\r".as_slice(),
+            "oneX--two three",
+        ),
+        (
+            "run_end",
+            b"one--two three\x1b0llllbiX\r".as_slice(),
+            "oneX--two three",
+        ),
+        (
+            "run_start",
+            b"one--two three\x1b0lllbiX\r".as_slice(),
+            "Xone--two three",
+        ),
+        (
+            "at_space",
+            b"one--two three\x1b0llllllllbiX\r".as_slice(),
+            "one--Xtwo three",
+        ),
+        (
+            "next_word",
+            b"one--two three\x1b0lllllllllbiX\r".as_slice(),
+            "one--Xtwo three",
+        ),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

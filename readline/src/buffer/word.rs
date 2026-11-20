@@ -807,6 +807,49 @@ impl LineBuffer {
         self.point != start
     }
 
+    /// Vi backward word (lowercase `b`).
+    ///
+    /// Unlike the Emacs `backward_word`, a contiguous run of punctuation is
+    /// its own word class: `b` stops at the start of that run rather than
+    /// skipping over it. This mirrors the three classes in
+    /// [`vi_forward_word_by`](LineBuffer::vi_forward_word_by).
+    pub fn vi_backward_word(&mut self, break_chars: Option<&str>) -> bool {
+        self.vi_backward_word_by(word_matcher(break_chars))
+    }
+
+    fn vi_backward_word_by<F>(&mut self, is_word: F) -> bool
+    where
+        F: Fn(char) -> bool + Copy,
+    {
+        let start = self.point;
+        while let Some((prev, ch)) = self.prev_char(self.point) {
+            if !ch.is_whitespace() {
+                break;
+            }
+            self.point = prev;
+        }
+        match self.prev_char(self.point) {
+            Some((_, ch)) if is_word(ch) => {
+                while let Some((prev, ch)) = self.prev_char(self.point) {
+                    if !is_word(ch) {
+                        break;
+                    }
+                    self.point = prev;
+                }
+            }
+            Some((_, ch)) if !ch.is_whitespace() => {
+                while let Some((prev, ch)) = self.prev_char(self.point) {
+                    if ch.is_whitespace() || is_word(ch) {
+                        break;
+                    }
+                    self.point = prev;
+                }
+            }
+            _ => {}
+        }
+        self.point != start
+    }
+
     /// Backward bigword.
     pub fn backward_bigword(&mut self) -> bool {
         let start = self.point;

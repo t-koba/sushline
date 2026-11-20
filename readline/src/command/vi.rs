@@ -88,6 +88,7 @@ where
                             // first ESC, or carrying an explicit insert redo
                             // into an empty read, drops GNU's redo change.
                             state.vi.last_vi_change = None;
+                            state.vi.last_change_is_cancelled_operator = false;
                             state.vi.last_change_is_initial_insert = false;
                         }
                     }
@@ -499,6 +500,14 @@ where
                 }
             }
             "vi-redo" => {
+                if state.vi.last_change_is_cancelled_operator {
+                    state.record_undo();
+                    state.buffer.move_end();
+                    state.buffer.insert_bytes(b" ");
+                    state.after_non_kill_command();
+                    self.ding()?;
+                    return Ok(EditorOutcome::Continue);
+                }
                 if let Some(bytes) = state.vi.last_vi_change.clone() {
                     return self.replay_vi_change(state, &bytes, hooks);
                 }

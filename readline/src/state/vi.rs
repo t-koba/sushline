@@ -13,6 +13,9 @@ pub(crate) struct ViModeState {
     pub(crate) vi_operator_key: Option<Vec<u8>>,
     pub(crate) vi_count_keys: Vec<u8>,
     pub(crate) last_vi_change: Option<Vec<u8>>,
+    /// GNU records a cancelled vi operator as a redo that appends a blank at
+    /// the end of the line and rings, replacing the previous change.
+    pub(crate) last_change_is_cancelled_operator: bool,
     /// Whether the redo change was synthesized from an uninterrupted initial
     /// insertion rather than recorded from an explicit vi command.
     pub(crate) last_change_is_initial_insert: bool,
@@ -64,12 +67,20 @@ pub(crate) enum ViOperator {
 impl EditorState {
     pub(crate) fn set_vi_redo(&mut self, change: Vec<u8>) {
         self.vi.last_vi_change = Some(change);
+        self.vi.last_change_is_cancelled_operator = false;
         self.vi.last_change_is_initial_insert = false;
     }
 
     pub(crate) fn set_initial_insert_vi_redo(&mut self, change: Vec<u8>) {
         self.vi.last_vi_change = Some(change);
+        self.vi.last_change_is_cancelled_operator = false;
         self.vi.last_change_is_initial_insert = true;
+    }
+
+    pub(crate) fn mark_vi_redo_cancelled_operator(&mut self) {
+        self.vi.last_vi_change = Some(Vec::new());
+        self.vi.last_change_is_cancelled_operator = true;
+        self.vi.last_change_is_initial_insert = false;
     }
 
     pub(crate) fn begin_vi_insert_change(&mut self, key: &[u8]) {

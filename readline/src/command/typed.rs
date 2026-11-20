@@ -143,6 +143,7 @@ where
     pub(super) fn cancel_vi_operator(&self, state: &mut EditorState) {
         state.take_vi_operator();
         state.take_numeric_arg();
+        state.mark_vi_redo_cancelled_operator();
     }
 
     pub(super) fn apply_command(

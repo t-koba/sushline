@@ -9223,3 +9223,64 @@ fn bash_and_sushline_vi_csi_word_motions_cancel_operator() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_redo_after_cancelled_operator() {
+    // GNU replaces the redo change when a pending operator is cancelled: `.`
+    // then appends one blank at the end of the line and rings.
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, expected, bells) in [
+        ("unbound_key", "abc\x1b0xdq.\r", "bc ", 1),
+        ("cancelled_by_l", "abc\x1b0xdx.\r", "bc ", 1),
+        ("right_arrow", "abc\x1b0xd\x1b[C.\r", "bc ", 1),
+        ("csi_word_motion", "abc\x1b0xd\x1b[1;5C.\r", "bc ", 1),
+        ("mid_line", "abc def\x1b0llldq.\r", "abc def ", 1),
+        ("without_prior_edit", "abc\x1b0dq.\r", "abc ", 1),
+        ("after_insert", "abc\x1b0iZ\x1bdq.\r", "Zabc ", 1),
+        ("after_undo", "abc\x1b0xdqu.\r", "abc ", 1),
+        ("repeated", "abc\x1b0xd\x1b[C..\r", "bc  ", 2),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bells,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
+fn bash_and_sushline_vi_redo_after_failed_search() {
+    let inputrc = "set editing-mode vi";
+    for (desc, keys) in [
+        ("undo", "abc\x1b0xfqu\r"),
+        ("redo", "abc\x1b0xfq.\r"),
+        ("undo_whole_line", "abc\x1b0xfqU\r"),
+        ("after_cw", "abc\x1b0cwZ\x1bfqu\r"),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

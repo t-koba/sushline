@@ -958,6 +958,9 @@ where
             // unbound; an ordinary unbound key would ring here.
             let pending_operator = state.vi.vi_operator.is_some();
             state.cancel_pending_command();
+            if pending_operator {
+                state.mark_vi_redo_cancelled_operator();
+            }
             // Redundant bare ESCs are silent no-ops in vi command mode:
             // Bash accepts after them without ringing. Drop the whole
             // leading ESC run, then keep processing what follows so that

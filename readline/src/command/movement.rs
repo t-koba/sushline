@@ -231,6 +231,7 @@ fn take_vi_motion_operator(
     if operator.is_some() && !is_vi_motion_key(command, key) {
         // GNU drops the count along with the cancelled operator.
         state.take_numeric_arg();
+        state.mark_vi_redo_cancelled_operator();
         return None;
     }
     operator

@@ -13,6 +13,9 @@ pub(crate) struct ViModeState {
     pub(crate) vi_operator_key: Option<Vec<u8>>,
     pub(crate) vi_count_keys: Vec<u8>,
     pub(crate) last_vi_change: Option<Vec<u8>>,
+    /// Whether the redo change was synthesized from an uninterrupted initial
+    /// insertion rather than recorded from an explicit vi command.
+    pub(crate) last_change_is_initial_insert: bool,
     pub(crate) vi_insert_change: Option<Vec<u8>>,
     pub(crate) pending_vi_mark: Option<ViMarkAction>,
     pub(crate) pending_mark_operator: Option<(ViOperator, usize, Vec<u8>)>,
@@ -20,7 +23,6 @@ pub(crate) struct ViModeState {
     pub(crate) command_mode_entered: bool,
     /// Bytes inserted before this read's first vi command-mode entry.
     pub(crate) initial_insert_bytes: Vec<u8>,
-    pub(crate) initial_insert_recorded: bool,
     pub(crate) defer_undo_commit: bool,
     pub(crate) pending_vi_register: bool,
     pub(crate) active_vi_register: Option<char>,
@@ -60,6 +62,16 @@ pub(crate) enum ViOperator {
 }
 
 impl EditorState {
+    pub(crate) fn set_vi_redo(&mut self, change: Vec<u8>) {
+        self.vi.last_vi_change = Some(change);
+        self.vi.last_change_is_initial_insert = false;
+    }
+
+    pub(crate) fn set_initial_insert_vi_redo(&mut self, change: Vec<u8>) {
+        self.vi.last_vi_change = Some(change);
+        self.vi.last_change_is_initial_insert = true;
+    }
+
     pub(crate) fn begin_vi_insert_change(&mut self, key: &[u8]) {
         if self.macro_state.replaying_macro {
             return;
@@ -81,7 +93,7 @@ impl EditorState {
     pub(crate) fn finish_vi_insert_change(&mut self, key: &[u8]) {
         if let Some(mut change) = self.vi.vi_insert_change.take() {
             change.extend_from_slice(key);
-            self.vi.last_vi_change = Some(change);
+            self.set_vi_redo(change);
         }
     }
 
@@ -95,7 +107,7 @@ impl EditorState {
         if matches!(op, ViOperator::Change) {
             self.vi.vi_insert_change = Some(change.clone());
         }
-        self.vi.last_vi_change = Some(change);
+        self.set_vi_redo(change);
     }
 
     pub(crate) fn set_vi_operator(&mut self, op: ViOperator, key: &[u8]) {

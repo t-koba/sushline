@@ -107,6 +107,7 @@ where
     pub(crate) last_non_incremental_search_match_index: Option<usize>,
     pub(crate) last_char_search: Option<(CharSearchMode, char)>,
     pub(crate) last_vi_change: Option<Vec<u8>>,
+    pub(crate) last_change_is_initial_insert: bool,
     initial_inputrc_error: Option<String>,
     inputrc_diagnostics: Vec<InputrcDiagnostic>,
     inputrc_report_pending: bool,
@@ -188,6 +189,7 @@ where
             last_non_incremental_search_match_index: None,
             last_char_search: None,
             last_vi_change: None,
+            last_change_is_initial_insert: false,
             initial_inputrc_error: None,
             inputrc_diagnostics: Vec::new(),
             inputrc_report_pending: false,
@@ -375,6 +377,7 @@ where
             self.last_non_incremental_search_match_index;
         state.vi.last_char_search = self.last_char_search;
         state.vi.last_vi_change = self.last_vi_change.clone();
+        state.vi.last_change_is_initial_insert = self.last_change_is_initial_insert;
     }
 
     fn save_persistent_state(&mut self, state: &EditorState) {
@@ -390,6 +393,7 @@ where
             state.search.last_non_incremental_search_match_index;
         self.last_char_search = state.vi.last_char_search;
         self.last_vi_change = state.vi.last_vi_change.clone();
+        self.last_change_is_initial_insert = state.vi.last_change_is_initial_insert;
     }
 
     /// Read line.

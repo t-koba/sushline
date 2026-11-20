@@ -428,7 +428,7 @@ where
             }
             if let Some(mut change) = state.vi.vi_insert_change.take() {
                 change.extend_from_slice(first);
-                state.vi.last_vi_change = Some(change);
+                state.set_vi_redo(change);
             }
             state.after_non_kill_command();
             state.input.changed_display = true;
@@ -712,7 +712,7 @@ where
                 let outcome =
                     self.handle_bytes(state, ch.encode_utf8(&mut buf).as_bytes(), hooks)?;
                 if !matches!(outcome, EditorOutcome::Continue) {
-                    state.vi.last_vi_change = Some(original_change);
+                    state.set_vi_redo(original_change);
                     return Ok(outcome);
                 }
             }
@@ -720,12 +720,12 @@ where
             for byte in bytes {
                 let outcome = self.handle_bytes(state, &[*byte], hooks)?;
                 if !matches!(outcome, EditorOutcome::Continue) {
-                    state.vi.last_vi_change = Some(original_change);
+                    state.set_vi_redo(original_change);
                     return Ok(outcome);
                 }
             }
         }
-        state.vi.last_vi_change = Some(original_change);
+        state.set_vi_redo(original_change);
         Ok(EditorOutcome::Continue)
     }
 

@@ -63,26 +63,32 @@ where
                     // without making the initial text undoable. A persisted
                     // non-insert command (`x`, `cw`, ...) remains the redo
                     // command across reads.
-                    if !state.vi.initial_insert_recorded {
-                        state.vi.initial_insert_recorded = true;
-                        let prior_is_insert = state
-                            .vi
-                            .last_vi_change
-                            .as_ref()
-                            .and_then(|change| {
-                                change.iter().copied().find(|byte| !byte.is_ascii_digit())
-                            })
-                            .is_none_or(|byte| matches!(byte, b'i' | b'I' | b'a' | b'A'));
-                        if prior_is_insert
-                            && state.vi.vi_insert_change.is_none()
+                    let prior_is_insert = state
+                        .vi
+                        .last_vi_change
+                        .as_ref()
+                        .and_then(|change| {
+                            change.iter().copied().find(|byte| !byte.is_ascii_digit())
+                        })
+                        .is_none_or(|byte| matches!(byte, b'i' | b'I' | b'a' | b'A'));
+                    if prior_is_insert {
+                        if state.vi.vi_insert_change.is_none()
+                            && !state.vi.initial_insert_bytes.is_empty()
                             && state.vi.initial_insert_bytes == state.buffer.as_bytes()
-                            && !state.buffer.as_bytes().is_empty()
                         {
                             let bytes = state.buffer.as_bytes();
                             let mut change = vec![b'i'];
                             change.extend_from_slice(&bytes[vi_initial_redo_start(bytes)..]);
                             change.push(b'\x1b');
-                            state.vi.last_vi_change = Some(change);
+                            state.set_initial_insert_vi_redo(change);
+                        } else if !state.vi.initial_insert_bytes.is_empty()
+                            || !state.vi.last_change_is_initial_insert
+                        {
+                            // Editing the initial text before this read's
+                            // first ESC, or carrying an explicit insert redo
+                            // into an empty read, drops GNU's redo change.
+                            state.vi.last_vi_change = None;
+                            state.vi.last_change_is_initial_insert = false;
                         }
                     }
                 }
@@ -299,7 +305,8 @@ where
                 repeat(state, |state| {
                     state.buffer.toggle_case_at_point();
                 });
-                state.vi.last_vi_change = Some(state.vi_key_sequence_for_change(key));
+                let change = state.vi_key_sequence_for_change(key);
+                state.set_vi_redo(change);
                 state.after_non_kill_command();
             }
             "vi-change-char" => {
@@ -346,7 +353,8 @@ where
                 if !deleted.is_empty() {
                     state.push_kill(deleted, KillDirection::Forward, self.kill_append_allowed());
                 }
-                state.vi.last_vi_change = Some(state.vi_key_sequence_for_change(key));
+                let change = state.vi_key_sequence_for_change(key);
+                state.set_vi_redo(change);
                 state.after_non_kill_command();
             }
             "vi-delete-to" => {
@@ -357,7 +365,8 @@ where
                         state.buffer.point(),
                         state.buffer.len_chars(),
                     );
-                    state.vi.last_vi_change = Some(state.vi_key_sequence_for_change(key));
+                    let change = state.vi_key_sequence_for_change(key);
+                    state.set_vi_redo(change);
                     state.after_non_kill_command();
                     return Ok(EditorOutcome::Continue);
                 }
@@ -368,7 +377,7 @@ where
                         0,
                         state.buffer.len_chars(),
                     );
-                    state.vi.last_vi_change = Some(vec![b'd', b'd']);
+                    state.set_vi_redo(vec![b'd', b'd']);
                 });
                 state.after_non_kill_command();
             }
@@ -465,7 +474,8 @@ where
                     state.vi_put()
                 };
                 if yanked {
-                    state.vi.last_vi_change = Some(state.vi_key_sequence_for_change(key));
+                    let change = state.vi_key_sequence_for_change(key);
+                    state.set_vi_redo(change);
                 } else {
                     // GNU leaves the previous redo command intact when the
                     // unnamed register is empty.

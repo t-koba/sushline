@@ -8354,6 +8354,48 @@ fn bash_and_sushline_vi_redo_initial_insert_per_read() {
             0,
         ),
         ("prior_operator", "abc\x1b0x\rdef\x1b.\r", "bc", "de", 0),
+        (
+            "prior_insert_empty_read",
+            "abc\x1biX\x1b\r\x1b.\r",
+            "abXc",
+            "",
+            0,
+        ),
+        (
+            "prior_insert_backspace",
+            "abc\x1biX\x1b\rdef\x08\x1b.\r",
+            "abXc",
+            "de",
+            0,
+        ),
+        (
+            "prior_insert_word_kill",
+            "abc\x1biX\x1b\rdef \x17\x1b.\r",
+            "abXc",
+            "",
+            0,
+        ),
+        (
+            "synthesized_insert_empty_read",
+            "abc\x1b\r\x1b.\r",
+            "abc",
+            "abc",
+            0,
+        ),
+        (
+            "synthesized_insert_backspace",
+            "abc\x1b\rdef\x08\x1b.\r",
+            "abc",
+            "de",
+            0,
+        ),
+        (
+            "prior_append_empty_read",
+            "abc\x1bA X \x1b\r\x1b.\r",
+            "abc X ",
+            "",
+            0,
+        ),
     ] {
         let bash = run_bash_readline_two_reads_with_inputrc_file_and_history(
             keys.as_bytes(),

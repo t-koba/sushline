@@ -8628,3 +8628,68 @@ fn bash_and_sushline_vi_forward_char_stays_on_last_character() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_dollar_keeps_point_on_last_character() {
+    // GNU leaves vi command-mode point on the final character after `$`, so
+    // the next character operator acts on it. End-of-line operators keep their
+    // inclusive behavior; insert-mode append after `$` still starts at end.
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, expected, bells) in [
+        ("change_case", "abc\x1b$~\r", "abC", 0),
+        ("delete", "abc\x1b$x\r", "ab", 0),
+        ("change_case_then_delete", "abc\x1b$~x\r", "ab", 0),
+        ("counted_change_case", "abc\x1b$2~\r", "abc", 0),
+        ("replace", "abc\x1b$rX\r", "abX", 0),
+        ("forward_at_end", "abc\x1b$l\r", "abc", 1),
+        ("forward_then_delete", "abc\x1b$lx\r", "ab", 1),
+        ("multibyte_delete", "a\u{e9}\x1b$x\r", "a", 0),
+        ("empty_line_delete", "\x1b$x\r", "", 1),
+        ("backward", "abc\x1b$h\r", "abc", 0),
+        ("delete_to_end", "abc def\x1b0llD\r", "ab", 0),
+        ("change_to_end", "abc def\x1b0llCXY\x1b\r", "abXY", 0),
+        ("yank_to_end", "abc def\x1b0llY$p\r", "abc defc def", 0),
+        (
+            "dollar_motion_delete",
+            "abc def\x1b0ll$\x1bx\r",
+            "abc de",
+            0,
+        ),
+        (
+            "dollar_motion_change",
+            "abc def\x1b0llc$XY\x1b\r",
+            "abXY",
+            0,
+        ),
+        (
+            "dollar_motion_yank",
+            "abc def\x1b0lly$p\r",
+            "abcc def def",
+            0,
+        ),
+        ("append_after_dollar", "abc\x1b$A X\r", "abc X", 0),
+        ("counted_dollar", "abc def\x1b2$\r", "abc def", 0),
+        ("single_character", "a\x1b$x\r", "", 0),
+        ("empty_line", "\x1b$\r", "", 0),
+        ("redo_after_insert", "abc\x1b0iX\x1b$.\r", "XabXc", 0),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bells,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

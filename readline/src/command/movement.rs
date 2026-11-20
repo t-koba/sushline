@@ -63,6 +63,17 @@ where
             EditCommand::EndOfLine => {
                 let op_start = state.take_vi_operator();
                 state.buffer.move_end();
+                // Vi command mode keeps point on the final character; insert
+                // mode and emacs keep it at the buffer end.
+                if matches!(self.keymap.current(), KeyMapName::ViCommand)
+                    && !state.buffer.is_empty()
+                {
+                    if self.char_motion_is_bytewise() {
+                        state.buffer.move_backward_byte();
+                    } else {
+                        state.buffer.move_backward();
+                    }
+                }
                 self.finish_vi_motion_operator(state, op_start, key, true);
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)

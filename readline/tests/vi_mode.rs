@@ -258,7 +258,9 @@ fn vi_redo_replays_insert_change_group() {
     let mut line = Editor::new(Config::default(), terminal, History::new());
     line.load_inputrc_str("set editing-mode vi").unwrap();
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
-    assert_eq!(result, ReadlineResult::Line("XabcX".as_bytes().to_vec()));
+    // GNU inserts at the last character after `$`, not past it; the paired
+    // bash_and_sushline_vi_dollar_keeps_point_on_last_character fixture pins it.
+    assert_eq!(result, ReadlineResult::Line("XabXc".as_bytes().to_vec()));
 }
 
 #[test]

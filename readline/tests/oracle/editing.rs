@@ -8729,3 +8729,42 @@ fn bash_and_sushline_vi_forward_char_operator_reaches_line_end() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_backward_delete_honors_count_and_rings() {
+    // GNU X deletes up to count characters before point and rings when the
+    // count cannot be satisfied, including at column zero and on empty lines.
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, expected, bells) in [
+        ("at_column_zero", "abc\x1b0X\r", "abc", 1),
+        ("twice_at_column_zero", "abc\x1b0XX\r", "abc", 2),
+        ("zero_count", "abc\x1b00X\r", "abc", 1),
+        ("count_exceeds_available", "abc\x1b0l3X\r", "bc", 1),
+        ("exact_count", "abc\x1b0ll2X\r", "c", 0),
+        ("count_one_past_available", "abc\x1b0ll3X\r", "c", 1),
+        ("at_end", "abc\x1bX\r", "ac", 0),
+        ("empty_line", "\x1bX\r", "", 1),
+        ("counted_from_end", "abc def\x1b$5X\r", "af", 0),
+        ("multibyte_exact", "a\u{e9}\x1b$2X\r", "\u{e9}", 1),
+        ("multibyte_overshoot", "a\u{e9}\u{e9}\x1b$3X\r", "\u{e9}", 1),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bells,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

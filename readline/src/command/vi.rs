@@ -464,7 +464,19 @@ where
         match command {
             "vi-overstrike-delete" | "vi-rubout" => {
                 state.record_undo();
-                state.buffer.backward_delete_char();
+                let count = state.take_numeric_arg().unwrap_or(1);
+                let mut deleted = 0;
+                for _ in 0..count.max(0) {
+                    if !state.buffer.backward_delete_char() {
+                        break;
+                    }
+                    deleted += 1;
+                }
+                // GNU rings when the count exceeds the characters before point,
+                // including a zero count or an empty line.
+                if deleted != count {
+                    self.ding()?;
+                }
                 state.after_non_kill_command();
             }
             "vi-put" => {

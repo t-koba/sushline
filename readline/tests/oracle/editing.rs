@@ -9930,3 +9930,39 @@ fn bash_and_sushline_vi_insert_undo_keeps_long_run() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_first_counted_vi_put_respects_byte_cap() {
+    for (desc, keys, expected) in [
+        ("p_twenty", "abc\x1b0x20pu\r", "bc"),
+        ("p_twenty_one", "abc\x1b0x21pu\r", "baaaaaaaaaaaaaaaaaaaac"),
+        ("p_twenty_five", "abc\x1b0x25pu\r", "baaaaaaaaaaaaaaaaaaaac"),
+        ("p_twenty_five_two_undos", "abc\x1b0x25puu\r", "bc"),
+        ("P_twenty_five", "abc\x1b0x25Pu\r", "aaaaaaaaaaaaaaaaaaaabc"),
+        ("P_twenty_five_two_undos", "abc\x1b0x25Puu\r", "bc"),
+        (
+            "insert_dot_twenty_five_control",
+            "abc\x1b0xiX\x1b25.uu\r",
+            "bc",
+        ),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), "set editing-mode vi");
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), "set editing-mode vi");
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            0,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

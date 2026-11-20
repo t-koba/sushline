@@ -3,6 +3,8 @@ use history::HistoryUndoEntry;
 
 use super::EditorState;
 
+const MAX_PUT_UNDO_BYTES: usize = 20;
+
 #[derive(Debug, Clone, Default)]
 pub(crate) struct UndoState {
     pub(crate) undo_stack: Vec<UndoEntry>,
@@ -95,6 +97,30 @@ impl EditorState {
         self.undo.vi_put_undo_before = Some(before.clone());
         self.undo.vi_put_undo_point = Some(after_point);
         self.undo.vi_put_undo_yank_len = Some(yank_len);
+        // A counted put of one-byte yanks is GNU's own insertion run: even as
+        // the first edit it is capped at 20 bytes per undo entry. Longer yanks
+        // keep one entry, as measured with paired GNU fixtures.
+        if yank_len != 1 {
+            return;
+        }
+        let Some(mut entry) = self.undo.undo_stack.last().cloned() else {
+            return;
+        };
+        if !entry.deleted.is_empty() || entry.inserted.len() <= MAX_PUT_UNDO_BYTES {
+            return;
+        }
+        let remainder = entry.inserted.split_off(MAX_PUT_UNDO_BYTES);
+        self.undo.undo_stack.pop();
+        self.undo.undo_stack.push(entry.clone());
+        self.undo.undo_stack.push(UndoEntry {
+            start: entry.start + MAX_PUT_UNDO_BYTES,
+            deleted: Vec::new(),
+            inserted: remainder,
+        });
+        let mut group_before = before.clone();
+        group_before.set_point(entry.start);
+        group_before.insert_bytes(&entry.inserted);
+        self.undo.vi_put_undo_before = Some(group_before);
     }
 
     pub(crate) fn clear_vi_put_undo(&mut self) {
@@ -150,7 +176,6 @@ impl EditorState {
         self.undo
             .undo_stack
             .truncate(self.undo.undo_stack.len() - 2);
-        const MAX_PUT_UNDO_BYTES: usize = 20;
         let capacity = MAX_PUT_UNDO_BYTES.saturating_sub(prior_entry.inserted.len());
         let merged_len = capacity.min(new_entry.inserted.len());
         let mut merged = prior_entry;

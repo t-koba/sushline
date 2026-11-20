@@ -9181,3 +9181,45 @@ fn bash_and_sushline_vi_replace_esc_keeps_key_prefix() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_csi_word_motions_cancel_operator() {
+    // A CSI word-motion key cancels a pending operator at the motion itself;
+    // the next command is executed normally instead of being dropped.
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, expected, bells) in [
+        (
+            "alt_left_insert",
+            "abc def\x1b0ld\x1b[1;3DiZ\x1b\r",
+            "Zabc def",
+            0,
+        ),
+        (
+            "ctrl_right_insert",
+            "abc def\x1b0ld\x1b[1;5CiZ\x1b\r",
+            "abcZ def",
+            0,
+        ),
+        ("vi_backward_word", "abc def\x1b0ldbZ\r", "bc def", 1),
+        ("vi_forward_word", "abc def\x1b0ldwZ\r", "adef", 1),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bells,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

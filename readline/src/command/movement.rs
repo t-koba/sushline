@@ -40,6 +40,7 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::BackwardWord => {
+                let _ = take_vi_motion_operator(state, command, key);
                 let word_breaks = self.editing_word_breaks(hooks);
                 repeat_signed(
                     state,
@@ -79,6 +80,7 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::ExchangePointAndMark => {
+                let _ = take_vi_motion_operator(state, command, key);
                 let mark = state.mark.unwrap_or(0);
                 let point = state.buffer.point();
                 state.buffer.set_point(mark);
@@ -107,6 +109,7 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::ForwardWord => {
+                let _ = take_vi_motion_operator(state, command, key);
                 let word_breaks = self.editing_word_breaks(hooks);
                 repeat_signed(
                     state,
@@ -121,6 +124,7 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::SetMark => {
+                let _ = take_vi_motion_operator(state, command, key);
                 let mark = state
                     .numeric_arg
                     .take()
@@ -238,7 +242,7 @@ fn is_vi_motion_key(command: EditCommand, key: &[u8]) -> bool {
         EditCommand::ForwardChar => key == b"l" || key == b" ",
         EditCommand::BeginningOfLine => key == b"0",
         EditCommand::EndOfLine => key == b"$",
-        _ => true,
+        _ => false,
     }
 }
 

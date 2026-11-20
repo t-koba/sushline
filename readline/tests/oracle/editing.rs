@@ -9043,7 +9043,7 @@ fn bash_and_sushline_vi_operators_cancel_on_non_motion_keys() {
         ("end_key", "abc def\x1b0ld\x1b[F\r", "abc def", 0),
         ("home_key", "abc def\x1bld\x1b[H\r", "abc def", 1),
         ("h", "abc\x1b0ldh\r", "bc", 0),
-        ("backspace", "abc\x1b0ld\x08\r", "abc", 0),
+        ("backspace", "abc\x1b0ld\x08x\r", "ac", 0),
         ("l", "abc\x1b0lldl\r", "ab", 0),
         ("space", "abc\x1b0lld \r", "ab", 0),
         ("backward_word", "abc def\x1b$db\r", "abc f", 0),

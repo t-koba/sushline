@@ -30,9 +30,12 @@ where
     ) -> Result<EditorOutcome, ReadlineError> {
         match command {
             EditCommand::BackwardChar => {
+                // Ctrl-H cancels a pending vi operator without moving point;
+                // other bindings of backward-char still move normally.
+                let cancel_without_motion = key == b"\x08" && state.vi.vi_operator.is_some();
                 let op_start = take_vi_motion_operator(state, command, key);
                 let bytewise = self.char_motion_is_bytewise();
-                if !move_by_char(state, false, bytewise) {
+                if !cancel_without_motion && !move_by_char(state, false, bytewise) {
                     self.ding()?;
                 }
                 self.finish_vi_motion_operator(state, op_start, key, false);

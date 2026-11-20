@@ -760,6 +760,10 @@ where
         if start == end {
             return;
         }
+        // GNU leaves the cursor on the last remaining character after a
+        // delete that ran to the end of the line. Change enters insert mode
+        // at the deletion point instead, so only delete moves back.
+        let delete_to_end = matches!(op, ViOperator::Delete) && end >= state.buffer.len_chars();
         match op {
             ViOperator::Delete | ViOperator::Change => {
                 state.record_undo();
@@ -767,6 +771,8 @@ where
                 state.push_kill(killed, KillDirection::Forward, self.kill_append_allowed());
                 if matches!(op, ViOperator::Change) {
                     self.keymap.set_current(KeyMapName::ViInsert);
+                } else if delete_to_end && !state.buffer.is_empty() {
+                    state.buffer.move_backward();
                 }
             }
             ViOperator::Yank => {

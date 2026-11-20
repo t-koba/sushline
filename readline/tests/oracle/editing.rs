@@ -7699,6 +7699,37 @@ fn bash_and_sushline_vi_end_word_stops_at_punctuation_run() {
 }
 
 #[test]
+fn bash_and_sushline_vi_delete_to_end_keeps_point_on_last_character() {
+    // GNU backs the cursor up after a delete reaches the end of the line.
+    // The inserted X shows the point: these counts start inside a word or
+    // punctuation run and delete across the rest of the line.
+    let inputrc = "set editing-mode vi";
+    for (desc, line, left, motion, expected) in [
+        ("dollar", "one two three", 3, "d$iX", "onXe"),
+        ("D", "one two three", 3, "DiX", "onXe"),
+        ("last_word", "one two three", 8, "dwiX", "one twoX "),
+        ("two_words", "one two three", 5, "d2wiX", "one Xt"),
+        ("punctuation", "one--two three", 5, "d2wiX", "one-X-"),
+        ("punctuation_late", "one--two three", 6, "d2wiX", "one--Xt"),
+        ("three_words", "one--two three", 3, "d3wiX", "onXe"),
+    ] {
+        let keys = format!("{line}\x1b0{}{motion}\r", "l".repeat(left));
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_and_sushline_vi_change_word_matches_punctuation_runs() {
     // GNU Readline's vi `cw` changes one word-class run, treating a
     // punctuation run as its own class and preserving the whitespace after a

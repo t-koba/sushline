@@ -850,10 +850,11 @@ impl LineBuffer {
 
     /// Vi backward word (lowercase `b`).
     ///
-    /// Unlike the Emacs `backward_word`, a contiguous run of punctuation is
-    /// its own word class: `b` stops at the start of that run rather than
-    /// skipping over it. This mirrors the three classes in
-    /// [`vi_word_motion_by`](LineBuffer::vi_word_motion_by).
+    /// Mirrors GNU Readline's `rl_vi_bword`: a word starts at an identifier
+    /// run or a non-identifier, non-whitespace run, and the boundary between
+    /// the two classes counts as its own stopping point. A contiguous
+    /// punctuation run is therefore handled without treating every single
+    /// character as a separate word.
     pub fn vi_backward_word(&mut self, break_chars: Option<&str>) -> bool {
         self.vi_backward_word_by(word_matcher(break_chars))
     }
@@ -863,32 +864,66 @@ impl LineBuffer {
         F: Fn(char) -> bool + Copy,
     {
         let start = self.point;
-        while let Some((prev, ch)) = self.prev_char(self.point) {
-            if !ch.is_whitespace() {
-                break;
-            }
-            self.point = prev;
+        if self.point == 0 {
+            return false;
         }
-        match self.prev_char(self.point) {
-            Some((_, ch)) if is_word(ch) => {
-                while let Some((prev, ch)) = self.prev_char(self.point) {
-                    if !is_word(ch) {
+
+        // At the start of a word backed by whitespace, step into the gap.
+        if let Some((prev, ch)) = self.prev_char(self.point)
+            && ch.is_whitespace()
+            && self.char_at(self.point).is_some_and(|c| !c.is_whitespace())
+        {
+            self.point = prev;
+            if self.point == 0 {
+                return true;
+            }
+        }
+
+        let cur_ident = self.char_at(self.point).is_some_and(is_word);
+        let opoint = self.backup_point();
+        let prev_ident = self.char_at(self.point).is_some_and(is_word);
+        if !((cur_ident && !prev_ident) || (!cur_ident && prev_ident)) {
+            self.point = opoint;
+        }
+
+        while self.point > 0 && self.char_at(self.point).is_some_and(char::is_whitespace) {
+            self.backup_point();
+        }
+
+        if self.point > 0 {
+            let mut opoint;
+            if self.char_at(self.point).is_some_and(is_word) {
+                loop {
+                    opoint = self.backup_point();
+                    if self.point == 0 || !self.char_at(self.point).is_some_and(is_word) {
                         break;
                     }
-                    self.point = prev;
                 }
-            }
-            Some((_, ch)) if !ch.is_whitespace() => {
-                while let Some((prev, ch)) = self.prev_char(self.point) {
-                    if ch.is_whitespace() || is_word(ch) {
+            } else {
+                loop {
+                    opoint = self.backup_point();
+                    if self.point == 0
+                        || self
+                            .char_at(self.point)
+                            .is_some_and(|ch| ch.is_whitespace() || is_word(ch))
+                    {
                         break;
                     }
-                    self.point = prev;
                 }
             }
-            _ => {}
+            if self.point > 0 {
+                self.point = opoint;
+            }
         }
         self.point != start
+    }
+
+    fn backup_point(&mut self) -> usize {
+        let old = self.point;
+        if let Some((prev, _)) = self.prev_char(self.point) {
+            self.point = prev;
+        }
+        old
     }
 
     /// Vi end word (lowercase `e`).
@@ -914,17 +949,19 @@ impl LineBuffer {
             return false;
         }
         let current = class(self.char_at(self.point).unwrap());
-        if current == 0 {
-            self.skip_whitespace_in(&class);
-        } else if self
-            .next_char(self.point)
-            .is_some_and(|(_, ch)| class(ch) == current)
+        if current != 0
+            && self
+                .next_char(self.point)
+                .is_some_and(|(_, ch)| class(ch) == current)
         {
             self.advance_run_in(&class, current);
         } else {
-            // Already at the end of a run: vi `e` moves to the end of the
-            // following run, crossing a whitespace gap if there is one.
-            if let Some((next, _)) = self.next_char(self.point) {
+            // At the end of a run, `e` moves to the end of the following
+            // run; from whitespace it moves to the end of the next run
+            // without the extra step.
+            if current != 0
+                && let Some((next, _)) = self.next_char(self.point)
+            {
                 self.point = next;
             }
             self.skip_whitespace_in(&class);

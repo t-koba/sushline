@@ -7655,3 +7655,68 @@ fn bash_and_sushline_vi_change_word_matches_punctuation_runs() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_backward_word_follows_gnu_boundaries() {
+    // GNU Readline's `rl_vi_bword` algorithm stops at the boundary
+    // between an identifier run and a punctuation run, but backtracks over a
+    // short run when the next class boundary belongs to a one-character
+    // word. Bash 5.3 PTY observations for these line shapes and counts.
+    let inputrc = "set editing-mode vi";
+    for (desc, text, left, expected) in [
+        ("one_char_word", "a-b", 2, "@a-b"),
+        ("one_char_word_long_run", "a--b", 3, "@a--b"),
+        ("long_word", "aa-b", 3, "aa@-b"),
+        ("long_word_long_run", "aa--b", 4, "aa@--b"),
+        ("one_char_two_letter_target", "a-bb", 2, "@a-bb"),
+        ("inside_target", "a-bb", 3, "a-@bb"),
+        ("long_words", "one--two", 5, "one@--two"),
+        ("across_space", "a b", 2, "@a b"),
+        ("previous_one_char_word", "a b c", 4, "a @b c"),
+        ("count_two", "one--two three", 5, "one@--two three"),
+    ] {
+        let keys = format!("{text}\x1b0{}bi@\r", "l".repeat(left));
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
+fn bash_and_sushline_vi_end_word_from_whitespace_follows_gnu() {
+    // GNU's `rl_vi_eword` skips a whitespace gap and then advances to the
+    // end of the following class run; Bash 5.3 PTY observations for these
+    // gaps, counts and operators.
+    let inputrc = "set editing-mode vi";
+    for (desc, text, left, motion, expected) in [
+        ("space", "ab cd", 2, "eiX", "ab cXd"),
+        ("space_run", "ab   cd", 2, "eiX", "ab   cXd"),
+        ("counted", "ab cd ef", 2, "2eiX", "ab cd eXf"),
+        ("delete", "ab cd", 2, "de", "ab"),
+        ("change", "one !!!two", 4, "ceX", "one Xtwo"),
+        ("punctuation", "one--two three", 8, "eiX", "one--two threXe"),
+    ] {
+        let keys = format!("{text}\x1b0{}{motion}\r", "l".repeat(left));
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

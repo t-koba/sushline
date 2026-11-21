@@ -641,8 +641,9 @@ impl LineBuffer {
             .last()
     }
 
-    /// Move a point that lies inside a grapheme to that grapheme's start.
-    pub fn snap_point_to_grapheme_start(&mut self) {
+    /// If the point lies inside the final grapheme, move it to that
+    /// grapheme's start. Interior graphemes are left alone.
+    pub(crate) fn snap_final_grapheme_point(&mut self) {
         let idx = self.point;
         if idx == 0 || idx >= self.bytes.len() {
             return;

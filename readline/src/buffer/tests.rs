@@ -347,3 +347,17 @@ fn a_raw_byte_is_rendered_one_cell_wide() {
     assert_eq!(rendered_string_to_bytes(&rendered), vec![0xff, b'x']);
     assert_eq!(point_width, 2);
 }
+
+#[test]
+fn backward_grapheme_boundary_stays_linear_on_long_mark_runs() {
+    let line = format!("a{}", "\u{301}".repeat(4_000));
+    let buffer = LineBuffer::from(line.as_str());
+    let start = std::time::Instant::now();
+    let boundary = buffer.prev_grapheme_boundary_checked(buffer.bytes.len());
+    let elapsed = start.elapsed();
+    assert_eq!(boundary, Some(0));
+    assert!(
+        elapsed.as_millis() < 200,
+        "backward grapheme scan took {elapsed:?}"
+    );
+}

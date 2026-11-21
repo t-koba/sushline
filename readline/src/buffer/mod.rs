@@ -273,6 +273,31 @@ impl LineBuffer {
         }
     }
 
+    /// Previous decoded scalar, stepping backward over its UTF-8 bytes.
+    /// Unlike `decoded_prev_char`, this does not rescan the whole prefix.
+    fn decoded_prev_char_backward(&self, idx: usize) -> Option<(usize, char)> {
+        let target = idx.min(self.bytes.len());
+        if target == 0 {
+            return None;
+        }
+        let mut leader = target - 1;
+        while leader > 0 && self.bytes[leader] & 0xc0 == 0x80 {
+            leader -= 1;
+        }
+        let needed = utf8_sequence_len(self.bytes[leader]);
+        let start = if needed > 1 && leader + needed <= target {
+            leader
+        } else {
+            target - 1
+        };
+        let (end, ch) = self.decoded_char_at(start)?;
+        if end <= target {
+            Some((start, ch))
+        } else {
+            Some((start, private_byte_char(self.bytes[start])))
+        }
+    }
+
     fn decoded_prev_char(&self, idx: usize) -> Option<(usize, char)> {
         let target = idx.min(self.bytes.len());
         let mut current = 0;
@@ -646,7 +671,7 @@ impl LineBuffer {
         if idx == 0 {
             return None;
         }
-        let mut prev = self.prev_char(idx)?.0;
+        let mut prev = self.decoded_prev_char_backward(idx)?.0;
         // Trailing marks belong to the base before them when moving backward;
         // a leading mark stays its own character, as GNU's ESC backoff shows.
         while prev > 0 {
@@ -656,7 +681,7 @@ impl LineBuffer {
             if !is_grapheme_extend(ch) && ch != '\u{200d}' {
                 break;
             }
-            prev = self.prev_char(prev)?.0;
+            prev = self.decoded_prev_char_backward(prev)?.0;
         }
         idx = prev;
         Some(idx)

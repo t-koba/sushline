@@ -605,8 +605,15 @@ impl LineBuffer {
         };
         let leading_extend = self.char_at(idx).is_some_and(is_grapheme_extend);
         let mut end = self.next_char_boundary(idx);
-        if leading_extend && self.char_at(end).is_some() {
-            end = self.next_char_boundary(end);
+        if leading_extend {
+            // A leading mark, Jamo or joiner run absorbs the base character
+            // that follows it, as GNU's vi `x` and `r` boundaries do.
+            while let Some(ch) = self.char_at(end) {
+                end = self.next_char_boundary(end);
+                if !is_grapheme_extend(ch) && ch != '\u{200d}' {
+                    break;
+                }
+            }
         }
         while let Some(ch) = self.char_at(end) {
             if is_grapheme_extend(ch) {
@@ -614,8 +621,8 @@ impl LineBuffer {
                 continue;
             }
             if ch == '\u{200d}' {
-                // GNU's vi character ends at a joiner; the joined character
-                // that follows is a separate character for `r` and `x`.
+                // A joiner after a base ends the GNU vi character; the
+                // joined character that follows is a separate character.
                 end = self.next_char_boundary(end);
             }
             break;

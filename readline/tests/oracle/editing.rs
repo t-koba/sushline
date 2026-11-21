@@ -14117,8 +14117,8 @@ fn bash_and_sushline_vi_change_case_over_graphemes() {
 }
 
 /// Paired GNU 5.3 / Readline 8.3 pin for command-mode `r` and `x` over
-/// grapheme clusters. GNU ends a cluster at a joining character, and groups a
-/// leading combining mark or Jamo with the character that follows it.
+/// grapheme clusters. GNU ends a cluster at a joining character after a base,
+/// and groups a leading mark/Jamo/joiner run with the character it precedes.
 #[test]
 fn bash_and_sushline_vi_character_operators_over_graphemes() {
     let rc = "set editing-mode vi\n";
@@ -14139,6 +14139,17 @@ fn bash_and_sushline_vi_character_operators_over_graphemes() {
         ("x_at_end", "e\u{301}\x1b0x\r", "", 0),
         ("x_zwj_at_end", "a\u{200d}\x1b0x\r", "", 0),
         ("x_jamo_join", "\u{1160}a\x1b0x\r", "", 0),
+        ("x_leading_mark_zwj", "\u{301}\u{200d}ab\x1b0x\r", "b", 0),
+        (
+            "x_leading_mark_zwj_single",
+            "\u{301}\u{200d}a\x1b0x\r",
+            "",
+            0,
+        ),
+        ("x_leading_two_marks", "\u{301}\u{301}ab\x1b0x\r", "b", 0),
+        ("x_leading_jamo_zwj", "\u{1160}\u{200d}ab\x1b0x\r", "b", 0),
+        ("r_leading_mark_zwj", "\u{301}\u{200d}ab\x1b0rZ\r", "Zb", 0),
+        ("r_leading_two_marks", "\u{301}\u{301}ab\x1b0rZ\r", "Zb", 0),
     ] {
         assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }

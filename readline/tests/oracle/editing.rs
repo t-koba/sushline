@@ -14610,3 +14610,54 @@ fn bash_and_sushline_vi_inclusive_operators_keep_plain_grapheme_tails() {
         assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }
 }
+
+#[test]
+fn bash_and_sushline_bytewise_end_word_all_operators() {
+    let rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C")];
+    let e9 = b"\xc3\xa9";
+    let a_e9_b = [b"a".as_slice(), e9, b"b"].concat();
+    let e9_ab = [e9.as_slice(), b"ab"].concat();
+    for (desc, line, keys_tail, expected) in [
+        (
+            "plain_e_insert",
+            a_e9_b.as_slice(),
+            b"\x1b0eiX\r".as_slice(),
+            [b"a\xc3".as_slice(), b"X", b"\xa9b"].concat(),
+        ),
+        (
+            "plain_e_delete",
+            a_e9_b.as_slice(),
+            b"\x1b0de\r".as_slice(),
+            b"b".to_vec(),
+        ),
+        (
+            "plain_e_yank",
+            a_e9_b.as_slice(),
+            b"\x1b0yeP\r".as_slice(),
+            [b"a".as_slice(), e9, b"a", e9, b"b"].concat(),
+        ),
+        (
+            "leading_e_insert",
+            e9_ab.as_slice(),
+            b"\x1b0eiX\r".as_slice(),
+            [b"\xc3".as_slice(), b"X", b"\xa9ab"].concat(),
+        ),
+        (
+            "leading_e_delete",
+            e9_ab.as_slice(),
+            b"\x1b0de\r".as_slice(),
+            b"ab".to_vec(),
+        ),
+    ] {
+        let mut keys = line.to_vec();
+        keys.extend_from_slice(keys_tail);
+        assert_bytewise_vi_bytes(desc, &keys, &expected, 0, rc, &env);
+    }
+}

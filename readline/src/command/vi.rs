@@ -1206,7 +1206,7 @@ where
                 let op_start = state.take_vi_operator();
                 let count = state.numeric_arg.unwrap_or(1).unsigned_abs() as usize;
                 if let Some((mode, ch)) = state.vi.last_char_search {
-                    if self.apply_char_search_with_repeat(state, mode, ch, count, true, false)? {
+                    if self.apply_char_search_with_repeat(state, mode, ch, count, true)? {
                         self.finish_vi_motion_operator(state, op_start, key, true);
                     } else {
                         state.cancel_pending_command();
@@ -1225,7 +1225,6 @@ where
                         mode.reversed(),
                         ch,
                         count,
-                        true,
                         true,
                     )? {
                         self.finish_vi_motion_operator(state, op_start, key, true);
@@ -1254,7 +1253,7 @@ where
         ch: char,
         count: usize,
     ) -> Result<bool, ReadlineError> {
-        self.apply_char_search_with_repeat(state, mode, ch, count, false, false)
+        self.apply_char_search_with_repeat(state, mode, ch, count, false)
     }
 
     fn apply_char_search_with_repeat(
@@ -1264,7 +1263,6 @@ where
         ch: char,
         count: usize,
         repeat: bool,
-        reversed: bool,
     ) -> Result<bool, ReadlineError> {
         if count == 0 {
             return Ok(true);
@@ -1278,13 +1276,9 @@ where
             ),
             CharSearchMode::Backward => state.buffer.find_nth_backward_before(ch, count),
             CharSearchMode::TillForward => {
-                // A same-direction repeat skips the target just reached; a
-                // reversed repeat (`,` after `T`) starts after the cursor.
-                let start = if repeat && !reversed {
-                    point.saturating_add(2)
-                } else {
-                    point.saturating_add(1)
-                };
+                // GNU counts the previously found target as the first match
+                // of a repeat, for both `;` after `t` and `,` after `T`.
+                let start = point.saturating_add(1);
                 state.buffer.find_nth_forward_from(ch, count, start)
             }
             CharSearchMode::TillBackward if repeat => {

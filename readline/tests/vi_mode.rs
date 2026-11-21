@@ -239,7 +239,10 @@ fn vi_till_search_repeats_in_reverse_with_comma() {
     let mut line = Editor::new(Config::default(), terminal, History::new());
     line.load_inputrc_str("set editing-mode vi").unwrap();
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
-    assert_eq!(result, ReadlineResult::Line("abcXabc".as_bytes().to_vec()));
+    // GNU counts the target already reached by `t` as the first match of `;`,
+    // so both repeats here fail; pinned by
+    // bash_and_sushline_vi_char_search_counts_and_repeats.
+    assert_eq!(result, ReadlineResult::Line("aXbcabc".as_bytes().to_vec()));
 }
 
 #[test]

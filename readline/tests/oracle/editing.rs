@@ -11040,51 +11040,33 @@ fn bash_and_sushline_counted_zero_width_change_matches_gnu() {
 #[test]
 fn bash_and_sushline_zero_width_change_undo_steps() {
     let rc = "set editing-mode vi\n";
-    let cases = [
-        ("abc\u{1b}0c0X\u{1b}..u\r", "XXabc", 0),
-        ("abc\u{1b}0c0X\u{1b}..uu\r", "Xabc", 0),
-        ("abc\u{1b}0c0X\u{1b}..uuu\r", "abc", 0),
-        ("abc\u{1b}0c0X\u{1b}...uu\r", "XXabc", 0),
-        ("abc\u{1b}0c0X\u{1b}...uuu\r", "Xabc", 0),
-        ("abc\u{1b}0cbX\u{1b}..u\r", "XXabc", 2),
-        ("abc\u{1b}0cbX\u{1b}..uu\r", "Xabc", 2),
-        ("abc\u{1b}0cbX\u{1b}..uuu\r", "abc", 2),
-        ("abc\u{1b}0cbX\u{1b}...uu\r", "XXabc", 2),
-        ("abc\u{1b}0cbX\u{1b}...uuu\r", "Xabc", 2),
-        ("abc\u{1b}0chX\u{1b}..u\r", "XXabc", 2),
-        ("abc\u{1b}0chX\u{1b}..uu\r", "Xabc", 2),
-        ("abc\u{1b}0chX\u{1b}..uuu\r", "abc", 2),
-        ("abc\u{1b}0chX\u{1b}...uu\r", "XXabc", 2),
-        ("abc\u{1b}0chX\u{1b}...uuu\r", "Xabc", 2),
-        ("abc\u{1b}0cBX\u{1b}..u\r", "XXabc", 2),
-        ("abc\u{1b}0cBX\u{1b}..uu\r", "Xabc", 2),
-        ("abc\u{1b}0cBX\u{1b}..uuu\r", "abc", 2),
-        ("abc\u{1b}0cBX\u{1b}...uu\r", "XXabc", 2),
-        ("abc\u{1b}0cBX\u{1b}...uuu\r", "Xabc", 2),
-        ("abc\u{1b}0c^X\u{1b}..u\r", "XXabc", 0),
-        ("abc\u{1b}0c^X\u{1b}..uu\r", "Xabc", 0),
-        ("abc\u{1b}0c^X\u{1b}..uuu\r", "abc", 0),
-        ("abc\u{1b}0c^X\u{1b}...uu\r", "XXabc", 0),
-        ("abc\u{1b}0c^X\u{1b}...uuu\r", "Xabc", 0),
-        ("αβγ\u{1b}0c0X\u{1b}..u\r", "XXαβγ", 0),
-        ("αβγ\u{1b}0c0X\u{1b}..uu\r", "Xαβγ", 0),
-        ("αβγ\u{1b}0c0X\u{1b}..uuu\r", "αβγ", 0),
-        ("αβγ\u{1b}0c0X\u{1b}...uu\r", "XXαβγ", 0),
-        ("αβγ\u{1b}0c0X\u{1b}...uuu\r", "Xαβγ", 0),
-        ("abc\u{1b}0c0X\u{1b}.u\r", "Xabc", 0),
-        ("abc\u{1b}0cbX\u{1b}.u\r", "Xabc", 2),
-        ("abc\u{1b}0chX\u{1b}.u\r", "Xabc", 2),
-        ("abc\u{1b}0cBX\u{1b}.u\r", "Xabc", 2),
-        ("abc\u{1b}0c^X\u{1b}.u\r", "Xabc", 0),
-        ("αβγ\u{1b}0c0X\u{1b}.u\r", "Xαβγ", 0),
+    let lines = [
+        ("abc", "0c0", 0),
+        ("abc", "0cb", 2),
+        ("abc", "0ch", 2),
+        ("abc", "0cB", 2),
+        ("abc", "0c^", 0),
+        ("αβγ", "0c0", 0),
     ];
-    for (keys, expected, bells) in cases {
-        let bash = run_bash_readline_with_inputrc_file(keys.as_bytes(), rc);
-        let sush = run_sushline_harness_with_inputrc(keys.as_bytes(), rc);
-        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
-        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
-        assert_eq!(bell_count(&bash), bells, "{keys:?}");
-        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+    let suffixes = [
+        ("..u", 2),
+        ("..uu", 1),
+        ("..uuu", 0),
+        ("...uu", 2),
+        ("...uuu", 1),
+        (".u", 1),
+    ];
+    for (line, motion, bells) in lines {
+        for (suffix, remaining_insertions) in suffixes {
+            let keys = format!("{line}\x1b{motion}X\x1b{suffix}\r");
+            let expected = format!("{}{line}", "X".repeat(remaining_insertions));
+            let bash = run_bash_readline_with_inputrc_file(keys.as_bytes(), rc);
+            let sush = run_sushline_harness_with_inputrc(keys.as_bytes(), rc);
+            assert_eq!(accepted_line(&bash), Some(expected.clone()), "{keys:?}");
+            assert_eq!(accepted_line(&sush), Some(expected), "{keys:?}");
+            assert_eq!(bell_count(&bash), bells, "{keys:?}");
+            assert_eq!(bell_count(&sush), bells, "{keys:?}");
+        }
     }
 }
 

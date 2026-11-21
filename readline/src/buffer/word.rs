@@ -690,16 +690,21 @@ impl LineBuffer {
 
     /// Toggle case at point, returning whether GNU would ring for it.
     ///
-    /// Byte-oriented mode sees raw bytes: only ASCII letters can change, and
-    /// a high byte is left untouched. In character mode GNU rings for an
-    /// uncased character, while a cased character with no single-character
-    /// mapping (such as `ß`) is left alone without ringing.
+    /// Byte-oriented mode sees raw bytes: only ASCII letters change. An
+    /// uncased byte is skipped silently when another byte follows; at the end
+    /// of the line GNU rings and leaves point there. In character mode GNU
+    /// rings for an uncased character, while a cased character with no
+    /// single-character mapping (such as `ß`) is left alone without ringing.
     pub fn toggle_case_at_point(&mut self, bytewise: bool) -> bool {
         if bytewise {
             let Some(byte) = self.as_bytes().get(self.point).copied() else {
                 return false;
             };
             if !byte.is_ascii_alphabetic() {
+                if self.point + 1 < self.bytes.len() {
+                    self.point += 1;
+                    return false;
+                }
                 return true;
             }
             self.bytes[self.point] = if byte.is_ascii_lowercase() {

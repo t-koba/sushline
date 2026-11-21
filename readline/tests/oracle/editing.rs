@@ -12336,3 +12336,62 @@ fn bash_and_sushline_byte_oriented_operators_after_raw_byte_search() {
         );
     }
 }
+
+/// Byte-oriented `~` skips an uncased byte when another byte follows, even
+/// inside a multibyte scalar; only an uncased final byte rings. The marker
+/// distinguishes a silent skip from a bell with point left in place.
+#[test]
+fn bash_and_sushline_byte_oriented_change_case_skips_uncased_bytes() {
+    let byte_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C")];
+    let e = "\u{e9}".as_bytes();
+    for (desc, keys, expected, bells) in [
+        ("colon", b"a:b\x1b0f:~iZ\r".to_vec(), "a:Zb", 0),
+        ("colon_count", b"a:b\x1b0f:2~iZ\r".to_vec(), "a:ZB", 0),
+        ("colon_count_from_end", b"a:b\x1b2~iZ\r".to_vec(), "a:Zb", 0),
+        ("cased", b"aZb\x1b0fZ~iQ\r".to_vec(), "azQb", 0),
+        (
+            "lead",
+            [b"a".as_slice(), e, b":b\x1b0f", &[0xc3u8], b"~iZ\r"].concat(),
+            "a\u{fffd}Z\u{fffd}:b",
+            0,
+        ),
+        (
+            "continuation",
+            [b"a".as_slice(), e, b":b\x1b0f", &[0xa9u8], b"~iZ\r"].concat(),
+            "a\u{e9}Z:b",
+            0,
+        ),
+        (
+            "final_byte",
+            [e, b"\x1b~iZ\r"].concat(),
+            "\u{fffd}Z\u{fffd}",
+            1,
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, byte_rc, &env);
+        let sush = run_sushline_harness_with_inputrc_and_env(&keys, byte_rc, &env);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_owned()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sush),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sush}"
+        );
+        assert_eq!(
+            bell_count(&sush),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sush}"
+        );
+    }
+}

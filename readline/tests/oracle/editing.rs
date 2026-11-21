@@ -12395,3 +12395,112 @@ fn bash_and_sushline_byte_oriented_change_case_skips_uncased_bytes() {
         );
     }
 }
+
+/// Byte-oriented `cw` and `ce` classify raw bytes: high bytes are
+/// punctuation, so a scalar next to an ASCII word is changed separately and
+/// a point inside it changes only the rest of that byte run. Counted `c2w`
+/// keeps the same bytewise class boundaries.
+#[test]
+fn bash_and_sushline_byte_oriented_change_word_endpoints() {
+    let byte_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C")];
+    let e = "\u{e9}".as_bytes();
+    for (desc, keys, expected) in [
+        (
+            "scalar_next_to_word",
+            [b"a".as_slice(), e, b"b \x1b0f", &[0xc3u8], b"cwZ\x1b\r"].concat(),
+            "aZb ",
+        ),
+        (
+            "one_space",
+            [b"a".as_slice(), e, b" b \x1b0f", &[0xc3u8], b"cwZ\x1b\r"].concat(),
+            "aZ b ",
+        ),
+        (
+            "two_spaces",
+            [b"a".as_slice(), e, b"  b \x1b0f", &[0xc3u8], b"cwZ\x1b\r"].concat(),
+            "aZ  b ",
+        ),
+        (
+            "scalar_next_to_punctuation",
+            [b"a".as_slice(), e, b":b\x1b0f", &[0xc3u8], b"cwZ\x1b\r"].concat(),
+            "aZb",
+        ),
+        (
+            "continuation",
+            [b"a".as_slice(), e, b":b\x1b0f", &[0xa9u8], b"cwZ\x1b\r"].concat(),
+            "a\u{fffd}Zb",
+        ),
+        (
+            "before_scalar",
+            [b"a".as_slice(), e, b"b \x1b0cwZ\x1b\r"].concat(),
+            "Z\u{e9}b ",
+        ),
+        (
+            "count_next_to_word",
+            [b"a".as_slice(), e, b"b \x1b0f", &[0xc3u8], b"c2wZ\x1b\r"].concat(),
+            "aZ",
+        ),
+        (
+            "count_next_to_punctuation",
+            [b"a".as_slice(), e, b":b\x1b0f", &[0xc3u8], b"c2wZ\x1b\r"].concat(),
+            "aZ",
+        ),
+        (
+            "count_next_to_longer_word",
+            [b"a".as_slice(), e, b"bc d\x1b0f", &[0xc3u8], b"c2wZ\x1b\r"].concat(),
+            "aZ d",
+        ),
+        (
+            "count_from_continuation",
+            [b"a".as_slice(), e, b":b\x1b0f", &[0xa9u8], b"c2wZ\x1b\r"].concat(),
+            "a\u{fffd}Z",
+        ),
+        (
+            "ascii_punctuation",
+            b"a:b c\x1b0f:cwZ\x1b\r".to_vec(),
+            "aZb c",
+        ),
+        ("ascii_word", b"abc def\x1b0cwZ\x1b\r".to_vec(), "Z def"),
+        (
+            "change_end_next_to_word",
+            [b"a".as_slice(), e, b"b \x1b0f", &[0xc3u8], b"ceZ\x1b\r"].concat(),
+            "aZb ",
+        ),
+        (
+            "change_end_next_to_punctuation",
+            [b"a".as_slice(), e, b":b\x1b0f", &[0xc3u8], b"ceZ\x1b\r"].concat(),
+            "aZb",
+        ),
+        (
+            "change_end_from_continuation",
+            [b"a".as_slice(), e, b":b\x1b0f", &[0xa9u8], b"ceZ\x1b\r"].concat(),
+            "a\u{fffd}Zb",
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, byte_rc, &env);
+        let sush = run_sushline_harness_with_inputrc_and_env(&keys, byte_rc, &env);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_owned()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sush),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sush}"
+        );
+        assert_eq!(
+            bell_count(&sush),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sush}"
+        );
+    }
+}

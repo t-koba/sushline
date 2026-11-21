@@ -499,9 +499,15 @@ where
                     return Ok(EditorOutcome::Continue);
                 }
                 let word_breaks = self.editing_word_breaks(hooks);
+                let change_operator = matches!(state.vi.vi_operator, Some(ViOperator::Change));
+                let bytewise = self.char_motion_is_bytewise();
                 self.apply_vi_motion_with_operator(state, key, true, |state| {
                     repeat(state, |state| {
-                        state.buffer.vi_end_word(word_breaks.as_deref());
+                        if bytewise && change_operator {
+                            state.buffer.vi_end_word_bytewise(word_breaks.as_deref());
+                        } else {
+                            state.buffer.vi_end_word(word_breaks.as_deref());
+                        }
                     });
                 });
             }
@@ -555,7 +561,13 @@ where
                 self.apply_vi_motion_with_operator(state, key, false, |state| {
                     let mut first = true;
                     if let Some(count) = change_count {
-                        state.buffer.vi_change_words(count, word_breaks.as_deref());
+                        if bytewise {
+                            state
+                                .buffer
+                                .vi_change_words_bytewise(count, word_breaks.as_deref());
+                        } else {
+                            state.buffer.vi_change_words(count, word_breaks.as_deref());
+                        }
                     } else {
                         repeat(state, |state| {
                             let before = state.buffer.point();

@@ -33,6 +33,22 @@ pub(super) fn is_word_char_with_breaks(ch: char, break_chars: &str) -> bool {
     !ch.is_whitespace() && !break_chars.contains(ch)
 }
 
+/// Word classes GNU uses for raw bytes in a C locale: whitespace, word and
+/// punctuation. High bytes are punctuation.
+fn vi_byte_class(byte: u8, break_chars: Option<&str>) -> u8 {
+    let is_word = match break_chars {
+        Some(breaks) => !byte.is_ascii_whitespace() && !breaks.as_bytes().contains(&byte),
+        None => byte.is_ascii_alphanumeric() || byte == b'_',
+    };
+    if byte.is_ascii_whitespace() {
+        0
+    } else if is_word {
+        1
+    } else {
+        2
+    }
+}
+
 fn word_matcher(break_chars: Option<&str>) -> impl Fn(char) -> bool + Copy + '_ {
     move |ch| match break_chars {
         Some(break_chars) => is_word_char_with_breaks(ch, break_chars),
@@ -874,6 +890,46 @@ impl LineBuffer {
         point != start
     }
 
+    /// Byte-oriented `cw` classifies each raw byte: high bytes are
+    /// punctuation, so a word starting before a multibyte scalar stops at its
+    /// first byte and a point inside one changes the rest of that run.
+    pub fn vi_change_words_bytewise(&mut self, count: u32, break_chars: Option<&str>) -> bool {
+        let class = |byte| vi_byte_class(byte, break_chars);
+        let start = self.point;
+        let end = self.bytes.len();
+        if start >= end {
+            return false;
+        }
+        let mut point = start;
+        for _ in 0..count {
+            if point >= end {
+                break;
+            }
+            let current = class(self.bytes[point]);
+            if current != 0 {
+                while point < end && class(self.bytes[point]) == current {
+                    point += 1;
+                }
+            }
+            while point < end && class(self.bytes[point]) == 0 {
+                point += 1;
+            }
+        }
+        if point < end && class(self.bytes[point]) != 0 {
+            point -= 1;
+        }
+        while point > start && point < end && class(self.bytes[point]) == 0 {
+            point -= 1;
+        }
+        let advance = point == start
+            || (point < end && point < end.saturating_sub(1) && class(self.bytes[point]) != 0);
+        if advance && point < end {
+            point += 1;
+        }
+        self.point = point;
+        point != start
+    }
+
     fn vi_word_motion_by<F>(&mut self, is_word: F, skip_whitespace: bool) -> bool
     where
         F: Fn(char) -> bool + Copy,
@@ -1048,6 +1104,45 @@ impl LineBuffer {
                 let target = class(ch);
                 if target != 0 {
                     self.advance_run_in(&class, target);
+                }
+            }
+        }
+        self.point != start
+    }
+
+    /// Byte-oriented `ce` ends at the last byte of the current raw-byte run.
+    /// A high byte is punctuation, so a point on its first byte changes only
+    /// the bytes of that scalar rather than the following ASCII word.
+    pub fn vi_end_word_bytewise(&mut self, break_chars: Option<&str>) -> bool {
+        let class = |byte| vi_byte_class(byte, break_chars);
+        let start = self.point;
+        let end = self.bytes.len();
+        if start >= end {
+            return false;
+        }
+        let current = class(self.bytes[start]);
+        if current != 0
+            && self
+                .bytes
+                .get(start + 1)
+                .is_some_and(|b| class(*b) == current)
+        {
+            while self.point + 1 < end && class(self.bytes[self.point + 1]) == current {
+                self.point += 1;
+            }
+        } else {
+            if current != 0 && start + 1 < end {
+                self.point = start + 1;
+            }
+            while self.point < end && class(self.bytes[self.point]) == 0 {
+                self.point += 1;
+            }
+            if self.point < end {
+                let target = class(self.bytes[self.point]);
+                if target != 0 {
+                    while self.point + 1 < end && class(self.bytes[self.point + 1]) == target {
+                        self.point += 1;
+                    }
                 }
             }
         }

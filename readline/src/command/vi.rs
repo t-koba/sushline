@@ -8,6 +8,12 @@ fn back_off_vi_delete_point(state: &mut EditorState, reached_end: bool) {
     }
 }
 
+/// In the C locale GNU's bytewise word scan still advances inside a final
+/// multibyte character, so a stalled grapheme motion there does not ring.
+fn vi_line_ends_with_multibyte(state: &EditorState) -> bool {
+    matches!(state.buffer.as_bytes().last(), Some(byte) if byte & 0xC0 == 0x80)
+}
+
 /// GNU leaves vi command point on the last character, not one past it. Move
 /// back from the end so multibyte characters stay on a grapheme boundary.
 fn clamp_vi_word_motion_point(state: &mut EditorState, had_operator: bool) {
@@ -366,7 +372,7 @@ where
                     });
                     // GNU rings once when a plain word motion cannot advance,
                     // including the first counted step that runs off the line.
-                    if stalled && !had_operator {
+                    if stalled && !had_operator && !vi_line_ends_with_multibyte(state) {
                         self.ding()?;
                     }
                     return Ok(EditorOutcome::Continue);
@@ -392,7 +398,7 @@ where
                         });
                     }
                 });
-                if stalled && !had_operator {
+                if stalled && !had_operator && !vi_line_ends_with_multibyte(state) {
                     self.ding()?;
                 }
             }

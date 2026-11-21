@@ -10731,3 +10731,42 @@ fn bash_and_sushline_vi_zero_width_change_enters_insert() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_non_ascii_word_motion_bells() {
+    let inputrc = "set editing-mode vi\n";
+    let cases = [
+        ("non_ascii_w", "αβγ\u{1b}w\r", "αβγ", 0),
+        ("non_ascii_W", "αβγ\u{1b}W\r", "αβγ", 0),
+        ("non_ascii_ww", "αβγ\u{1b}ww\r", "αβγ", 0),
+        ("non_ascii_0ww", "αβγ\u{1b}0ww\r", "αβγ", 0),
+        ("longer_non_ascii_w", "αβγδ\u{1b}w\r", "αβγδ", 0),
+        ("mixed_non_ascii_w", "αβ γδ\u{1b}w\r", "αβ γδ", 0),
+        ("ascii_then_non_ascii_w", "abc αβ\u{1b}w\r", "abc αβ", 0),
+        ("non_ascii_then_ascii_w", "αβ abc\u{1b}w\r", "αβ abc", 1),
+        ("non_ascii_b", "αβγ\u{1b}b\r", "αβγ", 0),
+        ("non_ascii_column_zero_b", "αβγ\u{1b}0b\r", "αβγ", 1),
+        ("non_ascii_column_zero_B", "αβγ\u{1b}0B\r", "αβγ", 1),
+        ("non_ascii_column_zero_h", "αβγ\u{1b}0h\r", "αβγ", 1),
+    ];
+    for (name, keys, expected, bells) in cases {
+        let bash = run_bash_readline_with_inputrc_file(keys.as_bytes(), inputrc);
+        let sush = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "{name}: bash={bash:?}"
+        );
+        assert_eq!(
+            accepted_line(&sush),
+            accepted_line(&bash),
+            "{name}: bash={bash:?} sushline={sush:?}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{name}: bash={bash:?}");
+        assert_eq!(
+            bell_count(&sush),
+            bell_count(&bash),
+            "{name}: bash={bash:?} sushline={sush:?}"
+        );
+    }
+}

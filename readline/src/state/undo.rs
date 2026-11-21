@@ -9,6 +9,8 @@ const MAX_PUT_UNDO_BYTES: usize = 20;
 pub(crate) struct UndoState {
     pub(crate) undo_stack: Vec<UndoEntry>,
     pub(crate) pending_undo: Option<LineBuffer>,
+    /// The pending insert run has written bytes identical to those it replaced.
+    pub(crate) pending_noop_undo: bool,
     pub(crate) last_undo_was_insert: bool,
     /// Buffer before a vi put and its dot-replays, kept so their undo entries
     /// can be merged into the single GNU entry as each replay commits.
@@ -74,6 +76,20 @@ impl EditorState {
         if capped {
             self.commit_pending_undo();
             self.record_undo();
+        }
+    }
+
+    /// An identical-byte overwrite leaves the buffer unchanged, so the usual
+    /// pending-insert commit would drop the undo entry and the next `u` would
+    /// ring. Mark the pending run so its commit keeps one empty entry.
+    pub(crate) fn mark_noop_undo_if_unchanged(&mut self) {
+        if self
+            .undo
+            .pending_undo
+            .as_ref()
+            .is_some_and(|before| before.as_bytes() == self.buffer.as_bytes())
+        {
+            self.undo.pending_noop_undo = true;
         }
     }
 
@@ -271,10 +287,15 @@ impl EditorState {
         let Some(before) = self.undo.pending_undo.take() else {
             return;
         };
-        if before != self.buffer
-            && let Some(entry) = UndoEntry::from_buffers(&before, &self.buffer)
-        {
+        let noop = std::mem::take(&mut self.undo.pending_noop_undo);
+        if let Some(entry) = UndoEntry::from_buffers(&before, &self.buffer) {
             self.undo.undo_stack.push(entry);
+        } else if noop {
+            self.undo.undo_stack.push(UndoEntry {
+                start: self.buffer.point(),
+                deleted: Vec::new(),
+                inserted: Vec::new(),
+            });
         }
     }
 }

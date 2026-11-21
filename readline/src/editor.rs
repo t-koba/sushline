@@ -956,6 +956,7 @@ where
         state.history_modified = false;
         state.undo.undo_stack.clear();
         state.undo.pending_undo = None;
+        state.undo.pending_noop_undo = false;
         if !self.flag(BoolVariable::RevertAllAtNewline)
             && let Some(index) = target
             && let Some(undo_list) = self.history.undo_list(index)

@@ -256,6 +256,7 @@ where
                 if !state.vi.command_mode_entered {
                     state.undo.undo_stack.clear();
                     state.undo.pending_undo = None;
+                    state.undo.pending_noop_undo = false;
                     state.clear_vi_put_undo();
                     state.vi.command_mode_entered = true;
                     // The redo synthesis is separate from the undo reset: a

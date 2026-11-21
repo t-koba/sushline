@@ -249,6 +249,9 @@ where
                             state.buffer.insert_bytes(key);
                         }
                     }
+                    if state.overwrite_mode && self.char_motion_is_bytewise() {
+                        state.mark_noop_undo_if_unchanged();
+                    }
                     state.record_vi_insert_bytes(key);
                 }
                 state.after_self_insert();

@@ -13366,3 +13366,66 @@ fn bash_and_sushline_vi_overstrike_backspace_restores_overwritten_bytes() {
         );
     }
 }
+
+/// An overwrite that writes the same raw byte leaves the bytes unchanged, but
+/// GNU still records an undo entry: the following `u` is silent. Marking the
+/// pending insert run as a no-op preserves one entry without splitting a later
+/// real change into two.
+#[test]
+fn bash_and_sushline_byte_overwrite_identical_byte_undo() {
+    let rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C")];
+    let e = "\u{e9}".as_bytes();
+    for (desc, target, tail, bells) in [
+        ("lead", 0xc3u8, b"R\xc3\x1bu".as_slice(), 1),
+        ("continuation", 0xa9u8, b"R\xa9\x1bu".as_slice(), 0),
+        (
+            "lead_paste",
+            0xc3u8,
+            b"R\x1b[200~\xc3\x1b[201~\x1bu".as_slice(),
+            1,
+        ),
+        (
+            "continuation_paste",
+            0xa9u8,
+            b"R\x1b[200~\xa9\x1b[201~\x1bu".as_slice(),
+            0,
+        ),
+        ("different_byte", 0xc3u8, b"R\xe3\x1bu".as_slice(), 1),
+        (
+            "two_identical_bytes",
+            0xc3u8,
+            b"R\xc3\xc3\x1bu".as_slice(),
+            1,
+        ),
+    ] {
+        let mut keys = [e, b"bc:d\x1b0f".as_slice()].concat();
+        keys.extend_from_slice(&[target]);
+        keys.extend_from_slice(tail);
+        keys.extend_from_slice(b"\r");
+        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, rc, &env);
+        let sushline = run_sushline_harness_with_inputrc_and_env(&keys, rc, &env);
+        assert_eq!(
+            accepted_line(&bash),
+            Some("\u{e9}bc:d".to_owned()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

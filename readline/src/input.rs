@@ -613,6 +613,13 @@ where
                 state.buffer.insert_bytes(bytes);
             }
         }
+        if state.overwrite_mode
+            && self.char_motion_is_bytewise()
+            && (state.input.quoted_multibyte_tail
+                || (!state.input.quoted_single_byte && bytes.iter().any(|byte| *byte >= 0x80)))
+        {
+            state.mark_noop_undo_if_unchanged();
+        }
         if record_macro {
             state.record_macro_insert_bytes(bytes);
         }

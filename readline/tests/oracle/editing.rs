@@ -13,6 +13,87 @@ use super::screen::Screen;
 use std::fs;
 use std::time::Duration;
 
+/// Run one byte-oriented vi case on both editors and require each ASCII-hex
+/// acceptance marker to equal the exact hex of `expected`, plus the pinned
+/// bell count. Comparing lossy strings would hide invalid raw bytes behind
+/// U+FFFD; comparing only the editors with each other would accept two absent
+/// markers.
+fn assert_bytewise_vi_bytes(
+    desc: &str,
+    keys: &[u8],
+    expected: &[u8],
+    bells: usize,
+    inputrc: &str,
+    env: &[(&str, &str)],
+) {
+    use portable_pty::PtySize;
+
+    require_oracle_host();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let inputrc_path = dir.path().join("inputrc");
+    fs::write(&inputrc_path, inputrc).expect("write inputrc");
+    let script = r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "SUSHLINE_READY>" line; printf 'BASH_ACCEPTED_HEX:'; printf '%s' "$line" | od -An -v -tx1 | tr -d ' \n'; printf '\n'"#;
+    let size = PtySize {
+        rows: 24,
+        cols: 80,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+
+    let mut bash_command = portable_pty::CommandBuilder::new("bash");
+    bash_command.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
+    bash_command.env("HOME", dir.path());
+    for (name, value) in env {
+        bash_command.env(name, value);
+    }
+    bash_command.args(["--noprofile", "--norc", "-i", "-c", script]);
+    let bash = run_pty_in_dir_with_size_raw_until(
+        bash_command,
+        keys,
+        dir.path(),
+        size,
+        "BASH_ACCEPTED_HEX:",
+    );
+
+    let mut sush_command = sushline_harness_command();
+    sush_command.env("SUSHLINE_INPUTRC", inputrc);
+    sush_command.env("SUSHLINE_PROMPT", READY_PROMPT);
+    sush_command.env("SUSHLINE_HISTORY", "");
+    sush_command.env("SUSHLINE_ACCEPTED_HEX", "1");
+    sush_command.env("HOME", dir.path());
+    for (name, value) in env {
+        sush_command.env(name, value);
+    }
+    let sush = run_pty_in_dir_with_size_raw_until(
+        sush_command,
+        keys,
+        dir.path(),
+        size,
+        "SUSHLINE_ACCEPTED_HEX:",
+    );
+
+    let expected_hex = expected
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    for (output, marker, editor) in [
+        (&bash, "BASH_ACCEPTED_HEX:", "bash"),
+        (&sush, "SUSHLINE_ACCEPTED_HEX:", "sushline"),
+    ] {
+        let output = String::from_utf8_lossy(output);
+        assert_eq!(
+            accepted_line_after_marker(&output, marker).as_deref(),
+            Some(expected_hex.as_str()),
+            "{desc}: {editor}, keys={keys:?}"
+        );
+        assert_eq!(
+            bell_count(&output),
+            bells,
+            "{desc}: {editor}, keys={keys:?}"
+        );
+    }
+}
+
 #[test]
 fn bash_readline_and_sushline_accept_same_basic_emacs_edit() {
     let keys = b"abc\x01X\r";
@@ -10806,19 +10887,14 @@ fn bash_and_sushline_byte_oriented_vi_word_point_matches_gnu() {
         "set byte-oriented on\n"
     );
     let env = [("LC_ALL", "C")];
-    let cases = [
-        ("aé\u{1b}wiX\r", "a\u{fffd}X\u{fffd}", 1),
-        ("aé\u{1b}WiX\r", "a\u{fffd}X\u{fffd}", 1),
-        ("aé\u{1b}0wiX\r", "aXé", 0),
-        ("aé b\u{1b}wiX\r", "aé Xb", 1),
+    let cases: [(&str, &[u8], usize); 4] = [
+        ("aé\u{1b}wiX\r", b"a\xc3X\xa9", 1),
+        ("aé\u{1b}WiX\r", b"a\xc3X\xa9", 1),
+        ("aé\u{1b}0wiX\r", b"aX\xc3\xa9", 0),
+        ("aé b\u{1b}wiX\r", b"a\xc3\xa9 Xb", 1),
     ];
     for (keys, expected, bells) in cases {
-        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), byte_rc, &env);
-        let sush = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), byte_rc, &env);
-        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
-        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
-        assert_eq!(bell_count(&bash), bells, "{keys:?}");
-        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+        assert_bytewise_vi_bytes("{keys:?}", keys.as_bytes(), expected, bells, byte_rc, &env);
     }
 }
 
@@ -10858,38 +10934,33 @@ fn bash_and_sushline_vi_invalid_tail_word_motion_bells() {
         "set convert-meta off\n"
     );
     let env = [("LC_ALL", "C.UTF-8")];
-    for tail in [0x80u8, 0xbf, 0xc3] {
-        for motion in *b"wW" {
-            let mut keys = b"a".to_vec();
-            keys.push(tail);
-            keys.extend_from_slice(&[0x1b, motion, b'i', b'X', b'\r']);
-            let bash = run_bash_readline_with_inputrc_file_and_env(&keys, rc, &env);
-            let sush = run_sushline_harness_with_inputrc_and_env(&keys, rc, &env);
-            assert_eq!(
-                accepted_line(&bash),
-                Some("aX\u{fffd}".to_owned()),
-                "{keys:?}"
-            );
-            assert_eq!(
-                accepted_line(&sush),
-                Some("aX\u{fffd}".to_owned()),
-                "{keys:?}"
-            );
-            assert_eq!(bell_count(&bash), 1, "{keys:?}");
-            assert_eq!(bell_count(&sush), 1, "{keys:?}");
-        }
-    }
-    for (keys, expected, bells) in [
-        ("aé\u{1b}wiX\r", "aXé", 0),
-        ("abc\u{1b}wiX\r", "abXc", 1),
-        ("aé\u{1b}0wiX\r", "aXé", 0),
+    for (tail, motion, expected) in [
+        (0x80u8, b'w', b"aX\x80"),
+        (0x80u8, b'W', b"aX\x80"),
+        (0xbfu8, b'w', b"aX\xbf"),
+        (0xbfu8, b'W', b"aX\xbf"),
+        (0xc3u8, b'w', b"aX\xc3"),
+        (0xc3u8, b'W', b"aX\xc3"),
     ] {
-        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), rc, &env);
-        let sush = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), rc, &env);
-        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
-        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
-        assert_eq!(bell_count(&bash), bells, "{keys:?}");
-        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+        let mut keys = b"a".to_vec();
+        keys.push(tail);
+        keys.extend_from_slice(&[0x1b, motion, b'i', b'X', b'\r']);
+        assert_bytewise_vi_bytes(
+            &format!("tail={tail:02x}, motion={}", motion as char),
+            &keys,
+            expected,
+            1,
+            rc,
+            &env,
+        );
+    }
+    let cases: [(&str, &[u8], usize); 3] = [
+        ("aé\u{1b}wiX\r", b"aX\xc3\xa9", 0),
+        ("abc\u{1b}wiX\r", b"abXc", 1),
+        ("aé\u{1b}0wiX\r", b"aX\xc3\xa9", 0),
+    ];
+    for (keys, expected, bells) in cases {
+        assert_bytewise_vi_bytes("{keys:?}", keys.as_bytes(), expected, bells, rc, &env);
     }
 }
 
@@ -11027,30 +11098,25 @@ fn bash_and_sushline_byte_oriented_repeated_word_points() {
         "set byte-oriented on\n"
     );
     let env = [("LC_ALL", "C")];
-    let cases = [
-        ("aé", "0W", "a\u{fffd}X\u{fffd}", 0),
-        ("aé", "w", "a\u{fffd}X\u{fffd}", 1),
-        ("aé", "0w", "aXé", 0),
-        ("aé", "02w", "a\u{fffd}X\u{fffd}", 0),
-        ("aé", "0WW", "a\u{fffd}X\u{fffd}", 1),
-        ("aé b", "0w", "aXé b", 0),
-        ("aé b", "0ww", "aé Xb", 0),
-        ("aé b", "02w", "aé Xb", 0),
-        ("aé b", "0W", "aé Xb", 0),
-        ("éa", "0w", "éXa", 0),
-        ("éa b", "0w", "éXa b", 0),
-        ("éa b", "0ww", "éa Xb", 0),
-        ("abc def", "0ww", "abc deXf", 0),
-        ("a! b", "0w", "aX! b", 0),
+    let cases: [(&str, &str, &[u8], usize); 14] = [
+        ("aé", "0W", b"a\xc3X\xa9", 0),
+        ("aé", "w", b"a\xc3X\xa9", 1),
+        ("aé", "0w", b"aX\xc3\xa9", 0),
+        ("aé", "02w", b"a\xc3X\xa9", 0),
+        ("aé", "0WW", b"a\xc3X\xa9", 1),
+        ("aé b", "0w", b"aX\xc3\xa9 b", 0),
+        ("aé b", "0ww", b"a\xc3\xa9 Xb", 0),
+        ("aé b", "02w", b"a\xc3\xa9 Xb", 0),
+        ("aé b", "0W", b"a\xc3\xa9 Xb", 0),
+        ("éa", "0w", b"\xc3\xa9Xa", 0),
+        ("éa b", "0w", b"\xc3\xa9Xa b", 0),
+        ("éa b", "0ww", b"\xc3\xa9a Xb", 0),
+        ("abc def", "0ww", b"abc deXf", 0),
+        ("a! b", "0w", b"aX! b", 0),
     ];
     for (line, motion, expected, bells) in cases {
         let keys = format!("{line}\x1b{motion}iX\r");
-        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), rc, &env);
-        let sush = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), rc, &env);
-        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
-        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
-        assert_eq!(bell_count(&bash), bells, "{keys:?}");
-        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+        assert_bytewise_vi_bytes("{keys:?}", keys.as_bytes(), expected, bells, rc, &env);
     }
 }
 
@@ -11069,31 +11135,26 @@ fn bash_and_sushline_byte_oriented_escape_backoff_matches_gnu() {
         "set byte-oriented on\n"
     );
     let env = [("LC_ALL", "C")];
-    let cases = [
-        ("aé", "i", "a\u{fffd}X\u{fffd}", 0),
-        ("aé", "wi", "a\u{fffd}X\u{fffd}", 1),
-        ("aé", "Wi", "a\u{fffd}X\u{fffd}", 1),
-        ("aé", "0wi", "aXé", 0),
-        ("aé", "0Wi", "a\u{fffd}X\u{fffd}", 0),
-        ("aé", "0wwi", "a\u{fffd}X\u{fffd}", 0),
-        ("aé", "02wi", "a\u{fffd}X\u{fffd}", 0),
-        ("aé", "0WWi", "a\u{fffd}X\u{fffd}", 1),
-        ("aé b", "0wi", "aXé b", 0),
-        ("aé b", "0wwi", "aé Xb", 0),
-        ("éa", "wi", "éXa", 1),
-        ("éa b", "0wi", "éXa b", 0),
-        ("abc", "i", "abXc", 0),
-        ("abc", "wi", "abXc", 1),
-        ("abc", "0wwi", "abXc", 1),
+    let cases: [(&str, &str, &[u8], usize); 15] = [
+        ("aé", "i", b"a\xc3X\xa9", 0),
+        ("aé", "wi", b"a\xc3X\xa9", 1),
+        ("aé", "Wi", b"a\xc3X\xa9", 1),
+        ("aé", "0wi", b"aX\xc3\xa9", 0),
+        ("aé", "0Wi", b"a\xc3X\xa9", 0),
+        ("aé", "0wwi", b"a\xc3X\xa9", 0),
+        ("aé", "02wi", b"a\xc3X\xa9", 0),
+        ("aé", "0WWi", b"a\xc3X\xa9", 1),
+        ("aé b", "0wi", b"aX\xc3\xa9 b", 0),
+        ("aé b", "0wwi", b"a\xc3\xa9 Xb", 0),
+        ("éa", "wi", b"\xc3\xa9Xa", 1),
+        ("éa b", "0wi", b"\xc3\xa9Xa b", 0),
+        ("abc", "i", b"abXc", 0),
+        ("abc", "wi", b"abXc", 1),
+        ("abc", "0wwi", b"abXc", 1),
     ];
     for (line, motion, expected, bells) in cases {
         let keys = format!("{line}\x1b{motion}X\r");
-        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), rc, &env);
-        let sush = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), rc, &env);
-        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
-        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
-        assert_eq!(bell_count(&bash), bells, "{keys:?}");
-        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+        assert_bytewise_vi_bytes("{keys:?}", keys.as_bytes(), expected, bells, rc, &env);
     }
 }
 
@@ -11114,47 +11175,42 @@ fn bash_and_sushline_byte_oriented_backward_word_points() {
         "set byte-oriented on\n"
     );
     let env = [("LC_ALL", "C")];
-    let cases = [
-        ("aé b", "b", "Xaé b", 0),
-        ("aé b", "B", "Xaé b", 0),
-        ("aé b", "bb", "Xaé b", 1),
-        ("aé b", "2b", "Xaé b", 0),
-        ("aé b", "$b", "Xaé b", 0),
-        ("aé b", "0b", "Xaé b", 1),
-        ("aé b", "3b", "Xaé b", 0),
-        ("aé b", "02b", "Xaé b", 1),
-        ("aé b", "0B", "Xaé b", 1),
-        ("éa b", "b", "éXa b", 0),
-        ("éa b", "B", "Xéa b", 0),
-        ("éa b", "bb", "Xéa b", 0),
-        ("éa b", "2b", "Xéa b", 0),
-        ("éa b", "$b", "éXa b", 0),
-        ("éa b", "0b", "Xéa b", 1),
-        ("éa b", "3b", "Xéa b", 0),
-        ("éa b", "02b", "Xéa b", 1),
-        ("ab é", "b", "ab Xé", 0),
-        ("ab é", "B", "ab Xé", 0),
-        ("ab é", "bb", "Xab é", 0),
-        ("ab é", "$b", "ab Xé", 0),
-        ("ab é", "0b", "Xab é", 1),
-        ("ab é", "3b", "Xab é", 0),
-        ("ab é", "0B", "Xab é", 1),
-        ("é", "b", "Xé", 0),
-        ("é", "B", "Xé", 0),
-        ("é a", "$b", "Xé a", 0),
-        ("é a", "$B", "Xé a", 0),
-        ("abc def", "$b", "abc Xdef", 0),
-        ("abc def", "$bb", "Xabc def", 0),
-        ("a! b", "$b", "Xa! b", 0),
+    let cases: [(&str, &str, &[u8], usize); 31] = [
+        ("aé b", "b", b"Xa\xc3\xa9 b", 0),
+        ("aé b", "B", b"Xa\xc3\xa9 b", 0),
+        ("aé b", "bb", b"Xa\xc3\xa9 b", 1),
+        ("aé b", "2b", b"Xa\xc3\xa9 b", 0),
+        ("aé b", "$b", b"Xa\xc3\xa9 b", 0),
+        ("aé b", "0b", b"Xa\xc3\xa9 b", 1),
+        ("aé b", "3b", b"Xa\xc3\xa9 b", 0),
+        ("aé b", "02b", b"Xa\xc3\xa9 b", 1),
+        ("aé b", "0B", b"Xa\xc3\xa9 b", 1),
+        ("éa b", "b", b"\xc3\xa9Xa b", 0),
+        ("éa b", "B", b"X\xc3\xa9a b", 0),
+        ("éa b", "bb", b"X\xc3\xa9a b", 0),
+        ("éa b", "2b", b"X\xc3\xa9a b", 0),
+        ("éa b", "$b", b"\xc3\xa9Xa b", 0),
+        ("éa b", "0b", b"X\xc3\xa9a b", 1),
+        ("éa b", "3b", b"X\xc3\xa9a b", 0),
+        ("éa b", "02b", b"X\xc3\xa9a b", 1),
+        ("ab é", "b", b"ab X\xc3\xa9", 0),
+        ("ab é", "B", b"ab X\xc3\xa9", 0),
+        ("ab é", "bb", b"Xab \xc3\xa9", 0),
+        ("ab é", "$b", b"ab X\xc3\xa9", 0),
+        ("ab é", "0b", b"Xab \xc3\xa9", 1),
+        ("ab é", "3b", b"Xab \xc3\xa9", 0),
+        ("ab é", "0B", b"Xab \xc3\xa9", 1),
+        ("é", "b", b"X\xc3\xa9", 0),
+        ("é", "B", b"X\xc3\xa9", 0),
+        ("é a", "$b", b"X\xc3\xa9 a", 0),
+        ("é a", "$B", b"X\xc3\xa9 a", 0),
+        ("abc def", "$b", b"abc Xdef", 0),
+        ("abc def", "$bb", b"Xabc def", 0),
+        ("a! b", "$b", b"Xa! b", 0),
     ];
     for (line, motion, expected, bells) in cases {
         let keys = format!("{line}\x1b{motion}iX\r");
-        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), rc, &env);
-        let sush = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), rc, &env);
-        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
-        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
-        assert_eq!(bell_count(&bash), bells, "{keys:?}");
-        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+        assert_bytewise_vi_bytes("{keys:?}", keys.as_bytes(), expected, bells, rc, &env);
     }
 }
 
@@ -11174,32 +11230,27 @@ fn bash_and_sushline_byte_oriented_backward_operator_ranges() {
         "set byte-oriented on\n"
     );
     let env = [("LC_ALL", "C")];
-    let cases = [
-        ("abc def", "$db", "abc f", 0),
-        ("abc def", "$dBiX", "abc Xf", 0),
-        ("abc def", "$dbiX", "abc Xf", 0),
-        ("abc def", "$dbp", "abc fde", 0),
-        ("aé b", "db", "b", 0),
-        ("aé b", "dBiX", "Xb", 0),
-        ("aé b", "dbiX", "Xb", 0),
-        ("aé b", "dbp", "baé ", 0),
-        ("éa b", "db", "éb", 0),
-        ("éa b", "dBiX", "Xb", 0),
-        ("éa b", "dbiX", "éXb", 0),
-        ("éa b", "dbp", "éba ", 0),
-        ("ab é", "db", "ab \u{fffd}", 0),
-        ("ab é", "dBiX", "ab X\u{fffd}", 0),
-        ("ab é", "dbiX", "ab X\u{fffd}", 0),
-        ("ab é", "dbp", "ab \u{fffd}\u{fffd}", 0),
+    let cases: [(&str, &str, &[u8], usize); 16] = [
+        ("abc def", "$db", b"abc f", 0),
+        ("abc def", "$dBiX", b"abc Xf", 0),
+        ("abc def", "$dbiX", b"abc Xf", 0),
+        ("abc def", "$dbp", b"abc fde", 0),
+        ("aé b", "db", b"b", 0),
+        ("aé b", "dBiX", b"Xb", 0),
+        ("aé b", "dbiX", b"Xb", 0),
+        ("aé b", "dbp", b"ba\xc3\xa9 ", 0),
+        ("éa b", "db", b"\xc3\xa9b", 0),
+        ("éa b", "dBiX", b"Xb", 0),
+        ("éa b", "dbiX", b"\xc3\xa9Xb", 0),
+        ("éa b", "dbp", b"\xc3\xa9ba ", 0),
+        ("ab é", "db", b"ab \xa9", 0),
+        ("ab é", "dBiX", b"ab X\xa9", 0),
+        ("ab é", "dbiX", b"ab X\xa9", 0),
+        ("ab é", "dbp", b"ab \xa9\xc3", 0),
     ];
     for (line, motion, expected, bells) in cases {
         let keys = format!("{line}\x1b{motion}\r");
-        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), rc, &env);
-        let sush = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), rc, &env);
-        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
-        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
-        assert_eq!(bell_count(&bash), bells, "{keys:?}");
-        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+        assert_bytewise_vi_bytes("{keys:?}", keys.as_bytes(), expected, bells, rc, &env);
     }
 }
 
@@ -11220,52 +11271,47 @@ fn bash_and_sushline_byte_oriented_vi_delete_char() {
         "set byte-oriented on\n"
     );
     let env = [("LC_ALL", "C")];
-    let cases = [
-        ("éa", "X", "\u{fffd}Za", 0),
-        ("éa", "x", "\u{fffd}Z\u{fffd}", 0),
-        ("éa", "0X", "Zéa", 1),
-        ("éa", "0x", "Z\u{fffd}a", 0),
-        ("aé", "X", "aZ\u{fffd}", 0),
-        ("aé", "x", "aZ\u{fffd}", 0),
-        ("aé", "0X", "Zaé", 1),
-        ("aé", "0x", "Zé", 0),
-        ("é", "X", "Z\u{fffd}", 0),
-        ("é", "x", "Z\u{fffd}", 0),
-        ("é", "0X", "Zé", 1),
-        ("é", "0x", "Z\u{fffd}", 0),
-        ("aé b", "0X", "Zaé b", 1),
-        ("aé b", "0x", "Zé b", 0),
-        ("aé b", "0XX", "Zaé b", 2),
-        ("aé b", "0xx", "Z\u{fffd} b", 0),
-        ("abc", "X", "aZc", 0),
-        ("abc", "x", "aZb", 0),
-        ("abc", "0X", "Zabc", 1),
-        ("abc", "0x", "Zbc", 0),
-        ("日本", "X", "日\u{fffd}Z\u{fffd}", 0),
-        ("日本", "x", "日\u{fffd}Z\u{fffd}", 0),
-        ("日本", "0X", "Z日本", 1),
-        ("日本", "0x", "Z\u{fffd}\u{fffd}本", 0),
-        ("abc", "3X", "Zc", 0),
-        ("abc", "4X", "Zc", 0),
-        ("a", "2X", "Za", 1),
-        ("", "X", "Z", 1),
-        ("", "2X", "Z", 1),
-        ("abc", "3x", "aZb", 0),
-        ("abc", "4x", "aZb", 0),
-        ("", "2x", "Z", 1),
-        ("éa b", "4X", "Zb", 0),
-        ("éa b", "5X", "Zb", 0),
-        ("éa b", "4x", "éaZ ", 0),
-        ("éa b", "5x", "éaZ ", 0),
+    let cases: [(&str, &str, &[u8], usize); 36] = [
+        ("éa", "X", b"\xc3Za", 0),
+        ("éa", "x", b"\xc3Z\xa9", 0),
+        ("éa", "0X", b"Z\xc3\xa9a", 1),
+        ("éa", "0x", b"Z\xa9a", 0),
+        ("aé", "X", b"aZ\xa9", 0),
+        ("aé", "x", b"aZ\xc3", 0),
+        ("aé", "0X", b"Za\xc3\xa9", 1),
+        ("aé", "0x", b"Z\xc3\xa9", 0),
+        ("é", "X", b"Z\xa9", 0),
+        ("é", "x", b"Z\xc3", 0),
+        ("é", "0X", b"Z\xc3\xa9", 1),
+        ("é", "0x", b"Z\xa9", 0),
+        ("aé b", "0X", b"Za\xc3\xa9 b", 1),
+        ("aé b", "0x", b"Z\xc3\xa9 b", 0),
+        ("aé b", "0XX", b"Za\xc3\xa9 b", 2),
+        ("aé b", "0xx", b"Z\xa9 b", 0),
+        ("abc", "X", b"aZc", 0),
+        ("abc", "x", b"aZb", 0),
+        ("abc", "0X", b"Zabc", 1),
+        ("abc", "0x", b"Zbc", 0),
+        ("日本", "X", b"\xe6\x97\xa5\xe6Z\xac", 0),
+        ("日本", "x", b"\xe6\x97\xa5\xe6Z\x9c", 0),
+        ("日本", "0X", b"Z\xe6\x97\xa5\xe6\x9c\xac", 1),
+        ("日本", "0x", b"Z\x97\xa5\xe6\x9c\xac", 0),
+        ("abc", "3X", b"Zc", 0),
+        ("abc", "4X", b"Zc", 0),
+        ("a", "2X", b"Za", 1),
+        ("", "X", b"Z", 1),
+        ("", "2X", b"Z", 1),
+        ("abc", "3x", b"aZb", 0),
+        ("abc", "4x", b"aZb", 0),
+        ("", "2x", b"Z", 1),
+        ("éa b", "4X", b"Zb", 0),
+        ("éa b", "5X", b"Zb", 0),
+        ("éa b", "4x", b"\xc3\xa9aZ ", 0),
+        ("éa b", "5x", b"\xc3\xa9aZ ", 0),
     ];
     for (line, motion, expected, bells) in cases {
         let keys = format!("{line}\x1b{motion}iZ\r");
-        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), rc, &env);
-        let sush = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), rc, &env);
-        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
-        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
-        assert_eq!(bell_count(&bash), bells, "{keys:?}");
-        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+        assert_bytewise_vi_bytes("{keys:?}", keys.as_bytes(), expected, bells, rc, &env);
     }
 }
 
@@ -11285,38 +11331,33 @@ fn bash_and_sushline_byte_oriented_repeated_backward_bells() {
         "set byte-oriented on\n"
     );
     let env = [("LC_ALL", "C")];
-    let cases = [
-        ("abc def ghi", "$b", "abc def Xghi", 0),
-        ("abc def ghi", "$bb", "abc Xdef ghi", 0),
-        ("abc def ghi", "$bbb", "Xabc def ghi", 0),
-        ("abc def ghi", "4b", "Xabc def ghi", 0),
-        ("a! b c", "$b", "a! Xb c", 0),
-        ("a! b c", "$bb", "Xa! b c", 0),
-        ("a! b c", "$bbb", "Xa! b c", 1),
-        ("a! b c", "4b", "Xa! b c", 0),
-        ("abc def", "$b", "abc Xdef", 0),
-        ("abc def", "$bb", "Xabc def", 0),
-        ("abc def", "$bbb", "Xabc def", 1),
-        ("abc def", "3b", "Xabc def", 0),
-        ("a b", "$b", "Xa b", 0),
-        ("a b", "$bb", "Xa b", 1),
-        ("a b", "$bbb", "Xa b", 2),
-        ("one", "$b", "Xone", 0),
-        ("one", "$bb", "Xone", 1),
-        ("one", "0b", "Xone", 1),
-        ("one", "2b", "Xone", 0),
-        ("a! b", "$b", "Xa! b", 0),
-        ("a! b", "$bb", "Xa! b", 1),
-        ("a! b", "$bbb", "Xa! b", 2),
+    let cases: [(&str, &str, &[u8], usize); 22] = [
+        ("abc def ghi", "$b", b"abc def Xghi", 0),
+        ("abc def ghi", "$bb", b"abc Xdef ghi", 0),
+        ("abc def ghi", "$bbb", b"Xabc def ghi", 0),
+        ("abc def ghi", "4b", b"Xabc def ghi", 0),
+        ("a! b c", "$b", b"a! Xb c", 0),
+        ("a! b c", "$bb", b"Xa! b c", 0),
+        ("a! b c", "$bbb", b"Xa! b c", 1),
+        ("a! b c", "4b", b"Xa! b c", 0),
+        ("abc def", "$b", b"abc Xdef", 0),
+        ("abc def", "$bb", b"Xabc def", 0),
+        ("abc def", "$bbb", b"Xabc def", 1),
+        ("abc def", "3b", b"Xabc def", 0),
+        ("a b", "$b", b"Xa b", 0),
+        ("a b", "$bb", b"Xa b", 1),
+        ("a b", "$bbb", b"Xa b", 2),
+        ("one", "$b", b"Xone", 0),
+        ("one", "$bb", b"Xone", 1),
+        ("one", "0b", b"Xone", 1),
+        ("one", "2b", b"Xone", 0),
+        ("a! b", "$b", b"Xa! b", 0),
+        ("a! b", "$bb", b"Xa! b", 1),
+        ("a! b", "$bbb", b"Xa! b", 2),
     ];
     for (line, motion, expected, bells) in cases {
         let keys = format!("{line}\x1b{motion}iX\r");
-        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), rc, &env);
-        let sush = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), rc, &env);
-        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
-        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
-        assert_eq!(bell_count(&bash), bells, "{keys:?}");
-        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+        assert_bytewise_vi_bytes(&keys, keys.as_bytes(), expected, bells, rc, &env);
     }
 }
 
@@ -11373,23 +11414,18 @@ fn bash_and_sushline_vi_backward_yank_point() {
         "set byte-oriented on\n"
     );
     let env = [("LC_ALL", "C")];
-    let byte_cases = [
-        ("aé b", "ybiX", "aé Xb", 0),
-        ("aé b", "ybp", "aé baé ", 0),
-        ("éa b", "ybiX", "éa Xb", 0),
-        ("éa b", "ybp", "éa ba ", 0),
-        ("ab é", "ybiX", "ab \u{fffd}X\u{fffd}", 0),
-        ("ab é", "ybp", "ab é\u{fffd}", 0),
-        ("abc def", "$ybp", "abc defde", 0),
+    let byte_cases: [(&str, &str, &[u8], usize); 7] = [
+        ("aé b", "ybiX", b"a\xc3\xa9 Xb", 0),
+        ("aé b", "ybp", b"a\xc3\xa9 ba\xc3\xa9 ", 0),
+        ("éa b", "ybiX", b"\xc3\xa9a Xb", 0),
+        ("éa b", "ybp", b"\xc3\xa9a ba ", 0),
+        ("ab é", "ybiX", b"ab \xc3X\xa9", 0),
+        ("ab é", "ybp", b"ab \xc3\xa9\xc3", 0),
+        ("abc def", "$ybp", b"abc defde", 0),
     ];
     for (line, motion, expected, bells) in byte_cases {
         let keys = format!("{line}\x1b{motion}\r");
-        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), byte_rc, &env);
-        let sush = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), byte_rc, &env);
-        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
-        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
-        assert_eq!(bell_count(&bash), bells, "{keys:?}");
-        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+        assert_bytewise_vi_bytes(&keys, keys.as_bytes(), expected, bells, byte_rc, &env);
     }
 }
 
@@ -11442,29 +11478,24 @@ fn bash_and_sushline_vi_put_after_delete() {
         "set byte-oriented on\n"
     );
     let env = [("LC_ALL", "C")];
-    let byte_cases = [
-        ("abc", "xp", "abZc", 0),
-        ("abc", "Xp", "acZb", 0),
-        ("abc", "xP", "aZcb", 0),
-        ("abc", "XP", "aZbc", 0),
-        ("abc", "2Xp", "caZb", 0),
-        ("éa", "xp", "éZa", 0),
-        ("éa", "Xp", "\u{fffd}aZ\u{fffd}", 0),
-        ("aé", "xp", "a\u{fffd}Z\u{fffd}", 0),
-        ("aé", "Xp", "a\u{fffd}Z\u{fffd}", 0),
-        ("é", "xp", "\u{fffd}Z\u{fffd}", 0),
-        ("é", "Xp", "\u{fffd}Z\u{fffd}", 0),
-        ("日本", "xp", "日\u{fffd}Z\u{fffd}", 0),
-        ("日本", "Xp", "日\u{fffd}Z\u{fffd}", 0),
+    let byte_cases: [(&str, &str, &[u8], usize); 13] = [
+        ("abc", "xp", b"abZc", 0),
+        ("abc", "Xp", b"acZb", 0),
+        ("abc", "xP", b"aZcb", 0),
+        ("abc", "XP", b"aZbc", 0),
+        ("abc", "2Xp", b"caZb", 0),
+        ("éa", "xp", b"\xc3\xa9Za", 0),
+        ("éa", "Xp", b"\xc3aZ\xa9", 0),
+        ("aé", "xp", b"a\xc3Z\xa9", 0),
+        ("aé", "Xp", b"a\xa9Z\xc3", 0),
+        ("é", "xp", b"\xc3Z\xa9", 0),
+        ("é", "Xp", b"\xa9Z\xc3", 0),
+        ("日本", "xp", b"\xe6\x97\xa5\xe6\x9cZ\xac", 0),
+        ("日本", "Xp", b"\xe6\x97\xa5\xe6\xacZ\x9c", 0),
     ];
     for (line, motion, expected, bells) in byte_cases {
         let keys = format!("{line}\x1b{motion}iZ\r");
-        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), byte_rc, &env);
-        let sush = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), byte_rc, &env);
-        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
-        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
-        assert_eq!(bell_count(&bash), bells, "{keys:?}");
-        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+        assert_bytewise_vi_bytes(&keys, keys.as_bytes(), expected, bells, byte_rc, &env);
     }
 }
 
@@ -11534,52 +11565,47 @@ fn bash_and_sushline_vi_change_case() {
         "set byte-oriented on\n"
     );
     let env = [("LC_ALL", "C")];
-    let byte_cases = [
-        ("", "~", "Z", 0),
-        ("a", "~", "ZA", 0),
-        ("1", "~", "Z1", 1),
-        ("!", "~", "Z!", 1),
-        (" ", "~", "Z ", 1),
-        ("abc", "~", "abZC", 0),
-        ("abc", "2~", "abZc", 0),
-        ("abc", "3~", "abZC", 0),
-        ("abc", "4~", "abZc", 0),
-        ("abc", "0~", "AZbc", 0),
-        ("abc", "0~.", "ABZc", 0),
-        ("abc", "1~", "abZC", 0),
-        ("abc", "01~", "AZbc", 0),
-        ("a1b", "0~", "AZ1b", 0),
-        ("a1b", "2~", "a1Zb", 0),
-        ("é", "~", "\u{fffd}Z\u{fffd}", 1),
-        ("é", "2~", "\u{fffd}Z\u{fffd}", 2),
-        ("é", "~~", "\u{fffd}Z\u{fffd}", 2),
-        ("é", "~.", "\u{fffd}Z\u{fffd}", 2),
-        ("é", "u~", "\u{fffd}Z\u{fffd}", 2),
-        ("aé", "~", "a\u{fffd}Z\u{fffd}", 1),
-        ("aé", "0~", "AZé", 0),
-        ("aé", "2~", "a\u{fffd}Z\u{fffd}", 2),
-        ("ß", "~", "\u{fffd}Z\u{fffd}", 1),
-        ("ﬁ", "~", "\u{fffd}Z\u{fffd}", 1),
-        ("Ä", "~", "\u{fffd}Z\u{fffd}", 1),
-        ("日本", "~", "日\u{fffd}Z\u{fffd}", 1),
-        ("日本", "2~", "日\u{fffd}Z\u{fffd}", 2),
-        ("日本", "3~", "日\u{fffd}Z\u{fffd}", 3),
-        ("ǅ", "~", "\u{fffd}Z\u{fffd}", 1),
-        ("ῼ", "~", "\u{fffd}Z\u{fffd}", 1),
-        ("α", "~", "\u{fffd}Z\u{fffd}", 1),
-        ("я", "~", "\u{fffd}Z\u{fffd}", 1),
-        ("א", "~", "\u{fffd}Z\u{fffd}", 1),
-        ("😀", "~", "\u{fffd}Z\u{fffd}", 1),
-        ("ñ", "~", "\u{fffd}Z\u{fffd}", 1),
+    let byte_cases: [(&str, &str, &[u8], usize); 36] = [
+        ("", "~", b"Z", 0),
+        ("a", "~", b"ZA", 0),
+        ("1", "~", b"Z1", 1),
+        ("!", "~", b"Z!", 1),
+        (" ", "~", b"Z ", 1),
+        ("abc", "~", b"abZC", 0),
+        ("abc", "2~", b"abZc", 0),
+        ("abc", "3~", b"abZC", 0),
+        ("abc", "4~", b"abZc", 0),
+        ("abc", "0~", b"AZbc", 0),
+        ("abc", "0~.", b"ABZc", 0),
+        ("abc", "1~", b"abZC", 0),
+        ("abc", "01~", b"AZbc", 0),
+        ("a1b", "0~", b"AZ1b", 0),
+        ("a1b", "2~", b"a1Zb", 0),
+        ("é", "~", b"\xc3Z\xa9", 1),
+        ("é", "2~", b"\xc3Z\xa9", 2),
+        ("é", "~~", b"\xc3Z\xa9", 2),
+        ("é", "~.", b"\xc3Z\xa9", 2),
+        ("é", "u~", b"\xc3Z\xa9", 2),
+        ("aé", "~", b"a\xc3Z\xa9", 1),
+        ("aé", "0~", b"AZ\xc3\xa9", 0),
+        ("aé", "2~", b"a\xc3Z\xa9", 2),
+        ("ß", "~", b"\xc3Z\x9f", 1),
+        ("ﬁ", "~", b"\xef\xacZ\x81", 1),
+        ("Ä", "~", b"\xc3Z\x84", 1),
+        ("日本", "~", b"\xe6\x97\xa5\xe6\x9cZ\xac", 1),
+        ("日本", "2~", b"\xe6\x97\xa5\xe6\x9cZ\xac", 2),
+        ("日本", "3~", b"\xe6\x97\xa5\xe6\x9cZ\xac", 3),
+        ("ǅ", "~", b"\xc7Z\x85", 1),
+        ("ῼ", "~", b"\xe1\xbfZ\xbc", 1),
+        ("α", "~", b"\xceZ\xb1", 1),
+        ("я", "~", b"\xd1Z\x8f", 1),
+        ("א", "~", b"\xd7Z\x90", 1),
+        ("😀", "~", b"\xf0\x9f\x98Z\x80", 1),
+        ("ñ", "~", b"\xc3Z\xb1", 1),
     ];
     for (line, motion, expected, bells) in byte_cases {
         let keys = format!("{line}\x1b{motion}iZ\r");
-        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), byte_rc, &env);
-        let sush = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), byte_rc, &env);
-        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
-        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
-        assert_eq!(bell_count(&bash), bells, "{keys:?}");
-        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+        assert_bytewise_vi_bytes(&keys, keys.as_bytes(), expected, bells, byte_rc, &env);
     }
 }
 
@@ -11635,40 +11661,35 @@ fn bash_and_sushline_byte_oriented_vi_subst_count_bell() {
         "set byte-oriented on\n"
     );
     let env = [("LC_ALL", "C")];
-    let byte_cases = [
-        ("abc", "sZZ\x1b", "abZZZ", 0),
-        ("abc", "2sZZ\x1b", "abZZZ", 1),
-        ("abc", "3sZZ\x1b", "abZZZ", 1),
-        ("abc", "4sZZ\x1b", "abZZZ", 1),
-        ("abc", "0sZZ\x1b", "ZZZbc", 0),
-        ("abc def", "0sZZ\x1b", "ZZZbc def", 0),
-        ("abc def", "sZZ\x1b", "abc deZZZ", 0),
-        ("abc def", "2sZZ\x1b", "abc deZZZ", 1),
-        ("abc def", "3sZZ\x1b", "abc deZZZ", 1),
-        ("abc def", "7sZZ\x1b", "abc deZZZ", 1),
-        ("abc def", "0lsZZ\x1b", "aZZZc def", 0),
-        ("abc def", "0l2sZZ\x1b", "aZZZ def", 0),
-        ("", "sZZ\x1b", "ZZZ", 1),
-        ("", "2sZZ\x1b", "ZZZ", 1),
-        ("", "0sZZ\x1b", "ZZZ", 1),
-        ("é", "sZZ\x1b", "\u{fffd}ZZZ", 0),
-        ("é", "2sZZ\x1b", "\u{fffd}ZZZ", 1),
-        ("é", "3sZZ\x1b", "\u{fffd}ZZZ", 1),
-        ("aé", "sZZ\x1b", "a\u{fffd}ZZZ", 0),
-        ("aé", "2sZZ\x1b", "a\u{fffd}ZZZ", 1),
-        ("aé", "3sZZ\x1b", "a\u{fffd}ZZZ", 1),
-        ("日本", "sZZ\x1b", "日\u{fffd}ZZZ", 0),
-        ("日本", "2sZZ\x1b", "日\u{fffd}ZZZ", 1),
-        ("日本", "3sZZ\x1b", "日\u{fffd}ZZZ", 1),
+    let byte_cases: [(&str, &str, &[u8], usize); 24] = [
+        ("abc", "sZZ\x1b", b"abZZZ", 0),
+        ("abc", "2sZZ\x1b", b"abZZZ", 1),
+        ("abc", "3sZZ\x1b", b"abZZZ", 1),
+        ("abc", "4sZZ\x1b", b"abZZZ", 1),
+        ("abc", "0sZZ\x1b", b"ZZZbc", 0),
+        ("abc def", "0sZZ\x1b", b"ZZZbc def", 0),
+        ("abc def", "sZZ\x1b", b"abc deZZZ", 0),
+        ("abc def", "2sZZ\x1b", b"abc deZZZ", 1),
+        ("abc def", "3sZZ\x1b", b"abc deZZZ", 1),
+        ("abc def", "7sZZ\x1b", b"abc deZZZ", 1),
+        ("abc def", "0lsZZ\x1b", b"aZZZc def", 0),
+        ("abc def", "0l2sZZ\x1b", b"aZZZ def", 0),
+        ("", "sZZ\x1b", b"ZZZ", 1),
+        ("", "2sZZ\x1b", b"ZZZ", 1),
+        ("", "0sZZ\x1b", b"ZZZ", 1),
+        ("é", "sZZ\x1b", b"\xc3ZZZ", 0),
+        ("é", "2sZZ\x1b", b"\xc3ZZZ", 1),
+        ("é", "3sZZ\x1b", b"\xc3ZZZ", 1),
+        ("aé", "sZZ\x1b", b"a\xc3ZZZ", 0),
+        ("aé", "2sZZ\x1b", b"a\xc3ZZZ", 1),
+        ("aé", "3sZZ\x1b", b"a\xc3ZZZ", 1),
+        ("日本", "sZZ\x1b", b"\xe6\x97\xa5\xe6\x9cZZZ", 0),
+        ("日本", "2sZZ\x1b", b"\xe6\x97\xa5\xe6\x9cZZZ", 1),
+        ("日本", "3sZZ\x1b", b"\xe6\x97\xa5\xe6\x9cZZZ", 1),
     ];
     for (line, motion, expected, bells) in byte_cases {
         let keys = format!("{line}\x1b{motion}iZ\r");
-        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), byte_rc, &env);
-        let sush = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), byte_rc, &env);
-        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
-        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
-        assert_eq!(bell_count(&bash), bells, "{keys:?}");
-        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+        assert_bytewise_vi_bytes(&keys, keys.as_bytes(), expected, bells, byte_rc, &env);
     }
 
     // An unmet bytewise count rings, but the deleted bytes must still be
@@ -11904,34 +11925,17 @@ fn bash_and_sushline_vi_char_search_multibyte_and_byte_modes() {
         (
             "byte_f_ascii",
             "a\u{e9}bc\u{e9}d\x1b0fcx\r",
-            "a\u{e9}b\u{e9}d",
+            &b"a\xc3\xa9b\xc3\xa9d"[..],
             0,
         ),
         (
             "byte_F_ascii",
             "a\u{e9}bc\u{e9}d\x1b$Fcx\r",
-            "a\u{e9}b\u{e9}d",
+            &b"a\xc3\xa9b\xc3\xa9d"[..],
             0,
         ),
     ] {
-        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), byte_rc, &env);
-        let sushline = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), byte_rc, &env);
-        assert_eq!(
-            accepted_line(&bash),
-            Some(expected.to_owned()),
-            "{desc}: {bash}"
-        );
-        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
-        assert_eq!(
-            accepted_line(&sushline),
-            accepted_line(&bash),
-            "{desc}: bash={bash}\nsushline={sushline}"
-        );
-        assert_eq!(
-            bell_count(&sushline),
-            bell_count(&bash),
-            "{desc}: bash={bash}\nsushline={sushline}"
-        );
+        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected, bells, byte_rc, &env);
     }
 }
 
@@ -11955,65 +11959,48 @@ fn bash_and_sushline_vi_char_search_byte_oriented_multibyte_keys() {
         (
             "f_e_accent",
             [b"abc\x1b0f".as_slice(), e, b"X\r"].concat(),
-            "abc",
+            &b"abc"[..],
             3,
         ),
         (
             "f_kanji",
             [b"abc\x1b0f".as_slice(), kanji, b"X\r"].concat(),
-            "abc",
+            &b"abc"[..],
             4,
         ),
         (
             "F_e_accent",
             [b"abc\x1b$".as_slice(), e, b"\x1b0F", e, b"x\r"].concat(),
-            "bc",
+            &b"bc"[..],
             4,
         ),
         (
             "t_e_accent",
             [b"abc\x1b0t".as_slice(), e, b"x\r"].concat(),
-            "bc",
+            &b"bc"[..],
             2,
         ),
         (
             "T_e_accent",
             [b"abc\x1b$T".as_slice(), e, b"x\r"].concat(),
-            "ab",
+            &b"ab"[..],
             2,
         ),
         // A raw byte target finds that byte inside an otherwise valid scalar.
         (
             "f_first_raw_byte",
             [b"a".as_slice(), e, b"b\x1b0f", &[0xc3], b"x\r"].concat(),
-            "a\u{fffd}b",
+            &b"a\xa9b"[..],
             0,
         ),
         (
             "f_second_raw_byte",
             [b"a".as_slice(), e, b"b\x1b0f", &[0xa9], b"x\r"].concat(),
-            "a\u{fffd}b",
+            &b"a\xc3b"[..],
             0,
         ),
     ] {
-        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, byte_rc, &env);
-        let sush = run_sushline_harness_with_inputrc_and_env(&keys, byte_rc, &env);
-        assert_eq!(
-            accepted_line(&bash),
-            Some(expected.to_owned()),
-            "{desc}: {bash}"
-        );
-        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
-        assert_eq!(
-            accepted_line(&sush),
-            accepted_line(&bash),
-            "{desc}: bash={bash}\nsushline={sush}"
-        );
-        assert_eq!(
-            bell_count(&sush),
-            bell_count(&bash),
-            "{desc}: bash={bash}\nsushline={sush}"
-        );
+        assert_bytewise_vi_bytes(desc, &keys, expected, bells, byte_rc, &env);
     }
 }
 
@@ -12033,81 +12020,64 @@ fn bash_and_sushline_byte_oriented_command_key_boundary() {
     let env = [("LC_ALL", "C")];
     let e = "\u{e9}".as_bytes();
     let kanji = "日".as_bytes();
-    let cases: Vec<(&str, Vec<u8>, &str, usize)> = vec![
+    let cases: Vec<(&str, Vec<u8>, &[u8], usize)> = vec![
         (
             "count_then_e",
             [b"abc\x1b03".as_slice(), e, b"x\r"].concat(),
-            "bc",
+            &b"bc"[..],
             2,
         ),
         (
             "count_then_kanji",
             [b"abc\x1b03".as_slice(), kanji, b"x\r"].concat(),
-            "bc",
+            &b"bc"[..],
             3,
         ),
         (
             "plain_e_then_x",
             [b"abc\x1b0".as_slice(), e, b"x\r"].concat(),
-            "bc",
+            &b"bc"[..],
             2,
         ),
         (
             "unbound_quote_then_e",
             [b"abc\x1b\"".as_slice(), e, b"x\r"].concat(),
-            "ab",
+            &b"ab"[..],
             3,
         ),
         (
             "quoted_insert_e",
             [b"ab\x16".as_slice(), e, b"cd\r"].concat(),
-            "ab\u{e9}cd",
+            &b"ab\xc3\xa9cd"[..],
             0,
         ),
         (
             "quoted_insert_kanji",
             [b"ab\x16".as_slice(), kanji, b"cd\r"].concat(),
-            "ab\u{65e5}cd",
+            &b"ab\xe6\x97\xa5cd"[..],
             0,
         ),
         (
             "isearch_e",
             [b"abc\x12".as_slice(), e, b"\r"].concat(),
-            "abc\u{e9}",
+            &b"abc\xc3\xa9"[..],
             0,
         ),
         (
             "named_command_e",
             [b"abc\x1bX".as_slice(), e, b"\r"].concat(),
-            "ac",
+            &b"ac"[..],
             2,
         ),
         (
             "minus_e",
             [b"abc\x1b0-".as_slice(), e, b"x\r"].concat(),
-            "bc",
+            &b"bc"[..],
             2,
         ),
     ];
     for (desc, keys, expected, bells) in cases {
-        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, byte_rc, &env);
-        let sush = run_sushline_harness_with_inputrc_and_env(&keys, byte_rc, &env);
-        assert_eq!(
-            accepted_line(&bash),
-            Some(expected.to_owned()),
-            "{desc}: {bash}"
-        );
-        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
-        assert_eq!(
-            accepted_line(&sush),
-            accepted_line(&bash),
-            "{desc}: bash={bash}\nsushline={sush}"
-        );
-        assert_eq!(
-            bell_count(&sush),
-            bell_count(&bash),
-            "{desc}: bash={bash}\nsushline={sush}"
-        );
+        assert_bytewise_vi_bytes(desc, &keys, expected, bells, byte_rc, &env);
     }
 
     let macro_rc = concat!(
@@ -12124,35 +12094,18 @@ fn bash_and_sushline_byte_oriented_command_key_boundary() {
         (
             "macro_prefix_first_byte",
             [b"ab\x1b0\x18".as_slice(), e, b"x\r"].concat(),
-            "b",
+            &b"b"[..],
             3,
         ),
         (
             "macro_full_e",
             [b"ab\x1b0".as_slice(), e, b"x\r"].concat(),
-            "b",
+            &b"b"[..],
             2,
         ),
-        ("macro_ctrl_x_e", b"ab\x1b0\x18ex\r".to_vec(), "a", 1),
+        ("macro_ctrl_x_e", b"ab\x1b0\x18ex\r".to_vec(), &b"a"[..], 1),
     ] {
-        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, macro_rc, &env);
-        let sush = run_sushline_harness_with_inputrc_and_env(&keys, macro_rc, &env);
-        assert_eq!(
-            accepted_line(&bash),
-            Some(expected.to_owned()),
-            "{desc}: {bash}"
-        );
-        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
-        assert_eq!(
-            accepted_line(&sush),
-            accepted_line(&bash),
-            "{desc}: bash={bash}\nsushline={sush}"
-        );
-        assert_eq!(
-            bell_count(&sush),
-            bell_count(&bash),
-            "{desc}: bash={bash}\nsushline={sush}"
-        );
+        assert_bytewise_vi_bytes(desc, &keys, expected, bells, macro_rc, &env);
     }
 }
 
@@ -12178,76 +12131,59 @@ fn bash_and_sushline_byte_oriented_search_edit_undo() {
         (
             "x_dot",
             [b"a".as_slice(), e, b"b\x1b0f", &c3, b"x.\r"].concat(),
-            "ab",
+            &b"ab"[..],
             0,
         ),
         (
             "x_undo",
             [b"a".as_slice(), e, b"b\x1b0f", &c3, b"xu\r"].concat(),
-            "a\u{e9}b",
+            &b"a\xc3\xa9b"[..],
             0,
         ),
         (
             "x_dot_undo",
             [b"a".as_slice(), e, b"b\x1b0f", &c3, b"x.u\r"].concat(),
-            "a\u{fffd}b",
+            &b"a\xa9b"[..],
             0,
         ),
         (
             "s_change",
             [b"a".as_slice(), e, b"b\x1b0f", &c3, b"sZ\x1b\r"].concat(),
-            "aZ\u{fffd}b",
+            &b"aZ\xa9b"[..],
             0,
         ),
         (
             "s_dot",
             [b"a".as_slice(), e, b"b\x1b0f", &c3, b"sZ\x1b.\r"].concat(),
-            "aZ\u{fffd}b",
+            &b"aZ\xa9b"[..],
             0,
         ),
         (
             "r_replace",
             [b"a".as_slice(), e, b"b\x1b0f", &a9, b"rA\r"].concat(),
-            "a\u{fffd}Ab",
+            &b"a\xc3Ab"[..],
             0,
         ),
         (
             "t_x",
             [b"a".as_slice(), e, b"b\x1b0t", &c3, b"x\r"].concat(),
-            "\u{e9}b",
+            &b"\xc3\xa9b"[..],
             0,
         ),
         (
             "count2_x",
             [b"ab".as_slice(), e, b"b\x1b02f", &c3, b"x\r"].concat(),
-            "ab\u{fffd}b",
+            &b"ab\xa9b"[..],
             1,
         ),
         (
             "x_undo_redo",
             [b"a".as_slice(), e, b"b\x1b0f", &c3, b"xu\x12\r"].concat(),
-            "a\u{e9}b",
+            &b"a\xc3\xa9b"[..],
             0,
         ),
     ] {
-        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, byte_rc, &env);
-        let sush = run_sushline_harness_with_inputrc_and_env(&keys, byte_rc, &env);
-        assert_eq!(
-            accepted_line(&bash),
-            Some(expected.to_owned()),
-            "{desc}: {bash}"
-        );
-        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
-        assert_eq!(
-            accepted_line(&sush),
-            accepted_line(&bash),
-            "{desc}: bash={bash}\nsushline={sush}"
-        );
-        assert_eq!(
-            bell_count(&sush),
-            bell_count(&bash),
-            "{desc}: bash={bash}\nsushline={sush}"
-        );
+        assert_bytewise_vi_bytes(desc, &keys, expected, bells, byte_rc, &env);
     }
 }
 
@@ -12267,73 +12203,105 @@ fn bash_and_sushline_byte_oriented_operators_after_raw_byte_search() {
     let e = "\u{e9}".as_bytes();
     let c3 = [0xc3u8];
     let prefix = || [b"a".as_slice(), e, b"b \x1b0f", &c3].concat();
+    let continuation_prefix = || [b"a".as_slice(), e, b"b \x1b0f\xa9"].concat();
     for (desc, keys, expected) in [
+        (
+            "count_delete_to_end_at_lead",
+            [prefix().as_slice(), b"2D\r"].concat(),
+            &b"a"[..],
+        ),
+        (
+            "count_change_to_end_at_lead",
+            [prefix().as_slice(), b"2CZ\x1b\r"].concat(),
+            &b"aZ"[..],
+        ),
+        (
+            "count_yank_put_at_lead",
+            [prefix().as_slice(), b"2Y$p\r"].concat(),
+            &b"a\xc3\xa9b \xc3\xa9b "[..],
+        ),
+        (
+            "count_substitute_to_end_at_lead",
+            [prefix().as_slice(), b"2SZ\x1b\r"].concat(),
+            &b"Z"[..],
+        ),
+        (
+            "count_delete_to_end_at_continuation",
+            [continuation_prefix().as_slice(), b"2D\r"].concat(),
+            &b"a\xc3"[..],
+        ),
+        (
+            "count_change_to_end_at_continuation",
+            [continuation_prefix().as_slice(), b"2CZ\x1b\r"].concat(),
+            &b"a\xc3Z"[..],
+        ),
+        (
+            "count_yank_put_at_continuation",
+            [continuation_prefix().as_slice(), b"2Y$p\r"].concat(),
+            &b"a\xc3\xa9b \xa9b "[..],
+        ),
+        (
+            "count_substitute_to_end_at_continuation",
+            [continuation_prefix().as_slice(), b"2SZ\x1b\r"].concat(),
+            &b"Z"[..],
+        ),
         (
             "change",
             [prefix().as_slice(), b"cZ\x1b\r"].concat(),
-            "a\u{e9}b ",
+            &b"a\xc3\xa9b "[..],
         ),
         (
             "change_count",
             [prefix().as_slice(), b"2cZ\x1b\r"].concat(),
-            "a\u{e9}b ",
+            &b"a\xc3\xa9b "[..],
         ),
         (
             "change_word_count",
             [prefix().as_slice(), b"c2wZ\x1b\r"].concat(),
-            "aZ",
+            &b"aZ"[..],
         ),
         (
             "delete",
             [prefix().as_slice(), b"dl\r"].concat(),
-            "a\u{fffd}b ",
+            &b"a\xa9b "[..],
         ),
         (
             "delete_count",
             [prefix().as_slice(), b"2dl\r"].concat(),
-            "ab ",
+            &b"ab "[..],
         ),
         (
             "delete_word",
             [prefix().as_slice(), b"dw\r"].concat(),
-            "ab ",
+            &b"ab "[..],
         ),
-        ("delete_end", [prefix().as_slice(), b"d$\r"].concat(), "a"),
+        (
+            "delete_end",
+            [prefix().as_slice(), b"d$\r"].concat(),
+            &b"a"[..],
+        ),
         (
             "yank_put",
             [prefix().as_slice(), b"ylp\r"].concat(),
-            "a\u{fffd}\u{e9}b ",
+            &b"a\xc3\xc3\xa9b "[..],
         ),
         (
             "yank_word_put",
             [prefix().as_slice(), b"ywp\r"].concat(),
-            "a\u{fffd}\u{e9}\u{fffd}b ",
+            &b"a\xc3\xc3\xa9\xa9b "[..],
         ),
         (
             "change_to_end",
             [prefix().as_slice(), b"CZ\x1b\r"].concat(),
-            "aZ",
+            &b"aZ"[..],
         ),
-        ("delete_to_end", [prefix().as_slice(), b"D\r"].concat(), "a"),
+        (
+            "delete_to_end",
+            [prefix().as_slice(), b"D\r"].concat(),
+            &b"a"[..],
+        ),
     ] {
-        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, byte_rc, &env);
-        let sush = run_sushline_harness_with_inputrc_and_env(&keys, byte_rc, &env);
-        assert_eq!(
-            accepted_line(&bash),
-            Some(expected.to_owned()),
-            "{desc}: {bash}"
-        );
-        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
-        assert_eq!(
-            accepted_line(&sush),
-            accepted_line(&bash),
-            "{desc}: bash={bash}\nsushline={sush}"
-        );
-        assert_eq!(
-            bell_count(&sush),
-            bell_count(&bash),
-            "{desc}: bash={bash}\nsushline={sush}"
-        );
+        assert_bytewise_vi_bytes(desc, &keys, expected, 0, byte_rc, &env);
     }
 }
 
@@ -12352,47 +12320,35 @@ fn bash_and_sushline_byte_oriented_change_case_skips_uncased_bytes() {
     let env = [("LC_ALL", "C")];
     let e = "\u{e9}".as_bytes();
     for (desc, keys, expected, bells) in [
-        ("colon", b"a:b\x1b0f:~iZ\r".to_vec(), "a:Zb", 0),
-        ("colon_count", b"a:b\x1b0f:2~iZ\r".to_vec(), "a:ZB", 0),
-        ("colon_count_from_end", b"a:b\x1b2~iZ\r".to_vec(), "a:Zb", 0),
-        ("cased", b"aZb\x1b0fZ~iQ\r".to_vec(), "azQb", 0),
+        ("colon", b"a:b\x1b0f:~iZ\r".to_vec(), &b"a:Zb"[..], 0),
+        ("colon_count", b"a:b\x1b0f:2~iZ\r".to_vec(), &b"a:ZB"[..], 0),
+        (
+            "colon_count_from_end",
+            b"a:b\x1b2~iZ\r".to_vec(),
+            &b"a:Zb"[..],
+            0,
+        ),
+        ("cased", b"aZb\x1b0fZ~iQ\r".to_vec(), &b"azQb"[..], 0),
         (
             "lead",
             [b"a".as_slice(), e, b":b\x1b0f", &[0xc3u8], b"~iZ\r"].concat(),
-            "a\u{fffd}Z\u{fffd}:b",
+            &b"a\xc3Z\xa9:b"[..],
             0,
         ),
         (
             "continuation",
             [b"a".as_slice(), e, b":b\x1b0f", &[0xa9u8], b"~iZ\r"].concat(),
-            "a\u{e9}Z:b",
+            &b"a\xc3\xa9Z:b"[..],
             0,
         ),
         (
             "final_byte",
             [e, b"\x1b~iZ\r"].concat(),
-            "\u{fffd}Z\u{fffd}",
+            &b"\xc3Z\xa9"[..],
             1,
         ),
     ] {
-        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, byte_rc, &env);
-        let sush = run_sushline_harness_with_inputrc_and_env(&keys, byte_rc, &env);
-        assert_eq!(
-            accepted_line(&bash),
-            Some(expected.to_owned()),
-            "{desc}: {bash}"
-        );
-        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
-        assert_eq!(
-            accepted_line(&sush),
-            accepted_line(&bash),
-            "{desc}: bash={bash}\nsushline={sush}"
-        );
-        assert_eq!(
-            bell_count(&sush),
-            bell_count(&bash),
-            "{desc}: bash={bash}\nsushline={sush}"
-        );
+        assert_bytewise_vi_bytes(desc, &keys, expected, bells, byte_rc, &env);
     }
 }
 
@@ -12415,93 +12371,80 @@ fn bash_and_sushline_byte_oriented_change_word_endpoints() {
         (
             "scalar_next_to_word",
             [b"a".as_slice(), e, b"b \x1b0f", &[0xc3u8], b"cwZ\x1b\r"].concat(),
-            "aZb ",
+            &b"aZb "[..],
         ),
         (
             "one_space",
             [b"a".as_slice(), e, b" b \x1b0f", &[0xc3u8], b"cwZ\x1b\r"].concat(),
-            "aZ b ",
+            &b"aZ b "[..],
         ),
         (
             "two_spaces",
             [b"a".as_slice(), e, b"  b \x1b0f", &[0xc3u8], b"cwZ\x1b\r"].concat(),
-            "aZ  b ",
+            &b"aZ  b "[..],
         ),
         (
             "scalar_next_to_punctuation",
             [b"a".as_slice(), e, b":b\x1b0f", &[0xc3u8], b"cwZ\x1b\r"].concat(),
-            "aZb",
+            &b"aZb"[..],
         ),
         (
             "continuation",
             [b"a".as_slice(), e, b":b\x1b0f", &[0xa9u8], b"cwZ\x1b\r"].concat(),
-            "a\u{fffd}Zb",
+            &b"a\xc3Zb"[..],
         ),
         (
             "before_scalar",
             [b"a".as_slice(), e, b"b \x1b0cwZ\x1b\r"].concat(),
-            "Z\u{e9}b ",
+            &b"Z\xc3\xa9b "[..],
         ),
         (
             "count_next_to_word",
             [b"a".as_slice(), e, b"b \x1b0f", &[0xc3u8], b"c2wZ\x1b\r"].concat(),
-            "aZ",
+            &b"aZ"[..],
         ),
         (
             "count_next_to_punctuation",
             [b"a".as_slice(), e, b":b\x1b0f", &[0xc3u8], b"c2wZ\x1b\r"].concat(),
-            "aZ",
+            &b"aZ"[..],
         ),
         (
             "count_next_to_longer_word",
             [b"a".as_slice(), e, b"bc d\x1b0f", &[0xc3u8], b"c2wZ\x1b\r"].concat(),
-            "aZ d",
+            &b"aZ d"[..],
         ),
         (
             "count_from_continuation",
             [b"a".as_slice(), e, b":b\x1b0f", &[0xa9u8], b"c2wZ\x1b\r"].concat(),
-            "a\u{fffd}Z",
+            &b"a\xc3Z"[..],
         ),
         (
             "ascii_punctuation",
             b"a:b c\x1b0f:cwZ\x1b\r".to_vec(),
-            "aZb c",
+            &b"aZb c"[..],
         ),
-        ("ascii_word", b"abc def\x1b0cwZ\x1b\r".to_vec(), "Z def"),
+        (
+            "ascii_word",
+            b"abc def\x1b0cwZ\x1b\r".to_vec(),
+            &b"Z def"[..],
+        ),
         (
             "change_end_next_to_word",
             [b"a".as_slice(), e, b"b \x1b0f", &[0xc3u8], b"ceZ\x1b\r"].concat(),
-            "aZb ",
+            &b"aZb "[..],
         ),
         (
             "change_end_next_to_punctuation",
             [b"a".as_slice(), e, b":b\x1b0f", &[0xc3u8], b"ceZ\x1b\r"].concat(),
-            "aZb",
+            &b"aZb"[..],
         ),
         (
             "change_end_from_continuation",
             [b"a".as_slice(), e, b":b\x1b0f", &[0xa9u8], b"ceZ\x1b\r"].concat(),
-            "a\u{fffd}Zb",
+            &b"a\xc3Zb"[..],
         ),
     ] {
-        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, byte_rc, &env);
-        let sush = run_sushline_harness_with_inputrc_and_env(&keys, byte_rc, &env);
-        assert_eq!(
-            accepted_line(&bash),
-            Some(expected.to_owned()),
-            "{desc}: {bash}"
-        );
-        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
-        assert_eq!(
-            accepted_line(&sush),
-            accepted_line(&bash),
-            "{desc}: bash={bash}\nsushline={sush}"
-        );
-        assert_eq!(
-            bell_count(&sush),
-            bell_count(&bash),
-            "{desc}: bash={bash}\nsushline={sush}"
-        );
+        assert_bytewise_vi_bytes(desc, &keys, expected, 0, byte_rc, &env);
     }
 }
 
@@ -12525,72 +12468,55 @@ fn bash_and_sushline_byte_oriented_change_word_undo_redo() {
         (
             "cw_undo",
             [search(b"b ", &c3).as_slice(), b"cwZ\x1bu\r"].concat(),
-            "a\u{e9}b ",
+            &b"a\xc3\xa9b "[..],
         ),
         (
             "cw_dot",
             [search(b"b ", &c3).as_slice(), b"cwZ\x1b.\r"].concat(),
-            "aZ",
+            &b"aZ"[..],
         ),
         (
             "cw_redo",
             [search(b"b ", &c3).as_slice(), b"cwZ\x1bu\x12\r"].concat(),
-            "a\u{e9}b ",
+            &b"a\xc3\xa9b "[..],
         ),
         (
             "c2w_undo",
             [search(b"b ", &c3).as_slice(), b"c2wZ\x1bu\r"].concat(),
-            "a\u{e9}b ",
+            &b"a\xc3\xa9b "[..],
         ),
         (
             "c2w_dot",
             [search(b"b ", &c3).as_slice(), b"c2wZ\x1b.\r"].concat(),
-            "aZ",
+            &b"aZ"[..],
         ),
         (
             "ce_undo",
             [search(b"b ", &c3).as_slice(), b"ceZ\x1bu\r"].concat(),
-            "a\u{e9}b ",
+            &b"a\xc3\xa9b "[..],
         ),
         (
             "ce_dot",
             [search(b"b ", &c3).as_slice(), b"ceZ\x1b.\r"].concat(),
-            "aZ ",
+            &b"aZ "[..],
         ),
         (
             "continuation_undo",
             [search(b":b", &a9).as_slice(), b"cwZ\x1bu\r"].concat(),
-            "a\u{e9}:b",
+            &b"a\xc3\xa9:b"[..],
         ),
         (
             "continuation_dot",
             [search(b":b", &a9).as_slice(), b"cwZ\x1b.\r"].concat(),
-            "a\u{fffd}Z",
+            &b"a\xc3Z"[..],
         ),
         (
             "before_scalar_undo",
             [b"a".as_slice(), e, b"b \x1b0cwZ\x1bu\r"].concat(),
-            "a\u{e9}b ",
+            &b"a\xc3\xa9b "[..],
         ),
     ] {
-        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, byte_rc, &env);
-        let sush = run_sushline_harness_with_inputrc_and_env(&keys, byte_rc, &env);
-        assert_eq!(
-            accepted_line(&bash),
-            Some(expected.to_owned()),
-            "{desc}: {bash}"
-        );
-        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
-        assert_eq!(
-            accepted_line(&sush),
-            accepted_line(&bash),
-            "{desc}: bash={bash}\nsushline={sush}"
-        );
-        assert_eq!(
-            bell_count(&sush),
-            bell_count(&bash),
-            "{desc}: bash={bash}\nsushline={sush}"
-        );
+        assert_bytewise_vi_bytes(desc, &keys, expected, 0, byte_rc, &env);
     }
 }
 
@@ -12616,142 +12542,125 @@ fn bash_and_sushline_byte_oriented_operator_char_search() {
         (
             "cf_lead",
             [one().as_slice(), b"\x1b0f", &c3, b"cf:Z\x1b\r"].concat(),
-            "aZd",
+            &b"aZd"[..],
             0,
         ),
         (
             "df_lead",
             [one().as_slice(), b"\x1b0f", &c3, b"df:\r"].concat(),
-            "ad",
+            &b"ad"[..],
             0,
         ),
         (
             "yf_lead_put",
             [one().as_slice(), b"\x1b0f", &c3, b"yf:p\r"].concat(),
-            "a\u{fffd}\u{e9}bc:\u{fffd}bc:d",
+            &b"a\xc3\xc3\xa9bc:\xa9bc:d"[..],
             0,
         ),
         (
             "ct_lead",
             [one().as_slice(), b"\x1b0f", &c3, b"ct:Z\x1b\r"].concat(),
-            "aZ:d",
+            &b"aZ:d"[..],
             0,
         ),
         (
             "dt_lead",
             [one().as_slice(), b"\x1b0f", &c3, b"dt:\r"].concat(),
-            "a:d",
+            &b"a:d"[..],
             0,
         ),
         (
             "yt_lead_put",
             [one().as_slice(), b"\x1b0f", &c3, b"yt:p\r"].concat(),
-            "a\u{fffd}\u{e9}bc\u{fffd}bc:d",
+            &b"a\xc3\xc3\xa9bc\xa9bc:d"[..],
             0,
         ),
         (
             "cf_cont",
             [one().as_slice(), b"\x1b0f", &a9, b"cf:Z\x1b\r"].concat(),
-            "a\u{fffd}Zd",
+            &b"a\xc3Zd"[..],
             0,
         ),
         (
             "df_cont",
             [one().as_slice(), b"\x1b0f", &a9, b"df:\r"].concat(),
-            "a\u{fffd}d",
+            &b"a\xc3d"[..],
             0,
         ),
         (
             "ct_cont",
             [one().as_slice(), b"\x1b0f", &a9, b"ct:Z\x1b\r"].concat(),
-            "a\u{fffd}Z:d",
+            &b"a\xc3Z:d"[..],
             0,
         ),
         (
             "cf_ascii",
             [one().as_slice(), b"\x1b0cf:Z\x1b\r"].concat(),
-            "Zd",
+            &b"Zd"[..],
             0,
         ),
         (
             "df_ascii",
             [one().as_slice(), b"\x1b0df:\r"].concat(),
-            "d",
+            &b"d"[..],
             0,
         ),
         (
             "df_raw_byte",
             [one().as_slice(), b"\x1b0df", &a9, b"\r"].concat(),
-            "bc:d",
+            &b"bc:d"[..],
             0,
         ),
         (
             "backward_search",
             [one().as_slice(), b"\x1b$f", &c3, b"dFa\r"].concat(),
-            "d",
+            &b"d"[..],
             1,
         ),
         (
             "two_c2f",
             [two().as_slice(), b"\x1b0f", &c3, b"c2f:Z\x1b\r"].concat(),
-            "aZe",
+            &b"aZe"[..],
             0,
         ),
         (
             "two_d2f",
             [two().as_slice(), b"\x1b0f", &c3, b"d2f:\r"].concat(),
-            "ae",
+            &b"ae"[..],
             0,
         ),
         (
             "one_c2f",
             [one().as_slice(), b"\x1b0f", &c3, b"c2f:Z\x1b\r"].concat(),
-            "aZd",
+            &b"aZd"[..],
             1,
         ),
         (
             "one_d2f",
             [one().as_slice(), b"\x1b0f", &c3, b"d2f:\r"].concat(),
-            "ad",
+            &b"ad"[..],
             1,
         ),
         (
             "one_y2f_put",
             [one().as_slice(), b"\x1b0f", &c3, b"y2f:p\r"].concat(),
-            "a\u{fffd}\u{e9}bc:\u{fffd}bc:d",
+            &b"a\xc3\xc3\xa9bc:\xa9bc:d"[..],
             1,
         ),
         (
             "one_d2t",
             [one().as_slice(), b"\x1b0f", &c3, b"d2t:\r"].concat(),
-            "a:d",
+            &b"a:d"[..],
             1,
         ),
         (
             "one_f2_plain",
             [one().as_slice(), b"\x1b0f", &c3, b"2f:x\r"].concat(),
-            "a\u{e9}bcd",
+            &b"a\xc3\xa9bcd"[..],
             1,
         ),
     ] {
-        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, byte_rc, &env);
-        let sush = run_sushline_harness_with_inputrc_and_env(&keys, byte_rc, &env);
-        assert_eq!(
-            accepted_line(&bash),
-            Some(expected.to_owned()),
-            "{desc}: {bash}"
-        );
-        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
-        assert_eq!(
-            accepted_line(&sush),
-            accepted_line(&bash),
-            "{desc}: bash={bash}\nsushline={sush}"
-        );
-        assert_eq!(
-            bell_count(&sush),
-            bell_count(&bash),
-            "{desc}: bash={bash}\nsushline={sush}"
-        );
+        assert_bytewise_vi_bytes(desc, &keys, expected, bells, byte_rc, &env);
     }
 }
 
@@ -12872,47 +12781,26 @@ fn bash_and_sushline_byte_oriented_put_after_delete_points() {
     let env = [("LC_ALL", "C")];
     let e = "\u{e9}".as_bytes();
     let a9 = [0xa9u8];
-    for (desc, keys, expected, bells) in [
-        (
-            "x_lead_put",
-            [e, b"a\x1b0xp\r"].concat(),
-            "\u{fffd}\u{fffd}a",
-            0,
-        ),
+    let cases: [(&str, Vec<u8>, &[u8], usize); 6] = [
+        ("x_lead_put", [e, b"a\x1b0xp\r"].concat(), b"\xa9\xc3a", 0),
         (
             "x_lead_put_insert",
             [e, b"a\x1b0xpiZ\r"].concat(),
-            "\u{fffd}Z\u{fffd}a",
+            b"\xa9Z\xc3a",
             0,
         ),
         (
             "x_cont_put",
             [e, b"a\x1b0f", &a9, b"xp\r"].concat(),
-            "\u{fffd}a\u{fffd}",
+            b"\xc3a\xa9",
             0,
         ),
-        ("X_lead_put", [e, b"a\x1b0Xp\r"].concat(), "\u{e9}a", 2),
-        ("s_lead_put", [e, b"a\x1b0spZ\r"].concat(), "pZ\u{fffd}a", 0),
-        ("x_lead_dot", [e, b"a\x1b0x.\r"].concat(), "a", 0),
-    ] {
-        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, rc, &env);
-        let sush = run_sushline_harness_with_inputrc_and_env(&keys, rc, &env);
-        assert_eq!(
-            accepted_line(&bash),
-            Some(expected.to_owned()),
-            "{desc}: {bash}"
-        );
-        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
-        assert_eq!(
-            accepted_line(&sush),
-            accepted_line(&bash),
-            "{desc}: bash={bash}\nsushline={sush}"
-        );
-        assert_eq!(
-            bell_count(&sush),
-            bell_count(&bash),
-            "{desc}: bash={bash}\nsushline={sush}"
-        );
+        ("X_lead_put", [e, b"a\x1b0Xp\r"].concat(), b"\xc3\xa9a", 2),
+        ("s_lead_put", [e, b"a\x1b0spZ\r"].concat(), b"pZ\xa9a", 0),
+        ("x_lead_dot", [e, b"a\x1b0x.\r"].concat(), b"a", 0),
+    ];
+    for (desc, keys, expected, bells) in cases {
+        assert_bytewise_vi_bytes(desc, &keys, expected, bells, rc, &env);
     }
 }
 
@@ -13017,38 +12905,43 @@ fn bash_and_sushline_byte_oriented_vi_overwrite_mode() {
             "lead",
             &c3[..],
             vec![
-                ("printable", b"RZ\x1b\r".to_vec(), "Z\u{fffd}bc:d", 1),
-                ("two_printable", b"RZY\x1b\r".to_vec(), "ZYbc:d", 1),
-                ("counted", b"3RZ\x1b\r".to_vec(), "Z\u{fffd}bc:d", 1),
-                ("control", b"R\x01\x1b\r".to_vec(), "\u{1}\u{e9}bc:d", 1),
+                ("printable", b"RZ\x1b\r".to_vec(), &b"Z\xa9bc:d"[..], 1),
+                ("two_printable", b"RZY\x1b\r".to_vec(), &b"ZYbc:d"[..], 1),
+                ("counted", b"3RZ\x1b\r".to_vec(), &b"Z\xa9bc:d"[..], 1),
+                (
+                    "control",
+                    b"R\x01\x1b\r".to_vec(),
+                    &b"\x01\xc3\xa9bc:d"[..],
+                    1,
+                ),
                 (
                     "multibyte_replacement",
                     [b"R".as_slice(), e, b"\x1b\r"].concat(),
-                    "\u{e9}bc:d",
+                    &b"\xc3\xa9bc:d"[..],
                     1,
                 ),
                 (
                     "quoted_control",
                     b"R\x16\x01\x1b\r".to_vec(),
-                    "\u{1}\u{e9}bc:d",
+                    &b"\x01\xc3\xa9bc:d"[..],
                     1,
                 ),
                 (
                     "quoted_printable",
                     b"R\x16Z\x1b\r".to_vec(),
-                    "Z\u{e9}bc:d",
+                    &b"Z\xc3\xa9bc:d"[..],
                     1,
                 ),
                 (
                     "quoted_multibyte",
                     [b"R\x16".as_slice(), e, b"\x1b\r"].concat(),
-                    "\u{e9}\u{fffd}bc:d",
+                    &b"\xc3\xa9\xa9bc:d"[..],
                     1,
                 ),
                 (
                     "quoted_three_byte",
                     [b"R\x16".as_slice(), a, b"\x1b\r"].concat(),
-                    "\u{3042}bc:d",
+                    &b"\xe3\x81\x82bc:d"[..],
                     1,
                 ),
             ],
@@ -13057,43 +12950,43 @@ fn bash_and_sushline_byte_oriented_vi_overwrite_mode() {
             "cont",
             &a9[..],
             vec![
-                ("printable", b"RZ\x1b\r".to_vec(), "\u{fffd}Zbc:d", 0),
-                ("two_printable", b"RZY\x1b\r".to_vec(), "\u{fffd}ZYc:d", 0),
-                ("counted", b"3RZ\x1b\r".to_vec(), "\u{fffd}Zbc:d", 0),
+                ("printable", b"RZ\x1b\r".to_vec(), &b"\xc3Zbc:d"[..], 0),
+                ("two_printable", b"RZY\x1b\r".to_vec(), &b"\xc3ZYc:d"[..], 0),
+                ("counted", b"3RZ\x1b\r".to_vec(), &b"\xc3Zbc:d"[..], 0),
                 (
                     "control",
                     b"R\x01\x1b\r".to_vec(),
-                    "\u{fffd}\u{1}\u{fffd}bc:d",
+                    &b"\xc3\x01\xa9bc:d"[..],
                     0,
                 ),
                 (
                     "multibyte_replacement",
                     [b"R".as_slice(), e, b"\x1b\r"].concat(),
-                    "\u{fffd}\u{e9}c:d",
+                    &b"\xc3\xc3\xa9c:d"[..],
                     0,
                 ),
                 (
                     "quoted_control",
                     b"R\x16\x01\x1b\r".to_vec(),
-                    "\u{fffd}\u{1}\u{fffd}bc:d",
+                    &b"\xc3\x01\xa9bc:d"[..],
                     0,
                 ),
                 (
                     "quoted_printable",
                     b"R\x16Z\x1b\r".to_vec(),
-                    "\u{fffd}Z\u{fffd}bc:d",
+                    &b"\xc3Z\xa9bc:d"[..],
                     0,
                 ),
                 (
                     "quoted_multibyte",
                     [b"R\x16".as_slice(), e, b"\x1b\r"].concat(),
-                    "\u{fffd}\u{e9}bc:d",
+                    &b"\xc3\xc3\xa9bc:d"[..],
                     0,
                 ),
                 (
                     "quoted_three_byte",
                     [b"R\x16".as_slice(), a, b"\x1b\r"].concat(),
-                    "\u{fffd}\u{3042}c:d",
+                    &b"\xc3\xe3\x81\x82c:d"[..],
                     0,
                 ),
             ],
@@ -13103,24 +12996,7 @@ fn bash_and_sushline_byte_oriented_vi_overwrite_mode() {
             let mut keys = [e, b"bc:d\x1b0f".as_slice()].concat();
             keys.extend_from_slice(start);
             keys.extend(tail);
-            let bash = run_bash_readline_with_inputrc_file_and_env(&keys, rc, &env);
-            let sush = run_sushline_harness_with_inputrc_and_env(&keys, rc, &env);
-            assert_eq!(
-                accepted_line(&bash),
-                Some(expected.to_owned()),
-                "{label} {desc}: {bash}"
-            );
-            assert_eq!(bell_count(&bash), bells, "{label} {desc}: {bash}");
-            assert_eq!(
-                accepted_line(&sush),
-                accepted_line(&bash),
-                "{label} {desc}: bash={bash}\nsushline={sush}"
-            );
-            assert_eq!(
-                bell_count(&sush),
-                bell_count(&bash),
-                "{label} {desc}: bash={bash}\nsushline={sush}"
-            );
+            assert_bytewise_vi_bytes(&format!("{label} {desc}"), &keys, expected, bells, rc, &env);
         }
     }
 }
@@ -13177,10 +13053,9 @@ fn bash_and_sushline_vi_redo_after_blocked_motion() {
 }
 
 /// In bytewise vi replace mode a raw high replacement key overwrites the
-/// single raw byte at point, just like an ASCII key. The lossy accepted line
-/// shows the remaining bytes of `é` as replacement characters when the lead
-/// byte is replaced, or the replaced byte itself when the continuation byte
-/// is replaced.
+/// single raw byte at point, just like an ASCII key. The accepted bytes keep
+/// the byte that was not overwritten, whether that is the continuation byte
+/// after replacing the lead or the lead byte after replacing the continuation.
 #[test]
 fn bash_and_sushline_byte_oriented_vi_raw_replacement_keys() {
     let rc = concat!(
@@ -13197,46 +13072,29 @@ fn bash_and_sushline_byte_oriented_vi_raw_replacement_keys() {
             "lead",
             0xc3u8,
             vec![
-                ("lead_byte", 0xc3u8, "\u{e9}bc:d", 1),
-                ("continuation_byte", 0xa9u8, "\u{fffd}\u{fffd}bc:d", 1),
-                ("other_lead", 0xe3u8, "\u{fffd}bc:d", 1),
-                ("invalid_byte", 0xffu8, "\u{fffd}\u{fffd}bc:d", 1),
-                ("ascii", b'Z', "Z\u{fffd}bc:d", 1),
+                ("lead_byte", 0xc3u8, b"\xc3\xa9bc:d" as &[u8], 1),
+                ("continuation_byte", 0xa9u8, b"\xa9\xa9bc:d" as &[u8], 1),
+                ("other_lead", 0xe3u8, b"\xe3\xa9bc:d", 1),
+                ("invalid_byte", 0xffu8, b"\xff\xa9bc:d", 1),
+                ("ascii", b'Z', b"Z\xa9bc:d", 1),
             ],
         ),
         (
             "continuation",
             0xa9u8,
             vec![
-                ("lead_byte", 0xc3u8, "\u{fffd}\u{fffd}bc:d", 0),
-                ("continuation_byte", 0xa9u8, "\u{e9}bc:d", 0),
-                ("other_lead", 0xe3u8, "\u{fffd}\u{fffd}bc:d", 0),
-                ("invalid_byte", 0xffu8, "\u{fffd}\u{fffd}bc:d", 0),
-                ("ascii", b'Z', "\u{fffd}Zbc:d", 0),
+                ("lead_byte", 0xc3u8, b"\xc3\xc3bc:d", 0),
+                ("continuation_byte", 0xa9u8, b"\xc3\xa9bc:d", 0),
+                ("other_lead", 0xe3u8, b"\xc3\xe3bc:d", 0),
+                ("invalid_byte", 0xffu8, b"\xc3\xffbc:d", 0),
+                ("ascii", b'Z', b"\xc3Zbc:d", 0),
             ],
         ),
     ] {
         for (desc, key, expected, bells) in cases {
             let mut keys = [e, b"bc:d\x1b0f".as_slice()].concat();
             keys.extend([start, b'R', key, 0x1b, b'\r']);
-            let bash = run_bash_readline_with_inputrc_file_and_env(&keys, rc, &env);
-            let sush = run_sushline_harness_with_inputrc_and_env(&keys, rc, &env);
-            assert_eq!(
-                accepted_line(&bash),
-                Some(expected.to_owned()),
-                "{label} {desc}: {bash}"
-            );
-            assert_eq!(bell_count(&bash), bells, "{label} {desc}: {bash}");
-            assert_eq!(
-                accepted_line(&sush),
-                accepted_line(&bash),
-                "{label} {desc}: bash={bash}\nsushline={sush}"
-            );
-            assert_eq!(
-                bell_count(&sush),
-                bell_count(&bash),
-                "{label} {desc}: bash={bash}\nsushline={sush}"
-            );
+            assert_bytewise_vi_bytes(&format!("{label} {desc}"), &keys, expected, bells, rc, &env);
         }
     }
 }

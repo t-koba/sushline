@@ -15,11 +15,17 @@ where
         if let Some((op, start, mut change)) = op_start {
             if !self.apply_vi_operator_range(state, op, start, inclusive) {
                 // GNU still enters insert mode when a change motion spans no
-                // text; the typed replacement becomes the redo change.
+                // text; the typed replacement becomes the redo change. Other
+                // operators keep the failed motion as the redo command: dot
+                // repeats it, so a ringing motion rings again while a silent
+                // one stays silent, and neither edits the line.
                 if matches!(op, ViOperator::Change) {
                     change.extend_from_slice(key);
                     state.finish_vi_operator_change(op, change);
                     self.keymap.set_current(KeyMapName::ViInsert);
+                } else {
+                    change.extend_from_slice(key);
+                    state.set_vi_redo(change);
                 }
                 return;
             }

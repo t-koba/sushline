@@ -12916,9 +12916,9 @@ fn bash_and_sushline_byte_oriented_put_after_delete_points() {
     }
 }
 
-/// GNU preserves a pending vi operator across a motion that cannot move and
-/// rings only for the blocked motion; when the motion does reach a byte, the
-/// operator consumes it normally even at the last character.
+/// A `b`/`h`/arrow motion that cannot move rings once and leaves the line
+/// unchanged; empty-line `$` and `x` are silent. A motion that does reach a
+/// byte applies the operator normally, even at the last character.
 #[test]
 fn bash_and_sushline_vi_blocked_operator_motions() {
     let rc = "set editing-mode vi\n";
@@ -13096,5 +13096,56 @@ fn bash_and_sushline_byte_oriented_vi_overwrite_mode() {
                 "{label} {desc}: bash={bash}\nsushline={sush}"
             );
         }
+    }
+}
+
+/// Dot after an operator whose motion spanned no text repeats that motion,
+/// not the change from before it. A ringing motion (`b`, `h`) rings again and
+/// a silent one (`0`) stays silent; the line is unchanged either way. An
+/// operator cancelled by an unbound key keeps GNU's blank-appending redo.
+#[test]
+fn bash_and_sushline_vi_redo_after_blocked_motion() {
+    let rc = "set editing-mode vi\n";
+    let env = [("LC_ALL", "C")];
+    for (desc, keys, expected, bells) in [
+        ("backward_word", b"abc\x1b0db.\r".to_vec(), "abc", 2),
+        ("backward_char", b"abc\x1b0dh.\r".to_vec(), "abc", 2),
+        ("beginning_of_line", b"abc\x1b0d0.\r".to_vec(), "abc", 0),
+        (
+            "repeated_backward_word",
+            b"abc\x1b0db..\r".to_vec(),
+            "abc",
+            3,
+        ),
+        (
+            "repeated_backward_char",
+            b"abc\x1b0dh..\r".to_vec(),
+            "abc",
+            3,
+        ),
+        ("empty_backward_word", b"\x1bdb.\r".to_vec(), "", 2),
+        ("empty_backward_char", b"\x1bdh.\r".to_vec(), "", 2),
+        ("cancelled_operator", b"abc\x1b0dq.\r".to_vec(), "abc ", 1),
+        ("following_motion", b"abc\x1b0dbl\r".to_vec(), "abc", 1),
+        ("following_delete", b"abc\x1b0dbx\r".to_vec(), "bc", 1),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, rc, &env);
+        let sush = run_sushline_harness_with_inputrc_and_env(&keys, rc, &env);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_owned()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sush),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sush}"
+        );
+        assert_eq!(
+            bell_count(&sush),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sush}"
+        );
     }
 }

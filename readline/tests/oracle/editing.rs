@@ -14705,3 +14705,75 @@ fn bash_and_sushline_vi_yank_line_keeps_point_for_put() {
         assert_bytewise_vi_bytes(desc, &keys, expected, 0, rc, &env);
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_inclusive_operator_consumes_multibyte_endpoint() {
+    let rc = "set editing-mode vi\n";
+    let env = [("LC_ALL", "C.UTF-8")];
+    let e9 = "\u{e9}".as_bytes();
+    let shi = "\u{4e16}".as_bytes();
+    let mark = "\u{301}".as_bytes();
+    let mut dash_e9 = b"--".to_vec();
+    dash_e9.extend_from_slice(e9);
+    let mut dash_shi = b"--".to_vec();
+    dash_shi.extend_from_slice(shi);
+    let mut marked = b"ab".to_vec();
+    marked.extend_from_slice(mark);
+    let mut leading = mark.to_vec();
+    leading.extend_from_slice(b"a");
+    leading.extend_from_slice(mark);
+    for (desc, initial, tail, expected) in [
+        (
+            "delete_e9",
+            dash_e9.as_slice(),
+            b"\x1b0de\r".as_slice(),
+            b"".as_slice(),
+        ),
+        (
+            "change_e9",
+            dash_e9.as_slice(),
+            b"\x1b0ceZ\r".as_slice(),
+            b"Z".as_slice(),
+        ),
+        (
+            "yank_e9",
+            dash_e9.as_slice(),
+            b"\x1b0yep\r".as_slice(),
+            [b"---".as_slice(), e9, b"-", e9].concat().as_slice(),
+        ),
+        (
+            "delete_shi",
+            dash_shi.as_slice(),
+            b"\x1b0de\r".as_slice(),
+            b"".as_slice(),
+        ),
+        (
+            "keep_plain_mark",
+            marked.as_slice(),
+            b"\x1b0de\r".as_slice(),
+            mark,
+        ),
+        (
+            "leading_cluster_dE",
+            leading.as_slice(),
+            b"\x1b0dE\r".as_slice(),
+            b"".as_slice(),
+        ),
+    ] {
+        let mut keys = initial.to_vec();
+        keys.extend_from_slice(tail);
+        assert_bytewise_vi_bytes(desc, &keys, expected, 0, rc, &env);
+    }
+
+    let byte_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let byte_env = [("LC_ALL", "C.UTF-8")];
+    let mut keys = dash_e9.clone();
+    keys.extend_from_slice(b"\x1b0de\r");
+    assert_bytewise_vi_bytes("bytewise_e9_endpoint", &keys, b"", 0, byte_rc, &byte_env);
+}

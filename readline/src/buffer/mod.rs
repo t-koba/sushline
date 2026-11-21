@@ -613,7 +613,7 @@ impl LineBuffer {
             .unwrap_or(self.bytes.len())
     }
 
-    fn next_char_boundary_checked(&self, idx: usize) -> Option<usize> {
+    pub(crate) fn next_char_boundary_checked(&self, idx: usize) -> Option<usize> {
         (idx < self.bytes.len()).then(|| self.next_char_boundary(idx))
     }
 

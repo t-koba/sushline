@@ -1416,7 +1416,16 @@ where
         let mut end = state.buffer.point();
         if inclusive {
             if end >= start {
-                end = operator_grapheme_end.unwrap_or((end + 1).min(state.buffer.len_chars()));
+                end = operator_grapheme_end.unwrap_or_else(|| {
+                    if self.char_motion_is_bytewise() {
+                        (end + 1).min(state.buffer.len_chars())
+                    } else {
+                        state
+                            .buffer
+                            .next_char_boundary_checked(end)
+                            .unwrap_or_else(|| state.buffer.len_chars())
+                    }
+                });
             }
         } else if end > start && matches!(op, ViOperator::Delete) {
             end = state.buffer.next_nonblank_from(end);

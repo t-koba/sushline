@@ -284,18 +284,19 @@ impl LineBuffer {
         while leader > 0 && self.bytes[leader] & 0xc0 == 0x80 {
             leader -= 1;
         }
-        let needed = utf8_sequence_len(self.bytes[leader]);
-        let start = if needed > 1 && leader + needed <= target {
-            leader
-        } else {
-            target - 1
-        };
-        let (end, ch) = self.decoded_char_at(start)?;
-        if end <= target {
-            Some((start, ch))
-        } else {
-            Some((start, private_byte_char(self.bytes[start])))
+        let (end, ch) = self.decoded_char_at(leader)?;
+        if end == target {
+            return Some((leader, ch));
         }
+        if end > target {
+            // The target is inside a sequence; the previous unit is the last
+            // complete one before its leader.
+            return self.decoded_prev_char_backward(leader);
+        }
+        // Raw bytes follow a complete unit: the previous unit is the last of
+        // those bytes, not the earlier leader.
+        let (raw_end, raw_ch) = self.decoded_char_at(target - 1)?;
+        (raw_end == target).then_some((target - 1, raw_ch))
     }
 
     fn decoded_prev_char(&self, idx: usize) -> Option<(usize, char)> {

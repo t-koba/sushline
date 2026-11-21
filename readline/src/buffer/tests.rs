@@ -361,3 +361,39 @@ fn backward_grapheme_boundary_stays_linear_on_long_mark_runs() {
         "backward grapheme scan took {elapsed:?}"
     );
 }
+
+#[test]
+fn backward_decoder_matches_forward_decoder_on_raw_bytes() {
+    let alphabet = [b'a', 0xc3, 0xa9, 0x80, 0xe0, 0xff, 0xcc, 0x81];
+    let mut lengths = vec![Vec::new()];
+    for _ in 0..4 {
+        let mut next = Vec::new();
+        for prefix in &lengths {
+            for byte in alphabet {
+                let mut candidate = prefix.clone();
+                candidate.push(byte);
+                next.push(candidate);
+            }
+        }
+        lengths.extend(next);
+    }
+    for bytes in lengths {
+        let buffer = LineBuffer::from_bytes(bytes.clone());
+        for idx in 0..=bytes.len() {
+            assert_eq!(
+                buffer.decoded_prev_char_backward(idx),
+                buffer.decoded_prev_char(idx),
+                "bytes={bytes:?} idx={idx}"
+            );
+        }
+    }
+}
+
+#[test]
+fn backward_delete_removes_only_a_stray_continuation_byte() {
+    let mut buffer = LineBuffer::from_bytes(vec![0xc3, 0x80, 0xa9]);
+    buffer.set_point(3);
+    buffer.backward_delete_char_bytes();
+    assert_eq!(buffer.as_bytes(), &[0xc3, 0x80]);
+    assert_eq!(buffer.point(), 2);
+}

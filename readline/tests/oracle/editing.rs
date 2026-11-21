@@ -13576,3 +13576,110 @@ fn bash_and_sushline_vi_overstrike_backspace_tracks_typed_units() {
         );
     }
 }
+
+/// CSI and SS3 arrows do not move the point inside vi replace mode. GNU
+/// dispatches the ESC immediately as vi-movement-mode, so the following `[`
+/// or `O` is an unbound command-mode key and the final letter runs as a vi
+/// command (`D`, `C`, `A` or `B`). The replace-mode ESC also steps back onto
+/// the last replaced character before command mode begins.
+#[test]
+fn bash_and_sushline_vi_replace_mode_arrow_sequences_end_replace_mode() {
+    let charwise_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n"
+    );
+    let bytewise_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C.UTF-8")];
+    for (desc, keys, expected, bells, rc) in [
+        (
+            "csi_left",
+            b"abc\x1bRXY\x1b[DZ\x1b\r".as_slice(),
+            "abX",
+            2,
+            charwise_rc,
+        ),
+        (
+            "csi_right",
+            b"abc\x1bRXY\x1b[CZ\x1b\r".as_slice(),
+            "abXZ",
+            1,
+            charwise_rc,
+        ),
+        (
+            "csi_up",
+            b"abc\x1bRXY\x1b[AZ\x1b\r".as_slice(),
+            "abXYZ",
+            1,
+            charwise_rc,
+        ),
+        (
+            "csi_down",
+            b"abc\x1bRXY\x1b[BZ\x1b\r".as_slice(),
+            "abXY",
+            2,
+            charwise_rc,
+        ),
+        (
+            "ss3_left",
+            b"abc\x1bRXY\x1bODZ\x1b\r".as_slice(),
+            "abX",
+            2,
+            charwise_rc,
+        ),
+        (
+            "after_one_replacement",
+            b"abc\x1bRX\x1b[DZ\x1b\r".as_slice(),
+            "ab",
+            2,
+            charwise_rc,
+        ),
+        (
+            "immediately_after_r",
+            b"abc\x1bR\x1b[DZ\x1b\r".as_slice(),
+            "a",
+            2,
+            charwise_rc,
+        ),
+        (
+            "two_csi_lefts",
+            b"abc\x1bRXY\x1b[D\x1b[DZ\x1b\r".as_slice(),
+            "abX",
+            2,
+            charwise_rc,
+        ),
+        (
+            "bytewise_csi_left",
+            b"abc\x1bRXY\x1b[DZ\x1b\r".as_slice(),
+            "abX",
+            2,
+            bytewise_rc,
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_env(keys, rc, &env);
+        let sushline = run_sushline_harness_with_inputrc_and_env(keys, rc, &env);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_owned()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

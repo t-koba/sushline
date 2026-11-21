@@ -7,6 +7,7 @@ use crate::terminal::{SigintPolicy, TerminalIo};
 use crate::variables::BoolVariable;
 use history::HistoryDirection;
 
+const BRACKETED_PASTE_START_SEQUENCE: &[u8] = b"\x1b[200~";
 const BRACKETED_PASTE_END_SEQUENCE: &[u8] = b"\x1b[201~";
 
 // GNU Readline normalizes CR while collecting bracketed-paste input.
@@ -817,6 +818,24 @@ where
             return Ok(EditorOutcome::Continue);
         }
 
+        // In vi replace mode GNU dispatches ESC as vi-movement-mode before a
+        // CSI/SS3 arrow can match, so the remaining bytes become command-mode
+        // keys. A bracketed-paste start still owns its longer binding: wait
+        // while the pending bytes can become that sequence, then split an
+        // ESC-prefixed key that cannot.
+        if state.overwrite_tracking
+            && pending.len() > 1
+            && pending[0] == 0x1b
+            && !BRACKETED_PASTE_START_SEQUENCE.starts_with(&pending)
+            && let Some(binding) = self.keymap.lookup(self.keymap.current(), &[0x1b]).cloned()
+        {
+            state.input.prefix_meta_command_len = 0;
+            let outcome = self.apply_binding(state, binding, &[0x1b], hooks)?;
+            if !matches!(outcome, EditorOutcome::Continue) {
+                return Ok(outcome);
+            }
+            return self.handle_bytes(state, &pending[1..], hooks);
+        }
         // A binding on a prefix is the fallback, not a replacement for its
         // submap. In particular, a direct ESC/C-x binding must not disconnect
         // explicit emacs-meta/emacs-ctlx bindings.

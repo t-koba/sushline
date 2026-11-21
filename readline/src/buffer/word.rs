@@ -693,9 +693,11 @@ impl LineBuffer {
     ///
     /// Byte-oriented mode sees raw bytes: only ASCII letters change. An
     /// uncased byte is skipped silently when another byte follows; at the end
-    /// of the line GNU rings and leaves point there. In character mode GNU
-    /// rings for an uncased character, while a cased character with no
-    /// single-character mapping (such as `ß`) is left alone without ringing.
+    /// of the line GNU rings and leaves point there. In character mode an
+    /// uncased GNU character is skipped the same way, and a cased scalar maps
+    /// its whole character, dropping trailing marks. A cased character with
+    /// no single-character mapping (such as `ß`) is left alone without
+    /// ringing.
     pub fn toggle_case_at_point(&mut self, bytewise: bool) -> bool {
         if bytewise {
             let Some(byte) = self.as_bytes().get(self.point).copied() else {
@@ -724,7 +726,22 @@ impl LineBuffer {
         let upper: String = ch.to_uppercase().collect();
         let lower: String = ch.to_lowercase().collect();
         if upper == ch.to_string() && lower == ch.to_string() {
-            return true;
+            // An uncased GNU character is skipped silently when it has a
+            // following scalar; only a final uncased character rings. Jamo
+            // joins the character that follows it; other marks are skipped
+            // one scalar at a time.
+            let first_end = self.point + ch.len_utf8();
+            let skip_end = if matches!(ch as u32, 0x1160..=0x11ff) {
+                self.next_grapheme_boundary_checked(self.point)
+                    .unwrap_or(first_end)
+            } else {
+                first_end
+            };
+            if skip_end == first_end && first_end == self.bytes.len() {
+                return true;
+            }
+            self.point = skip_end.min(self.bytes.len());
+            return false;
         }
         let replacement = if lower != ch.to_string() {
             lower
@@ -732,16 +749,22 @@ impl LineBuffer {
             upper
         };
         if replacement.chars().count() != 1 {
+            let skip_end = self
+                .next_grapheme_boundary_checked(self.point)
+                .unwrap_or(self.point + ch.len_utf8());
+            if skip_end < self.bytes.len() {
+                self.point = skip_end;
+            }
             return false;
         }
-        let Some(end) = self.next_char_boundary_checked(self.point) else {
-            return false;
-        };
+        // GNU maps the cased scalar at point but replaces its whole GNU
+        // character, dropping the combining marks or joiner that follow it.
+        let end = self
+            .next_grapheme_boundary_checked(self.point)
+            .unwrap_or_else(|| self.point + ch.len_utf8());
         let replacement_len = replacement.len();
         self.bytes
             .splice(self.point..end, replacement.as_bytes().iter().copied());
-        // GNU keeps point on the final character. A count then toggles that
-        // same character again instead of leaving it after one change.
         if self.point + replacement_len < self.bytes.len() {
             self.move_forward();
         }

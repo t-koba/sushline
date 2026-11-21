@@ -14091,6 +14091,31 @@ fn bash_and_sushline_vi_replace_combining_grapheme_exact_bytes() {
     }
 }
 
+/// Paired GNU 5.3 / Readline 8.3 pin for `~` over grapheme clusters.
+///
+/// A cased scalar maps its whole GNU character, dropping trailing marks or a
+/// joiner. An uncased leading mark or Jamo is skipped silently when the line
+/// continues; a final uncased GNU character rings.
+#[test]
+fn bash_and_sushline_vi_change_case_over_graphemes() {
+    let rc = "set editing-mode vi\n";
+    let env = [("LC_ALL", "C.UTF-8")];
+    for (desc, keys, expected, bells) in [
+        ("accent", "e\u{301}xy\x1b0~\r", "Exy", 0),
+        ("accent_at_end", "e\u{301}\x1b0~\r", "E", 0),
+        ("accent_twice", "e\u{301}\x1b02~\r", "e", 0),
+        ("zwj", "a\u{200d}by\x1b0~\r", "Aby", 0),
+        ("two_marks", "a\u{301}\u{301}b\x1b0~\r", "Ab", 0),
+        ("accent_then_insert", "e\u{301}xy\x1b0~iX\r", "EXxy", 0),
+        ("jamo_leading", "\u{1160}axy\x1b0~\r", "\u{1160}axy", 0),
+        ("mark_leading", "\u{301}a\x1b0~\r", "\u{301}a", 0),
+        ("jamo_final", "\u{1160}\x1b0~\r", "\u{1160}", 1),
+        ("multichar_mapping", "ßx\x1b0~iX\r", "ßXx", 0),
+    ] {
+        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
+    }
+}
+
 /// Paired GNU 5.3 / Readline 8.3 pin for command-mode `r` and `x` over
 /// grapheme clusters. GNU ends a cluster at a joining character, and groups a
 /// leading combining mark or Jamo with the character that follows it.

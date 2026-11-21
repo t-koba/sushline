@@ -775,7 +775,6 @@ where
                 self.handle_vi_doubled_operator(state, ViOperator::Yank, key, |_line, state| {
                     let text = state.buffer.as_bytes().to_vec();
                     state.push_kill(text, KillDirection::Forward, allow_append);
-                    state.buffer.move_beginning();
                 });
                 state.after_non_kill_command();
             }

@@ -14661,3 +14661,47 @@ fn bash_and_sushline_bytewise_end_word_all_operators() {
         assert_bytewise_vi_bytes(desc, &keys, &expected, 0, rc, &env);
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_yank_line_keeps_point_for_put() {
+    let rc = "set editing-mode vi\n";
+    let env = [("LC_ALL", "C.UTF-8")];
+    let e9 = b"\xc3\xa9";
+    let line = [b"a".as_slice(), e9, b"b"].concat();
+    for (desc, initial, tail, expected) in [
+        (
+            "put_after_yank",
+            b"abc".as_slice(),
+            b"\x1byyp\r".as_slice(),
+            b"abcabc".as_slice(),
+        ),
+        (
+            "counted_put_after_yank",
+            b"abc".as_slice(),
+            b"\x1byy3p\r".as_slice(),
+            b"abcabcabcabc".as_slice(),
+        ),
+        (
+            "oversized_put_after_yank",
+            b"abc".as_slice(),
+            b"\x1byy20p\r".as_slice(),
+            b"abc".repeat(21).as_slice(),
+        ),
+        (
+            "explicit_beginning_put",
+            b"abcdef".as_slice(),
+            b"\x1b0yy3p\r".as_slice(),
+            b"aabcdefabcdefabcdefbcdef".as_slice(),
+        ),
+        (
+            "multibyte_put_after_yank",
+            line.as_slice(),
+            b"\x1byyp\r".as_slice(),
+            [b"a".as_slice(), e9, b"ba", e9, b"b"].concat().as_slice(),
+        ),
+    ] {
+        let mut keys = initial.to_vec();
+        keys.extend_from_slice(tail);
+        assert_bytewise_vi_bytes(desc, &keys, expected, 0, rc, &env);
+    }
+}

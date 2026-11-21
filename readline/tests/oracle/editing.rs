@@ -12821,3 +12821,61 @@ fn bash_and_sushline_vi_failed_operator_search_rings_twice() {
         "bash={bash}\nsushline={sush}"
     );
 }
+
+/// Byte-oriented deletes leave point on the deleted raw byte, so a following
+/// `p` inserts there and `i` inserts before it. These cases match GNU.
+#[test]
+fn bash_and_sushline_byte_oriented_put_after_delete_points() {
+    let rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C")];
+    let e = "\u{e9}".as_bytes();
+    let a9 = [0xa9u8];
+    for (desc, keys, expected, bells) in [
+        (
+            "x_lead_put",
+            [e, b"a\x1b0xp\r"].concat(),
+            "\u{fffd}\u{fffd}a",
+            0,
+        ),
+        (
+            "x_lead_put_insert",
+            [e, b"a\x1b0xpiZ\r"].concat(),
+            "\u{fffd}Z\u{fffd}a",
+            0,
+        ),
+        (
+            "x_cont_put",
+            [e, b"a\x1b0f", &a9, b"xp\r"].concat(),
+            "\u{fffd}a\u{fffd}",
+            0,
+        ),
+        ("X_lead_put", [e, b"a\x1b0Xp\r"].concat(), "\u{e9}a", 2),
+        ("s_lead_put", [e, b"a\x1b0spZ\r"].concat(), "pZ\u{fffd}a", 0),
+        ("x_lead_dot", [e, b"a\x1b0x.\r"].concat(), "a", 0),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, rc, &env);
+        let sush = run_sushline_harness_with_inputrc_and_env(&keys, rc, &env);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_owned()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sush),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sush}"
+        );
+        assert_eq!(
+            bell_count(&sush),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sush}"
+        );
+    }
+}

@@ -10415,6 +10415,30 @@ fn bash_and_sushline_vi_command_yank_pop_matches_gnu() {
             "three",
             2,
         ),
+        (
+            "numeric_plain_pop",
+            "one\x17two\x17three\x17\x1bp2W",
+            "three",
+            1,
+        ),
+        (
+            "numeric_plain_pop_repeated",
+            "one\x17two\x17three\x17\x1bp2WW",
+            "three",
+            2,
+        ),
+        (
+            "numeric_vi_pop_after_put",
+            "one\x17two\x17three\x17\x1bp2Q",
+            "three",
+            0,
+        ),
+        (
+            "numeric_plain_pop_after_vi_pop",
+            "one\x17two\x17three\x17\x1bp2QW",
+            "three",
+            1,
+        ),
     ];
     for (name, keys, line, bells) in cases {
         let keys = format!("{keys}\r");
@@ -10423,6 +10447,79 @@ fn bash_and_sushline_vi_command_yank_pop_matches_gnu() {
         assert_eq!(
             accepted_line(&bash).as_deref(),
             Some(line),
+            "{name}: bash={bash:?}"
+        );
+        assert_eq!(
+            accepted_line(&sush),
+            accepted_line(&bash),
+            "{name}: bash={bash:?} sushline={sush:?}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{name}: bash={bash:?}");
+        assert_eq!(
+            bell_count(&sush),
+            bell_count(&bash),
+            "{name}: bash={bash:?} sushline={sush:?}"
+        );
+    }
+}
+
+#[test]
+fn bash_and_sushline_vi_failed_word_motion_rings() {
+    let inputrc = "set editing-mode vi\n";
+    let cases = [
+        ("eol_w", "abcdefghij\u{1b}w\r", "abcdefghij", 1),
+        ("eol_W", "abcdefghij\u{1b}W\r", "abcdefghij", 1),
+        ("empty_w", "\u{1b}w\r", "", 1),
+        ("one_word_w", "abc def\u{1b}w\r", "abc def", 1),
+        ("one_word_ww", "abc def\u{1b}ww\r", "abc def", 2),
+        ("one_word_counted_w", "abc def\u{1b}2w\r", "abc def", 1),
+        ("one_word_large_w", "abc def\u{1b}10w\r", "abc def", 1),
+        ("one_word_W", "abc def\u{1b}W\r", "abc def", 1),
+        ("one_word_WW", "abc def\u{1b}WW\r", "abc def", 2),
+        ("one_word_counted_W", "abc def\u{1b}2W\r", "abc def", 1),
+        (
+            "three_words_w_success",
+            "abc def ghi\u{1b}0www\r",
+            "abc def ghi",
+            0,
+        ),
+        (
+            "three_words_w_overshoot",
+            "abc def ghi\u{1b}0wwww\r",
+            "abc def ghi",
+            1,
+        ),
+        (
+            "three_words_W_success",
+            "abc def ghi\u{1b}0WWW\r",
+            "abc def ghi",
+            0,
+        ),
+        (
+            "three_words_W_overshoot",
+            "abc def ghi\u{1b}0WWWW\r",
+            "abc def ghi",
+            1,
+        ),
+        ("delete_word", "abc def\u{1b}dw\r", "abc de", 0),
+        ("delete_bigword", "abc def\u{1b}dW\r", "abc de", 0),
+        ("delete_counted_word", "abc def\u{1b}d2w\r", "abc de", 0),
+        ("change_word", "abc def\u{1b}cwXYZ\u{1b}\r", "abc deXYZ", 0),
+        ("failed_motion_keeps_point", "abc\u{1b}wiX\r", "abXc", 1),
+        ("failed_motion_append_point", "abc\u{1b}WaX\r", "abcX", 1),
+        (
+            "overshoot_keeps_point",
+            "abc def\u{1b}0wwwiX\r",
+            "abc deXf",
+            1,
+        ),
+    ];
+    for (name, keys, expected, bells) in cases {
+        let bash = run_bash_readline_with_inputrc_file(keys.as_bytes(), inputrc);
+        let sush = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
             "{name}: bash={bash:?}"
         );
         assert_eq!(

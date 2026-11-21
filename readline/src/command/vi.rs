@@ -8,6 +8,20 @@ fn back_off_vi_delete_point(state: &mut EditorState, reached_end: bool) {
     }
 }
 
+/// GNU vi command word motions ring when they would leave the last character;
+/// operators keep their own boundary and do not ring for a failed motion.
+fn vi_word_motion_stalled(state: &EditorState, had_operator: bool) -> bool {
+    !had_operator
+        && (state.buffer.is_empty() || state.buffer.point() + 1 >= state.buffer.len_chars())
+}
+
+fn clamp_vi_word_motion_point(state: &mut EditorState, had_operator: bool) {
+    if !had_operator && !state.buffer.is_empty() && state.buffer.point() >= state.buffer.len_chars()
+    {
+        state.buffer.set_point(state.buffer.len_chars() - 1);
+    }
+}
+
 /// GNU dot-replays lowercase `p` with its forward motion: a put leaves point
 /// on the last inserted character, so replay steps forward before yanking.
 /// Uppercase `P` replays at the current point without that motion.
@@ -310,32 +324,57 @@ where
                 });
             }
             "vi-forward-word" | "vi-fword" | "vi-next-word" => {
+                let had_operator = state.vi.vi_operator.is_some();
                 if command == "vi-next-word" && key == b"W" {
                     let change_operator = matches!(state.vi.vi_operator, Some(ViOperator::Change));
+                    let mut stalled = false;
                     self.apply_vi_motion_with_operator(state, key, false, |state| {
                         repeat(state, |state| {
+                            if vi_word_motion_stalled(state, had_operator) {
+                                stalled = true;
+                                return;
+                            }
+                            let before = state.buffer.point();
                             if change_operator {
                                 state.buffer.forward_bigword_end();
                             } else {
                                 state.buffer.forward_bigword();
                             }
+                            stalled |= state.buffer.point() == before;
+                            clamp_vi_word_motion_point(state, had_operator);
                         });
                     });
+                    // GNU rings once when a plain word motion cannot advance,
+                    // including the first counted step that runs off the line.
+                    if stalled && !had_operator {
+                        self.ding()?;
+                    }
                     return Ok(EditorOutcome::Continue);
                 }
                 let word_breaks = self.editing_word_breaks(hooks);
                 let change_operator = matches!(state.vi.vi_operator, Some(ViOperator::Change));
                 let change_count =
                     change_operator.then(|| state.take_numeric_arg().unwrap_or(1).unsigned_abs());
+                let mut stalled = false;
                 self.apply_vi_motion_with_operator(state, key, false, |state| {
                     if let Some(count) = change_count {
                         state.buffer.vi_change_words(count, word_breaks.as_deref());
                     } else {
                         repeat(state, |state| {
+                            if vi_word_motion_stalled(state, had_operator) {
+                                stalled = true;
+                                return;
+                            }
+                            let before = state.buffer.point();
                             state.buffer.vi_forward_word(word_breaks.as_deref());
+                            stalled |= state.buffer.point() == before;
+                            clamp_vi_word_motion_point(state, had_operator);
                         });
                     }
                 });
+                if stalled && !had_operator {
+                    self.ding()?;
+                }
             }
             _ => unreachable!("named vi motion command mismatch"),
         }

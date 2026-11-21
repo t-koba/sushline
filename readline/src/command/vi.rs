@@ -73,19 +73,7 @@ fn vi_bytewise_forward_word(state: &mut EditorState, break_chars: Option<&str>) 
         if start >= bytes.len() {
             return false;
         }
-        let is_word = |byte: u8| match break_chars {
-            Some(breaks) => !byte.is_ascii_whitespace() && !breaks.as_bytes().contains(&byte),
-            None => byte.is_ascii_alphanumeric() || byte == b'_',
-        };
-        let class = |byte: u8| {
-            if byte.is_ascii_whitespace() {
-                0
-            } else if is_word(byte) {
-                1
-            } else {
-                2
-            }
-        };
+        let class = |byte| crate::buffer::vi_byte_class(byte, break_chars, false);
         let initial = class(bytes[start]);
         let mut pos = start;
         while pos < bytes.len() && class(bytes[pos]) == initial {
@@ -116,19 +104,7 @@ fn vi_bytewise_backward_word(
     }
     let end = {
         let bytes = state.buffer.as_bytes();
-        let is_word = |byte: u8| match break_chars {
-            Some(breaks) => !byte.is_ascii_whitespace() && !breaks.as_bytes().contains(&byte),
-            None => byte.is_ascii_alphanumeric() || byte == b'_',
-        };
-        let class = |byte: u8| {
-            if byte.is_ascii_whitespace() {
-                0
-            } else if bigword || is_word(byte) {
-                1
-            } else {
-                2
-            }
-        };
+        let class = |byte| crate::buffer::vi_byte_class(byte, break_chars, bigword);
         let snap_lead = |mut pos: usize| {
             while pos > 0 && bytes[pos] & 0xc0 == 0x80 {
                 pos -= 1;

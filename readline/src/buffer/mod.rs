@@ -7,6 +7,22 @@ pub(crate) use render::{
 };
 use word::*;
 
+/// Word class GNU uses for one raw byte in a C locale: 0 whitespace, 1 word
+/// and 2 punctuation. With `break_chars`, every non-whitespace byte that is
+/// not a break is a word byte, including high bytes; without them, only ASCII
+/// letters, digits and `_` are word bytes. For bigword motions any non-space
+/// byte is a word byte.
+pub(crate) fn vi_byte_class(byte: u8, break_chars: Option<&str>, bigword: bool) -> u8 {
+    if byte.is_ascii_whitespace() {
+        return 0;
+    }
+    let is_word = match break_chars {
+        Some(breaks) => !breaks.as_bytes().contains(&byte),
+        None => byte.is_ascii_alphanumeric() || byte == b'_',
+    };
+    if bigword || is_word { 1 } else { 2 }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// WordStyle.
 pub enum WordStyle {

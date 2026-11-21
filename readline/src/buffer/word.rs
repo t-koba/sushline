@@ -33,22 +33,6 @@ pub(super) fn is_word_char_with_breaks(ch: char, break_chars: &str) -> bool {
     !ch.is_whitespace() && !break_chars.contains(ch)
 }
 
-/// Word classes GNU uses for raw bytes in a C locale: whitespace, word and
-/// punctuation. High bytes are punctuation.
-fn vi_byte_class(byte: u8, break_chars: Option<&str>) -> u8 {
-    let is_word = match break_chars {
-        Some(breaks) => !byte.is_ascii_whitespace() && !breaks.as_bytes().contains(&byte),
-        None => byte.is_ascii_alphanumeric() || byte == b'_',
-    };
-    if byte.is_ascii_whitespace() {
-        0
-    } else if is_word {
-        1
-    } else {
-        2
-    }
-}
-
 fn word_matcher(break_chars: Option<&str>) -> impl Fn(char) -> bool + Copy + '_ {
     move |ch| match break_chars {
         Some(break_chars) => is_word_char_with_breaks(ch, break_chars),
@@ -894,7 +878,7 @@ impl LineBuffer {
     /// punctuation, so a word starting before a multibyte scalar stops at its
     /// first byte and a point inside one changes the rest of that run.
     pub fn vi_change_words_bytewise(&mut self, count: u32, break_chars: Option<&str>) -> bool {
-        let class = |byte| vi_byte_class(byte, break_chars);
+        let class = |byte| crate::buffer::vi_byte_class(byte, break_chars, false);
         let start = self.point;
         let end = self.bytes.len();
         if start >= end {
@@ -1114,7 +1098,7 @@ impl LineBuffer {
     /// A high byte is punctuation, so a point on its first byte changes only
     /// the bytes of that scalar rather than the following ASCII word.
     pub fn vi_end_word_bytewise(&mut self, break_chars: Option<&str>) -> bool {
-        let class = |byte| vi_byte_class(byte, break_chars);
+        let class = |byte| crate::buffer::vi_byte_class(byte, break_chars, false);
         let start = self.point;
         let end = self.bytes.len();
         if start >= end {

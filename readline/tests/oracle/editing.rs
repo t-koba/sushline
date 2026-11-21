@@ -11182,3 +11182,69 @@ fn bash_and_sushline_byte_oriented_backward_operator_ranges() {
         assert_eq!(bell_count(&sush), bells, "{keys:?}");
     }
 }
+
+/// Paired GNU 5.3 / Readline 8.3 pin for byte-oriented vi `x` and `X`.
+///
+/// In `LC_ALL=C` with `byte-oriented on`, each delete removes one raw byte
+/// and leaves point on that byte. A delete at end of line backs off one raw
+/// byte; `X` rings only when it removed nothing, while charwise mode rings
+/// when a count cannot be satisfied. Following `p` has a separate yank-point
+/// difference and is not part of this fixture.
+#[test]
+fn bash_and_sushline_byte_oriented_vi_delete_char() {
+    let rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C")];
+    let cases = [
+        ("éa", "X", "\u{fffd}Za", 0),
+        ("éa", "x", "\u{fffd}Z\u{fffd}", 0),
+        ("éa", "0X", "Zéa", 1),
+        ("éa", "0x", "Z\u{fffd}a", 0),
+        ("aé", "X", "aZ\u{fffd}", 0),
+        ("aé", "x", "aZ\u{fffd}", 0),
+        ("aé", "0X", "Zaé", 1),
+        ("aé", "0x", "Zé", 0),
+        ("é", "X", "Z\u{fffd}", 0),
+        ("é", "x", "Z\u{fffd}", 0),
+        ("é", "0X", "Zé", 1),
+        ("é", "0x", "Z\u{fffd}", 0),
+        ("aé b", "0X", "Zaé b", 1),
+        ("aé b", "0x", "Zé b", 0),
+        ("aé b", "0XX", "Zaé b", 2),
+        ("aé b", "0xx", "Z\u{fffd} b", 0),
+        ("abc", "X", "aZc", 0),
+        ("abc", "x", "aZb", 0),
+        ("abc", "0X", "Zabc", 1),
+        ("abc", "0x", "Zbc", 0),
+        ("日本", "X", "日\u{fffd}Z\u{fffd}", 0),
+        ("日本", "x", "日\u{fffd}Z\u{fffd}", 0),
+        ("日本", "0X", "Z日本", 1),
+        ("日本", "0x", "Z\u{fffd}\u{fffd}本", 0),
+        ("abc", "3X", "Zc", 0),
+        ("abc", "4X", "Zc", 0),
+        ("a", "2X", "Za", 1),
+        ("", "X", "Z", 1),
+        ("", "2X", "Z", 1),
+        ("abc", "3x", "aZb", 0),
+        ("abc", "4x", "aZb", 0),
+        ("", "2x", "Z", 1),
+        ("éa b", "4X", "Zb", 0),
+        ("éa b", "5X", "Zb", 0),
+        ("éa b", "4x", "éaZ ", 0),
+        ("éa b", "5x", "éaZ ", 0),
+    ];
+    for (line, motion, expected, bells) in cases {
+        let keys = format!("{line}\x1b{motion}iZ\r");
+        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), rc, &env);
+        let sush = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), rc, &env);
+        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(bell_count(&bash), bells, "{keys:?}");
+        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+    }
+}

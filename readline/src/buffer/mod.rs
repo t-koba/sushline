@@ -384,6 +384,23 @@ impl LineBuffer {
         None
     }
 
+    /// Delete one raw byte at point.
+    pub fn delete_byte(&mut self) -> Option<Vec<u8>> {
+        if self.point >= self.bytes.len() {
+            return None;
+        }
+        Some(vec![self.bytes.remove(self.point)])
+    }
+
+    /// Delete one raw byte before point.
+    pub fn backward_delete_byte(&mut self) -> Option<Vec<u8>> {
+        if self.point == 0 {
+            return None;
+        }
+        self.point -= 1;
+        Some(vec![self.bytes.remove(self.point)])
+    }
+
     /// Delete char.
     pub fn delete_char(&mut self) -> bool {
         self.delete_char_bytes().is_some()

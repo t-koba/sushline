@@ -8,6 +8,14 @@ fn back_off_vi_delete_point(state: &mut EditorState, reached_end: bool) {
     }
 }
 
+/// Byte-oriented vi delete leaves point on the preceding raw byte after a
+/// delete that ran to the end of the line.
+fn back_off_vi_delete_byte(state: &mut EditorState, reached_end: bool) {
+    if reached_end && !state.buffer.is_empty() {
+        state.buffer.move_backward_byte();
+    }
+}
+
 /// In the C locale GNU's bytewise word scan still advances inside a final
 /// multibyte character, so a stalled grapheme motion there does not ring.
 fn vi_line_ends_with_multibyte(state: &EditorState) -> bool {
@@ -637,18 +645,28 @@ where
                 state.after_non_kill_command();
             }
             "vi-delete" => {
+                let bytewise = self.char_motion_is_bytewise();
                 state.record_undo();
                 let mut reached_end = false;
                 let mut deleted = Vec::new();
                 repeat(state, |state| {
-                    if let Some(bytes) = state.buffer.delete_char_bytes() {
+                    let part = if bytewise {
+                        state.buffer.delete_byte()
+                    } else {
+                        state.buffer.delete_char_bytes()
+                    };
+                    if let Some(bytes) = part {
                         deleted.extend_from_slice(&bytes);
                         if state.buffer.point() == state.buffer.len_chars() {
                             reached_end = true;
                         }
                     }
                 });
-                back_off_vi_delete_point(state, reached_end);
+                if bytewise {
+                    back_off_vi_delete_byte(state, reached_end);
+                } else {
+                    back_off_vi_delete_point(state, reached_end);
+                }
                 if deleted.is_empty() {
                     self.ding()?;
                 } else {
@@ -762,18 +780,29 @@ where
     ) -> Result<EditorOutcome, ReadlineError> {
         match command {
             "vi-overstrike-delete" | "vi-rubout" => {
+                let bytewise = self.char_motion_is_bytewise();
                 state.record_undo();
                 let count = state.take_numeric_arg().unwrap_or(1);
                 let mut deleted = 0;
                 for _ in 0..count.max(0) {
-                    if !state.buffer.backward_delete_char() {
+                    let removed = if bytewise {
+                        state.buffer.backward_delete_byte().is_some()
+                    } else {
+                        state.buffer.backward_delete_char()
+                    };
+                    if !removed {
                         break;
                     }
                     deleted += 1;
                 }
-                // GNU rings when the count exceeds the characters before point,
-                // including a zero count or an empty line.
-                if deleted != count {
+                // GNU rings when a count exceeds the characters before point,
+                // including a zero count or an empty line. In byte-oriented
+                // mode it rings only when nothing was deleted.
+                if if bytewise {
+                    deleted == 0
+                } else {
+                    deleted != count
+                } {
                     self.ding()?;
                 }
                 let change = state.vi_key_sequence_for_change(key);

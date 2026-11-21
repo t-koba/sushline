@@ -264,10 +264,9 @@ where
             }
             "vi-backward-word" | "vi-bword" | "vi-prev-word" => {
                 // GNU rings when b/B fails on its first step from column zero,
-                // including counted motions; later steps that run out of line
-                // after a successful first step stay silent. A change operator
-                // has its own zero-width behavior and is handled separately.
-                let had_change_operator = matches!(state.vi.vi_operator, Some(ViOperator::Change));
+                // including counted motions and pending change operators;
+                // later steps that run out of line after a successful first
+                // step stay silent.
                 if command == "vi-prev-word" && key == b"B" {
                     let mut stalled = false;
                     self.apply_vi_motion_with_operator(state, key, false, |state| {
@@ -281,7 +280,7 @@ where
                             first = false;
                         });
                     });
-                    if stalled && !had_change_operator {
+                    if stalled {
                         self.ding()?;
                     }
                     return Ok(EditorOutcome::Continue);
@@ -299,7 +298,7 @@ where
                         first = false;
                     });
                 });
-                if stalled && !had_change_operator {
+                if stalled {
                     self.ding()?;
                 }
             }

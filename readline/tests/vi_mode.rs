@@ -301,7 +301,7 @@ fn vi_operator_pending_state_is_visible_in_prompt() {
 }
 
 #[test]
-fn vi_zero_width_change_does_not_enter_insert() {
+fn vi_zero_width_change_enters_insert() {
     let terminal = MemoryTerminal::with_events(vec![
         TerminalEvent::Bytes(b"abc".to_vec()),
         TerminalEvent::Bytes(b"\x1b".to_vec()),
@@ -316,7 +316,8 @@ fn vi_zero_width_change_does_not_enter_insert() {
     let mut line = Editor::new(Config::default(), terminal, History::new());
     line.load_inputrc_str("set editing-mode vi").unwrap();
     let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
-    assert_eq!(result, ReadlineResult::Line("Xabc".as_bytes().to_vec()));
+    // GNU enters insert mode for a zero-width change, so `i` is literal text.
+    assert_eq!(result, ReadlineResult::Line("iXabc".as_bytes().to_vec()));
 }
 
 #[test]

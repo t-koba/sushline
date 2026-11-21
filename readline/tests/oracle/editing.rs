@@ -10681,3 +10681,53 @@ fn bash_and_sushline_vi_failed_backward_word_motion_rings() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_zero_width_change_enters_insert() {
+    let inputrc = "set editing-mode vi\n";
+    let cases = [
+        ("c0_then_i", "abc\u{1b}0c0iX\u{1b}\r", "iXabc", 0),
+        ("c0", "abc\u{1b}0c0XYZ\u{1b}\r", "XYZabc", 0),
+        ("ch", "abc\u{1b}0chXYZ\u{1b}\r", "XYZabc", 1),
+        ("cb", "abc\u{1b}0cbXYZ\u{1b}\r", "XYZabc", 1),
+        ("cB", "abc\u{1b}0cBXYZ\u{1b}\r", "XYZabc", 1),
+        ("c_caret", "abc\u{1b}0c^XYZ\u{1b}\r", "XYZabc", 0),
+        ("c0_dot", "abc\u{1b}0c0XYZ\u{1b}.\r", "XYZZabc", 0),
+        ("c0_undo", "abc\u{1b}0c0XYZ\u{1b}u\r", "abc", 0),
+        ("c0_empty_insert", "abc\u{1b}0c0\u{1b}\r", "abc", 0),
+        ("c0_multibyte_insert", "abc\u{1b}0c0αβ\u{1b}\r", "αβabc", 0),
+        ("cw_control", "abc def\u{1b}0cwXYZ\u{1b}\r", "XYZ def", 0),
+        (
+            "c0_longer_line",
+            "abc def\u{1b}0c0XYZ\u{1b}\r",
+            "XYZabc def",
+            0,
+        ),
+        (
+            "c_caret_nonzero_width",
+            "  abc\u{1b}0c^XYZ\u{1b}\r",
+            "XYZabc",
+            0,
+        ),
+    ];
+    for (name, keys, expected, bells) in cases {
+        let bash = run_bash_readline_with_inputrc_file(keys.as_bytes(), inputrc);
+        let sush = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "{name}: bash={bash:?}"
+        );
+        assert_eq!(
+            accepted_line(&sush),
+            accepted_line(&bash),
+            "{name}: bash={bash:?} sushline={sush:?}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{name}: bash={bash:?}");
+        assert_eq!(
+            bell_count(&sush),
+            bell_count(&bash),
+            "{name}: bash={bash:?} sushline={sush:?}"
+        );
+    }
+}

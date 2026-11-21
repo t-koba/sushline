@@ -11033,3 +11033,46 @@ fn bash_and_sushline_byte_oriented_repeated_word_points() {
         assert_eq!(bell_count(&sush), bells, "{keys:?}");
     }
 }
+
+/// Paired GNU 5.3 / Readline 8.3 pin for byte-oriented vi ESC backoff.
+///
+/// Leaving insert mode steps one raw byte, so a typed multibyte character
+/// leaves point on its last byte. The fixture covers the resulting insert
+/// points, failed-word bells and repeated/counted word forms.
+#[test]
+fn bash_and_sushline_byte_oriented_escape_backoff_matches_gnu() {
+    let rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C")];
+    let cases = [
+        ("aé", "i", "a\u{fffd}X\u{fffd}", 0),
+        ("aé", "wi", "a\u{fffd}X\u{fffd}", 1),
+        ("aé", "Wi", "a\u{fffd}X\u{fffd}", 1),
+        ("aé", "0wi", "aXé", 0),
+        ("aé", "0Wi", "a\u{fffd}X\u{fffd}", 0),
+        ("aé", "0wwi", "a\u{fffd}X\u{fffd}", 0),
+        ("aé", "02wi", "a\u{fffd}X\u{fffd}", 0),
+        ("aé", "0WWi", "a\u{fffd}X\u{fffd}", 1),
+        ("aé b", "0wi", "aXé b", 0),
+        ("aé b", "0wwi", "aé Xb", 0),
+        ("éa", "wi", "éXa", 1),
+        ("éa b", "0wi", "éXa b", 0),
+        ("abc", "i", "abXc", 0),
+        ("abc", "wi", "abXc", 1),
+        ("abc", "0wwi", "abXc", 1),
+    ];
+    for (line, motion, expected, bells) in cases {
+        let keys = format!("{line}\x1b{motion}X\r");
+        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), rc, &env);
+        let sush = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), rc, &env);
+        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(bell_count(&bash), bells, "{keys:?}");
+        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+    }
+}

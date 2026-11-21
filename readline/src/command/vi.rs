@@ -28,15 +28,17 @@ fn vi_line_ends_with_multibyte(state: &EditorState) -> bool {
 /// GNU leaves vi command point on the last character, not one past it. In a
 /// byte-oriented locale, a motion that starts on the last character leaves
 /// point on its last byte; a motion from earlier leaves it on the character.
+/// Bigword scans raw non-whitespace bytes, so it also backs off one byte when
+/// it started before that character.
 fn clamp_vi_word_motion_point(
     state: &mut EditorState,
     had_operator: bool,
     bytewise: bool,
     bigword: bool,
     before: usize,
-) -> bool {
+) {
     if had_operator || state.buffer.is_empty() || state.buffer.point() < state.buffer.len_chars() {
-        return false;
+        return;
     }
     let bytes = state.buffer.as_bytes();
     let mut last_char = bytes.len() - 1;
@@ -48,10 +50,8 @@ fn clamp_vi_word_motion_point(
     // single byte even when the motion started before the final character.
     if bytewise && (bigword || before >= last_char) {
         state.buffer.move_backward_byte();
-        before >= last_char
     } else {
         state.buffer.move_backward();
-        false
     }
 }
 
@@ -189,7 +189,11 @@ where
             }
             EditCommand::ViMovementMode => {
                 if state.buffer.point() > 0 {
-                    state.buffer.move_backward();
+                    if self.char_motion_is_bytewise() {
+                        state.buffer.move_backward_byte();
+                    } else {
+                        state.buffer.move_backward();
+                    }
                 }
                 state.overwrite_mode = false;
                 // GNU frees the undo list on the first entry to command mode:
@@ -434,14 +438,8 @@ where
                             } else {
                                 state.buffer.forward_bigword();
                             }
-                            let stalled_at_end = clamp_vi_word_motion_point(
-                                state,
-                                had_operator,
-                                bytewise,
-                                true,
-                                before,
-                            );
-                            if first && (stalled_at_end || state.buffer.point() == before) {
+                            clamp_vi_word_motion_point(state, had_operator, bytewise, true, before);
+                            if first && state.buffer.point() == before {
                                 stalled = true;
                             }
                             first = false;
@@ -472,14 +470,14 @@ where
                             } else {
                                 state.buffer.vi_forward_word(word_breaks.as_deref());
                             }
-                            let stalled_at_end = clamp_vi_word_motion_point(
+                            clamp_vi_word_motion_point(
                                 state,
                                 had_operator,
                                 bytewise,
                                 false,
                                 before,
                             );
-                            if first && (stalled_at_end || state.buffer.point() == before) {
+                            if first && state.buffer.point() == before {
                                 stalled = true;
                             }
                             first = false;

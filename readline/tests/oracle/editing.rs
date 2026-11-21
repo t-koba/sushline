@@ -11670,6 +11670,38 @@ fn bash_and_sushline_byte_oriented_vi_subst_count_bell() {
         assert_eq!(bell_count(&bash), bells, "{keys:?}");
         assert_eq!(bell_count(&sush), bells, "{keys:?}");
     }
+
+    // An unmet bytewise count rings, but the deleted bytes must still be
+    // available to `p`; an empty ring would ring on the paste as well.
+    for (desc, keys, expected, bells) in [
+        ("unmet_paste", "abcde\x1b010sX\x1bp\r", "Xabcde", 1),
+        (
+            "unmet_paste_twice",
+            "abcde\x1b010sX\x1bpp\r",
+            "Xabcdeabcde",
+            1,
+        ),
+        ("met_paste_control", "abcde\x1b05sX\x1bp\r", "Xabcde", 0),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), byte_rc, &env);
+        let sush = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), byte_rc, &env);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_owned()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sush),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sush}"
+        );
+        assert_eq!(
+            bell_count(&sush),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sush}"
+        );
+    }
 }
 
 /// Paired GNU 5.3 / Readline 8.3 pin for the default vi `v` boundary.

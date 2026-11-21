@@ -736,11 +736,16 @@ where
                         }
                     }
                     // Byte-oriented GNU rings when a count cannot be met,
-                    // even though some characters were deleted.
-                    if killed.is_empty() || (bytewise && deleted < count) {
+                    // even though some characters were deleted. The partial
+                    // deletion still belongs to the kill ring.
+                    let unmet_count = bytewise && deleted < count;
+                    if killed.is_empty() {
                         self.ding()?;
                     } else {
                         state.push_kill(killed, KillDirection::Forward, self.kill_append_allowed());
+                        if unmet_count {
+                            self.ding()?;
+                        }
                     }
                 }
                 self.keymap.set_current(KeyMapName::ViInsert);

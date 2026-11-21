@@ -8927,6 +8927,34 @@ fn bash_and_sushline_c_locale_vi_replace_pins_raw_bytes_and_bells() {
             b"ZZc".to_vec(),
             0,
         ),
+        (
+            "c_destination_byte",
+            b"\xe3\x81\x82bc\x1b0rX\r".as_slice(),
+            "C",
+            vec![88, 129, 130, 98, 99],
+            0,
+        ),
+        (
+            "c_destination_counted",
+            b"\xe3\x81\x82bc\x1b02rXY\r".as_slice(),
+            "C",
+            vec![88, 88, 130, 98, 99],
+            0,
+        ),
+        (
+            "c_destination_dot",
+            b"\xe3\x81\x82bc\x1b0rXl.\r".as_slice(),
+            "C",
+            vec![88, 88, 130, 98, 99],
+            0,
+        ),
+        (
+            "utf8_destination_whole_char",
+            b"\xe3\x81\x82bc\x1b0rX\r".as_slice(),
+            "C.UTF-8",
+            vec![88, 98, 99],
+            0,
+        ),
     ] {
         let bash = run_bash(keys, locale);
         let sushline = run_sushline(keys, locale);

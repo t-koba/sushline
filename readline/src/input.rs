@@ -495,7 +495,21 @@ where
             let mut last_replaced = None;
             for _ in 0..count {
                 let start = state.buffer.point();
-                if !state.buffer.replace_char_at_point_bytes(&replacement) {
+                // In bytewise mode `r` overwrites one destination byte, not
+                // the whole byte sequence that happens to contain point.
+                let replaced = if bytewise {
+                    if start < state.buffer.len_chars() {
+                        state
+                            .buffer
+                            .replace_range_bytes(start, start + 1, &replacement);
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    state.buffer.replace_char_at_point_bytes(&replacement)
+                };
+                if !replaced {
                     break;
                 }
                 last_replaced = Some(start);

@@ -12219,6 +12219,30 @@ fn bash_and_sushline_byte_oriented_search_edit_undo() {
             0,
         ),
         (
+            "s_lead_register_put",
+            [b"a".as_slice(), e, b"b\x1b0f\xc3sZ\x1bp\r"].concat(),
+            &b"a\x5a\xc3\xa9b"[..],
+            0,
+        ),
+        (
+            "s_lead_register_put_before",
+            [b"a".as_slice(), e, b"b\x1b0f\xc3sZ\x1bP\r"].concat(),
+            &b"a\xc3\x5a\xa9b"[..],
+            0,
+        ),
+        (
+            "s_continuation_register_put",
+            [b"a".as_slice(), e, b"b\x1b0f\xa9sZ\x1bp\r"].concat(),
+            &b"a\xc3\x5a\xa9b"[..],
+            0,
+        ),
+        (
+            "s_ascii_register_put",
+            b"abc\x1b0fbsZ\x1bp\r".to_vec(),
+            &b"a\x5abc"[..],
+            0,
+        ),
+        (
             "t_x",
             [b"a".as_slice(), e, b"b\x1b0t", &c3, b"x\r"].concat(),
             &b"\xc3\xa9b"[..],

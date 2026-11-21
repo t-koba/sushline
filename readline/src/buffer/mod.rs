@@ -548,7 +548,7 @@ impl LineBuffer {
         self.decoded_char_at(idx).map(|(_, ch)| (idx, ch))
     }
 
-    fn next_char_boundary(&self, idx: usize) -> usize {
+    pub(crate) fn next_char_boundary(&self, idx: usize) -> usize {
         let idx = self.clamp_boundary(idx);
         self.decoded_char_at(idx)
             .map(|(next, _)| next)

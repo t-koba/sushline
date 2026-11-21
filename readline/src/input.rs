@@ -1030,24 +1030,20 @@ where
         let Some(search) = state.vi.pending_char_search.take() else {
             return Ok(None);
         };
-        let emacs_count = state.vi.pending_char_search_count.take();
-        let count = emacs_count.unwrap_or(1);
+        let count = state.vi.pending_char_search_count.take().unwrap_or(1);
         let search = if count < 0 { search.reversed() } else { search };
         let op_start = state.vi.pending_char_search_operator.take();
 
         // Fragmentation-invariant: only the first character is the search
         // key; trailing bytes are separate input like split reads.
         if let Some(ch) = char_search_key(&first) {
-            let mut success = true;
-            for _ in 0..count.unsigned_abs() {
-                if !self.apply_char_search(state, search, ch, emacs_count.is_some())? {
-                    success = false;
-                    break;
-                }
-            }
+            let success =
+                self.apply_char_search(state, search, ch, count.unsigned_abs() as usize)?;
+            // GNU remembers the target even when the first search fails:
+            // `,` can then repeat it in the opposite direction.
+            state.vi.last_char_search = Some((search, ch));
             if success {
                 self.finish_vi_motion_operator(state, op_start, &first, true);
-                state.vi.last_char_search = Some((search, ch));
                 state.after_non_kill_command();
                 state.consume_numeric_arg_unless_prefix();
                 state.input.changed_display = true;

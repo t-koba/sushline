@@ -1240,16 +1240,69 @@ impl LineBuffer {
         None
     }
 
-    /// Find a target strictly before point, as Emacs character-search requires.
-    pub(crate) fn find_backward_before_point(&self, target: char) -> Option<usize> {
-        let mut end = self.point;
-        while let Some((idx, ch)) = self.prev_char(end) {
-            if ch == target {
-                return Some(idx);
+    /// Find the nth target at or after `start`, advancing past each match.
+    /// A short count still reports the last match reached.
+    pub(crate) fn find_nth_forward_from(
+        &self,
+        target: char,
+        count: usize,
+        start: usize,
+    ) -> (Option<usize>, bool) {
+        let mut from = start;
+        let mut found = None;
+        for _ in 0..count {
+            match self.find_forward_from(target, from) {
+                Some(idx) => {
+                    found = Some(idx);
+                    from = self.next_char_boundary(idx);
+                }
+                None => return (found, false),
             }
-            end = idx;
         }
-        None
+        (found, true)
+    }
+
+    /// Find the nth target at or before `end`, stepping before each match.
+    /// A short count still reports the last match reached.
+    pub(crate) fn find_nth_backward_from(
+        &self,
+        target: char,
+        count: usize,
+        end: usize,
+    ) -> (Option<usize>, bool) {
+        let mut limit = self.clamp_boundary(end);
+        let mut found = None;
+        for taken in 1..=count {
+            let candidate = self
+                .decoded_char_indices()
+                .into_iter()
+                .take_while(|(idx, _)| *idx <= limit)
+                .filter(|(_, ch)| *ch == target)
+                .last();
+            match candidate {
+                Some((idx, _)) => {
+                    found = Some(idx);
+                    if idx == 0 {
+                        return (found, taken == count);
+                    }
+                    limit = idx - 1;
+                }
+                None => return (found, false),
+            }
+        }
+        (found, true)
+    }
+
+    /// Find the nth target strictly before point, as vi `F`/`T` require.
+    pub(crate) fn find_nth_backward_before(
+        &self,
+        target: char,
+        count: usize,
+    ) -> (Option<usize>, bool) {
+        let Some(end) = self.prev_char_boundary_checked(self.point) else {
+            return (None, false);
+        };
+        self.find_nth_backward_from(target, count, end)
     }
 
     /// Find backward.

@@ -5,7 +5,8 @@ use super::EditorState;
 #[derive(Debug, Default)]
 pub(crate) struct ViModeState {
     pub(crate) pending_char_search: Option<CharSearchMode>,
-    /// Numeric count for the Emacs named character-search commands only.
+    /// Numeric count for both named character-search commands and vi
+    /// `f`/`F`/`t`/`T`; absent means a single search without a count.
     pub(crate) pending_char_search_count: Option<i32>,
     pub(crate) pending_char_search_operator: Option<(ViOperator, usize, Vec<u8>)>,
     pub(crate) last_char_search: Option<(CharSearchMode, char)>,

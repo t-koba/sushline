@@ -11721,3 +11721,154 @@ fn bash_and_sushline_vi_default_v_application_boundary() {
     );
     assert_eq!(bell_count(&sushline), 1, "{sushline}");
 }
+
+/// Paired GNU 5.3 / Readline 8.3 pin for vi `f`/`F`/`t`/`T` counts, repeated
+/// searches, and the direction alternation of `;` and `,`.
+#[test]
+fn bash_and_sushline_vi_char_search_counts_and_repeats() {
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, expected, bells) in [
+        ("f", "abcabcabc\x1b0fcx\r", "ababcabc", 0),
+        ("f_two", "abcabcabc\x1b02fcx\r", "abcababc", 0),
+        ("f_three", "abcabcabc\x1b03fcx\r", "abcabcab", 0),
+        ("f_short_count", "abcabcabc\x1b04fax\r", "abcabcbc", 1),
+        ("F", "abcabcabc\x1b$Fcx\r", "abcababc", 0),
+        ("F_two", "abcabcabc\x1b$2Fcx\r", "ababcabc", 0),
+        ("F_short_count", "abcabcabc\x1b$3Fcx\r", "ababcabc", 1),
+        ("t", "abcabcabc\x1b0tcx\r", "acabcabc", 0),
+        ("t_two", "abcabcabc\x1b02tcx\r", "abcacabc", 0),
+        ("t_three", "abcabcabc\x1b03tcx\r", "abcabcac", 0),
+        ("t_short_count", "abcabcabc\x1b04tcx\r", "abcabcac", 1),
+        ("T", "abcabcabc\x1b$Tcx\r", "abcabcbc", 0),
+        ("T_two", "abcabcabc\x1b$2Tcx\r", "abcbcabc", 0),
+        ("T_short_count", "abcabcabc\x1b$3Tcx\r", "abcbcabc", 1),
+        ("f_semi", "abcabc\x1b0fa;x\r", "abcbc", 1),
+        ("f_comma", "abcabc\x1b0fc,x\r", "ababc", 1),
+        ("f_two_semis", "abcabcabc\x1b0fa2;x\r", "abcabcbc", 1),
+        ("f_two_commas", "abcabcabc\x1b0fc2,x\r", "ababcabc", 1),
+        ("t_semi", "abcabc\x1b0tax;x\r", "abbc", 1),
+        ("t_comma", "abcabc\x1b0tc,x\r", "acabc", 1),
+        ("T_semi", "abcabc\x1b$Tax;x\r", "abca", 0),
+        ("T_comma", "abcabc\x1b$Tcx,x\r", "abcc", 0),
+        ("semi_no_search", "abc\x1b0;x\r", "bc", 0),
+        ("comma_no_search", "abc\x1b0,x\r", "bc", 0),
+        ("failed_f_then_semi", "abcabc\x1b0fq;x\r", "bcabc", 2),
+        ("failed_f_then_comma", "abcqab\x1b$fq,x\r", "abcab", 1),
+        ("failed_f_then_two_commas", "abcqab\x1b$fq,,x\r", "abcab", 2),
+        ("failed_t_then_comma", "abcqab\x1b$tq,x\r", "abcqb", 1),
+        ("counted_f_dot_replay", "abcabc\x1b02fax\x1b.\r", "abcc", 1),
+        ("plain_f_dot_replay", "abcabc\x1b0fax\x1b.\r", "abcc", 0),
+        ("delete_with_f", "abcabc\x1b0dfax\r", "c", 0),
+        ("change_with_t", "abcabc\x1b0dtax\r", "bc", 0),
+        ("yank_with_f_then_put", "abcabc\x1b0yfap\r", "aabcabcabc", 0),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_owned()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+/// Paired GNU 5.3 / Readline 8.3 pin for character search over multibyte
+/// characters and over byte-oriented lines with one-byte targets.
+#[test]
+fn bash_and_sushline_vi_char_search_multibyte_and_byte_modes() {
+    let utf8_rc = "set editing-mode vi";
+    for (desc, keys, expected, bells) in [
+        (
+            "f_multibyte",
+            "a\u{e9}b\u{e9}c\x1b0f\u{e9}x\r",
+            "ab\u{e9}c",
+            0,
+        ),
+        (
+            "t_multibyte",
+            "a\u{e9}b\u{e9}c\x1b0t\u{e9}x\r",
+            "\u{e9}b\u{e9}c",
+            0,
+        ),
+        (
+            "f_count_multibyte",
+            "a\u{e9}b\u{e9}c\u{e9}d\x1b02f\u{e9}x\r",
+            "a\u{e9}bc\u{e9}d",
+            0,
+        ),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), utf8_rc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), utf8_rc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_owned()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+
+    // A multibyte character typed as a search target is deliberately outside
+    // this pin: Readline consumes its first byte and treats the rest as input.
+    let byte_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C")];
+    for (desc, keys, expected, bells) in [
+        (
+            "byte_f_ascii",
+            "a\u{e9}bc\u{e9}d\x1b0fcx\r",
+            "a\u{e9}b\u{e9}d",
+            0,
+        ),
+        (
+            "byte_F_ascii",
+            "a\u{e9}bc\u{e9}d\x1b$Fcx\r",
+            "a\u{e9}b\u{e9}d",
+            0,
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), byte_rc, &env);
+        let sushline = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), byte_rc, &env);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_owned()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

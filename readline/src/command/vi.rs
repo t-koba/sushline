@@ -1199,27 +1199,29 @@ where
             ("vi-char-search", b"T") => Some(CharSearchMode::TillBackward),
             ("vi-char-search", b";") => {
                 let op_start = state.take_vi_operator();
+                let count = state.numeric_arg.unwrap_or(1).unsigned_abs() as usize;
                 if let Some((mode, ch)) = state.vi.last_char_search {
-                    if self.apply_char_search_with_repeat(state, mode, ch, true, false)? {
+                    if self.apply_char_search_with_repeat(state, mode, ch, count, true, false)? {
                         self.finish_vi_motion_operator(state, op_start, key, true);
                     } else {
                         state.cancel_pending_command();
                     }
                 } else {
                     state.cancel_pending_command();
-                    self.ding()?;
                 }
                 return Ok(());
             }
             ("vi-char-search", b",") => {
                 let op_start = state.take_vi_operator();
+                let count = state.numeric_arg.unwrap_or(1).unsigned_abs() as usize;
                 if let Some((mode, ch)) = state.vi.last_char_search {
                     if self.apply_char_search_with_repeat(
                         state,
                         mode.reversed(),
                         ch,
+                        count,
                         true,
-                        false,
+                        true,
                     )? {
                         self.finish_vi_motion_operator(state, op_start, key, true);
                     } else {
@@ -1227,7 +1229,6 @@ where
                     }
                 } else {
                     state.cancel_pending_command();
-                    self.ding()?;
                 }
                 return Ok(());
             }
@@ -1236,12 +1237,7 @@ where
 
         if let Some(mode) = mode {
             state.vi.pending_char_search = Some(mode);
-            state.vi.pending_char_search_count =
-                if matches!(command, "character-search" | "character-search-backward") {
-                    Some(state.numeric_arg.unwrap_or(1))
-                } else {
-                    None
-                };
+            state.vi.pending_char_search_count = Some(state.numeric_arg.unwrap_or(1));
             state.vi.pending_char_search_operator = state.take_vi_operator();
         }
         Ok(())
@@ -1251,9 +1247,9 @@ where
         state: &mut EditorState,
         mode: CharSearchMode,
         ch: char,
-        emacs: bool,
+        count: usize,
     ) -> Result<bool, ReadlineError> {
-        self.apply_char_search_with_repeat(state, mode, ch, false, emacs)
+        self.apply_char_search_with_repeat(state, mode, ch, count, false, false)
     }
 
     fn apply_char_search_with_repeat(
@@ -1261,21 +1257,37 @@ where
         state: &mut EditorState,
         mode: CharSearchMode,
         ch: char,
+        count: usize,
         repeat: bool,
-        emacs: bool,
+        reversed: bool,
     ) -> Result<bool, ReadlineError> {
-        let found = match mode {
-            CharSearchMode::Forward => state.buffer.find_forward(ch, true),
-            CharSearchMode::Backward if emacs => state.buffer.find_backward_before_point(ch),
-            CharSearchMode::Backward => state.buffer.find_backward(ch, true),
-            CharSearchMode::TillForward if repeat => state
-                .buffer
-                .find_forward_from(ch, state.buffer.point().saturating_add(2)),
-            CharSearchMode::TillForward => state.buffer.find_forward(ch, true),
-            CharSearchMode::TillBackward if repeat => state
-                .buffer
-                .find_backward_from(ch, state.buffer.point().saturating_sub(2)),
-            CharSearchMode::TillBackward => state.buffer.find_backward(ch, true),
+        if count == 0 {
+            return Ok(true);
+        }
+        let point = state.buffer.point();
+        let (found, complete) = match mode {
+            CharSearchMode::Forward => state.buffer.find_nth_forward_from(
+                ch,
+                count,
+                state.buffer.next_char_boundary(point),
+            ),
+            CharSearchMode::Backward => state.buffer.find_nth_backward_before(ch, count),
+            CharSearchMode::TillForward => {
+                // A same-direction repeat skips the target just reached; a
+                // reversed repeat (`,` after `T`) starts after the cursor.
+                let start = if repeat && !reversed {
+                    point.saturating_add(2)
+                } else {
+                    point.saturating_add(1)
+                };
+                state.buffer.find_nth_forward_from(ch, count, start)
+            }
+            CharSearchMode::TillBackward if repeat => {
+                state
+                    .buffer
+                    .find_nth_backward_from(ch, count, point.saturating_sub(1))
+            }
+            CharSearchMode::TillBackward => state.buffer.find_nth_backward_before(ch, count),
         };
 
         let Some(mut pos) = found else {
@@ -1293,7 +1305,10 @@ where
             CharSearchMode::Forward | CharSearchMode::Backward => {}
         }
         state.buffer.set_point(pos);
-        Ok(true)
+        if !complete {
+            self.ding()?;
+        }
+        Ok(complete)
     }
 
     pub(crate) fn apply_vi_operator_range(

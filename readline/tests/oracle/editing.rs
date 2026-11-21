@@ -11137,3 +11137,48 @@ fn bash_and_sushline_byte_oriented_backward_word_points() {
         assert_eq!(bell_count(&sush), bells, "{keys:?}");
     }
 }
+
+/// Paired GNU 5.3 / Readline 8.3 pin for byte-oriented backward operator ranges.
+///
+/// The backward motion point and the delete/yank range agree for these forms;
+/// a following insert or put exposes the point left by the operator. Yanking
+/// with `y` and putting with `p` has a separate point difference on both
+/// byte-oriented and UTF-8 lines, so it is not part of this fixture.
+#[test]
+fn bash_and_sushline_byte_oriented_backward_operator_ranges() {
+    let rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C")];
+    let cases = [
+        ("abc def", "$db", "abc f", 0),
+        ("abc def", "$dBiX", "abc Xf", 0),
+        ("abc def", "$dbiX", "abc Xf", 0),
+        ("abc def", "$dbp", "abc fde", 0),
+        ("aé b", "db", "b", 0),
+        ("aé b", "dBiX", "Xb", 0),
+        ("aé b", "dbiX", "Xb", 0),
+        ("aé b", "dbp", "baé ", 0),
+        ("éa b", "db", "éb", 0),
+        ("éa b", "dBiX", "Xb", 0),
+        ("éa b", "dbiX", "éXb", 0),
+        ("éa b", "dbp", "éba ", 0),
+        ("ab é", "db", "ab \u{fffd}", 0),
+        ("ab é", "dBiX", "ab X\u{fffd}", 0),
+        ("ab é", "dbiX", "ab X\u{fffd}", 0),
+        ("ab é", "dbp", "ab \u{fffd}\u{fffd}", 0),
+    ];
+    for (line, motion, expected, bells) in cases {
+        let keys = format!("{line}\x1b{motion}\r");
+        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), rc, &env);
+        let sush = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), rc, &env);
+        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(bell_count(&bash), bells, "{keys:?}");
+        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+    }
+}

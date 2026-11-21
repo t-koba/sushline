@@ -197,9 +197,12 @@ where
                         // Bytewise overwrite applies to printable keys; GNU
                         // still inserts control bytes into the line.
                         // GNU inserts control bytes in vi replace mode
-                        // instead of overwriting, and backspace cannot undo
-                        // that insertion: it rings at the replace origin.
+                        // instead of overwriting. Backspace rings while no
+                        // printable step exists, otherwise it removes the
+                        // trailing insertion with GNU's undo grouping.
+                        let start = state.buffer.byte_point();
                         state.buffer.insert_bytes(key);
+                        state.record_inserted_overwrite_bytes(start, key);
                         if state.overwrite_mode {
                             state.mark_noop_undo_if_unchanged();
                         }

@@ -13648,6 +13648,62 @@ fn bash_and_sushline_vi_replace_inserts_control_and_quoted_bytes() {
             0,
             bytewise_rc,
         ),
+        (
+            "one_printable_control_backspace",
+            b"abc\x1b0RX\x01\x7f\x1b\r".to_vec(),
+            "abc",
+            0,
+            charwise_rc,
+        ),
+        (
+            "two_printable_control_backspace",
+            b"abc\x1b0RXY\x01\x7f\x1b\r".to_vec(),
+            "XYc",
+            0,
+            charwise_rc,
+        ),
+        (
+            "two_printable_control_backspace_twice",
+            b"abc\x1b0RXY\x01\x7f\x7f\x1b\r".to_vec(),
+            "abc",
+            0,
+            charwise_rc,
+        ),
+        (
+            "three_printable_control_backspace",
+            b"abc\x1b0RXYZ\x01\x7f\x7f\x7f\x1b\r".to_vec(),
+            "abc",
+            0,
+            charwise_rc,
+        ),
+        (
+            "one_printable_quoted_backspace",
+            b"abc\x1b0RX\x16Z\x7f\x1b\r".to_vec(),
+            "abc",
+            0,
+            charwise_rc,
+        ),
+        (
+            "two_printable_quoted_backspace",
+            b"abc\x1b0RXY\x16Z\x7f\x1b\r".to_vec(),
+            "XYc",
+            0,
+            charwise_rc,
+        ),
+        (
+            "bytewise_two_printable_control_backspace",
+            b"abc\x1b0RXY\x01\x7f\x1b\r".to_vec(),
+            "XYc",
+            0,
+            bytewise_rc,
+        ),
+        (
+            "bytewise_two_printable_quoted_backspace",
+            b"abc\x1b0RXY\x16Z\x7f\x1b\r".to_vec(),
+            "XYc",
+            0,
+            bytewise_rc,
+        ),
     ] {
         let bash = run_bash_readline_with_inputrc_file_and_env(&keys, rc, &env);
         let sushline = run_sushline_harness_with_inputrc_and_env(&keys, rc, &env);

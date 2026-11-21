@@ -45,6 +45,7 @@ pub(crate) struct OverwriteStep {
     pub(crate) start: usize,
     pub(crate) replaced: Vec<u8>,
     pub(crate) inserted: Vec<u8>,
+    pub(crate) control: bool,
 }
 
 pub(crate) struct EditorState {
@@ -142,8 +143,66 @@ impl EditorState {
                 start,
                 replaced,
                 inserted: inserted.to_vec(),
+                control: false,
             });
         }
+    }
+
+    /// Record control bytes inserted during vi replace mode.
+    ///
+    /// GNU only lets backspace reach such an insertion once a printable
+    /// replace step exists. Inserting one also compresses the printable steps
+    /// into pairs, matching the undo ranges GNU then restores.
+    pub(crate) fn record_inserted_overwrite_bytes(&mut self, start: usize, inserted: &[u8]) {
+        if !self.overwrite_tracking || self.overwrite_steps.is_empty() {
+            return;
+        }
+        if let Some(last) = self.overwrite_steps.last_mut()
+            && last.control
+            && last.start + last.inserted.len() == start
+        {
+            last.inserted.extend_from_slice(inserted);
+            return;
+        }
+        let steps = std::mem::take(&mut self.overwrite_steps);
+        let mut merged = Vec::with_capacity(steps.len() + 1);
+        let mut attached = false;
+        let mut iter = steps.into_iter();
+        while let Some(first) = iter.next() {
+            if let Some(second) = iter.next() {
+                let mut replaced = first.replaced;
+                replaced.extend(second.replaced);
+                let mut bytes = first.inserted;
+                bytes.extend(second.inserted);
+                merged.push(OverwriteStep {
+                    start: first.start,
+                    replaced,
+                    inserted: bytes,
+                    control: false,
+                });
+            } else if merged.is_empty() {
+                let mut bytes = first.inserted;
+                bytes.extend_from_slice(inserted);
+                merged.push(OverwriteStep {
+                    start: first.start,
+                    replaced: first.replaced,
+                    inserted: bytes,
+                    control: false,
+                });
+                attached = true;
+            } else {
+                merged.push(first);
+            }
+        }
+        if !attached {
+            merged.push(OverwriteStep {
+                start,
+                replaced: Vec::new(),
+                inserted: inserted.to_vec(),
+                control: true,
+            });
+        }
+        self.overwrite_steps = merged;
     }
 
     /// Undo the last typed unit in vi replace mode.

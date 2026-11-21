@@ -10112,3 +10112,74 @@ fn bash_and_sushline_emacs_undo_cap_after_vi_mode_switch() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_long_vi_edit_undo_entries() {
+    let inputrc = "set editing-mode vi";
+    let thirty_a = "a".repeat(30);
+    for (desc, keys, expected, bells) in [
+        (
+            "delete_line",
+            format!("{thirty_a}\x1bddu\r"),
+            thirty_a.clone(),
+            0,
+        ),
+        (
+            "change_line",
+            format!("{thirty_a}\x1bccbbbbb\x1bu\r"),
+            thirty_a.clone(),
+            0,
+        ),
+        (
+            "counted_x",
+            "abcdefghij\x1b030xu\r".to_string(),
+            "abcdefghij".to_string(),
+            0,
+        ),
+        (
+            "counted_r",
+            "abcdefghij\x1b030rxu\r".to_string(),
+            "abcdefghij".to_string(),
+            0,
+        ),
+        (
+            "counted_r_dot_one_undo",
+            "abcdefghij\x1b03rx.u\r".to_string(),
+            "xxxdefghij".to_string(),
+            0,
+        ),
+        (
+            "counted_r_dot_two_undos",
+            "abcdefghij\x1b03rx.uu\r".to_string(),
+            "abcdefghij".to_string(),
+            0,
+        ),
+        (
+            "two_dot_replays_one_undo",
+            "abcdefghij\x1b03rx..u\r".to_string(),
+            "xxxxxfghij".to_string(),
+            0,
+        ),
+        (
+            "multibyte_counted_r",
+            "xéééé\x1b03rxu\r".to_string(),
+            "xéééé".to_string(),
+            0,
+        ),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(accepted_line(&bash), Some(expected), "{desc}: {bash}");
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bells,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

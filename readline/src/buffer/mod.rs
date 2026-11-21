@@ -662,6 +662,12 @@ impl LineBuffer {
         (idx < self.bytes.len()).then(|| self.next_grapheme_boundary(idx))
     }
 
+    /// Whether `idx` starts a decoded character. Interior UTF-8 byte offsets
+    /// are used by byte-oriented commands and must not be treated as starts.
+    pub fn is_char_boundary(&self, idx: usize) -> bool {
+        self.decoded_char_at(idx).is_some()
+    }
+
     /// End of the character at `idx`, when `idx` is inside the line.
     pub fn next_boundary(&self, idx: usize) -> Option<usize> {
         self.next_grapheme_boundary_checked(idx)

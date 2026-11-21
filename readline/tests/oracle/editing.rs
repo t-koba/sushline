@@ -14476,6 +14476,42 @@ fn bash_and_sushline_vi_end_word_leading_grapheme_clusters() {
         ("mark_only", "\u{301}\x1b0EiX\r", "X\u{301}", 0),
         ("change", "\u{301}a\x1b0cEZ\r", "Z", 0),
         ("yank_put", "\u{200d}a\x1b0yEp\r", "\u{200d}a\u{200d}a", 0),
+        ("mark_space_e", "\u{301} \x1b0eiX\r", "\u{301}X ", 0),
+        ("mark_space_E", "\u{301} \x1b0EiX\r", "\u{301}X ", 0),
+        ("jamo_space_e", "\u{1160} \x1b0eiX\r", "\u{1160}X ", 0),
+        ("joiner_space_E", "\u{200d} \x1b0EiX\r", "\u{200d}X ", 0),
+        (
+            "trailing_mark_e",
+            "\u{301}a\u{301}\x1b0eiX\r",
+            "\u{301}Xa\u{301}",
+            0,
+        ),
+        (
+            "trailing_mark_E",
+            "\u{301}a\u{301}\x1b0EiX\r",
+            "\u{301}Xa\u{301}",
+            0,
+        ),
+        (
+            "trailing_joiner_E",
+            "\u{301}a\u{200d}\x1b0EiX\r",
+            "\u{301}Xa\u{200d}",
+            0,
+        ),
+        (
+            "jamo_trailing_mark_E",
+            "\u{1160}a\u{301}\x1b0EiX\r",
+            "\u{1160}Xa\u{301}",
+            0,
+        ),
+        (
+            "double_trailing_mark_E",
+            "\u{301}a\u{301}\u{301}\x1b0EiX\r",
+            "\u{301}Xa\u{301}\u{301}",
+            0,
+        ),
+        ("trailing_mark_change", "\u{301}a\u{301}\x1b0cEZ\r", "Z", 0),
+        ("trailing_mark_delete", "\u{301}a\u{301}\x1b0dE\r", "", 0),
     ] {
         assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }

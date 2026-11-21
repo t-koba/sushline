@@ -37,29 +37,57 @@ fn preserves_invalid_utf8_bytes_through_normal_edits() {
 #[test]
 fn kills_and_moves_by_words() {
     let mut b = LineBuffer::from("one two-three");
-    assert_eq!(b.backward_kill_word(None), b"three");
+    assert_eq!(b.backward_kill_word(None, true), b"three");
     assert_eq!(b.as_string(), "one two-");
-    assert_eq!(b.backward_kill_word(None), b"two-");
+    assert_eq!(b.backward_kill_word(None, true), b"two-");
     assert_eq!(b.as_string(), "one ");
 
     let mut b = LineBuffer::from("one two");
     b.move_beginning();
-    assert!(b.forward_word(None));
+    assert!(b.forward_word(None, true));
     assert_eq!(b.point(), 3);
-    assert!(b.forward_word(None));
+    assert!(b.forward_word(None, true));
     assert_eq!(b.point(), 7);
+}
+
+#[test]
+fn emacs_word_classification_follows_unicode_flag() {
+    let mut b = LineBuffer::from("a\u{e9}bc d\u{e9}fg");
+    b.move_beginning();
+    assert!(b.forward_word(None, false));
+    assert_eq!(b.point(), 1);
+
+    let mut b = LineBuffer::from("a\u{e9}bc d\u{e9}fg");
+    b.move_beginning();
+    assert!(b.forward_word(None, true));
+    assert_eq!(b.point(), "a\u{e9}bc".len());
+
+    let mut b = LineBuffer::from("a\u{e9}bc d\u{e9}fg");
+    b.move_beginning();
+    assert_eq!(b.kill_word(None, false), b"a");
+    assert_eq!(b.as_string(), "\u{e9}bc d\u{e9}fg");
+
+    let mut b = LineBuffer::from("a\u{e9}bc d\u{e9}fg");
+    b.move_beginning();
+    assert_eq!(b.kill_word(None, true), "a\u{e9}bc".as_bytes().to_vec());
+    assert_eq!(b.as_string(), " d\u{e9}fg");
+
+    let mut b = LineBuffer::from("a\u{e9}bc");
+    b.move_beginning();
+    assert!(b.upcase_word(None, false));
+    assert_eq!(b.as_string(), "A\u{e9}bc");
 }
 
 #[test]
 fn copies_current_word_when_point_is_inside_word() {
     let mut b = LineBuffer::from("one two three");
     b.set_point("one two thre".len());
-    assert_eq!(b.copy_backward_word(None), b"three");
+    assert_eq!(b.copy_backward_word(None, true), b"three");
     assert_eq!(b.point(), "one two thre".len());
 
     let mut b = LineBuffer::from("one two three");
     b.set_point(1);
-    assert_eq!(b.copy_forward_word(None), b"one");
+    assert_eq!(b.copy_forward_word(None, true), b"one");
     assert_eq!(b.point(), 1);
 }
 
@@ -80,14 +108,14 @@ fn edits_words_and_horizontal_space() {
 
     let mut b = LineBuffer::from("one two");
     b.move_beginning();
-    assert!(b.upcase_word(None));
+    assert!(b.upcase_word(None, true));
     assert_eq!(b.as_string(), "ONE two");
-    assert!(b.capitalize_word(None));
+    assert!(b.capitalize_word(None, true));
     assert_eq!(b.as_string(), "ONE Two");
 
     let mut b = LineBuffer::from("one two");
     b.move_end();
-    assert!(b.transpose_words(None));
+    assert!(b.transpose_words(None, true));
     assert_eq!(b.as_string(), "two one");
 }
 

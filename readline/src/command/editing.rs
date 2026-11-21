@@ -79,11 +79,12 @@ where
             EditCommand::CapitalizeWord => {
                 state.record_undo();
                 let word_breaks = self.editing_word_breaks(hooks);
+                let unicode = !self.char_motion_is_bytewise();
                 repeat_case_word(
                     state,
-                    |buffer| buffer.capitalize_word(word_breaks.as_deref()),
+                    |buffer| buffer.capitalize_word(word_breaks.as_deref(), unicode),
                     |buffer, count| {
-                        buffer.capitalize_previous_words(count, word_breaks.as_deref());
+                        buffer.capitalize_previous_words(count, word_breaks.as_deref(), unicode);
                     },
                 );
                 state.after_non_kill_command();
@@ -120,11 +121,12 @@ where
             EditCommand::DowncaseWord => {
                 state.record_undo();
                 let word_breaks = self.editing_word_breaks(hooks);
+                let unicode = !self.char_motion_is_bytewise();
                 repeat_case_word(
                     state,
-                    |buffer| buffer.downcase_word(word_breaks.as_deref()),
+                    |buffer| buffer.downcase_word(word_breaks.as_deref(), unicode),
                     |buffer, count| {
-                        buffer.downcase_previous_words(count, word_breaks.as_deref());
+                        buffer.downcase_previous_words(count, word_breaks.as_deref(), unicode);
                     },
                 );
                 state.after_non_kill_command();
@@ -295,12 +297,14 @@ where
             EditCommand::TransposeWords => {
                 state.record_undo();
                 let word_breaks = self.editing_word_breaks(hooks);
+                let unicode = !self.char_motion_is_bytewise();
                 let count = state.take_numeric_arg().unwrap_or(1);
                 // The count selects one target pair rather than repeating
                 // adjacent word swaps; zero remains a silent no-op.
-                let transposed = state
-                    .buffer
-                    .transpose_words_by_count(count, word_breaks.as_deref());
+                let transposed =
+                    state
+                        .buffer
+                        .transpose_words_by_count(count, word_breaks.as_deref(), unicode);
                 if count != 0 && !transposed {
                     self.ding()?;
                 }
@@ -310,11 +314,12 @@ where
             EditCommand::UpcaseWord => {
                 state.record_undo();
                 let word_breaks = self.editing_word_breaks(hooks);
+                let unicode = !self.char_motion_is_bytewise();
                 repeat_case_word(
                     state,
-                    |buffer| buffer.upcase_word(word_breaks.as_deref()),
+                    |buffer| buffer.upcase_word(word_breaks.as_deref(), unicode),
                     |buffer, count| {
-                        buffer.upcase_previous_words(count, word_breaks.as_deref());
+                        buffer.upcase_previous_words(count, word_breaks.as_deref(), unicode);
                     },
                 );
                 state.after_non_kill_command();

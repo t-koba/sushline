@@ -56,10 +56,15 @@ where
                 record_kill_undo(state);
                 let mut killed = Vec::new();
                 let word_breaks = self.editing_word_breaks(hooks);
+                let unicode = !self.char_motion_is_bytewise();
                 let direction = repeat_signed_collect_bytes(
                     state,
-                    |state| state.buffer.backward_kill_word(word_breaks.as_deref()),
-                    |state| state.buffer.kill_word(word_breaks.as_deref()),
+                    |state| {
+                        state
+                            .buffer
+                            .backward_kill_word(word_breaks.as_deref(), unicode)
+                    },
+                    |state| state.buffer.kill_word(word_breaks.as_deref(), unicode),
                     |part, out| {
                         out.splice(0..0, part);
                     },
@@ -118,10 +123,15 @@ where
                 record_kill_undo(state);
                 let mut killed = Vec::new();
                 let word_breaks = self.editing_word_breaks(hooks);
+                let unicode = !self.char_motion_is_bytewise();
                 let direction = repeat_signed_collect_bytes(
                     state,
-                    |state| state.buffer.kill_word(word_breaks.as_deref()),
-                    |state| state.buffer.backward_kill_word(word_breaks.as_deref()),
+                    |state| state.buffer.kill_word(word_breaks.as_deref(), unicode),
+                    |state| {
+                        state
+                            .buffer
+                            .backward_kill_word(word_breaks.as_deref(), unicode)
+                    },
                     |part, out| out.extend(part),
                     |part, out| {
                         out.splice(0..0, part);
@@ -185,18 +195,23 @@ where
                 let count = argument.unsigned_abs();
                 let backward = (command == "copy-backward-word") != argument.is_negative();
                 let word_breaks = self.editing_word_breaks(hooks);
+                let unicode = !self.char_motion_is_bytewise();
                 let (text, direction) = if backward {
                     (
-                        state
-                            .buffer
-                            .copy_backward_words_by_count(count, word_breaks.as_deref()),
+                        state.buffer.copy_backward_words_by_count(
+                            count,
+                            word_breaks.as_deref(),
+                            unicode,
+                        ),
                         KillDirection::Backward,
                     )
                 } else {
                     (
-                        state
-                            .buffer
-                            .copy_forward_words_by_count(count, word_breaks.as_deref()),
+                        state.buffer.copy_forward_words_by_count(
+                            count,
+                            word_breaks.as_deref(),
+                            unicode,
+                        ),
                         KillDirection::Forward,
                     )
                 };
@@ -281,7 +296,8 @@ where
             }
             "vi-unix-word-rubout" => {
                 record_kill_undo(state);
-                let killed = state.buffer.backward_kill_word(None);
+                let unicode = !self.char_motion_is_bytewise();
+                let killed = state.buffer.backward_kill_word(None, unicode);
                 state.push_kill(killed, KillDirection::Backward, self.kill_append_allowed());
             }
             _ => unreachable!("named command group mismatch"),

@@ -33,20 +33,28 @@ pub(super) fn is_word_char_with_breaks(ch: char, break_chars: &str) -> bool {
     !ch.is_whitespace() && !break_chars.contains(ch)
 }
 
-fn word_matcher(break_chars: Option<&str>) -> impl Fn(char) -> bool + Copy + '_ {
+fn ascii_word_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_'
+}
+
+/// GNU's emacs word commands use the Unicode class in a UTF-8 locale, but
+/// classify raw non-ASCII bytes as punctuation in a C locale or byte-oriented
+/// mode. A caller-supplied break class keeps its own character test.
+fn word_matcher(break_chars: Option<&str>, unicode: bool) -> impl Fn(char) -> bool + Copy + '_ {
     move |ch| match break_chars {
         Some(break_chars) => is_word_char_with_breaks(ch, break_chars),
-        None => is_word_char(ch),
+        None if unicode => is_word_char(ch),
+        None => ascii_word_char(ch),
     }
 }
 
 /// GNU's vi word commands classify only ASCII letters, digits and underscore
 /// as word characters in a UTF-8 locale; emacs word commands keep the Unicode
-/// class, so vi motions need their own matcher.
+/// class there, so vi motions need their own matcher.
 fn vi_word_matcher(break_chars: Option<&str>) -> impl Fn(char) -> bool + Copy + '_ {
     move |ch| match break_chars {
         Some(break_chars) => is_word_char_with_breaks(ch, break_chars),
-        None => ch.is_ascii_alphanumeric() || ch == '_',
+        None => ascii_word_char(ch),
     }
 }
 
@@ -257,20 +265,21 @@ pub(super) const DEFAULT_COMPLETION_BREAK_CHARS: &[u8] = b" \t\n'\"`$|&;<>(){}";
 
 impl LineBuffer {
     /// Copy backward word.
-    pub fn copy_backward_word(&mut self, break_chars: Option<&str>) -> Vec<u8> {
-        self.copy_backward_word_by(word_matcher(break_chars))
+    pub fn copy_backward_word(&mut self, break_chars: Option<&str>, unicode: bool) -> Vec<u8> {
+        self.copy_backward_word_by(word_matcher(break_chars, unicode))
     }
 
     pub(crate) fn copy_backward_words_by_count(
         &self,
         count: u32,
         break_chars: Option<&str>,
+        unicode: bool,
     ) -> Vec<u8> {
         if count == 0 {
             return Vec::new();
         }
 
-        let is_word = word_matcher(break_chars);
+        let is_word = word_matcher(break_chars, unicode);
         let point = self.point;
         let mut end = point;
         if self.char_at(point).is_some_and(is_word) {
@@ -312,20 +321,21 @@ impl LineBuffer {
     }
 
     /// Copy forward word.
-    pub fn copy_forward_word(&mut self, break_chars: Option<&str>) -> Vec<u8> {
-        self.copy_forward_word_by(word_matcher(break_chars))
+    pub fn copy_forward_word(&mut self, break_chars: Option<&str>, unicode: bool) -> Vec<u8> {
+        self.copy_forward_word_by(word_matcher(break_chars, unicode))
     }
 
     pub(crate) fn copy_forward_words_by_count(
         &self,
         count: u32,
         break_chars: Option<&str>,
+        unicode: bool,
     ) -> Vec<u8> {
         if count == 0 {
             return Vec::new();
         }
 
-        let is_word = word_matcher(break_chars);
+        let is_word = word_matcher(break_chars, unicode);
         let point = self.point;
         let mut start = point;
         if self.char_at(point).is_some_and(is_word) {
@@ -407,8 +417,8 @@ impl LineBuffer {
     }
 
     /// Backward kill word.
-    pub fn backward_kill_word(&mut self, break_chars: Option<&str>) -> Vec<u8> {
-        self.backward_kill_word_by(word_matcher(break_chars))
+    pub fn backward_kill_word(&mut self, break_chars: Option<&str>, unicode: bool) -> Vec<u8> {
+        self.backward_kill_word_by(word_matcher(break_chars, unicode))
     }
 
     /// Unix word rubout.
@@ -446,8 +456,8 @@ impl LineBuffer {
     }
 
     /// Kill word.
-    pub fn kill_word(&mut self, break_chars: Option<&str>) -> Vec<u8> {
-        self.kill_word_by(word_matcher(break_chars))
+    pub fn kill_word(&mut self, break_chars: Option<&str>, unicode: bool) -> Vec<u8> {
+        self.kill_word_by(word_matcher(break_chars, unicode))
     }
 
     fn kill_word_by<F>(&mut self, is_word: F) -> Vec<u8>
@@ -479,77 +489,101 @@ impl LineBuffer {
     }
 
     /// Upcase word.
-    pub fn upcase_word(&mut self, break_chars: Option<&str>) -> bool {
-        self.map_next_word_by(word_matcher(break_chars), |_, ch| {
+    pub fn upcase_word(&mut self, break_chars: Option<&str>, unicode: bool) -> bool {
+        self.map_next_word_by(word_matcher(break_chars, unicode), |_, ch| {
             ch.to_uppercase().collect()
         })
     }
 
     /// Upcase previous word preserving point.
-    pub fn upcase_previous_word_preserving_point(&mut self, break_chars: Option<&str>) -> bool {
-        self.upcase_previous_words(1, break_chars)
+    pub fn upcase_previous_word_preserving_point(
+        &mut self,
+        break_chars: Option<&str>,
+        unicode: bool,
+    ) -> bool {
+        self.upcase_previous_words(1, break_chars, unicode)
     }
 
-    pub(crate) fn upcase_previous_words(&mut self, count: u32, break_chars: Option<&str>) -> bool {
-        self.map_previous_words_by(count, word_matcher(break_chars), |_, ch| {
+    pub(crate) fn upcase_previous_words(
+        &mut self,
+        count: u32,
+        break_chars: Option<&str>,
+        unicode: bool,
+    ) -> bool {
+        self.map_previous_words_by(count, word_matcher(break_chars, unicode), |_, ch| {
             ch.to_uppercase().collect()
         })
     }
 
     /// Downcase word.
-    pub fn downcase_word(&mut self, break_chars: Option<&str>) -> bool {
-        self.map_next_word_by(word_matcher(break_chars), |_, ch| {
+    pub fn downcase_word(&mut self, break_chars: Option<&str>, unicode: bool) -> bool {
+        self.map_next_word_by(word_matcher(break_chars, unicode), |_, ch| {
             ch.to_lowercase().collect()
         })
     }
 
     /// Downcase previous word preserving point.
-    pub fn downcase_previous_word_preserving_point(&mut self, break_chars: Option<&str>) -> bool {
-        self.downcase_previous_words(1, break_chars)
+    pub fn downcase_previous_word_preserving_point(
+        &mut self,
+        break_chars: Option<&str>,
+        unicode: bool,
+    ) -> bool {
+        self.downcase_previous_words(1, break_chars, unicode)
     }
 
     pub(crate) fn downcase_previous_words(
         &mut self,
         count: u32,
         break_chars: Option<&str>,
+        unicode: bool,
     ) -> bool {
-        self.map_previous_words_by(count, word_matcher(break_chars), |_, ch| {
+        self.map_previous_words_by(count, word_matcher(break_chars, unicode), |_, ch| {
             ch.to_lowercase().collect()
         })
     }
 
     /// Capitalize word.
-    pub fn capitalize_word(&mut self, break_chars: Option<&str>) -> bool {
-        self.map_next_word_by(word_matcher(break_chars), capitalize_word_char)
+    pub fn capitalize_word(&mut self, break_chars: Option<&str>, unicode: bool) -> bool {
+        self.map_next_word_by(word_matcher(break_chars, unicode), capitalize_word_char)
     }
 
     /// Capitalize previous word preserving point.
-    pub fn capitalize_previous_word_preserving_point(&mut self, break_chars: Option<&str>) -> bool {
-        self.capitalize_previous_words(1, break_chars)
+    pub fn capitalize_previous_word_preserving_point(
+        &mut self,
+        break_chars: Option<&str>,
+        unicode: bool,
+    ) -> bool {
+        self.capitalize_previous_words(1, break_chars, unicode)
     }
 
     pub(crate) fn capitalize_previous_words(
         &mut self,
         count: u32,
         break_chars: Option<&str>,
+        unicode: bool,
     ) -> bool {
-        self.map_previous_words_by(count, word_matcher(break_chars), capitalize_word_char)
+        self.map_previous_words_by(
+            count,
+            word_matcher(break_chars, unicode),
+            capitalize_word_char,
+        )
     }
 
     /// Transpose words.
-    pub fn transpose_words(&mut self, break_chars: Option<&str>) -> bool {
-        self.transpose_words_by(word_matcher(break_chars))
+    pub fn transpose_words(&mut self, break_chars: Option<&str>, unicode: bool) -> bool {
+        self.transpose_words_by(word_matcher(break_chars, unicode))
     }
 
     pub(crate) fn transpose_words_by_count(
         &mut self,
         count: i32,
         break_chars: Option<&str>,
+        unicode: bool,
     ) -> bool {
         if count == 0 {
             return false;
         }
-        let is_word = word_matcher(break_chars);
+        let is_word = word_matcher(break_chars, unicode);
         if count == 1 {
             return self.transpose_words_by(is_word);
         }
@@ -799,8 +833,8 @@ impl LineBuffer {
     }
 
     /// Forward word.
-    pub fn forward_word(&mut self, break_chars: Option<&str>) -> bool {
-        self.forward_word_by(word_matcher(break_chars))
+    pub fn forward_word(&mut self, break_chars: Option<&str>, unicode: bool) -> bool {
+        self.forward_word_by(word_matcher(break_chars, unicode))
     }
 
     fn forward_word_by<F>(&mut self, is_word: F) -> bool
@@ -1358,8 +1392,8 @@ impl LineBuffer {
     }
 
     /// End word.
-    pub fn end_word(&mut self, break_chars: Option<&str>) -> bool {
-        self.end_word_by(word_matcher(break_chars))
+    pub fn end_word(&mut self, break_chars: Option<&str>, unicode: bool) -> bool {
+        self.end_word_by(word_matcher(break_chars, unicode))
     }
 
     fn end_word_by<F>(&mut self, is_word: F) -> bool
@@ -1710,8 +1744,8 @@ impl LineBuffer {
     }
 
     /// Backward word.
-    pub fn backward_word(&mut self, break_chars: Option<&str>) -> bool {
-        self.backward_word_by(word_matcher(break_chars))
+    pub fn backward_word(&mut self, break_chars: Option<&str>, unicode: bool) -> bool {
+        self.backward_word_by(word_matcher(break_chars, unicode))
     }
 
     fn backward_word_by<F>(&mut self, is_word: F) -> bool

@@ -14568,3 +14568,27 @@ fn bash_and_sushline_emacs_words_keep_unicode_classes() {
         assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), 0, rc, &env);
     }
 }
+
+/// In `LC_ALL=C` GNU's emacs word commands classify raw non-ASCII bytes as
+/// punctuation, so a word stops at the first byte of a multibyte character.
+/// The three cases mirror the C.UTF-8 control fixture above with exact bytes.
+#[test]
+fn bash_and_sushline_emacs_words_use_ascii_word_classes_in_c_locale() {
+    let rc = "set output-meta on\nset convert-meta off\n";
+    let env = [("LC_ALL", "C")];
+    for (desc, keys, expected) in [
+        (
+            "forward",
+            "a\u{e9}bc d\u{e9}fg\x01\x1bfX\r",
+            "aX\u{e9}bc d\u{e9}fg",
+        ),
+        (
+            "kill",
+            "a\u{e9}bc d\u{e9}fg\x01\x1bd\r",
+            "\u{e9}bc d\u{e9}fg",
+        ),
+        ("upcase", "a\u{e9}bc\x01\x1bu\r", "A\u{e9}bc"),
+    ] {
+        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), 0, rc, &env);
+    }
+}

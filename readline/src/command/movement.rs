@@ -71,13 +71,14 @@ where
             EditCommand::BackwardWord => {
                 let _ = take_vi_motion_operator(state, command, key);
                 let word_breaks = self.editing_word_breaks(hooks);
+                let unicode = !self.char_motion_is_bytewise();
                 repeat_signed(
                     state,
                     |state| {
-                        state.buffer.backward_word(word_breaks.as_deref());
+                        state.buffer.backward_word(word_breaks.as_deref(), unicode);
                     },
                     |state| {
-                        state.buffer.forward_word(word_breaks.as_deref());
+                        state.buffer.forward_word(word_breaks.as_deref(), unicode);
                     },
                 );
                 state.after_non_kill_command();
@@ -141,13 +142,14 @@ where
             EditCommand::ForwardWord => {
                 let _ = take_vi_motion_operator(state, command, key);
                 let word_breaks = self.editing_word_breaks(hooks);
+                let unicode = !self.char_motion_is_bytewise();
                 repeat_signed(
                     state,
                     |state| {
-                        state.buffer.forward_word(word_breaks.as_deref());
+                        state.buffer.forward_word(word_breaks.as_deref(), unicode);
                     },
                     |state| {
-                        state.buffer.backward_word(word_breaks.as_deref());
+                        state.buffer.backward_word(word_breaks.as_deref(), unicode);
                     },
                 );
                 state.after_non_kill_command();

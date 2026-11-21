@@ -151,8 +151,9 @@ impl EditorState {
     /// Record control bytes inserted during vi replace mode.
     ///
     /// GNU only lets backspace reach such an insertion once a printable
-    /// replace step exists. Inserting one also compresses the printable steps
-    /// into pairs, matching the undo ranges GNU then restores.
+    /// replace step exists. The first two printable steps share one undo
+    /// range, while later steps stay individual; a lone printable step keeps
+    /// the inserted control bytes in its own range.
     pub(crate) fn record_inserted_overwrite_bytes(&mut self, start: usize, inserted: &[u8]) {
         if !self.overwrite_tracking || self.overwrite_steps.is_empty() {
             return;
@@ -166,42 +167,40 @@ impl EditorState {
         }
         let steps = std::mem::take(&mut self.overwrite_steps);
         let mut merged = Vec::with_capacity(steps.len() + 1);
-        let mut attached = false;
         let mut iter = steps.into_iter();
-        while let Some(first) = iter.next() {
+        if let Some(first) = iter.next() {
             if let Some(second) = iter.next() {
-                let mut replaced = first.replaced;
-                replaced.extend(second.replaced);
-                let mut bytes = first.inserted;
-                bytes.extend(second.inserted);
-                merged.push(OverwriteStep {
-                    start: first.start,
-                    replaced,
-                    inserted: bytes,
-                    control: false,
-                });
-            } else if merged.is_empty() {
-                let mut bytes = first.inserted;
-                bytes.extend_from_slice(inserted);
-                merged.push(OverwriteStep {
-                    start: first.start,
-                    replaced: first.replaced,
-                    inserted: bytes,
-                    control: false,
-                });
-                attached = true;
+                if !first.control && !second.control {
+                    let mut replaced = first.replaced;
+                    replaced.extend(second.replaced);
+                    let mut bytes = first.inserted;
+                    bytes.extend(second.inserted);
+                    merged.push(OverwriteStep {
+                        start: first.start,
+                        replaced,
+                        inserted: bytes,
+                        control: false,
+                    });
+                } else {
+                    merged.push(first);
+                    merged.push(second);
+                }
             } else {
+                let mut first = first;
+                first.inserted.extend_from_slice(inserted);
+                first.control = false;
                 merged.push(first);
+                self.overwrite_steps = merged;
+                return;
             }
         }
-        if !attached {
-            merged.push(OverwriteStep {
-                start,
-                replaced: Vec::new(),
-                inserted: inserted.to_vec(),
-                control: true,
-            });
-        }
+        merged.extend(iter);
+        merged.push(OverwriteStep {
+            start,
+            replaced: Vec::new(),
+            inserted: inserted.to_vec(),
+            control: true,
+        });
         self.overwrite_steps = merged;
     }
 

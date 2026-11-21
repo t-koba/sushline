@@ -139,13 +139,17 @@ impl EditorState {
 
     /// GNU vi puts leave point on the last inserted character, like the
     /// position after typing the inserted text in insert mode.
-    fn leave_point_on_put(&mut self, start: usize) {
+    fn leave_point_on_put(&mut self, start: usize, bytewise: bool) {
         if self.buffer.point() > start {
-            self.buffer.move_backward();
+            if bytewise {
+                self.buffer.move_backward_byte();
+            } else {
+                self.buffer.move_backward();
+            }
         }
     }
 
-    pub(crate) fn vi_put(&mut self) -> bool {
+    pub(crate) fn vi_put(&mut self, bytewise: bool) -> bool {
         self.kill.last_was_kill = false;
         let start = self.buffer.point();
         if let Some(register) = self.vi.active_vi_register.take()
@@ -159,18 +163,18 @@ impl EditorState {
                 state.buffer.insert_bytes(&text);
             });
             self.kill.last_yank = None;
-            self.leave_point_on_put(start);
+            self.leave_point_on_put(start, bytewise);
             self.note_history_edit();
             return true;
         }
         let yanked = self.put_from_kill_ring();
         if yanked {
-            self.leave_point_on_put(start);
+            self.leave_point_on_put(start, bytewise);
         }
         yanked
     }
 
-    pub(crate) fn vi_put_before(&mut self) -> bool {
+    pub(crate) fn vi_put_before(&mut self, bytewise: bool) -> bool {
         self.kill.last_was_kill = false;
         let start = self.buffer.point();
         if let Some(register) = self.vi.active_vi_register.take()
@@ -184,13 +188,13 @@ impl EditorState {
                 state.buffer.insert_bytes(&text);
             });
             self.kill.last_yank = None;
-            self.leave_point_on_put(start);
+            self.leave_point_on_put(start, bytewise);
             self.note_history_edit();
             return true;
         }
         let yanked = self.put_from_kill_ring();
         if yanked {
-            self.leave_point_on_put(start);
+            self.leave_point_on_put(start, bytewise);
         }
         yanked
     }

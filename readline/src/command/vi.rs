@@ -783,41 +783,49 @@ where
                 let bytewise = self.char_motion_is_bytewise();
                 state.record_undo();
                 let count = state.take_numeric_arg().unwrap_or(1);
-                let mut deleted = 0;
+                let mut deleted: Vec<u8> = Vec::new();
+                let mut deleted_count = 0;
                 for _ in 0..count.max(0) {
-                    let removed = if bytewise {
-                        state.buffer.backward_delete_byte().is_some()
+                    let part = if bytewise {
+                        state.buffer.backward_delete_byte()
                     } else {
-                        state.buffer.backward_delete_char()
+                        state.buffer.backward_delete_char_bytes()
                     };
-                    if !removed {
+                    let Some(part) = part else {
                         break;
-                    }
-                    deleted += 1;
+                    };
+                    deleted.splice(0..0, part);
+                    deleted_count += 1;
                 }
                 // GNU rings when a count exceeds the characters before point,
                 // including a zero count or an empty line. In byte-oriented
                 // mode it rings only when nothing was deleted.
                 if if bytewise {
-                    deleted == 0
+                    deleted_count == 0
                 } else {
-                    deleted != count
+                    deleted_count != count
                 } {
                     self.ding()?;
                 }
+                state.push_kill(deleted, KillDirection::Backward, self.kill_append_allowed());
                 let change = state.vi_key_sequence_for_change(key);
                 state.set_vi_redo(change);
                 state.after_non_kill_command();
             }
             "vi-put" => {
+                let bytewise = self.char_motion_is_bytewise();
                 let yank_len = state.vi_put_yank_len();
                 let before_edit = state.buffer.clone();
                 state.record_undo();
                 let yanked = if key == b"P" {
-                    state.vi_put_before()
+                    state.vi_put_before(bytewise)
                 } else {
-                    state.buffer.move_forward();
-                    state.vi_put()
+                    if bytewise {
+                        state.buffer.move_forward_byte();
+                    } else {
+                        state.buffer.move_forward();
+                    }
+                    state.vi_put(bytewise)
                 };
                 if yanked {
                     let change = state.vi_key_sequence_for_change(key);
@@ -854,16 +862,21 @@ where
                         None => bytes,
                     };
                     if let Some((command, saved_count)) = vi_put_redo(&bytes) {
+                        let bytewise = self.char_motion_is_bytewise();
                         let yank_len = state.vi_put_yank_len();
                         let before_edit = state.buffer.clone();
                         state.record_undo();
                         let count = explicit.unwrap_or(saved_count).max(1) as usize;
                         for _ in 0..count {
                             let yanked = if command == b'P' {
-                                state.vi_put_before()
+                                state.vi_put_before(bytewise)
                             } else {
-                                state.buffer.move_forward();
-                                state.vi_put()
+                                if bytewise {
+                                    state.buffer.move_forward_byte();
+                                } else {
+                                    state.buffer.move_forward();
+                                }
+                                state.vi_put(bytewise)
                             };
                             if !yanked {
                                 break;

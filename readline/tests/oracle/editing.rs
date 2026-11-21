@@ -11372,3 +11372,78 @@ fn bash_and_sushline_vi_backward_yank_point() {
         assert_eq!(bell_count(&sush), bells, "{keys:?}");
     }
 }
+
+/// Paired GNU 5.3 / Readline 8.3 pin for vi put after `x` and `X`.
+///
+/// Both deletes fill the unnamed register: `X` kills the character before
+/// point and `x` the character at point, so a following `p` restores it
+/// before the inserted marker. In byte-oriented mode the put leaves point
+/// on the last raw byte, even when that byte is a UTF-8 continuation byte.
+#[test]
+fn bash_and_sushline_vi_put_after_delete() {
+    let rc = "set editing-mode vi\n";
+    let cases = [
+        ("abc", "xp", "abZc", 0),
+        ("abc", "Xp", "acZb", 0),
+        ("abc", "xP", "aZcb", 0),
+        ("abc", "XP", "aZbc", 0),
+        ("abc", "xxp", "aZb", 0),
+        ("abc", "XXp", "cZa", 0),
+        ("abc", "0xp", "bZac", 0),
+        ("abc", "0Xp", "aZbc", 2),
+        ("abc", "2xp", "abZc", 0),
+        ("abc", "2Xp", "caZb", 0),
+        ("abc def", "xp", "abc deZf", 0),
+        ("abc def", "Xp", "abc dfZe", 0),
+        ("éa", "xp", "éZa", 0),
+        ("éa", "Xp", "aZé", 0),
+        ("aé", "xp", "aZé", 0),
+        ("aé", "Xp", "éZa", 0),
+        ("é", "xp", "Zé", 0),
+        ("é", "Xp", "éZ", 2),
+        ("日本", "xp", "日Z本", 0),
+        ("日本", "Xp", "本Z日", 0),
+    ];
+    for (line, motion, expected, bells) in cases {
+        let keys = format!("{line}\x1b{motion}iZ\r");
+        let bash = run_bash_readline_with_inputrc_file(keys.as_bytes(), rc);
+        let sush = run_sushline_harness_with_inputrc(keys.as_bytes(), rc);
+        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(bell_count(&bash), bells, "{keys:?}");
+        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+    }
+
+    let byte_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C")];
+    let byte_cases = [
+        ("abc", "xp", "abZc", 0),
+        ("abc", "Xp", "acZb", 0),
+        ("abc", "xP", "aZcb", 0),
+        ("abc", "XP", "aZbc", 0),
+        ("abc", "2Xp", "caZb", 0),
+        ("éa", "xp", "éZa", 0),
+        ("éa", "Xp", "\u{fffd}aZ\u{fffd}", 0),
+        ("aé", "xp", "a\u{fffd}Z\u{fffd}", 0),
+        ("aé", "Xp", "a\u{fffd}Z\u{fffd}", 0),
+        ("é", "xp", "\u{fffd}Z\u{fffd}", 0),
+        ("é", "Xp", "\u{fffd}Z\u{fffd}", 0),
+        ("日本", "xp", "日\u{fffd}Z\u{fffd}", 0),
+        ("日本", "Xp", "日\u{fffd}Z\u{fffd}", 0),
+    ];
+    for (line, motion, expected, bells) in byte_cases {
+        let keys = format!("{line}\x1b{motion}iZ\r");
+        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), byte_rc, &env);
+        let sush = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), byte_rc, &env);
+        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(bell_count(&bash), bells, "{keys:?}");
+        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+    }
+}

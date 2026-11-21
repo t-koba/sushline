@@ -10824,3 +10824,51 @@ fn bash_and_sushline_undo_point_follows_active_mode() {
         assert_eq!(bell_count(&sush), bells, "{keys:?}");
     }
 }
+
+/// Paired GNU 5.3 / Readline 8.3 pin for a raw trailing byte at vi word motion.
+///
+/// A continuation byte alone is invalid UTF-8, so it must not be mistaken for
+/// the tail of a multibyte character and silence the failed-motion bell.
+#[test]
+fn bash_and_sushline_vi_invalid_tail_word_motion_bells() {
+    let rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n"
+    );
+    let env = [("LC_ALL", "C.UTF-8")];
+    for tail in [0x80u8, 0xbf, 0xc3] {
+        for motion in *b"wW" {
+            let mut keys = b"a".to_vec();
+            keys.push(tail);
+            keys.extend_from_slice(&[0x1b, motion, b'i', b'X', b'\r']);
+            let bash = run_bash_readline_with_inputrc_file_and_env(&keys, rc, &env);
+            let sush = run_sushline_harness_with_inputrc_and_env(&keys, rc, &env);
+            assert_eq!(
+                accepted_line(&bash),
+                Some("aX\u{fffd}".to_owned()),
+                "{keys:?}"
+            );
+            assert_eq!(
+                accepted_line(&sush),
+                Some("aX\u{fffd}".to_owned()),
+                "{keys:?}"
+            );
+            assert_eq!(bell_count(&bash), 1, "{keys:?}");
+            assert_eq!(bell_count(&sush), 1, "{keys:?}");
+        }
+    }
+    for (keys, expected, bells) in [
+        ("aé\u{1b}wiX\r", "aXé", 0),
+        ("abc\u{1b}wiX\r", "abXc", 1),
+        ("aé\u{1b}0wiX\r", "aXé", 0),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), rc, &env);
+        let sush = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), rc, &env);
+        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(bell_count(&bash), bells, "{keys:?}");
+        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+    }
+}

@@ -11,7 +11,18 @@ fn back_off_vi_delete_point(state: &mut EditorState, reached_end: bool) {
 /// In the C locale GNU's bytewise word scan still advances inside a final
 /// multibyte character, so a stalled grapheme motion there does not ring.
 fn vi_line_ends_with_multibyte(state: &EditorState) -> bool {
-    matches!(state.buffer.as_bytes().last(), Some(byte) if byte & 0xC0 == 0x80)
+    let bytes = state.buffer.as_bytes();
+    if bytes.is_empty() {
+        return false;
+    }
+    let mut start = bytes.len() - 1;
+    while start > 0 && bytes[start] & 0xc0 == 0x80 {
+        start -= 1;
+    }
+    std::str::from_utf8(&bytes[start..])
+        .ok()
+        .and_then(|text| text.chars().next())
+        .is_some_and(|ch| ch.len_utf8() > 1)
 }
 
 /// GNU leaves vi command point on the last character, not one past it. In a

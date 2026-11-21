@@ -797,13 +797,8 @@ where
                 let bytewise = self.char_motion_is_bytewise();
                 state.record_undo();
                 let count = state.take_numeric_arg().unwrap_or(1);
-                if count == 1 && state.overwrite_snapshot.is_some() {
-                    if let Some((start, bytes)) = state.overwrite_restore_range(bytewise) {
-                        state
-                            .buffer
-                            .replace_range_bytes(start, start + bytes.len(), &bytes);
-                        state.buffer.set_point(start);
-                    } else {
+                if count == 1 && state.overwrite_tracking {
+                    if !state.undo_overwrite_step() {
                         self.ding()?;
                     }
                     let change = state.vi_key_sequence_for_change(key);

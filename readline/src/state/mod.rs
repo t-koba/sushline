@@ -40,6 +40,13 @@ pub(crate) enum NumericArgLiteralTail {
     Literal,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct OverwriteStep {
+    pub(crate) start: usize,
+    pub(crate) replaced: Vec<u8>,
+    pub(crate) inserted: Vec<u8>,
+}
+
 pub(crate) struct EditorState {
     pub(crate) prompt: Prompt,
     pub(crate) buffer: LineBuffer,
@@ -64,10 +71,10 @@ pub(crate) struct EditorState {
     pub(crate) numeric_arg_tail: NumericArgLiteralTail,
     pub(crate) mark: Option<usize>,
     pub(crate) overwrite_mode: bool,
-    /// Line as it stood when vi replace mode began, for backspace restoration.
-    pub(crate) overwrite_snapshot: Option<Vec<u8>>,
-    /// Point where vi replace mode began.
-    pub(crate) overwrite_origin: usize,
+    /// Whether typing in overwrite mode is being tracked for backspace.
+    pub(crate) overwrite_tracking: bool,
+    /// Each typed unit in vi replace mode, for backspace to undo in reverse.
+    pub(crate) overwrite_steps: Vec<OverwriteStep>,
     pub(crate) original_line: Vec<u8>,
     /// History entry represented by the buffer; a search overlay can differ from the cursor.
     pub(crate) history_entry_index: Option<usize>,
@@ -101,40 +108,56 @@ impl EditorState {
             numeric_arg_tail: NumericArgLiteralTail::None,
             mark: None,
             overwrite_mode: false,
-            overwrite_snapshot: None,
-            overwrite_origin: 0,
+            overwrite_tracking: false,
+            overwrite_steps: Vec::new(),
             original_line,
             history_entry_index: None,
             history_modified: false,
         }
     }
 
-    /// Begin vi replace mode, remembering the bytes a backspace can restore.
+    /// Begin vi replace mode with an empty backspace history.
     pub(crate) fn begin_vi_overwrite(&mut self) {
-        self.overwrite_snapshot = Some(self.buffer.as_bytes().to_vec());
-        self.overwrite_origin = self.buffer.byte_point();
+        self.overwrite_steps.clear();
+        self.overwrite_tracking = true;
         self.overwrite_mode = true;
     }
 
     /// Leave vi replace mode; a later backspace keeps its insert-mode behavior.
     pub(crate) fn end_vi_overwrite(&mut self) {
-        self.overwrite_snapshot = None;
+        self.overwrite_tracking = false;
+        self.overwrite_steps.clear();
         self.overwrite_mode = false;
     }
 
-    /// Range and original bytes restored by one backspace in vi replace mode.
-    pub(crate) fn overwrite_restore_range(&self, bytewise: bool) -> Option<(usize, Vec<u8>)> {
-        let original = self.overwrite_snapshot.as_ref()?;
-        let point = self.buffer.byte_point();
-        let start = if bytewise {
-            point.checked_sub(1)
-        } else {
-            self.buffer.previous_boundary(point)
-        }?;
-        if start < self.overwrite_origin {
-            return None;
+    /// Remember one typed unit so backspace can restore what it replaced.
+    pub(crate) fn record_overwrite_step(
+        &mut self,
+        start: usize,
+        replaced: Vec<u8>,
+        inserted: &[u8],
+    ) {
+        if self.overwrite_tracking {
+            self.overwrite_steps.push(OverwriteStep {
+                start,
+                replaced,
+                inserted: inserted.to_vec(),
+            });
         }
-        Some((start, original.get(start..point)?.to_vec()))
+    }
+
+    /// Undo the last typed unit in vi replace mode.
+    pub(crate) fn undo_overwrite_step(&mut self) -> bool {
+        let Some(step) = self.overwrite_steps.pop() else {
+            return false;
+        };
+        self.buffer.replace_range_bytes(
+            step.start,
+            step.start + step.inserted.len(),
+            &step.replaced,
+        );
+        self.buffer.set_point(step.start);
+        true
     }
 
     pub(crate) fn cancel_pending_command(&mut self) {

@@ -589,6 +589,7 @@ where
             self.keymap.current() == KeyMapName::ViInsert,
         );
         for _ in 0..count {
+            let start = state.buffer.byte_point();
             // In bytewise overwrite mode unquoted literal bytes and the tail
             // of a quoted multibyte key overwrite raw bytes one at a time,
             // while a single quoted byte is inserted. Non-bytewise modes keep
@@ -597,20 +598,31 @@ where
                 if state.input.quoted_multibyte_tail
                     || (!state.input.quoted_single_byte && bytes.iter().any(|byte| *byte >= 0x80))
                 {
+                    let end = (start + bytes.len()).min(state.buffer.as_bytes().len());
+                    let replaced = state.buffer.as_bytes()[start..end].to_vec();
                     self.overwrite_bytes_bytewise(state, bytes);
+                    state.record_overwrite_step(start, replaced, bytes);
                 } else {
                     state.buffer.insert_bytes(bytes);
+                    state.record_overwrite_step(start, Vec::new(), bytes);
                 }
             } else if state.overwrite_mode {
                 for byte in bytes {
-                    let point = state.buffer.point();
+                    let point = state.buffer.byte_point();
+                    let end = state
+                        .buffer
+                        .next_boundary(point)
+                        .unwrap_or(state.buffer.as_bytes().len());
+                    let replaced = state.buffer.as_bytes()[point..end].to_vec();
                     if point < state.buffer.len_chars() {
                         let _ = state.buffer.delete_char_bytes();
                     }
                     state.buffer.replace_range_bytes(point, point, &[*byte]);
+                    state.record_overwrite_step(point, replaced, &[*byte]);
                 }
             } else {
                 state.buffer.insert_bytes(bytes);
+                state.record_overwrite_step(start, Vec::new(), bytes);
             }
         }
         if state.overwrite_mode

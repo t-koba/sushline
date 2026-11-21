@@ -13429,3 +13429,113 @@ fn bash_and_sushline_byte_overwrite_identical_byte_undo() {
         );
     }
 }
+
+/// Backspace in vi replace mode undoes the last typed unit, not an offset into
+/// the line as it stood when `R` began. Appended bytes are deleted silently,
+/// and a replacement that changes byte length is removed in full before the
+/// original bytes are restored; another backspace then rings. In bytewise mode
+/// each raw byte of a multibyte key is its own replace step.
+#[test]
+fn bash_and_sushline_vi_overstrike_backspace_tracks_typed_units() {
+    let bytewise_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let charwise_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n"
+    );
+    let c = [("LC_ALL", "C")];
+    let utf8 = [("LC_ALL", "C.UTF-8")];
+    let euro = "\u{20ac}".as_bytes();
+    for (desc, keys, expected, bells, rc, env) in [
+        (
+            "appended",
+            b"abc\x1bRX Y\x7f\x1b\r".to_vec(),
+            "abX ",
+            0,
+            bytewise_rc,
+            &c[..],
+        ),
+        (
+            "appended_twice",
+            b"abc\x1bRXY\x7f\x7f\x1b\r".to_vec(),
+            "abc",
+            0,
+            bytewise_rc,
+            &c[..],
+        ),
+        (
+            "ctrl_h",
+            b"abc\x1bRXY\x08\x1b\r".to_vec(),
+            "abX",
+            0,
+            bytewise_rc,
+            &c[..],
+        ),
+        (
+            "wide_char",
+            [b"abc\x1b0fbR".as_slice(), euro, b"\x7f\x1b\r"].concat(),
+            "abc",
+            0,
+            charwise_rc,
+            &utf8[..],
+        ),
+        (
+            "wide_char_twice",
+            [b"abc\x1b0fbR".as_slice(), euro, b"\x7f\x7f\x1b\r"].concat(),
+            "abc",
+            1,
+            charwise_rc,
+            &utf8[..],
+        ),
+        (
+            "wide_char_then_insert",
+            [b"abc\x1b0fbR".as_slice(), euro, b"\x7fX\x1b\r"].concat(),
+            "aXc",
+            0,
+            charwise_rc,
+            &utf8[..],
+        ),
+        (
+            "bytewise_wide_char",
+            [b"abc\x1b0fbR".as_slice(), euro, b"\x7f\x1b\r"].concat(),
+            "a\u{fffd}",
+            0,
+            bytewise_rc,
+            &c[..],
+        ),
+        (
+            "bytewise_wide_char_twice",
+            [b"abc\x1b0fbR".as_slice(), euro, b"\x7f\x7f\x1b\r"].concat(),
+            "a\u{fffd}c",
+            0,
+            bytewise_rc,
+            &c[..],
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, rc, env);
+        let sushline = run_sushline_harness_with_inputrc_and_env(&keys, rc, env);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_owned()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

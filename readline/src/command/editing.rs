@@ -60,15 +60,8 @@ where
                     } else {
                         self.delete_chars_with_numeric_argument(state, arg, false)?;
                     }
-                } else if state.overwrite_snapshot.is_some() {
-                    if let Some((start, bytes)) =
-                        state.overwrite_restore_range(self.char_motion_is_bytewise())
-                    {
-                        state
-                            .buffer
-                            .replace_range_bytes(start, start + bytes.len(), &bytes);
-                        state.buffer.set_point(start);
-                    } else {
+                } else if state.overwrite_tracking {
+                    if !state.undo_overwrite_step() {
                         self.ding()?;
                     }
                     state.after_non_kill_command();
@@ -203,15 +196,22 @@ where
                     for _ in 0..count {
                         // Bytewise overwrite applies to printable keys; GNU
                         // still inserts control bytes into the line.
+                        let point = state.buffer.byte_point();
                         if state.overwrite_mode
-                            && state.buffer.point() < state.buffer.len_chars()
+                            && point < state.buffer.len_chars()
                             && !self.char_motion_is_bytewise()
                         {
-                            let point = state.buffer.point();
+                            let end = state
+                                .buffer
+                                .next_boundary(point)
+                                .unwrap_or(state.buffer.as_bytes().len());
+                            let replaced = state.buffer.as_bytes()[point..end].to_vec();
                             state.buffer.replace_char_at_point_bytes(key);
                             state.buffer.set_point(point + key.len());
+                            state.record_overwrite_step(point, replaced, key);
                         } else {
                             state.buffer.insert_bytes(key);
+                            state.record_overwrite_step(point, Vec::new(), key);
                         }
                     }
                     state.record_vi_insert_bytes(key);
@@ -222,17 +222,36 @@ where
                     for _ in 0..count {
                         for ch in text.chars() {
                             if !ch.is_control() {
-                                if state.overwrite_mode
-                                    && state.buffer.point() < state.buffer.len_chars()
-                                {
-                                    let mut encoded = [0u8; 4];
-                                    let bytes = ch.encode_utf8(&mut encoded).as_bytes();
-                                    if !self.overwrite_bytes_bytewise(state, bytes) {
+                                let mut encoded = [0u8; 4];
+                                let bytes = ch.encode_utf8(&mut encoded).as_bytes();
+                                let start = state.buffer.byte_point();
+                                if state.overwrite_mode && start < state.buffer.len_chars() {
+                                    if self.char_motion_is_bytewise() {
+                                        // GNU tracks each raw byte of a
+                                        // multibyte key as its own replace
+                                        // step, including bytes appended past
+                                        // the original line end.
+                                        for &byte in bytes {
+                                            let at = state.buffer.byte_point();
+                                            let end = (at + 1).min(state.buffer.as_bytes().len());
+                                            let replaced =
+                                                state.buffer.as_bytes()[at..end].to_vec();
+                                            self.overwrite_bytes_bytewise(state, &[byte]);
+                                            state.record_overwrite_step(at, replaced, &[byte]);
+                                        }
+                                    } else {
+                                        let end = state
+                                            .buffer
+                                            .next_boundary(start)
+                                            .unwrap_or(state.buffer.as_bytes().len());
+                                        let replaced = state.buffer.as_bytes()[start..end].to_vec();
                                         state.buffer.set_char_at_point(ch);
                                         state.buffer.move_forward();
+                                        state.record_overwrite_step(start, replaced, bytes);
                                     }
                                 } else {
                                     state.buffer.insert_char(ch);
+                                    state.record_overwrite_step(start, Vec::new(), bytes);
                                 }
                             }
                         }
@@ -243,10 +262,15 @@ where
                     }
                 } else {
                     for _ in 0..count {
+                        let start = state.buffer.byte_point();
                         if state.overwrite_mode && self.char_motion_is_bytewise() {
+                            let end = (start + key.len()).min(state.buffer.as_bytes().len());
+                            let replaced = state.buffer.as_bytes()[start..end].to_vec();
                             self.overwrite_bytes_bytewise(state, key);
+                            state.record_overwrite_step(start, replaced, key);
                         } else {
                             state.buffer.insert_bytes(key);
+                            state.record_overwrite_step(start, Vec::new(), key);
                         }
                     }
                     if state.overwrite_mode && self.char_motion_is_bytewise() {

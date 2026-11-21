@@ -830,6 +830,7 @@ impl LineBuffer {
                 2
             }
         };
+        let class_at = |idx: usize| self.vi_word_base_char(idx).map(class);
         let start = self.point;
         let end = self.len_chars();
         if start >= end {
@@ -843,13 +844,13 @@ impl LineBuffer {
             if point >= end {
                 break;
             }
-            let current = class(self.char_at(point).unwrap());
+            let current = class_at(point).unwrap();
             if current != 0 {
-                while self.char_at(point).is_some_and(|ch| class(ch) == current) {
+                while class_at(point) == Some(current) {
                     point = self.next_char_boundary(point);
                 }
             }
-            while self.char_at(point).is_some_and(|ch| class(ch) == 0) {
+            while class_at(point) == Some(0) {
                 point = self.next_char_boundary(point);
             }
         }
@@ -858,15 +859,15 @@ impl LineBuffer {
         // range to the current run. Starting in whitespace or at a run end
         // leaves a single character to change; starting earlier in a run
         // advances over its last character so `cw` behaves like `ce`.
-        if point < end && self.char_at(point).is_some_and(|ch| class(ch) != 0) {
+        if point < end && class_at(point).is_some_and(|current| current != 0) {
             point = self.prev_char(point).map(|(prev, _)| prev).unwrap_or(point);
         }
-        while point > start && self.char_at(point).is_some_and(|ch| class(ch) == 0) {
+        while point > start && class_at(point) == Some(0) {
             point = self.prev_char(point).map(|(prev, _)| prev).unwrap_or(point);
         }
         let advance = point == start
             || (point < end.saturating_sub(1)
-                && self.char_at(point).is_some_and(|ch| class(ch) != 0));
+                && class_at(point).is_some_and(|current| current != 0));
         if advance {
             point = self.next_char_boundary(point);
         }
@@ -914,14 +915,25 @@ impl LineBuffer {
         point != start
     }
 
+    /// Base character governing a combining mark's vi word class. GNU treats
+    /// a mark as part of the preceding grapheme, not as a separate scalar.
+    fn vi_word_base_char(&self, idx: usize) -> Option<char> {
+        let (_, mut ch) = self.decoded_char_at(idx)?;
+        let mut at = idx;
+        while is_grapheme_extend(ch) || ch == '\u{200d}' {
+            (at, ch) = self.decoded_prev_char(at)?;
+        }
+        Some(ch)
+    }
+
     fn vi_word_motion_by<F>(&mut self, is_word: F, skip_whitespace: bool) -> bool
     where
         F: Fn(char) -> bool + Copy,
     {
         let start = self.point;
-        match self.char_at(self.point) {
+        match self.vi_word_base_char(self.point) {
             Some(ch) if ch.is_whitespace() => {
-                while let Some(ch) = self.char_at(self.point) {
+                while let Some(ch) = self.vi_word_base_char(self.point) {
                     if !ch.is_whitespace() {
                         break;
                     }
@@ -929,7 +941,7 @@ impl LineBuffer {
                 }
             }
             Some(ch) if is_word(ch) => {
-                while let Some(ch) = self.char_at(self.point) {
+                while let Some(ch) = self.vi_word_base_char(self.point) {
                     if !is_word(ch) {
                         break;
                     }
@@ -937,7 +949,7 @@ impl LineBuffer {
                 }
             }
             Some(_) => {
-                while let Some(ch) = self.char_at(self.point) {
+                while let Some(ch) = self.vi_word_base_char(self.point) {
                     if ch.is_whitespace() || is_word(ch) {
                         break;
                     }
@@ -947,7 +959,7 @@ impl LineBuffer {
             None => return false,
         }
         if skip_whitespace {
-            while let Some(ch) = self.char_at(self.point) {
+            while let Some(ch) = self.vi_word_base_char(self.point) {
                 if !ch.is_whitespace() {
                     break;
                 }

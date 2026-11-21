@@ -13946,3 +13946,53 @@ fn bash_and_sushline_vi_replace_updates_paste_register() {
         assert_bytewise_vi_bytes(desc, keys, expected, bells, byte_rc, &env);
     }
 }
+
+/// Paired GNU 5.3 / Readline 8.3 pin for vi word motions and operators over
+/// combining-mark and joined graphemes away from the line-end snap case.
+#[test]
+fn bash_and_sushline_vi_word_motion_combining_mark_graphemes() {
+    let rc = "set editing-mode vi";
+    for (desc, keys, expected, bells) in [
+        ("w_after_accent", "e\u{301} f\x1b0wiX\r", "e\u{301} Xf", 0),
+        (
+            "w_count_after_accent",
+            "abe\u{301} z\x1b0w2iX\r",
+            "abe\u{301} Xz",
+            0,
+        ),
+        ("change_accent", "abe\u{301}\x1b0cwZ\r", "Z", 0),
+        (
+            "yank_accent",
+            "abe\u{301} z\x1b0ywp\r",
+            "aabe\u{301} be\u{301} z",
+            0,
+        ),
+        ("delete_final_accent", "e\u{301}\x1b0dw\r", "", 0),
+        (
+            "w_after_hangul_jamo",
+            "e\u{1160} f\x1b0wiX\r",
+            "e\u{1160} Xf",
+            0,
+        ),
+        ("w_after_zwj", "a\u{200d}b f\x1b0wiX\r", "a\u{200d}b Xf", 0),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), rc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), rc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_owned()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

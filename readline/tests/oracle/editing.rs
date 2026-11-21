@@ -14267,3 +14267,48 @@ fn bash_and_sushline_vi_cw_whitespace_graphemes() {
         assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }
 }
+
+/// GNU groups trailing marks and a base-following joiner with the word when
+/// vi `e` scans, and rings when a following space motion is blocked at the
+/// final character. Exact bytes pin both the point and the bell.
+#[test]
+fn bash_and_sushline_vi_end_word_grapheme_boundaries() {
+    let rc = "set editing-mode vi\n";
+    let env = [("LC_ALL", "C.UTF-8")];
+    for (desc, keys, expected, bells) in [
+        ("mark_insert", "e\u{301}xy\x1b0eiX\r", "e\u{301}xXy", 0),
+        (
+            "mark_space_rings",
+            "e\u{301}xy\x1b0e iX\r",
+            "e\u{301}xXy",
+            1,
+        ),
+        (
+            "joiner_insert",
+            "a\u{200d}bcd\x1b0eiX\r",
+            "a\u{200d}bcXd",
+            0,
+        ),
+        (
+            "joiner_space_rings",
+            "a\u{200d}bcd\x1b0e iX\r",
+            "a\u{200d}bcXd",
+            1,
+        ),
+        (
+            "mark_before_space",
+            "e\u{301} x y\x1b0eiX\r",
+            "e\u{301} Xx y",
+            0,
+        ),
+        (
+            "two_marks_insert",
+            "e\u{301}\u{301}xy\x1b0eiX\r",
+            "e\u{301}\u{301}xXy",
+            0,
+        ),
+        ("jamo_control", "\u{1160}ab\x1b0eiX\r", "\u{1160}aXb", 0),
+    ] {
+        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
+    }
+}

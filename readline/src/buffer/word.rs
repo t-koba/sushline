@@ -1189,14 +1189,15 @@ impl LineBuffer {
         };
 
         let start = self.point;
-        if self.char_at(self.point).is_none() {
+        let Some(base) = self.vi_word_base_char(self.point) else {
             return false;
-        }
-        let current = class(self.char_at(self.point).unwrap());
+        };
+        let current = class(base);
         if current != 0
             && self
-                .next_char(self.point)
-                .is_some_and(|(_, ch)| class(ch) == current)
+                .next_grapheme_boundary_checked(self.point)
+                .and_then(|next| self.vi_word_base_char(next))
+                .is_some_and(|ch| class(ch) == current)
         {
             self.advance_run_in(&class, current);
         } else {
@@ -1204,13 +1205,13 @@ impl LineBuffer {
             // run; from whitespace it moves to the end of the next run
             // without the extra step.
             if current != 0
-                && let Some((next, _)) = self.next_char(self.point)
+                && let Some(next) = self.next_grapheme_boundary_checked(self.point)
             {
                 self.point = next;
             }
             self.skip_whitespace_in(&class);
-            if let Some(ch) = self.char_at(self.point) {
-                let target = class(ch);
+            if let Some(target) = self.vi_word_base_char(self.point) {
+                let target = class(target);
                 if target != 0 {
                     self.advance_run_in(&class, target);
                 }
@@ -1262,8 +1263,11 @@ impl LineBuffer {
     where
         F: Fn(char) -> u8,
     {
-        while self.char_at(self.point).is_some_and(|ch| class(ch) == 0) {
-            let Some((next, _)) = self.next_char(self.point) else {
+        while self
+            .vi_word_base_char(self.point)
+            .is_some_and(|ch| class(ch) == 0)
+        {
+            let Some(next) = self.next_grapheme_boundary_checked(self.point) else {
                 break;
             };
             self.point = next;
@@ -1274,11 +1278,15 @@ impl LineBuffer {
     where
         F: Fn(char) -> u8,
     {
-        while let Some((next, ch)) = self.next_char(self.point) {
-            if class(ch) != target {
+        while let Some(next) = self.next_grapheme_boundary_checked(self.point) {
+            if self
+                .vi_word_base_char(next)
+                .is_some_and(|ch| class(ch) == target)
+            {
+                self.point = next;
+            } else {
                 break;
             }
-            self.point = next;
         }
     }
 

@@ -10221,3 +10221,61 @@ fn bash_and_sushline_vi_insert_redo_chains_and_counts() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_explicit_dot_counts() {
+    let inputrc = "set editing-mode vi";
+    for (desc, keys, expected, bells) in [
+        (
+            "replace_explicit",
+            "abcdefghij\x1b03rx3.\r",
+            "xxxxxfghij",
+            0,
+        ),
+        (
+            "replace_explicit_then_plain",
+            "abcdefghij\x1b03rx2..\r",
+            "xxxxxfghij",
+            0,
+        ),
+        (
+            "replace_plain_then_explicit",
+            "abcdefghij\x1b03rx.3.\r",
+            "xxxxxxxhij",
+            0,
+        ),
+        ("delete_explicit", "abcdefghij\x1b03x3.\r", "ghij", 0),
+        (
+            "delete_plain_then_explicit",
+            "abcdefghij\x1b03x.2.\r",
+            "ij",
+            0,
+        ),
+        ("change_explicit", "abc def ghi\x1b0cwZ\x1b3.\r", "Z", 0),
+        (
+            "replace_explicit_then_undo",
+            "abcdefghij\x1b03rx3.u\r",
+            "xxxdefghij",
+            0,
+        ),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_string()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bells,
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

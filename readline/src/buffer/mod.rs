@@ -136,9 +136,9 @@ impl LineBuffer {
         self.point = point + bytes.len();
     }
 
-    /// Replace char at point bytes.
+    /// Replace the GNU character at point, including any combining marks.
     pub fn replace_char_at_point_bytes(&mut self, bytes: &[u8]) -> bool {
-        let Some(end) = self.next_char_boundary_checked(self.point) else {
+        let Some(end) = self.next_grapheme_boundary_checked(self.point) else {
             return false;
         };
         self.bytes.splice(self.point..end, bytes.iter().copied());
@@ -603,18 +603,20 @@ impl LineBuffer {
         if self.char_at(idx).is_none() {
             return self.bytes.len();
         };
+        let leading_extend = self.char_at(idx).is_some_and(is_grapheme_extend);
         let mut end = self.next_char_boundary(idx);
-        let mut after_zwj = false;
+        if leading_extend && self.char_at(end).is_some() {
+            end = self.next_char_boundary(end);
+        }
         while let Some(ch) = self.char_at(end) {
-            if is_grapheme_extend(ch) || after_zwj {
-                after_zwj = ch == '\u{200d}';
+            if is_grapheme_extend(ch) {
                 end = self.next_char_boundary(end);
                 continue;
             }
             if ch == '\u{200d}' {
-                after_zwj = true;
+                // GNU's vi character ends at a joiner; the joined character
+                // that follows is a separate character for `r` and `x`.
                 end = self.next_char_boundary(end);
-                continue;
             }
             break;
         }

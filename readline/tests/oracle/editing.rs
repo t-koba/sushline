@@ -14090,3 +14090,31 @@ fn bash_and_sushline_vi_replace_combining_grapheme_exact_bytes() {
         assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }
 }
+
+/// Paired GNU 5.3 / Readline 8.3 pin for command-mode `r` and `x` over
+/// grapheme clusters. GNU ends a cluster at a joining character, and groups a
+/// leading combining mark or Jamo with the character that follows it.
+#[test]
+fn bash_and_sushline_vi_character_operators_over_graphemes() {
+    let rc = "set editing-mode vi\n";
+    let env = [("LC_ALL", "C.UTF-8")];
+    for (desc, keys, expected, bells) in [
+        ("r_accent", "e\u{301}xy\x1b0rZ\r", "Zxy", 0),
+        ("r_zwj", "a\u{200d}by\x1b0rZ\r", "Zby", 0),
+        ("r_jamo", "\u{1160}axy\x1b0rZ\r", "Zxy", 0),
+        ("r_multi_mark", "a\u{301}\u{301}b\x1b0rZ\r", "Zb", 0),
+        ("r_counted", "e\u{301}xy\x1b02rZ\r", "ZZy", 0),
+        ("r_at_end", "e\u{301}\x1b0rZ\r", "Z", 0),
+        ("r_zwj_at_end", "a\u{200d}\x1b0rZ\r", "Z", 0),
+        ("r_jamo_join", "\u{1160}a\x1b0rZ\r", "Z", 0),
+        ("x_accent", "e\u{301}xy\x1b0x\r", "xy", 0),
+        ("x_zwj", "a\u{200d}by\x1b0x\r", "by", 0),
+        ("x_jamo", "\u{1160}axy\x1b0x\r", "xy", 0),
+        ("x_multi_mark", "a\u{301}\u{301}b\x1b0x\r", "b", 0),
+        ("x_at_end", "e\u{301}\x1b0x\r", "", 0),
+        ("x_zwj_at_end", "a\u{200d}\x1b0x\r", "", 0),
+        ("x_jamo_join", "\u{1160}a\x1b0x\r", "", 0),
+    ] {
+        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
+    }
+}

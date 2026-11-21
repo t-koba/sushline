@@ -547,8 +547,9 @@ where
                         false
                     }
                 } else {
-                    let end = state.buffer.next_char_boundary(start);
-                    let displaced = state.buffer.range_bytes(start, end);
+                    let displaced = state
+                        .buffer
+                        .range_bytes(start, state.buffer.next_boundary(start).unwrap_or(start));
                     if state.buffer.replace_char_at_point_bytes(&replacement) {
                         last_displaced = Some(displaced);
                         true

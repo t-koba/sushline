@@ -656,6 +656,13 @@ Ctrl-V quoting puts the next Ctrl-V byte into the query, and with history
 control-byte entry silently. Display rendering of the control byte is not
 covered by this fixture.
 
+Two paired Bash 5.3/Readline 8.3 vi-mode fixtures pin non-incremental `/`
+control handling: `bash_readline_and_sushline_vi_search_keeps_escape_in_query`
+matches a history entry containing ESC because ESC is query text, while
+`bash_readline_and_sushline_vi_search_abort_bells` pins the bell on an aborted
+C-g or ESC-terminated query (the latter cannot match and rings once at Enter).
+These cases do not establish general vi search redisplay or locale folding.
+
 - **C.UTF-8 lowercase:** the single-entry prefix and reverse-incremental
   `älpha`/`ÄLPHA old` cases, and the forward-incremental case with `prior`
   plus `ÄLPHA old`, match. Projections:

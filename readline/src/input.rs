@@ -1888,7 +1888,30 @@ where
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
             }
-            &[0x07] | &[0x1b] => {
+            &[0x07] => {
+                state.search.quoted_pending = false;
+                state.buffer = LineBuffer::from_bytes(search.original_line.clone());
+                state.history_entry_index = search.original_history_entry_index;
+                state.undo = search.original_undo.clone();
+                self.history.set_pos(search.original_history_pos);
+                // GNU vi `/`/`?` rings the bell when C-g aborts the search;
+                // incremental and emacs non-incremental searches stay quiet.
+                if search.vi {
+                    self.ding()?;
+                }
+                state.after_non_kill_command();
+                Ok(EditorOutcome::Continue)
+            }
+            &[0x1b] if search.vi => {
+                // GNU vi non-incremental search treats ESC as query text, not
+                // an abort key: a history entry containing ESC is matchable.
+                let mut search = search;
+                search.query.extend_from_slice(bytes);
+                state.search.non_incremental_search = Some(search);
+                state.input.changed_display = true;
+                Ok(EditorOutcome::Continue)
+            }
+            &[0x1b] => {
                 state.search.quoted_pending = false;
                 state.buffer = LineBuffer::from_bytes(search.original_line.clone());
                 state.history_entry_index = search.original_history_entry_index;

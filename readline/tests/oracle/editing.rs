@@ -14840,3 +14840,51 @@ fn bash_and_sushline_vi_identical_replace_keeps_undo_point() {
         assert_bytewise_vi_bytes(desc, keys, expected, 0, byte_rc, &byte_env);
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_vi_search_keeps_escape_in_query() {
+    let rc = "set editing-mode vi\n";
+    let history = ["a\u{1b}b"];
+    let keys = b"\x1b/a\x1bb\r\r";
+    let bash = run_bash_readline_with_inputrc_file_and_history(keys, rc, &history);
+    let sushline = run_sushline_harness_with_inputrc_and_history(keys, rc, &history);
+
+    assert_eq!(accepted_line(&bash), Some("a\u{1b}b".to_string()), "{bash}");
+    assert_eq!(bell_count(&bash), 0, "{bash}");
+    assert_eq!(
+        accepted_line(&sushline),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sushline}"
+    );
+    assert_eq!(bell_count(&sushline), bell_count(&bash));
+}
+
+#[test]
+fn bash_readline_and_sushline_vi_search_abort_bells() {
+    let rc = "set editing-mode vi\n";
+    let history = ["abc", "a\u{e9}", "zero"];
+    for keys in [
+        b"\x1b/a\x1b\r\r".as_slice(),
+        b"\x1b/a\x07\r\r".as_slice(),
+        b"\x1b/\x07\xc3\xa9\r\r".as_slice(),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_history(keys, rc, &history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, rc, &history);
+
+        assert_eq!(
+            accepted_line(&bash),
+            Some(String::new()),
+            "keys={keys:?}\n{bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "keys={keys:?}\nbash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bell_count(&bash),
+            "keys={keys:?}\nbash={bash}\nsushline={sushline}"
+        );
+    }
+}

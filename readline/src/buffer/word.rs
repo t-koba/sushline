@@ -1207,6 +1207,22 @@ impl LineBuffer {
         };
 
         let start = self.point;
+        // A leading mark/Jamo/ZWJ run ending at the line boundary absorbs its
+        // only following base in one grapheme step. GNU's end-word stops on
+        // that base, not on the leading run.
+        let end = self.bytes.len();
+        if self.point < end
+            && self
+                .char_at(self.point)
+                .is_some_and(|ch| is_grapheme_extend(ch) || ch == '\u{200d}')
+            && self.next_grapheme_boundary_checked(self.point) == Some(end)
+            && let Some((last, last_ch)) = self.decoded_prev_char_backward(end)
+            && last > self.point
+            && !is_grapheme_extend(last_ch)
+            && last_ch != '\u{200d}'
+        {
+            self.point = last;
+        }
         let Some(base) = self.vi_word_base_char(self.point) else {
             return false;
         };

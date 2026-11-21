@@ -14452,3 +14452,31 @@ fn bash_and_sushline_vi_words_use_ascii_word_char_class() {
         assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }
 }
+
+/// GNU vi end-word stops on the base that follows a leading mark, Jamo or
+/// joiner run, including when that cluster ends the line. Exact bytes pin
+/// both the point and the pending operator range.
+#[test]
+fn bash_and_sushline_vi_end_word_leading_grapheme_clusters() {
+    let rc = "set editing-mode vi\n";
+    let env = [("LC_ALL", "C.UTF-8")];
+    for (desc, keys, expected, bells) in [
+        ("jamo", "\u{1160}a\x1b0EiX\r", "\u{1160}Xa", 0),
+        ("mark", "\u{301}a\x1b0EiX\r", "\u{301}Xa", 0),
+        ("joiner", "\u{200d}a\x1b0EiX\r", "\u{200d}Xa", 0),
+        ("jamo_count", "\u{1160}a\x1b02EiX\r", "\u{1160}Xa", 0),
+        ("mark_count", "\u{301}a\x1b02EiX\r", "\u{301}Xa", 0),
+        ("joiner_count", "\u{200d}a\x1b02EiX\r", "\u{200d}Xa", 0),
+        (
+            "double_mark",
+            "\u{301}\u{301}a\x1b0EiX\r",
+            "\u{301}\u{301}Xa",
+            0,
+        ),
+        ("mark_only", "\u{301}\x1b0EiX\r", "X\u{301}", 0),
+        ("change", "\u{301}a\x1b0cEZ\r", "Z", 0),
+        ("yank_put", "\u{200d}a\x1b0yEp\r", "\u{200d}a\u{200d}a", 0),
+    ] {
+        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
+    }
+}

@@ -12016,3 +12016,142 @@ fn bash_and_sushline_vi_char_search_byte_oriented_multibyte_keys() {
         );
     }
 }
+
+/// Paired GNU 5.3 / Readline 8.3 pin for byte-oriented multibyte input in
+/// command-key paths other than character search. Numeric arguments, vi
+/// registers, quoted insert, incremental search, named commands and macro
+/// prefixes already consume multibyte input byte by byte.
+#[test]
+fn bash_and_sushline_byte_oriented_command_key_boundary() {
+    let byte_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C")];
+    let e = "\u{e9}".as_bytes();
+    let kanji = "日".as_bytes();
+    let cases: Vec<(&str, Vec<u8>, &str, usize)> = vec![
+        (
+            "count_then_e",
+            [b"abc\x1b03".as_slice(), e, b"x\r"].concat(),
+            "bc",
+            2,
+        ),
+        (
+            "count_then_kanji",
+            [b"abc\x1b03".as_slice(), kanji, b"x\r"].concat(),
+            "bc",
+            3,
+        ),
+        (
+            "plain_e_then_x",
+            [b"abc\x1b0".as_slice(), e, b"x\r"].concat(),
+            "bc",
+            2,
+        ),
+        (
+            "register_then_e",
+            [b"abc\x1b\"".as_slice(), e, b"x\r"].concat(),
+            "ab",
+            3,
+        ),
+        (
+            "quoted_insert_e",
+            [b"ab\x16".as_slice(), e, b"cd\r"].concat(),
+            "ab\u{e9}cd",
+            0,
+        ),
+        (
+            "quoted_insert_kanji",
+            [b"ab\x16".as_slice(), kanji, b"cd\r"].concat(),
+            "ab\u{65e5}cd",
+            0,
+        ),
+        (
+            "isearch_e",
+            [b"abc\x12".as_slice(), e, b"\r"].concat(),
+            "abc\u{e9}",
+            0,
+        ),
+        (
+            "named_command_e",
+            [b"abc\x1bX".as_slice(), e, b"\r"].concat(),
+            "ac",
+            2,
+        ),
+        (
+            "minus_e",
+            [b"abc\x1b0-".as_slice(), e, b"x\r"].concat(),
+            "bc",
+            2,
+        ),
+    ];
+    for (desc, keys, expected, bells) in cases {
+        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, byte_rc, &env);
+        let sush = run_sushline_harness_with_inputrc_and_env(&keys, byte_rc, &env);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_owned()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sush),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sush}"
+        );
+        assert_eq!(
+            bell_count(&sush),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sush}"
+        );
+    }
+
+    let macro_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n",
+        "\"\\C-x\\303\": \"ZZ\"\n",
+        "\"\\303\\251\": \"YY\"\n",
+        "\"\\C-xe\": \"QQ\"\n"
+    );
+    for (desc, keys, expected, bells) in [
+        (
+            "macro_prefix_first_byte",
+            [b"ab\x1b0\x18".as_slice(), e, b"x\r"].concat(),
+            "b",
+            3,
+        ),
+        (
+            "macro_full_e",
+            [b"ab\x1b0".as_slice(), e, b"x\r"].concat(),
+            "b",
+            2,
+        ),
+        ("macro_ctrl_x_e", b"ab\x1b0\x18ex\r".to_vec(), "a", 1),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, macro_rc, &env);
+        let sush = run_sushline_harness_with_inputrc_and_env(&keys, macro_rc, &env);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_owned()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sush),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sush}"
+        );
+        assert_eq!(
+            bell_count(&sush),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sush}"
+        );
+    }
+}

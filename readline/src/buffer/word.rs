@@ -845,7 +845,12 @@ impl LineBuffer {
 
         // GNU appends a blank for the motion so the last character can be
         // reached; our boundary helpers already stop at the buffer end.
-        let remaining = count.saturating_sub(u32::from(leading_grapheme.is_some()));
+        // A leading cluster counts as the first word. When only one scalar
+        // follows it before whitespace, the first remaining loop iteration
+        // just crosses that whitespace, so counted forms need one more step.
+        let separated_word = leading_grapheme.is_some_and(|end| class_at(end) == Some(0));
+        let remaining = count.saturating_sub(u32::from(leading_grapheme.is_some()))
+            + u32::from(count > 1 && separated_word);
         for _ in 0..remaining {
             if point >= end {
                 break;

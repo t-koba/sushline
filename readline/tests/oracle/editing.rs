@@ -14029,6 +14029,13 @@ fn bash_and_sushline_vi_words_starting_with_grapheme_marks() {
         ("jamo_w", "\u{1160}abc\x1b0wiX\r", "\u{1160}aXbc", 0),
         ("jamo_cw", "\u{1160}abc\x1b0cwZ\r", "Zbc", 0),
         ("mark_counted_w", "\u{301}abc\x1b02wiX\r", "\u{301}abXc", 0),
+        ("mark_2cw_a_b_c", "\u{301}a b c\x1b02cwZ\r", "Z c", 0),
+        ("mark_3cw_a_b_c_d", "\u{301}a b c d\x1b03cwZ\r", "Z d", 0),
+        ("mark_4cw", "\u{301}a b c d e\x1b04cwZ\r", "Z e", 0),
+        ("mark_2cw_a_bc", "\u{301}a bc\x1b02cwZ\r", "Z", 0),
+        ("zwj_2cw", "\u{200d}a b c\x1b02cwZ\r", "Z c", 0),
+        ("jamo_2cw", "\u{1160}a b c\x1b02cwZ\r", "Z c", 0),
+        ("mark_2cw_abc_def", "\u{301}abc def\x1b02cwZ\r", "Z def", 0),
         ("mark_only_cw", "\u{301}\x1b0cwZ\r", "Z", 0),
         ("zwj_only_cw", "\u{200d}\x1b0cwZ\r", "Z", 0),
     ] {

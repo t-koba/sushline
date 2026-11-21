@@ -26,7 +26,7 @@ where
     /// Overwrite raw bytes one at a time when byte motion is in effect.
     /// Returns false when the editor is not bytewise so callers keep their
     /// whole-character overwrite path.
-    fn overwrite_bytes_bytewise(&self, state: &mut EditorState, bytes: &[u8]) -> bool {
+    pub(crate) fn overwrite_bytes_bytewise(&self, state: &mut EditorState, bytes: &[u8]) -> bool {
         if !self.char_motion_is_bytewise() {
             return false;
         }

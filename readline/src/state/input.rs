@@ -5,6 +5,8 @@ pub(crate) struct InputState {
     pub(crate) quoted_insert: bool,
     /// Remaining raw bytes for a negative-count quoted insert.
     pub(crate) quoted_insert_remaining: u32,
+    /// The armed quoted insert is consuming the tail of a multibyte key.
+    pub(crate) quoted_multibyte_tail: bool,
     pub(crate) interrupted: bool,
     pub(crate) pending_key: Vec<u8>,
     /// The bytes of a character a pending command has not taken yet.

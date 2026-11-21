@@ -339,6 +339,16 @@ where
         Ok(EditorOutcome::Continue)
     }
 
+    /// Number of continuation bytes in a UTF-8 sequence led by `byte`.
+    fn utf8_continuation_count(byte: u8) -> u32 {
+        match byte {
+            0xc0..=0xdf => 1,
+            0xe0..=0xef => 2,
+            0xf0..=0xf7 => 3,
+            _ => 0,
+        }
+    }
+
     fn handle_quoted_insert(
         &mut self,
         state: &mut EditorState,
@@ -349,7 +359,31 @@ where
         if remaining == 0 {
             state.input.quoted_insert = false;
             self.insert_literal(state, bytes, true);
+            // GNU quotes the lead byte of a multibyte key as a normal literal,
+            // then applies bytewise overwrite to the continuation bytes that
+            // follow it. Arm that tail only for the vi replace case.
+            if state.overwrite_mode && self.char_motion_is_bytewise() && bytes.len() == 1 {
+                let tail = Self::utf8_continuation_count(bytes[0]);
+                if tail > 0 {
+                    state.input.quoted_insert = true;
+                    state.input.quoted_insert_remaining = tail;
+                    state.input.quoted_multibyte_tail = true;
+                }
+            }
             return Ok(EditorOutcome::Continue);
+        }
+        if state.input.quoted_multibyte_tail
+            && !bytes
+                .first()
+                .is_some_and(|byte| (0x80..=0xbf).contains(byte))
+        {
+            // A raw high byte not followed by a UTF-8 continuation was a
+            // literal quoted byte, not a multibyte key; dispatch the rest
+            // normally instead of consuming it as a character tail.
+            state.input.quoted_insert = false;
+            state.input.quoted_insert_remaining = 0;
+            state.input.quoted_multibyte_tail = false;
+            return self.handle_bytes(state, bytes, hooks);
         }
         let take = remaining.min(bytes.len() as u32) as usize;
         for byte in &bytes[..take] {
@@ -358,6 +392,7 @@ where
         }
         if state.input.quoted_insert_remaining == 0 {
             state.input.quoted_insert = false;
+            state.input.quoted_multibyte_tail = false;
         }
         if take < bytes.len() {
             return self.handle_bytes(state, &bytes[take..], hooks);
@@ -552,10 +587,17 @@ where
             self.keymap.current() == KeyMapName::ViInsert,
         );
         for _ in 0..count {
-            // Quoted and otherwise literal bytes are inserted even in
-            // overwrite mode; GNU does not apply the bytewise replace rule to
-            // them. Whole-character overwrite is kept for other modes.
-            if state.overwrite_mode && !self.char_motion_is_bytewise() {
+            // A single quoted byte is inserted in bytewise overwrite mode;
+            // for a quoted multibyte key its continuation bytes overwrite raw
+            // bytes one at a time. Non-bytewise modes keep whole-character
+            // overwrite.
+            if state.overwrite_mode && self.char_motion_is_bytewise() {
+                if state.input.quoted_multibyte_tail {
+                    self.overwrite_bytes_bytewise(state, bytes);
+                } else {
+                    state.buffer.insert_bytes(bytes);
+                }
+            } else if state.overwrite_mode {
                 for byte in bytes {
                     let point = state.buffer.point();
                     if point < state.buffer.len_chars() {

@@ -12995,8 +12995,9 @@ fn bash_and_sushline_vi_blocked_operator_motions() {
 
 /// Vi replace mode (`R`) overwrites one raw byte per printable key when byte
 /// motion is in effect, so replacing the lead or continuation byte of a
-/// multibyte scalar leaves the other byte intact. Control and quoted-inserted
-/// bytes are still inserted rather than overwriting, as in GNU.
+/// multibyte scalar leaves the other byte intact. Control and single-byte
+/// quoted keys are inserted, while a quoted multibyte key inserts its lead
+/// byte and overwrites raw bytes with its continuation bytes, as in GNU.
 #[test]
 fn bash_and_sushline_byte_oriented_vi_overwrite_mode() {
     let rc = concat!(
@@ -13008,6 +13009,7 @@ fn bash_and_sushline_byte_oriented_vi_overwrite_mode() {
     );
     let env = [("LC_ALL", "C")];
     let e = "\u{e9}".as_bytes();
+    let a = "\u{3042}".as_bytes();
     let c3 = [0xc3u8];
     let a9 = [0xa9u8];
     for (label, start, cases) in [
@@ -13035,6 +13037,18 @@ fn bash_and_sushline_byte_oriented_vi_overwrite_mode() {
                     "quoted_printable",
                     b"R\x16Z\x1b\r".to_vec(),
                     "Z\u{e9}bc:d",
+                    1,
+                ),
+                (
+                    "quoted_multibyte",
+                    [b"R\x16".as_slice(), e, b"\x1b\r"].concat(),
+                    "\u{e9}\u{fffd}bc:d",
+                    1,
+                ),
+                (
+                    "quoted_three_byte",
+                    [b"R\x16".as_slice(), a, b"\x1b\r"].concat(),
+                    "\u{3042}bc:d",
                     1,
                 ),
             ],
@@ -13068,6 +13082,18 @@ fn bash_and_sushline_byte_oriented_vi_overwrite_mode() {
                     "quoted_printable",
                     b"R\x16Z\x1b\r".to_vec(),
                     "\u{fffd}Z\u{fffd}bc:d",
+                    0,
+                ),
+                (
+                    "quoted_multibyte",
+                    [b"R\x16".as_slice(), e, b"\x1b\r"].concat(),
+                    "\u{fffd}\u{e9}bc:d",
+                    0,
+                ),
+                (
+                    "quoted_three_byte",
+                    [b"R\x16".as_slice(), a, b"\x1b\r"].concat(),
+                    "\u{fffd}\u{3042}c:d",
                     0,
                 ),
             ],

@@ -625,6 +625,11 @@ impl LineBuffer {
         (idx < self.bytes.len()).then(|| self.next_grapheme_boundary(idx))
     }
 
+    /// Start of the character before `idx`, when `idx` is not at line start.
+    pub fn previous_boundary(&self, idx: usize) -> Option<usize> {
+        self.prev_grapheme_boundary_checked(idx)
+    }
+
     fn prev_grapheme_boundary_checked(&self, idx: usize) -> Option<usize> {
         let idx = self.clamp_boundary(idx);
         if idx == 0 {

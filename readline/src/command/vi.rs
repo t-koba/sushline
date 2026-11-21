@@ -250,7 +250,7 @@ where
                         state.buffer.move_backward();
                     }
                 }
-                state.overwrite_mode = false;
+                state.end_vi_overwrite();
                 // GNU frees the undo list on the first entry to command mode:
                 // text typed before that point cannot be undone with `u`.
                 if !state.vi.command_mode_entered {
@@ -796,6 +796,20 @@ where
                 let bytewise = self.char_motion_is_bytewise();
                 state.record_undo();
                 let count = state.take_numeric_arg().unwrap_or(1);
+                if count == 1 && state.overwrite_snapshot.is_some() {
+                    if let Some((start, bytes)) = state.overwrite_restore_range(bytewise) {
+                        state
+                            .buffer
+                            .replace_range_bytes(start, start + bytes.len(), &bytes);
+                        state.buffer.set_point(start);
+                    } else {
+                        self.ding()?;
+                    }
+                    let change = state.vi_key_sequence_for_change(key);
+                    state.set_vi_redo(change);
+                    state.after_non_kill_command();
+                    return Ok(EditorOutcome::Continue);
+                }
                 let mut deleted: Vec<u8> = Vec::new();
                 let mut deleted_count = 0;
                 for _ in 0..count.max(0) {
@@ -936,7 +950,7 @@ where
                 state.after_non_kill_command();
             }
             "vi-replace" => {
-                state.overwrite_mode = true;
+                state.begin_vi_overwrite();
                 self.keymap.set_current(KeyMapName::ViInsert);
                 state.begin_vi_insert_change(key);
                 state.after_non_kill_command();

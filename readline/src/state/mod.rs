@@ -64,6 +64,10 @@ pub(crate) struct EditorState {
     pub(crate) numeric_arg_tail: NumericArgLiteralTail,
     pub(crate) mark: Option<usize>,
     pub(crate) overwrite_mode: bool,
+    /// Line as it stood when vi replace mode began, for backspace restoration.
+    pub(crate) overwrite_snapshot: Option<Vec<u8>>,
+    /// Point where vi replace mode began.
+    pub(crate) overwrite_origin: usize,
     pub(crate) original_line: Vec<u8>,
     /// History entry represented by the buffer; a search overlay can differ from the cursor.
     pub(crate) history_entry_index: Option<usize>,
@@ -97,10 +101,40 @@ impl EditorState {
             numeric_arg_tail: NumericArgLiteralTail::None,
             mark: None,
             overwrite_mode: false,
+            overwrite_snapshot: None,
+            overwrite_origin: 0,
             original_line,
             history_entry_index: None,
             history_modified: false,
         }
+    }
+
+    /// Begin vi replace mode, remembering the bytes a backspace can restore.
+    pub(crate) fn begin_vi_overwrite(&mut self) {
+        self.overwrite_snapshot = Some(self.buffer.as_bytes().to_vec());
+        self.overwrite_origin = self.buffer.byte_point();
+        self.overwrite_mode = true;
+    }
+
+    /// Leave vi replace mode; a later backspace keeps its insert-mode behavior.
+    pub(crate) fn end_vi_overwrite(&mut self) {
+        self.overwrite_snapshot = None;
+        self.overwrite_mode = false;
+    }
+
+    /// Range and original bytes restored by one backspace in vi replace mode.
+    pub(crate) fn overwrite_restore_range(&self, bytewise: bool) -> Option<(usize, Vec<u8>)> {
+        let original = self.overwrite_snapshot.as_ref()?;
+        let point = self.buffer.byte_point();
+        let start = if bytewise {
+            point.checked_sub(1)
+        } else {
+            self.buffer.previous_boundary(point)
+        }?;
+        if start < self.overwrite_origin {
+            return None;
+        }
+        Some((start, original.get(start..point)?.to_vec()))
     }
 
     pub(crate) fn cancel_pending_command(&mut self) {

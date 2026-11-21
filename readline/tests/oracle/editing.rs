@@ -13240,3 +13240,129 @@ fn bash_and_sushline_byte_oriented_vi_raw_replacement_keys() {
         }
     }
 }
+
+/// Backspace inside vi replace mode restores the byte that was overwritten
+/// and steps back, instead of inserting a space. At the start of the replace
+/// region it rings and leaves the line alone. The same rule holds for raw
+/// bytes of a multibyte character in bytewise mode and for whole characters
+/// in UTF-8 mode.
+#[test]
+fn bash_and_sushline_vi_overstrike_backspace_restores_overwritten_bytes() {
+    let bytewise_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let charwise_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n"
+    );
+    let c = [("LC_ALL", "C")];
+    let utf8 = [("LC_ALL", "C.UTF-8")];
+    let e = "\u{e9}".as_bytes();
+    for (desc, keys, expected, bells, rc, env) in [
+        (
+            "ascii_start",
+            b"abcdef\x1b0fZRXY\x7f\x1b\r".to_vec(),
+            "Xbcdef",
+            1,
+            bytewise_rc,
+            &c[..],
+        ),
+        (
+            "ascii_middle",
+            b"abcdef\x1b0fcRXY\x7f\x1b\r".to_vec(),
+            "abXdef",
+            0,
+            bytewise_rc,
+            &c[..],
+        ),
+        (
+            "ascii_twice",
+            b"abcdef\x1b0fcRXY\x7f\x7f\x1b\r".to_vec(),
+            "abcdef",
+            0,
+            bytewise_rc,
+            &c[..],
+        ),
+        (
+            "ascii_at_start_of_replace",
+            b"abcdef\x1b0fcR\x7f\x1b\r".to_vec(),
+            "abcdef",
+            1,
+            bytewise_rc,
+            &c[..],
+        ),
+        (
+            "ascii_ctrl_h",
+            b"abcdef\x1b0fcRXY\x08Z\x1b\r".to_vec(),
+            "abXZef",
+            0,
+            bytewise_rc,
+            &c[..],
+        ),
+        (
+            "multibyte_lead",
+            [e, b"bc:d\x1b0f".as_slice(), &[0xc3], b"RXY\x7f\x1b\r"].concat(),
+            "X\u{fffd}bc:d",
+            1,
+            bytewise_rc,
+            &c[..],
+        ),
+        (
+            "multibyte_lead_twice",
+            [e, b"bc:d\x1b0f".as_slice(), &[0xc3], b"RXY\x7f\x7f\x1b\r"].concat(),
+            "\u{e9}bc:d",
+            1,
+            bytewise_rc,
+            &c[..],
+        ),
+        (
+            "multibyte_continuation",
+            [e, b"bc:d\x1b0f".as_slice(), &[0xa9], b"RXY\x7fZ\x1b\r"].concat(),
+            "\u{fffd}XZc:d",
+            0,
+            bytewise_rc,
+            &c[..],
+        ),
+        (
+            "charwise_middle",
+            b"abcdef\x1b0fcRXY\x7f\x1b\r".to_vec(),
+            "abXdef",
+            0,
+            charwise_rc,
+            &utf8[..],
+        ),
+        (
+            "charwise_at_start_of_replace",
+            b"abcdef\x1b0fcR\x7f\x1b\r".to_vec(),
+            "abcdef",
+            1,
+            charwise_rc,
+            &utf8[..],
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, rc, env);
+        let sushline = run_sushline_harness_with_inputrc_and_env(&keys, rc, env);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_owned()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

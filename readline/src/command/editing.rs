@@ -60,6 +60,18 @@ where
                     } else {
                         self.delete_chars_with_numeric_argument(state, arg, false)?;
                     }
+                } else if state.overwrite_snapshot.is_some() {
+                    if let Some((start, bytes)) =
+                        state.overwrite_restore_range(self.char_motion_is_bytewise())
+                    {
+                        state
+                            .buffer
+                            .replace_range_bytes(start, start + bytes.len(), &bytes);
+                        state.buffer.set_point(start);
+                    } else {
+                        self.ding()?;
+                    }
+                    state.after_non_kill_command();
                 } else if state.overwrite_mode {
                     state.buffer.backward_replace_char_with_space();
                     state.after_non_kill_command();
@@ -440,10 +452,13 @@ where
                 } else {
                     state.overwrite_mode = !state.overwrite_mode;
                 }
+                if !state.overwrite_mode {
+                    state.end_vi_overwrite();
+                }
                 state.after_non_kill_command();
             }
             "vi-overstrike" => {
-                state.overwrite_mode = true;
+                state.begin_vi_overwrite();
                 self.keymap.set_current(KeyMapName::ViInsert);
                 state.begin_vi_insert_change(key);
                 state.after_non_kill_command();

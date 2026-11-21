@@ -584,7 +584,7 @@ impl LineBuffer {
         (idx < self.bytes.len()).then(|| self.next_char_boundary(idx))
     }
 
-    fn prev_char_boundary_checked(&self, idx: usize) -> Option<usize> {
+    pub(crate) fn prev_char_boundary_checked(&self, idx: usize) -> Option<usize> {
         self.prev_char(idx).map(|(idx, _)| idx)
     }
 

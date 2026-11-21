@@ -1332,7 +1332,13 @@ where
                 CharSearchMode::TillForward => {
                     // GNU counts the previously found target as the first match
                     // of a repeat, for both `;` after `t` and `,` after `T`.
-                    let start = point.saturating_add(1);
+                    // In charwise mode step by whole characters so a target
+                    // following a multibyte character is not split.
+                    let start = if bytewise {
+                        point.saturating_add(1)
+                    } else {
+                        state.buffer.next_char_boundary(point)
+                    };
                     state.buffer.find_nth_forward_from(ch, count, start)
                 }
                 CharSearchMode::TillBackward if repeat => {
@@ -1351,10 +1357,18 @@ where
 
         match mode {
             CharSearchMode::TillForward => {
-                pos = pos.saturating_sub(1);
+                pos = if bytewise {
+                    pos.saturating_sub(1)
+                } else {
+                    state.buffer.prev_char_boundary_checked(pos).unwrap_or(0)
+                };
             }
             CharSearchMode::TillBackward => {
-                pos = (pos + 1).min(state.buffer.len_chars());
+                pos = if bytewise {
+                    (pos + 1).min(state.buffer.len_chars())
+                } else {
+                    state.buffer.next_char_boundary(pos)
+                };
             }
             CharSearchMode::Forward | CharSearchMode::Backward => {}
         }

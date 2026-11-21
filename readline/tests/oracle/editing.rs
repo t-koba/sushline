@@ -11890,6 +11890,60 @@ fn bash_and_sushline_vi_char_search_multibyte_and_byte_modes() {
             "a\u{e9}bc\u{e9}d",
             0,
         ),
+        (
+            "t_first_multibyte",
+            "\u{e9}a\u{e9}a\x1b0taiZ\r",
+            "Z\u{e9}a\u{e9}a",
+            0,
+        ),
+        (
+            "t_first_x_multibyte",
+            "\u{e9}a\u{e9}a\x1b0tax\r",
+            "a\u{e9}a",
+            0,
+        ),
+        (
+            "t_semi_multibyte",
+            "\u{e9}a\u{e9}a\x1b0ta;iZ\r",
+            "Z\u{e9}a\u{e9}a",
+            0,
+        ),
+        (
+            "t_two_multibyte",
+            "\u{e9}a\u{e9}a\x1b02ta iZ\r",
+            "\u{e9}a\u{e9}Za",
+            0,
+        ),
+        (
+            "t_two_semis_multibyte",
+            "\u{e9}a\u{e9}a\u{e9}a\x1b0ta2;iZ\r",
+            "\u{e9}aZ\u{e9}a\u{e9}a",
+            0,
+        ),
+        (
+            "T_target_multibyte",
+            "a\u{e9}a\u{e9}\x1b$T\u{e9} iZ\r",
+            "a\u{e9}aZ\u{e9}",
+            0,
+        ),
+        (
+            "T_target_insert_multibyte",
+            "a\u{e9}a\u{e9}\x1b$T\u{e9}iZ\r",
+            "a\u{e9}Za\u{e9}",
+            0,
+        ),
+        (
+            "T_target_delete_multibyte",
+            "a\u{e9}a\u{e9}\x1b$T\u{e9}x\r",
+            "a\u{e9}\u{e9}",
+            0,
+        ),
+        (
+            "change_with_t_multibyte",
+            "\u{e9}a\u{e9}a\x1b0dt\u{e9}\r",
+            "\u{e9}a",
+            0,
+        ),
     ] {
         let bash = run_bash_readline_with_bindings(keys.as_bytes(), utf8_rc);
         let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), utf8_rc);

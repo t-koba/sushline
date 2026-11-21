@@ -13683,3 +13683,131 @@ fn bash_and_sushline_vi_replace_mode_arrow_sequences_end_replace_mode() {
         );
     }
 }
+
+/// Control bytes and quoted single bytes typed in vi replace mode are
+/// inserted before the text at point without displacing it. They are not
+/// replace steps, so backspace rings at the replace origin and leaves the
+/// inserted bytes (and the original text) intact.
+#[test]
+fn bash_and_sushline_vi_replace_inserts_control_and_quoted_bytes() {
+    let charwise_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n"
+    );
+    let bytewise_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C.UTF-8")];
+    let euro = "\u{20ac}".as_bytes();
+    for (desc, keys, expected, bells, rc) in [
+        (
+            "control",
+            b"abc\x1b0R\x01\x1b\r".to_vec(),
+            "\u{1}abc",
+            0,
+            charwise_rc,
+        ),
+        (
+            "control_backspace",
+            b"abc\x1b0R\x01\x7f\x1b\r".to_vec(),
+            "\u{1}abc",
+            1,
+            charwise_rc,
+        ),
+        (
+            "two_controls_backspace",
+            b"abc\x1b0R\x01\x01\x7f\x1b\r".to_vec(),
+            "\u{1}\u{1}abc",
+            1,
+            charwise_rc,
+        ),
+        (
+            "quoted",
+            b"abc\x1b0R\x16X\x1b\r".to_vec(),
+            "Xabc",
+            0,
+            charwise_rc,
+        ),
+        (
+            "quoted_backspace",
+            b"abc\x1b0R\x16X\x7f\x1b\r".to_vec(),
+            "Xabc",
+            1,
+            charwise_rc,
+        ),
+        (
+            "quoted_then_printable_backspace",
+            b"abc\x1b0R\x16XX\x7f\x1b\r".to_vec(),
+            "Xabc",
+            0,
+            charwise_rc,
+        ),
+        (
+            "control_then_printable_backspace",
+            b"abc\x1b0R\x01X\x7f\x1b\r".to_vec(),
+            "\u{1}abc",
+            0,
+            charwise_rc,
+        ),
+        (
+            "combining_quoted_backspace",
+            "e\u{301}x\x1b0R\x16X\x7f\x1b\r".as_bytes().to_vec(),
+            "Xe\u{301}x",
+            1,
+            charwise_rc,
+        ),
+        (
+            "bytewise_control_backspace",
+            b"abc\x1b0R\x01\x7f\x1b\r".to_vec(),
+            "\u{1}abc",
+            1,
+            bytewise_rc,
+        ),
+        (
+            "bytewise_quoted_backspace",
+            b"abc\x1b0R\x16X\x7f\x1b\r".to_vec(),
+            "Xabc",
+            1,
+            bytewise_rc,
+        ),
+        (
+            "bytewise_quoted_high",
+            [b"abc\x1b0R\x16\xc3\x7f\x1b\r".as_slice()].concat(),
+            "\u{fffd}abc",
+            1,
+            bytewise_rc,
+        ),
+        (
+            "bytewise_quoted_multibyte",
+            [b"abc\x1b0R\x16".as_slice(), euro, b"\x7f\x1b\r"].concat(),
+            "\u{fffd}bc",
+            0,
+            bytewise_rc,
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, rc, &env);
+        let sushline = run_sushline_harness_with_inputrc_and_env(&keys, rc, &env);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_owned()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

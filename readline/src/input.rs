@@ -591,6 +591,12 @@ where
         );
         for _ in 0..count {
             let start = state.buffer.byte_point();
+            // A quoted single byte is inserted, never overwritten, in vi
+            // replace mode, and backspace rings instead of removing it.
+            if state.overwrite_mode && state.input.quoted_single_byte {
+                state.buffer.insert_bytes(bytes);
+                continue;
+            }
             // In bytewise overwrite mode unquoted literal bytes and the tail
             // of a quoted multibyte key overwrite raw bytes one at a time,
             // while a single quoted byte is inserted. Non-bytewise modes keep

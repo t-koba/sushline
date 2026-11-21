@@ -196,20 +196,10 @@ where
                     for _ in 0..count {
                         // Bytewise overwrite applies to printable keys; GNU
                         // still inserts control bytes into the line.
-                        let point = state.buffer.byte_point();
-                        if state.overwrite_mode
-                            && point < state.buffer.len_chars()
-                            && !self.char_motion_is_bytewise()
-                        {
-                            let end = state.buffer.next_char_boundary(point);
-                            let replaced = state.buffer.as_bytes()[point..end].to_vec();
-                            state.buffer.replace_char_at_point_bytes(key);
-                            state.buffer.set_point(point + key.len());
-                            state.record_overwrite_step(point, replaced, key);
-                        } else {
-                            state.buffer.insert_bytes(key);
-                            state.record_overwrite_step(point, Vec::new(), key);
-                        }
+                        // GNU inserts control bytes in vi replace mode
+                        // instead of overwriting, and backspace cannot undo
+                        // that insertion: it rings at the replace origin.
+                        state.buffer.insert_bytes(key);
                         if state.overwrite_mode {
                             state.mark_noop_undo_if_unchanged();
                         }

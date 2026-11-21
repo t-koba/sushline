@@ -11447,3 +11447,118 @@ fn bash_and_sushline_vi_put_after_delete() {
         assert_eq!(bell_count(&sush), bells, "{keys:?}");
     }
 }
+
+/// Paired GNU 5.3 / Readline 8.3 pin for vi change case.
+///
+/// GNU rings once per application on an uncased character and leaves it
+/// unchanged. A cased character with only a multi-character mapping, such as
+/// `ß`, is also left alone but stays silent. Byte-oriented mode sees raw
+/// bytes: only ASCII letters toggle, a high byte is never replaced, and a
+/// successful toggle moves point one byte when the line continues.
+#[test]
+fn bash_and_sushline_vi_change_case() {
+    let rc = "set editing-mode vi\n";
+    let cases = [
+        ("", "~", "Z", 0),
+        ("a", "~", "ZA", 0),
+        ("1", "~", "Z1", 1),
+        ("!", "~", "Z!", 1),
+        (" ", "~", "Z ", 1),
+        ("abc", "~", "abZC", 0),
+        ("abc", "2~", "abZc", 0),
+        ("abc", "3~", "abZC", 0),
+        ("abc", "4~", "abZc", 0),
+        ("abc", "0~", "AZbc", 0),
+        ("abc", "0~.", "ABZc", 0),
+        ("abc", "1~", "abZC", 0),
+        ("abc", "01~", "AZbc", 0),
+        ("a1b", "0~", "AZ1b", 0),
+        ("a1b", "2~", "a1Zb", 0),
+        ("é", "~", "ZÉ", 0),
+        ("é", "2~", "Zé", 0),
+        ("é", "~~", "Zé", 0),
+        ("é", "~.", "Zé", 0),
+        ("é", "u~", "ZÉ", 1),
+        ("aé", "~", "aZÉ", 0),
+        ("aé", "0~", "AZé", 0),
+        ("aé", "2~", "aZé", 0),
+        ("ß", "~", "Zß", 0),
+        ("ﬁ", "~", "Zﬁ", 0),
+        ("Ä", "~", "Zä", 0),
+        ("日本", "~", "日Z本", 1),
+        ("日本", "2~", "日Z本", 2),
+        ("日本", "3~", "日Z本", 3),
+        ("ǅ", "~", "Zǆ", 0),
+        ("ῼ", "~", "Zῳ", 0),
+        ("α", "~", "ZΑ", 0),
+        ("я", "~", "ZЯ", 0),
+        ("א", "~", "Zא", 1),
+        ("😀", "~", "Z😀", 1),
+        ("ñ", "~", "ZÑ", 0),
+    ];
+    for (line, motion, expected, bells) in cases {
+        let keys = format!("{line}\x1b{motion}iZ\r");
+        let bash = run_bash_readline_with_inputrc_file(keys.as_bytes(), rc);
+        let sush = run_sushline_harness_with_inputrc(keys.as_bytes(), rc);
+        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(bell_count(&bash), bells, "{keys:?}");
+        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+    }
+
+    let byte_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C")];
+    let byte_cases = [
+        ("", "~", "Z", 0),
+        ("a", "~", "ZA", 0),
+        ("1", "~", "Z1", 1),
+        ("!", "~", "Z!", 1),
+        (" ", "~", "Z ", 1),
+        ("abc", "~", "abZC", 0),
+        ("abc", "2~", "abZc", 0),
+        ("abc", "3~", "abZC", 0),
+        ("abc", "4~", "abZc", 0),
+        ("abc", "0~", "AZbc", 0),
+        ("abc", "0~.", "ABZc", 0),
+        ("abc", "1~", "abZC", 0),
+        ("abc", "01~", "AZbc", 0),
+        ("a1b", "0~", "AZ1b", 0),
+        ("a1b", "2~", "a1Zb", 0),
+        ("é", "~", "\u{fffd}Z\u{fffd}", 1),
+        ("é", "2~", "\u{fffd}Z\u{fffd}", 2),
+        ("é", "~~", "\u{fffd}Z\u{fffd}", 2),
+        ("é", "~.", "\u{fffd}Z\u{fffd}", 2),
+        ("é", "u~", "\u{fffd}Z\u{fffd}", 2),
+        ("aé", "~", "a\u{fffd}Z\u{fffd}", 1),
+        ("aé", "0~", "AZé", 0),
+        ("aé", "2~", "a\u{fffd}Z\u{fffd}", 2),
+        ("ß", "~", "\u{fffd}Z\u{fffd}", 1),
+        ("ﬁ", "~", "\u{fffd}Z\u{fffd}", 1),
+        ("Ä", "~", "\u{fffd}Z\u{fffd}", 1),
+        ("日本", "~", "日\u{fffd}Z\u{fffd}", 1),
+        ("日本", "2~", "日\u{fffd}Z\u{fffd}", 2),
+        ("日本", "3~", "日\u{fffd}Z\u{fffd}", 3),
+        ("ǅ", "~", "\u{fffd}Z\u{fffd}", 1),
+        ("ῼ", "~", "\u{fffd}Z\u{fffd}", 1),
+        ("α", "~", "\u{fffd}Z\u{fffd}", 1),
+        ("я", "~", "\u{fffd}Z\u{fffd}", 1),
+        ("א", "~", "\u{fffd}Z\u{fffd}", 1),
+        ("😀", "~", "\u{fffd}Z\u{fffd}", 1),
+        ("ñ", "~", "\u{fffd}Z\u{fffd}", 1),
+    ];
+    for (line, motion, expected, bells) in byte_cases {
+        let keys = format!("{line}\x1b{motion}iZ\r");
+        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), byte_rc, &env);
+        let sush = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), byte_rc, &env);
+        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(bell_count(&bash), bells, "{keys:?}");
+        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+    }
+}

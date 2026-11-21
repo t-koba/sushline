@@ -608,10 +608,18 @@ where
     ) -> Result<EditorOutcome, ReadlineError> {
         match command {
             "vi-change-case" => {
+                let bytewise = self.char_motion_is_bytewise();
                 state.record_undo();
-                repeat(state, |state| {
-                    state.buffer.toggle_case_at_point();
-                });
+                let count = repeat_count(state.take_numeric_arg());
+                let mut rings = 0;
+                for _ in 0..count {
+                    if state.buffer.toggle_case_at_point(bytewise) {
+                        rings += 1;
+                    }
+                }
+                for _ in 0..rings {
+                    self.ding()?;
+                }
                 let change = state.vi_key_sequence_for_change(key);
                 state.set_vi_redo(change);
                 state.after_non_kill_command();

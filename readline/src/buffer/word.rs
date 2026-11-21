@@ -1103,7 +1103,7 @@ impl LineBuffer {
         // rather than skipped, and punctuation/space runs keep their normal
         // boundaries.
         if self.point == self.as_bytes().len() && self.point > 0 {
-            self.backup_point();
+            self.backup_word_point();
             if self.point == 0 {
                 return true;
             }
@@ -1113,44 +1113,41 @@ impl LineBuffer {
         }
 
         // At the start of a word backed by whitespace, step into the gap.
-        if let Some((prev, ch)) = self.prev_char(self.point)
-            && ch.is_whitespace()
-            && self.char_at(self.point).is_none_or(|c| !c.is_whitespace())
+        if self
+            .prev_grapheme_boundary_checked(self.point)
+            .is_some_and(|prev| self.word_class_at(prev, &is_word) == 0)
+            && !matches!(self.word_class_at(self.point, &is_word), 0 | 3)
         {
-            self.point = prev;
+            self.point = self.prev_grapheme_boundary_checked(self.point).unwrap();
             if self.point == 0 {
                 return true;
             }
         }
 
-        let cur_ident = self.char_at(self.point).is_some_and(is_word);
-        let opoint = self.backup_point();
-        let prev_ident = self.char_at(self.point).is_some_and(is_word);
-        if !((cur_ident && !prev_ident) || (!cur_ident && prev_ident)) {
+        let cur = self.word_class_at(self.point, &is_word);
+        let opoint = self.backup_word_point();
+        let prev = self.word_class_at(self.point, &is_word);
+        if !((cur == 1 && prev != 1) || (cur != 1 && prev == 1)) {
             self.point = opoint;
         }
 
-        while self.point > 0 && self.char_at(self.point).is_some_and(char::is_whitespace) {
-            self.backup_point();
+        while self.point > 0 && self.word_class_at(self.point, &is_word) == 0 {
+            self.backup_word_point();
         }
 
         if self.point > 0 {
             let mut opoint;
-            if self.char_at(self.point).is_some_and(is_word) {
+            if self.word_class_at(self.point, &is_word) == 1 {
                 loop {
-                    opoint = self.backup_point();
-                    if self.point == 0 || !self.char_at(self.point).is_some_and(is_word) {
+                    opoint = self.backup_word_point();
+                    if self.point == 0 || self.word_class_at(self.point, &is_word) != 1 {
                         break;
                     }
                 }
             } else {
                 loop {
-                    opoint = self.backup_point();
-                    if self.point == 0
-                        || self
-                            .char_at(self.point)
-                            .is_some_and(|ch| ch.is_whitespace() || is_word(ch))
-                    {
+                    opoint = self.backup_word_point();
+                    if self.point == 0 || self.word_class_at(self.point, &is_word) <= 1 {
                         break;
                     }
                 }
@@ -1162,9 +1159,21 @@ impl LineBuffer {
         self.point != start
     }
 
-    fn backup_point(&mut self) -> usize {
+    fn word_class_at<F>(&self, idx: usize, is_word: &F) -> u8
+    where
+        F: Fn(char) -> bool,
+    {
+        match self.vi_word_base_char(idx) {
+            Some(ch) if ch.is_whitespace() => 0,
+            Some(ch) if is_word(ch) => 1,
+            Some(_) => 2,
+            None => 3,
+        }
+    }
+
+    fn backup_word_point(&mut self) -> usize {
         let old = self.point;
-        if let Some((prev, _)) = self.prev_char(self.point) {
+        if let Some(prev) = self.prev_grapheme_boundary_checked(self.point) {
             self.point = prev;
         }
         old
@@ -1177,7 +1186,13 @@ impl LineBuffer {
     /// `e` stops at its end; from the end of a run it advances to the end of
     /// the following run, skipping whitespace on the way.
     pub fn vi_end_word(&mut self, break_chars: Option<&str>) -> bool {
-        let is_word = word_matcher(break_chars);
+        self.vi_end_word_by(word_matcher(break_chars))
+    }
+
+    fn vi_end_word_by<F>(&mut self, is_word: F) -> bool
+    where
+        F: Fn(char) -> bool,
+    {
         let class = |ch: char| {
             if ch.is_whitespace() {
                 0u8
@@ -1206,6 +1221,7 @@ impl LineBuffer {
             // without the extra step.
             if current != 0
                 && let Some(next) = self.next_grapheme_boundary_checked(self.point)
+                && self.char_at(next).is_some()
             {
                 self.point = next;
             }
@@ -1338,26 +1354,7 @@ impl LineBuffer {
 
     /// End bigword.
     pub fn end_bigword(&mut self) -> bool {
-        let start = self.point;
-        if self
-            .char_at(self.point)
-            .is_some_and(|ch| !ch.is_whitespace())
-        {
-            self.point = self.next_char_boundary(self.point);
-        }
-        while let Some(ch) = self.char_at(self.point) {
-            if !ch.is_whitespace() {
-                break;
-            }
-            self.point = self.next_char_boundary(self.point);
-        }
-        while let Some((next, ch)) = self.next_char(self.point) {
-            if ch.is_whitespace() {
-                break;
-            }
-            self.point = next;
-        }
-        self.point != start
+        self.vi_end_word_by(|ch| !ch.is_whitespace())
     }
 
     /// Backward filename word.

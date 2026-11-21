@@ -14312,3 +14312,50 @@ fn bash_and_sushline_vi_end_word_grapheme_boundaries() {
         assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }
 }
+
+/// Vi end motions and backward word must treat trailing marks and joiners as
+/// part of their word. A second `e`/`E` at the final character stays there,
+/// and `b` from `$` returns to the first grapheme of the word.
+#[test]
+fn bash_and_sushline_vi_grapheme_word_motion_repeats() {
+    let rc = "set editing-mode vi\n";
+    let env = [("LC_ALL", "C.UTF-8")];
+    for (desc, keys, expected, bells) in [
+        ("counted_e_mark", "e\u{301}xy\x1b2EiX\r", "e\u{301}xXy", 0),
+        ("counted_E_mark", "e\u{301}xy\x1b0WEiX\r", "e\u{301}xXy", 0),
+        (
+            "counted_E_joiner",
+            "a\u{200d}bcd\x1b2EiX\r",
+            "a\u{200d}bcXd",
+            0,
+        ),
+        ("counted_E_jamo", "\u{1160}ab\x1b2EiX\r", "\u{1160}aXb", 0),
+        (
+            "counted_E_before_space",
+            "e\u{301} x y\x1b2EiX\r",
+            "e\u{301} x Xy",
+            0,
+        ),
+        (
+            "counted_E_punctuation",
+            "e\u{301}--x\x1b2EiX\r",
+            "e\u{301}--Xx",
+            0,
+        ),
+        ("backward_mark", "e\u{301}xy\x1b$biX\r", "Xe\u{301}xy", 0),
+        (
+            "backward_joiner",
+            "a\u{200d}bcd\x1b$biX\r",
+            "Xa\u{200d}bcd",
+            0,
+        ),
+        (
+            "backward_two_marks",
+            "e\u{301}x\u{301}y\x1b$biX\r",
+            "Xe\u{301}x\u{301}y",
+            0,
+        ),
+    ] {
+        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
+    }
+}

@@ -13892,13 +13892,20 @@ fn bash_and_sushline_vi_word_motion_final_combining_grapheme() {
 }
 
 /// Paired GNU 5.3 / Readline 8.3 pin for the vi replace register: `r` makes
-/// the displaced unit pasteable, and a counted replace keeps only the last
-/// displaced unit.
+/// the displaced unit pasteable, a counted replace keeps only the last
+/// displaced unit, and a register already filled by `x` is replaced before
+/// a following `p` puts its new content.
 #[test]
 fn bash_and_sushline_vi_replace_updates_paste_register() {
     let charwise_rc = "set editing-mode vi";
     for (desc, keys, expected, bells) in [
         ("put_before", "abc\x1b0raP\r", "aabc", 0),
+        (
+            "x_seeds_register_then_replace_put",
+            "abcde\x1b0x02rQp\r",
+            "QQcde",
+            0,
+        ),
         ("put_after", "abc\x1b0rap\r", "aabc", 0),
         ("counted_put_before", "abcd\x1b02raP\r", "abacd", 0),
         ("counted_put_after", "abcd\x1b02rap\r", "aabcd", 0),

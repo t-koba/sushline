@@ -10770,3 +10770,34 @@ fn bash_and_sushline_vi_non_ascii_word_motion_bells() {
         );
     }
 }
+
+/// Paired GNU 5.3 / Readline 8.3 pin for byte-oriented vi word-motion point.
+///
+/// In byte-oriented mode GNU leaves a stalled `w`/`W` on the final byte of a
+/// multibyte character, but a motion from before that character on its first
+/// byte. The UTF-8 controls keep the grapheme back-off.
+#[test]
+fn bash_and_sushline_byte_oriented_vi_word_point_matches_gnu() {
+    let byte_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C")];
+    let cases = [
+        ("aé\u{1b}wiX\r", "a\u{fffd}X\u{fffd}", 1),
+        ("aé\u{1b}WiX\r", "a\u{fffd}X\u{fffd}", 1),
+        ("aé\u{1b}0wiX\r", "aXé", 0),
+        ("aé b\u{1b}wiX\r", "aé Xb", 1),
+    ];
+    for (keys, expected, bells) in cases {
+        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), byte_rc, &env);
+        let sush = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), byte_rc, &env);
+        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(bell_count(&bash), bells, "{keys:?}");
+        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+    }
+}

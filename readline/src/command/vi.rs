@@ -14,13 +14,30 @@ fn vi_line_ends_with_multibyte(state: &EditorState) -> bool {
     matches!(state.buffer.as_bytes().last(), Some(byte) if byte & 0xC0 == 0x80)
 }
 
-/// GNU leaves vi command point on the last character, not one past it. Move
-/// back from the end so multibyte characters stay on a grapheme boundary.
-fn clamp_vi_word_motion_point(state: &mut EditorState, had_operator: bool) {
-    if !had_operator && !state.buffer.is_empty() && state.buffer.point() >= state.buffer.len_chars()
-    {
-        state.buffer.move_end();
+/// GNU leaves vi command point on the last character, not one past it. In a
+/// byte-oriented locale, a motion that starts on the last character leaves
+/// point on its last byte; a motion from earlier leaves it on the character.
+fn clamp_vi_word_motion_point(
+    state: &mut EditorState,
+    had_operator: bool,
+    bytewise: bool,
+    before: usize,
+) -> bool {
+    if had_operator || state.buffer.is_empty() || state.buffer.point() < state.buffer.len_chars() {
+        return false;
+    }
+    let bytes = state.buffer.as_bytes();
+    let mut last_char = bytes.len() - 1;
+    while last_char > 0 && bytes[last_char] & 0xc0 == 0x80 {
+        last_char -= 1;
+    }
+    state.buffer.move_end();
+    if bytewise && before >= last_char {
+        state.buffer.move_backward_byte();
+        true
+    } else {
         state.buffer.move_backward();
+        false
     }
 }
 
@@ -351,6 +368,7 @@ where
             }
             "vi-forward-word" | "vi-fword" | "vi-next-word" => {
                 let had_operator = state.vi.vi_operator.is_some();
+                let bytewise = self.char_motion_is_bytewise();
                 if command == "vi-next-word" && key == b"W" {
                     let change_operator = matches!(state.vi.vi_operator, Some(ViOperator::Change));
                     let mut stalled = false;
@@ -363,8 +381,9 @@ where
                             } else {
                                 state.buffer.forward_bigword();
                             }
-                            clamp_vi_word_motion_point(state, had_operator);
-                            if first && state.buffer.point() == before {
+                            let stalled_at_end =
+                                clamp_vi_word_motion_point(state, had_operator, bytewise, before);
+                            if first && (stalled_at_end || state.buffer.point() == before) {
                                 stalled = true;
                             }
                             first = false;
@@ -372,7 +391,8 @@ where
                     });
                     // GNU rings once when a plain word motion cannot advance,
                     // including the first counted step that runs off the line.
-                    if stalled && !had_operator && !vi_line_ends_with_multibyte(state) {
+                    if stalled && !had_operator && (bytewise || !vi_line_ends_with_multibyte(state))
+                    {
                         self.ding()?;
                     }
                     return Ok(EditorOutcome::Continue);
@@ -390,15 +410,16 @@ where
                         repeat(state, |state| {
                             let before = state.buffer.point();
                             state.buffer.vi_forward_word(word_breaks.as_deref());
-                            clamp_vi_word_motion_point(state, had_operator);
-                            if first && state.buffer.point() == before {
+                            let stalled_at_end =
+                                clamp_vi_word_motion_point(state, had_operator, bytewise, before);
+                            if first && (stalled_at_end || state.buffer.point() == before) {
                                 stalled = true;
                             }
                             first = false;
                         });
                     }
                 });
-                if stalled && !had_operator && !vi_line_ends_with_multibyte(state) {
+                if stalled && !had_operator && (bytewise || !vi_line_ends_with_multibyte(state)) {
                     self.ding()?;
                 }
             }

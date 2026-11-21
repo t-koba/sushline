@@ -654,6 +654,18 @@ where
         {
             return Ok(None);
         }
+        // A count before `c0` does not turn the zero motion into another
+        // count digit: GNU still runs `c0` and leaves the count on the change.
+        if bytes.first() == Some(&b'0')
+            && state.vi.vi_operator.is_some()
+            && state
+                .vi
+                .vi_operator_key
+                .as_deref()
+                .is_some_and(|key| key.last() == Some(&b'c'))
+        {
+            return Ok(None);
+        }
         // Fragmentation-invariant: a batched chunk may carry a digit run
         // plus the terminating sequence (e.g. `1\x1bl` after `M--`).
         // Consume the leading run digit-by-digit like the one-byte path,
@@ -812,8 +824,12 @@ where
         let Some(body) = bytes.strip_suffix(b"\x1b") else {
             return false;
         };
-        matches!(body.first(), Some(&b'c'))
-            && matches!(body.get(1), Some(b'0' | b'h' | b'b' | b'B' | b'^'))
+        let motion = body
+            .iter()
+            .position(|byte| !byte.is_ascii_digit())
+            .unwrap_or(body.len());
+        body.get(motion) == Some(&b'c')
+            && matches!(body.get(motion + 1), Some(b'0' | b'h' | b'b' | b'B' | b'^'))
     }
 
     pub(super) fn replay_vi_change(

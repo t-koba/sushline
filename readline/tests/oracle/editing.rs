@@ -10910,3 +10910,33 @@ fn bash_and_sushline_zero_width_change_repeated_dot_point() {
         assert_eq!(bell_count(&sush), bells, "{keys:?}");
     }
 }
+
+/// Paired GNU 5.3 / Readline 8.3 pin for counted zero-width vi changes.
+///
+/// A count before `c0` must not absorb the zero motion as another count
+/// digit; the change and its dot replay keep GNU's accepted line and point.
+#[test]
+fn bash_and_sushline_counted_zero_width_change_matches_gnu() {
+    let rc = "set editing-mode vi\n";
+    let cases = [
+        ("abc\u{1b}02c0X\u{1b}\r", "Xabc", 0),
+        ("abc\u{1b}02chX\u{1b}\r", "Xabc", 1),
+        ("abc\u{1b}02cbX\u{1b}\r", "Xabc", 1),
+        ("abc\u{1b}03c0XY\u{1b}\r", "XYabc", 0),
+        ("abc\u{1b}02c0XYZ\u{1b}\r", "XYZabc", 0),
+        ("abc\u{1b}02c0iY\u{1b}\r", "iYabc", 0),
+        ("abc\u{1b}02c0X\u{1b}.\r", "XXabc", 0),
+        ("abc\u{1b}02c0X\u{1b}..\r", "XXabc", 0),
+        ("abc\u{1b}02c0X\u{1b}.iY\u{1b}\r", "XYXabc", 0),
+        ("abc\u{1b}2c0X\u{1b}\r", "Xc", 0),
+        ("abc\u{1b}0c0X\u{1b}\r", "Xabc", 0),
+    ];
+    for (keys, expected, bells) in cases {
+        let bash = run_bash_readline_with_inputrc_file(keys.as_bytes(), rc);
+        let sush = run_sushline_harness_with_inputrc(keys.as_bytes(), rc);
+        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(bell_count(&bash), bells, "{keys:?}");
+        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+    }
+}

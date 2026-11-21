@@ -12593,3 +12593,164 @@ fn bash_and_sushline_byte_oriented_change_word_undo_redo() {
         );
     }
 }
+
+/// Vi character-search motions used with operators keep raw-byte ranges in
+/// byte-oriented mode. A count that cannot be met reaches the last match,
+/// rings once and still lets the pending operator act on that point.
+#[test]
+fn bash_and_sushline_byte_oriented_operator_char_search() {
+    let byte_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C")];
+    let e = "\u{e9}".as_bytes();
+    let c3 = [0xc3u8];
+    let a9 = [0xa9u8];
+    let one = || [b"a".as_slice(), e, b"bc:d"].concat();
+    let two = || [b"a".as_slice(), e, b"bc:d:e"].concat();
+    for (desc, keys, expected, bells) in [
+        (
+            "cf_lead",
+            [one().as_slice(), b"\x1b0f", &c3, b"cf:Z\x1b\r"].concat(),
+            "aZd",
+            0,
+        ),
+        (
+            "df_lead",
+            [one().as_slice(), b"\x1b0f", &c3, b"df:\r"].concat(),
+            "ad",
+            0,
+        ),
+        (
+            "yf_lead_put",
+            [one().as_slice(), b"\x1b0f", &c3, b"yf:p\r"].concat(),
+            "a\u{fffd}\u{e9}bc:\u{fffd}bc:d",
+            0,
+        ),
+        (
+            "ct_lead",
+            [one().as_slice(), b"\x1b0f", &c3, b"ct:Z\x1b\r"].concat(),
+            "aZ:d",
+            0,
+        ),
+        (
+            "dt_lead",
+            [one().as_slice(), b"\x1b0f", &c3, b"dt:\r"].concat(),
+            "a:d",
+            0,
+        ),
+        (
+            "yt_lead_put",
+            [one().as_slice(), b"\x1b0f", &c3, b"yt:p\r"].concat(),
+            "a\u{fffd}\u{e9}bc\u{fffd}bc:d",
+            0,
+        ),
+        (
+            "cf_cont",
+            [one().as_slice(), b"\x1b0f", &a9, b"cf:Z\x1b\r"].concat(),
+            "a\u{fffd}Zd",
+            0,
+        ),
+        (
+            "df_cont",
+            [one().as_slice(), b"\x1b0f", &a9, b"df:\r"].concat(),
+            "a\u{fffd}d",
+            0,
+        ),
+        (
+            "ct_cont",
+            [one().as_slice(), b"\x1b0f", &a9, b"ct:Z\x1b\r"].concat(),
+            "a\u{fffd}Z:d",
+            0,
+        ),
+        (
+            "cf_ascii",
+            [one().as_slice(), b"\x1b0cf:Z\x1b\r"].concat(),
+            "Zd",
+            0,
+        ),
+        (
+            "df_ascii",
+            [one().as_slice(), b"\x1b0df:\r"].concat(),
+            "d",
+            0,
+        ),
+        (
+            "df_raw_byte",
+            [one().as_slice(), b"\x1b0df", &a9, b"\r"].concat(),
+            "bc:d",
+            0,
+        ),
+        (
+            "backward_search",
+            [one().as_slice(), b"\x1b$f", &c3, b"dFa\r"].concat(),
+            "d",
+            1,
+        ),
+        (
+            "two_c2f",
+            [two().as_slice(), b"\x1b0f", &c3, b"c2f:Z\x1b\r"].concat(),
+            "aZe",
+            0,
+        ),
+        (
+            "two_d2f",
+            [two().as_slice(), b"\x1b0f", &c3, b"d2f:\r"].concat(),
+            "ae",
+            0,
+        ),
+        (
+            "one_c2f",
+            [one().as_slice(), b"\x1b0f", &c3, b"c2f:Z\x1b\r"].concat(),
+            "aZd",
+            1,
+        ),
+        (
+            "one_d2f",
+            [one().as_slice(), b"\x1b0f", &c3, b"d2f:\r"].concat(),
+            "ad",
+            1,
+        ),
+        (
+            "one_y2f_put",
+            [one().as_slice(), b"\x1b0f", &c3, b"y2f:p\r"].concat(),
+            "a\u{fffd}\u{e9}bc:\u{fffd}bc:d",
+            1,
+        ),
+        (
+            "one_d2t",
+            [one().as_slice(), b"\x1b0f", &c3, b"d2t:\r"].concat(),
+            "a:d",
+            1,
+        ),
+        (
+            "one_f2_plain",
+            [one().as_slice(), b"\x1b0f", &c3, b"2f:x\r"].concat(),
+            "a\u{e9}bcd",
+            1,
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, byte_rc, &env);
+        let sush = run_sushline_harness_with_inputrc_and_env(&keys, byte_rc, &env);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_owned()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sush),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sush}"
+        );
+        assert_eq!(
+            bell_count(&sush),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sush}"
+        );
+    }
+}

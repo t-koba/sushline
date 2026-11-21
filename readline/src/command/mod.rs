@@ -17,6 +17,12 @@ mod shell_words;
 mod typed;
 mod vi;
 
+#[derive(Clone, Copy)]
+pub(crate) struct CharSearchBehavior {
+    pub(crate) repeat: bool,
+    pub(crate) keep_partial: bool,
+}
+
 use completion_cmd::named_completion_command;
 
 impl<T> Editor<T>

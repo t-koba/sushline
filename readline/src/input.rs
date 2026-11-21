@@ -1039,8 +1039,17 @@ where
         // Fragmentation-invariant: only the first character is the search
         // key; trailing bytes are separate input like split reads.
         if let Some(ch) = char_search_key(&first) {
-            let success =
-                self.apply_char_search(state, search, ch, count.unsigned_abs() as usize, bytewise)?;
+            let success = self.apply_char_search(
+                state,
+                search,
+                ch,
+                count.unsigned_abs() as usize,
+                bytewise,
+                crate::command::CharSearchBehavior {
+                    repeat: false,
+                    keep_partial: op_start.is_some(),
+                },
+            )?;
             // GNU remembers the target even when the first search fails:
             // `,` can then repeat it in the opposite direction.
             state.vi.last_char_search = Some((search, ch));

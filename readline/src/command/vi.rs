@@ -1224,7 +1224,17 @@ where
                 let op_start = state.take_vi_operator();
                 let count = state.numeric_arg.unwrap_or(1).unsigned_abs() as usize;
                 if let Some((mode, ch)) = state.vi.last_char_search {
-                    if self.apply_char_search_with_repeat(state, mode, ch, count, true, bytewise)? {
+                    if self.apply_char_search_with_repeat(
+                        state,
+                        mode,
+                        ch,
+                        count,
+                        bytewise,
+                        CharSearchBehavior {
+                            repeat: true,
+                            keep_partial: op_start.is_some(),
+                        },
+                    )? {
                         self.finish_vi_motion_operator(state, op_start, key, true);
                     } else {
                         state.cancel_pending_command();
@@ -1243,8 +1253,11 @@ where
                         mode.reversed(),
                         ch,
                         count,
-                        true,
                         bytewise,
+                        CharSearchBehavior {
+                            repeat: true,
+                            keep_partial: op_start.is_some(),
+                        },
                     )? {
                         self.finish_vi_motion_operator(state, op_start, key, true);
                     } else {
@@ -1272,8 +1285,9 @@ where
         ch: char,
         count: usize,
         bytewise: bool,
+        behavior: CharSearchBehavior,
     ) -> Result<bool, ReadlineError> {
-        self.apply_char_search_with_repeat(state, mode, ch, count, false, bytewise)
+        self.apply_char_search_with_repeat(state, mode, ch, count, bytewise, behavior)
     }
 
     fn apply_char_search_with_repeat(
@@ -1282,9 +1296,10 @@ where
         mode: CharSearchMode,
         ch: char,
         count: usize,
-        repeat: bool,
         bytewise: bool,
+        behavior: CharSearchBehavior,
     ) -> Result<bool, ReadlineError> {
+        let repeat = behavior.repeat;
         if count == 0 {
             return Ok(true);
         }
@@ -1350,7 +1365,9 @@ where
         if !complete {
             self.ding()?;
         }
-        Ok(complete)
+        // A short count still reaches the last match: with an operator
+        // pending GNU uses that point instead of discarding the motion.
+        Ok(complete || behavior.keep_partial)
     }
 
     pub(crate) fn apply_vi_operator_range(

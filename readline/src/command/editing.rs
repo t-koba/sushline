@@ -201,10 +201,7 @@ where
                             && point < state.buffer.len_chars()
                             && !self.char_motion_is_bytewise()
                         {
-                            let end = state
-                                .buffer
-                                .next_boundary(point)
-                                .unwrap_or(state.buffer.as_bytes().len());
+                            let end = state.buffer.next_char_boundary(point);
                             let replaced = state.buffer.as_bytes()[point..end].to_vec();
                             state.buffer.replace_char_at_point_bytes(key);
                             state.buffer.set_point(point + key.len());
@@ -243,10 +240,7 @@ where
                                             state.record_overwrite_step(at, replaced, &[byte]);
                                         }
                                     } else {
-                                        let end = state
-                                            .buffer
-                                            .next_boundary(start)
-                                            .unwrap_or(state.buffer.as_bytes().len());
+                                        let end = state.buffer.next_char_boundary(start);
                                         let replaced = state.buffer.as_bytes()[start..end].to_vec();
                                         state.buffer.set_char_at_point(ch);
                                         state.buffer.move_forward();

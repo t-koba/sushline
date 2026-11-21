@@ -13547,6 +13547,14 @@ fn bash_and_sushline_vi_overstrike_backspace_tracks_typed_units() {
             bytewise_rc,
             &c[..],
         ),
+        (
+            "combining_mark",
+            "e\u{301}x\x1b0RX\x7f\x1b\r".as_bytes().to_vec(),
+            "e\u{301}x",
+            0,
+            charwise_rc,
+            &utf8[..],
+        ),
     ] {
         let bash = run_bash_readline_with_inputrc_file_and_env(&keys, rc, env);
         let sushline = run_sushline_harness_with_inputrc_and_env(&keys, rc, env);

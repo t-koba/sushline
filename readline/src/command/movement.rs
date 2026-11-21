@@ -13,6 +13,24 @@ where
         inclusive: bool,
     ) {
         if let Some((op, start, mut change)) = op_start {
+            // A char-search motion leaves point on the target's first byte.
+            // An inclusive operator must cover the whole target character;
+            // otherwise `df<multibyte>` leaves a truncated final byte.
+            if inclusive && !self.variables.is_on("byte-oriented") {
+                let is_search_key = matches!(key, b"f" | b"F" | b"t" | b"T" | b";" | b",")
+                    || std::str::from_utf8(key).is_ok_and(|text| {
+                        text.chars()
+                            .next()
+                            .is_some_and(|ch| key.len() == ch.len_utf8())
+                    });
+                if is_search_key
+                    && let Some((mode, ch)) = state.vi.last_char_search
+                    && matches!(mode, CharSearchMode::Forward | CharSearchMode::Backward)
+                {
+                    let end = state.buffer.point() + ch.len_utf8() - 1;
+                    state.buffer.set_point(end.min(state.buffer.len_chars()));
+                }
+            }
             if !self.apply_vi_operator_range(state, op, start, inclusive) {
                 // GNU still enters insert mode when a change motion spans no
                 // text; the typed replacement becomes the redo change. Other

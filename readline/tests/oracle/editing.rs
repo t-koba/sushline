@@ -14359,3 +14359,55 @@ fn bash_and_sushline_vi_grapheme_word_motion_repeats() {
         assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }
 }
+
+/// An inclusive vi operator following a multibyte character search covers the
+/// whole target character, including a combining mark that shares a grapheme
+/// with its base. Exact bytes prevent accepting a truncated UTF-8 tail.
+#[test]
+fn bash_and_sushline_vi_char_search_operator_matches_whole_multibyte() {
+    let rc = "set editing-mode vi\n";
+    let env = [("LC_ALL", "C.UTF-8")];
+    for (desc, keys, expected, bells) in [
+        ("delete_precomposed", "a\u{e9}b\x1b0df\u{e9}\r", "b", 0),
+        ("change_precomposed", "a\u{e9}b\x1b0cf\u{e9}Z\r", "Zb", 0),
+        (
+            "yank_precomposed",
+            "a\u{e9}b\x1b0yf\u{e9}p\r",
+            "aa\u{e9}\u{e9}b",
+            0,
+        ),
+        ("delete_combining", "e\u{301}x-y\x1b0df\u{301}\r", "x-y", 0),
+        (
+            "change_combining",
+            "e\u{301}x-y\x1b0cf\u{301}Z\r",
+            "Zx-y",
+            0,
+        ),
+        (
+            "delete_mid_combining",
+            "e\u{301}x e\u{301}y\x1b0df\u{301}\r",
+            "x e\u{301}y",
+            0,
+        ),
+        (
+            "counted_delete_precomposed",
+            "x\u{e9}a\u{e9}b\x1b02df\u{e9}\r",
+            "b",
+            0,
+        ),
+        (
+            "delete_second_combining",
+            "a\u{301}b\u{301}c\x1b0df\u{301}\r",
+            "b\u{301}c",
+            0,
+        ),
+        (
+            "backward_delete_precomposed",
+            "a\u{e9}b\x1b$F\u{e9}x\r",
+            "ab",
+            0,
+        ),
+    ] {
+        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
+    }
+}

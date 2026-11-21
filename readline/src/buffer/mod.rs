@@ -640,14 +640,24 @@ impl LineBuffer {
     }
 
     fn prev_grapheme_boundary_checked(&self, idx: usize) -> Option<usize> {
-        let idx = self.clamp_boundary(idx);
+        let mut idx = self.clamp_boundary(idx);
         if idx == 0 {
             return None;
         }
-        self.grapheme_boundaries()
-            .into_iter()
-            .take_while(|boundary| *boundary < idx)
-            .last()
+        let mut prev = self.prev_char(idx)?.0;
+        // Trailing marks belong to the base before them when moving backward;
+        // a leading mark stays its own character, as GNU's ESC backoff shows.
+        while prev > 0 {
+            let Some(ch) = self.char_at(prev) else {
+                break;
+            };
+            if !is_grapheme_extend(ch) && ch != '\u{200d}' {
+                break;
+            }
+            prev = self.prev_char(prev)?.0;
+        }
+        idx = prev;
+        Some(idx)
     }
 
     /// If the point lies inside the final grapheme, move it to that

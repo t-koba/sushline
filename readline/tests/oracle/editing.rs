@@ -14094,8 +14094,9 @@ fn bash_and_sushline_vi_replace_combining_grapheme_exact_bytes() {
 /// Paired GNU 5.3 / Readline 8.3 pin for `~` over grapheme clusters.
 ///
 /// A cased scalar maps its whole GNU character, dropping trailing marks or a
-/// joiner. An uncased leading mark or Jamo is skipped silently when the line
-/// continues; a final uncased GNU character rings.
+/// joiner. An uncased leading cluster skips its base when another character
+/// follows, and otherwise stops after its first scalar; a final uncased GNU
+/// character rings.
 #[test]
 fn bash_and_sushline_vi_change_case_over_graphemes() {
     let rc = "set editing-mode vi\n";
@@ -14111,6 +14112,46 @@ fn bash_and_sushline_vi_change_case_over_graphemes() {
         ("mark_leading", "\u{301}a\x1b0~\r", "\u{301}a", 0),
         ("jamo_final", "\u{1160}\x1b0~\r", "\u{1160}", 1),
         ("multichar_mapping", "ßx\x1b0~iX\r", "ßXx", 0),
+        ("esc_leading_mark", "\u{301}a\x1biX\r", "\u{301}Xa", 0),
+        ("esc_leading_jamo", "\u{1160}a\x1biX\r", "\u{1160}Xa", 0),
+        ("change_leading_mark", "\u{301}a\x1b~iX\r", "\u{301}XA", 0),
+        ("change_leading_jamo", "\u{1160}a\x1b~iX\r", "\u{1160}XA", 0),
+        (
+            "skip_long_leading_mark",
+            "\u{301}ab\x1b0~iX\r",
+            "\u{301}aXb",
+            0,
+        ),
+        (
+            "skip_long_leading_mark_delete",
+            "\u{301}ab\x1b0~x\r",
+            "\u{301}a",
+            0,
+        ),
+        (
+            "skip_long_leading_mark_count",
+            "\u{301}ab\x1b0~2~\r",
+            "\u{301}ab",
+            0,
+        ),
+        (
+            "skip_two_leading_marks",
+            "\u{301}\u{301}ab\x1b0~iX\r",
+            "\u{301}\u{301}aXb",
+            0,
+        ),
+        (
+            "skip_short_leading_jamo",
+            "\u{1160}a\x1b0~iX\r",
+            "\u{1160}Xa",
+            0,
+        ),
+        (
+            "skip_long_leading_jamo",
+            "\u{1160}ab\x1b0~iX\r",
+            "\u{1160}aXb",
+            0,
+        ),
     ] {
         assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }

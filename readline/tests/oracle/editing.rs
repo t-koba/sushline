@@ -12018,9 +12018,9 @@ fn bash_and_sushline_vi_char_search_byte_oriented_multibyte_keys() {
 }
 
 /// Paired GNU 5.3 / Readline 8.3 pin for byte-oriented multibyte input in
-/// command-key paths other than character search. Numeric arguments, vi
-/// registers, quoted insert, incremental search, named commands and macro
-/// prefixes already consume multibyte input byte by byte.
+/// command-key paths other than character search. Numeric arguments, an
+/// unbound quote prefix, quoted insert, incremental search, named commands
+/// and macro prefixes already consume multibyte input byte by byte.
 #[test]
 fn bash_and_sushline_byte_oriented_command_key_boundary() {
     let byte_rc = concat!(
@@ -12053,7 +12053,7 @@ fn bash_and_sushline_byte_oriented_command_key_boundary() {
             2,
         ),
         (
-            "register_then_e",
+            "unbound_quote_then_e",
             [b"abc\x1b\"".as_slice(), e, b"x\r"].concat(),
             "ab",
             3,

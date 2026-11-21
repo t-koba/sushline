@@ -220,6 +220,7 @@ pub(super) fn is_grapheme_extend(ch: char) -> bool {
     matches!(
         ch as u32,
         0x0300..=0x036f
+            | 0x1160..=0x11ff
             | 0x0483..=0x0489
             | 0x0591..=0x05bd
             | 0x05bf
@@ -919,6 +920,16 @@ impl LineBuffer {
     /// a mark as part of the preceding grapheme, not as a separate scalar.
     fn vi_word_base_char(&self, idx: usize) -> Option<char> {
         let (_, mut ch) = self.decoded_char_at(idx)?;
+        if ch == '\u{200d}' {
+            // A leading ZWJ takes its class from the character it joins.
+            let mut forward = self.next_char_boundary(idx);
+            while let Some((_, next)) = self.decoded_char_at(forward) {
+                if next != '\u{200d}' {
+                    return Some(next);
+                }
+                forward = self.next_char_boundary(forward);
+            }
+        }
         let mut at = idx;
         while is_grapheme_extend(ch) || ch == '\u{200d}' {
             (at, ch) = self.decoded_prev_char(at)?;

@@ -58,11 +58,23 @@ fn clamp_vi_word_motion_point(
     while last_char > 0 && bytes[last_char] & 0xc0 == 0x80 {
         last_char -= 1;
     }
+    let zwj = "\u{200d}".as_bytes();
+    let final_joined_cluster =
+        !bytewise && !bytes.ends_with(zwj) && bytes.windows(zwj.len()).any(|window| window == zwj);
     state.buffer.move_end();
     // Bigword scans non-whitespace bytes one at a time, so GNU backs off a
     // single byte even when the motion started before the final character.
     if bytewise && (bigword || before >= last_char) {
         state.buffer.move_backward_byte();
+    } else if final_joined_cluster {
+        // GNU keeps ZWJ as a separate scalar here: a final joined cluster
+        // still backs off to the last character, not the cluster's start.
+        if let Some(prev) = state
+            .buffer
+            .prev_char_boundary_checked(state.buffer.point())
+        {
+            state.buffer.set_point(prev);
+        }
     } else {
         state.buffer.move_backward();
     }

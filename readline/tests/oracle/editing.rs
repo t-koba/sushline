@@ -13975,6 +13975,18 @@ fn bash_and_sushline_vi_word_motion_combining_mark_graphemes() {
             0,
         ),
         ("w_after_zwj", "a\u{200d}b f\x1b0wiX\r", "a\u{200d}b Xf", 0),
+        ("w_end_hangul_jamo", "e\u{1160}\x1b0wiX\r", "Xe\u{1160}", 0),
+        ("x_end_hangul_jamo", "e\u{1160}\x1b0wx\r", "", 0),
+        ("w_end_zwj", "a\u{200d}b\x1b0wiX\r", "a\u{200d}Xb", 0),
+        ("x_end_zwj", "a\u{200d}b\x1b0wx\r", "a\u{200d}", 0),
+        ("w_leading_zwj", "\u{200d}ab\x1b0wiX\r", "\u{200d}aXb", 0),
+        (
+            "w_end_double_zwj",
+            "a\u{200d}\u{200d}b\x1b0wiX\r",
+            "a\u{200d}\u{200d}Xb",
+            0,
+        ),
+        ("w_end_trailing_zwj", "a\u{200d}\x1b0wiX\r", "Xa\u{200d}", 0),
     ] {
         let bash = run_bash_readline_with_bindings(keys.as_bytes(), rc);
         let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), rc);

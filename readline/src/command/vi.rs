@@ -267,20 +267,45 @@ where
                 });
             }
             "vi-backward-word" | "vi-bword" | "vi-prev-word" => {
+                // GNU rings when b/B fails on its first step from column zero,
+                // including counted motions; later steps that run out of line
+                // after a successful first step stay silent. A change operator
+                // has its own zero-width behavior and is handled separately.
+                let had_change_operator = matches!(state.vi.vi_operator, Some(ViOperator::Change));
                 if command == "vi-prev-word" && key == b"B" {
+                    let mut stalled = false;
                     self.apply_vi_motion_with_operator(state, key, false, |state| {
+                        let mut first = true;
                         repeat(state, |state| {
+                            let before = state.buffer.point();
                             state.buffer.backward_bigword();
+                            if first && state.buffer.point() == before {
+                                stalled = true;
+                            }
+                            first = false;
                         });
                     });
+                    if stalled && !had_change_operator {
+                        self.ding()?;
+                    }
                     return Ok(EditorOutcome::Continue);
                 }
                 let word_breaks = self.editing_word_breaks(hooks);
+                let mut stalled = false;
                 self.apply_vi_motion_with_operator(state, key, false, |state| {
+                    let mut first = true;
                     repeat(state, |state| {
+                        let before = state.buffer.point();
                         state.buffer.vi_backward_word(word_breaks.as_deref());
+                        if first && state.buffer.point() == before {
+                            stalled = true;
+                        }
+                        first = false;
                     });
                 });
+                if stalled && !had_change_operator {
+                    self.ding()?;
+                }
             }
             "vi-column" => {
                 self.apply_vi_motion_with_operator(state, key, false, |state| {

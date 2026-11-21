@@ -10535,3 +10535,133 @@ fn bash_and_sushline_vi_failed_word_motion_rings() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_failed_backward_word_motion_rings() {
+    let inputrc = "set editing-mode vi\n";
+    let cases = [
+        ("empty_b", "\u{1b}b\r", "", 1),
+        ("empty_B", "\u{1b}B\r", "", 1),
+        ("column_zero_b", "abc\u{1b}0b\r", "abc", 1),
+        ("column_zero_B", "abc\u{1b}0B\r", "abc", 1),
+        ("column_zero_empty", "\u{1b}0b\r", "", 1),
+        (
+            "column_zero_repeated_b",
+            "abc def ghi\u{1b}0bbb\r",
+            "abc def ghi",
+            3,
+        ),
+        (
+            "column_zero_repeated_B",
+            "abc def ghi\u{1b}0BBBB\r",
+            "abc def ghi",
+            4,
+        ),
+        (
+            "column_zero_counted_b",
+            "abc def ghi\u{1b}02b\r",
+            "abc def ghi",
+            1,
+        ),
+        (
+            "column_zero_large_B",
+            "abc def ghi\u{1b}010B\r",
+            "abc def ghi",
+            1,
+        ),
+        (
+            "column_zero_trailing_count",
+            "abc def ghi\u{1b}0b2\r",
+            "abc def ghi",
+            1,
+        ),
+        ("from_middle_b", "abc def ghi\u{1b}0lb\r", "abc def ghi", 0),
+        (
+            "from_middle_repeated_b",
+            "abc def ghi\u{1b}0lbb\r",
+            "abc def ghi",
+            1,
+        ),
+        (
+            "from_end_count_overshoots",
+            "abc def ghi\u{1b}10b\r",
+            "abc def ghi",
+            0,
+        ),
+        (
+            "from_end_large_B_overshoots",
+            "abc def ghi\u{1b}10B\r",
+            "abc def ghi",
+            0,
+        ),
+        (
+            "delete_at_column_zero",
+            "abc def ghi\u{1b}0db\r",
+            "abc def ghi",
+            1,
+        ),
+        (
+            "delete_bigword_at_column_zero",
+            "abc def ghi\u{1b}0dB\r",
+            "abc def ghi",
+            1,
+        ),
+        (
+            "delete_counted_at_column_zero",
+            "abc def ghi\u{1b}0d2b\r",
+            "abc def ghi",
+            1,
+        ),
+        (
+            "yank_at_column_zero",
+            "abc def ghi\u{1b}0yb\r",
+            "abc def ghi",
+            1,
+        ),
+        ("delete_success", "abc def ghi\u{1b}db\r", "abc def i", 0),
+        (
+            "delete_bigword_success",
+            "abc def ghi\u{1b}dB\r",
+            "abc def i",
+            0,
+        ),
+        (
+            "failed_motion_keeps_point",
+            "abc def ghi\u{1b}0biX\r",
+            "Xabc def ghi",
+            1,
+        ),
+        (
+            "failed_bigword_keeps_point",
+            "abc def ghi\u{1b}0BaX\r",
+            "aXbc def ghi",
+            1,
+        ),
+        (
+            "back_off_then_failed_motion",
+            "abc def ghi\u{1b}0hdb\r",
+            "abc def ghi",
+            2,
+        ),
+    ];
+    for (name, keys, expected, bells) in cases {
+        let bash = run_bash_readline_with_inputrc_file(keys.as_bytes(), inputrc);
+        let sush = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "{name}: bash={bash:?}"
+        );
+        assert_eq!(
+            accepted_line(&sush),
+            accepted_line(&bash),
+            "{name}: bash={bash:?} sushline={sush:?}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{name}: bash={bash:?}");
+        assert_eq!(
+            bell_count(&sush),
+            bell_count(&bash),
+            "{name}: bash={bash:?} sushline={sush:?}"
+        );
+    }
+}

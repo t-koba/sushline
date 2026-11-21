@@ -185,6 +185,15 @@ impl LineBuffer {
         }
     }
 
+    /// Recover the raw byte carried by a character-search key.
+    pub(crate) fn search_byte_for_char(ch: char) -> Option<u8> {
+        if ch.is_ascii() {
+            Some(ch as u8)
+        } else {
+            private_byte_value(ch)
+        }
+    }
+
     /// Set char before point.
     pub fn set_char_before_point(&mut self, ch: char) -> bool {
         let Some(start) = self.prev_char_boundary_checked(self.point) else {

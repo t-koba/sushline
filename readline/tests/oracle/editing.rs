@@ -11890,8 +11890,8 @@ fn bash_and_sushline_vi_char_search_multibyte_and_byte_modes() {
         );
     }
 
-    // A multibyte character typed as a search target is deliberately outside
-    // this pin: Readline consumes its first byte and treats the rest as input.
+    // In byte-oriented mode a multibyte search target contributes only its
+    // first raw byte; the remaining bytes are redispatched as input.
     let byte_rc = concat!(
         "set editing-mode vi\n",
         "set input-meta on\n",
@@ -11931,6 +11931,88 @@ fn bash_and_sushline_vi_char_search_multibyte_and_byte_modes() {
             bell_count(&sushline),
             bell_count(&bash),
             "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+/// Paired GNU 5.3 / Readline 8.3 pin for byte-oriented multibyte search keys.
+///
+/// Readline consumes only the first raw byte of a multibyte search target;
+/// the remaining bytes reach vi command mode as unbound keys and ring.
+#[test]
+fn bash_and_sushline_vi_char_search_byte_oriented_multibyte_keys() {
+    let byte_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C")];
+    let e = "\u{e9}".as_bytes();
+    let kanji = "日".as_bytes();
+    for (desc, keys, expected, bells) in [
+        (
+            "f_e_accent",
+            [b"abc\x1b0f".as_slice(), e, b"X\r"].concat(),
+            "abc",
+            3,
+        ),
+        (
+            "f_kanji",
+            [b"abc\x1b0f".as_slice(), kanji, b"X\r"].concat(),
+            "abc",
+            4,
+        ),
+        (
+            "F_e_accent",
+            [b"abc\x1b$".as_slice(), e, b"\x1b0F", e, b"x\r"].concat(),
+            "bc",
+            4,
+        ),
+        (
+            "t_e_accent",
+            [b"abc\x1b0t".as_slice(), e, b"x\r"].concat(),
+            "bc",
+            2,
+        ),
+        (
+            "T_e_accent",
+            [b"abc\x1b$T".as_slice(), e, b"x\r"].concat(),
+            "ab",
+            2,
+        ),
+        // A raw byte target finds that byte inside an otherwise valid scalar.
+        (
+            "f_first_raw_byte",
+            [b"a".as_slice(), e, b"b\x1b0f", &[0xc3], b"x\r"].concat(),
+            "a\u{fffd}b",
+            0,
+        ),
+        (
+            "f_second_raw_byte",
+            [b"a".as_slice(), e, b"b\x1b0f", &[0xa9], b"x\r"].concat(),
+            "a\u{fffd}b",
+            0,
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, byte_rc, &env);
+        let sush = run_sushline_harness_with_inputrc_and_env(&keys, byte_rc, &env);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_owned()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sush),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sush}"
+        );
+        assert_eq!(
+            bell_count(&sush),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sush}"
         );
     }
 }

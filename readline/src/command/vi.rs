@@ -1195,6 +1195,7 @@ where
         command: &str,
         key: &[u8],
     ) -> Result<(), ReadlineError> {
+        let bytewise = self.variables.is_on("byte-oriented");
         let mode = match (command, key) {
             ("character-search", _) => Some(CharSearchMode::Forward),
             ("character-search-backward", _) => Some(CharSearchMode::Backward),
@@ -1206,7 +1207,7 @@ where
                 let op_start = state.take_vi_operator();
                 let count = state.numeric_arg.unwrap_or(1).unsigned_abs() as usize;
                 if let Some((mode, ch)) = state.vi.last_char_search {
-                    if self.apply_char_search_with_repeat(state, mode, ch, count, true)? {
+                    if self.apply_char_search_with_repeat(state, mode, ch, count, true, bytewise)? {
                         self.finish_vi_motion_operator(state, op_start, key, true);
                     } else {
                         state.cancel_pending_command();
@@ -1226,6 +1227,7 @@ where
                         ch,
                         count,
                         true,
+                        bytewise,
                     )? {
                         self.finish_vi_motion_operator(state, op_start, key, true);
                     } else {
@@ -1252,8 +1254,9 @@ where
         mode: CharSearchMode,
         ch: char,
         count: usize,
+        bytewise: bool,
     ) -> Result<bool, ReadlineError> {
-        self.apply_char_search_with_repeat(state, mode, ch, count, false)
+        self.apply_char_search_with_repeat(state, mode, ch, count, false, bytewise)
     }
 
     fn apply_char_search_with_repeat(
@@ -1263,30 +1266,53 @@ where
         ch: char,
         count: usize,
         repeat: bool,
+        bytewise: bool,
     ) -> Result<bool, ReadlineError> {
         if count == 0 {
             return Ok(true);
         }
         let point = state.buffer.point();
-        let (found, complete) = match mode {
-            CharSearchMode::Forward => state.buffer.find_nth_forward_from(
-                ch,
-                count,
-                state.buffer.next_char_boundary(point),
-            ),
-            CharSearchMode::Backward => state.buffer.find_nth_backward_before(ch, count),
-            CharSearchMode::TillForward => {
-                // GNU counts the previously found target as the first match
-                // of a repeat, for both `;` after `t` and `,` after `T`.
-                let start = point.saturating_add(1);
-                state.buffer.find_nth_forward_from(ch, count, start)
-            }
-            CharSearchMode::TillBackward if repeat => {
-                state
+        let byte_target = bytewise
+            .then_some(ch)
+            .and_then(LineBuffer::search_byte_for_char);
+        let (found, complete) = if let Some(byte) = byte_target {
+            // A byte-oriented search starts one raw byte past point forward
+            // and one raw byte before it backward.
+            match mode {
+                CharSearchMode::Forward | CharSearchMode::TillForward => state
                     .buffer
-                    .find_nth_backward_from(ch, count, point.saturating_sub(1))
+                    .find_nth_byte_forward_from(byte, count, point.saturating_add(1)),
+                CharSearchMode::Backward => state.buffer.find_nth_byte_backward_before(byte, count),
+                CharSearchMode::TillBackward if repeat => {
+                    state
+                        .buffer
+                        .find_nth_byte_backward_from(byte, count, point.saturating_sub(1))
+                }
+                CharSearchMode::TillBackward => {
+                    state.buffer.find_nth_byte_backward_before(byte, count)
+                }
             }
-            CharSearchMode::TillBackward => state.buffer.find_nth_backward_before(ch, count),
+        } else {
+            match mode {
+                CharSearchMode::Forward => state.buffer.find_nth_forward_from(
+                    ch,
+                    count,
+                    state.buffer.next_char_boundary(point),
+                ),
+                CharSearchMode::Backward => state.buffer.find_nth_backward_before(ch, count),
+                CharSearchMode::TillForward => {
+                    // GNU counts the previously found target as the first match
+                    // of a repeat, for both `;` after `t` and `,` after `T`.
+                    let start = point.saturating_add(1);
+                    state.buffer.find_nth_forward_from(ch, count, start)
+                }
+                CharSearchMode::TillBackward if repeat => {
+                    state
+                        .buffer
+                        .find_nth_backward_from(ch, count, point.saturating_sub(1))
+                }
+                CharSearchMode::TillBackward => state.buffer.find_nth_backward_before(ch, count),
+            }
         };
 
         let Some(mut pos) = found else {

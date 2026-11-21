@@ -1022,9 +1022,11 @@ where
         if state.vi.pending_char_search.is_none() {
             return Ok(None);
         }
-        // The search takes a character, so the bytes of an incomplete one
-        // wait for the rest of it and the pending search stays pending.
-        let Some((first, rest)) = take_pending_character(state, bytes) else {
+        // A byte-oriented search takes one raw byte; otherwise the bytes of
+        // an incomplete character wait for the rest of it and the search
+        // stays pending.
+        let bytewise = self.variables.is_on("byte-oriented");
+        let Some((first, rest)) = take_pending_character(state, bytes, bytewise) else {
             return Ok(Some(EditorOutcome::Continue));
         };
         let Some(search) = state.vi.pending_char_search.take() else {
@@ -1038,7 +1040,7 @@ where
         // key; trailing bytes are separate input like split reads.
         if let Some(ch) = char_search_key(&first) {
             let success =
-                self.apply_char_search(state, search, ch, count.unsigned_abs() as usize)?;
+                self.apply_char_search(state, search, ch, count.unsigned_abs() as usize, bytewise)?;
             // GNU remembers the target even when the first search fails:
             // `,` can then repeat it in the opposite direction.
             state.vi.last_char_search = Some((search, ch));
@@ -2011,15 +2013,28 @@ fn split_first_byte(bytes: &[u8]) -> (&[u8], &[u8]) {
     bytes.split_at(1)
 }
 
-/// Assembles the character a pending character search consumes.
+/// Assembles the key a pending character search consumes.
 ///
-/// GNU Readline reads a whole character before a command that takes one
-/// consumes it, so a multibyte search target is one character: the search
-/// matches it and the rest of it never reaches the line. The bytes of an
-/// incomplete character wait here for the rest of it.
-fn take_pending_character(state: &mut EditorState, bytes: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
+/// In byte-oriented mode the target is exactly one raw byte and the rest of
+/// the input is redispatched. Otherwise GNU Readline reads a whole character
+/// before a command that takes one consumes it, so a multibyte search
+/// target is one character: the search matches it and the rest of it never
+/// reaches the line. The bytes of an incomplete character wait here for the
+/// rest of it.
+fn take_pending_character(
+    state: &mut EditorState,
+    bytes: &[u8],
+    bytewise: bool,
+) -> Option<(Vec<u8>, Vec<u8>)> {
     let mut buffered = std::mem::take(&mut state.input.pending_char_bytes);
     buffered.extend_from_slice(bytes);
+    if bytewise {
+        if buffered.is_empty() {
+            return Some((Vec::new(), Vec::new()));
+        }
+        let rest = buffered.split_off(1);
+        return Some((buffered, rest));
+    }
     if is_incomplete_utf8_prefix(&buffered) {
         state.input.pending_char_bytes = buffered;
         return None;

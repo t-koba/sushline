@@ -1240,6 +1240,66 @@ impl LineBuffer {
         None
     }
 
+    /// Find the nth raw byte at or after `start`, advancing one byte past
+    /// each match. A short count still reports the last match reached.
+    pub(crate) fn find_nth_byte_forward_from(
+        &self,
+        target: u8,
+        count: usize,
+        start: usize,
+    ) -> (Option<usize>, bool) {
+        let mut from = start.min(self.bytes.len());
+        let mut found = None;
+        for _ in 0..count {
+            match self.bytes[from..].iter().position(|byte| *byte == target) {
+                Some(offset) => {
+                    let idx = from + offset;
+                    found = Some(idx);
+                    from = idx + 1;
+                }
+                None => return (found, false),
+            }
+        }
+        (found, true)
+    }
+
+    /// Find the nth raw byte at or before `end`, stepping one byte before
+    /// each match. A short count still reports the last match reached.
+    pub(crate) fn find_nth_byte_backward_from(
+        &self,
+        target: u8,
+        count: usize,
+        end: usize,
+    ) -> (Option<usize>, bool) {
+        let mut limit = end.saturating_add(1).min(self.bytes.len());
+        let mut found = None;
+        for taken in 1..=count {
+            match self.bytes[..limit].iter().rposition(|byte| *byte == target) {
+                Some(idx) => {
+                    found = Some(idx);
+                    if idx == 0 {
+                        return (found, taken == count);
+                    }
+                    limit = idx;
+                }
+                None => return (found, false),
+            }
+        }
+        (found, true)
+    }
+
+    /// Find the nth raw byte strictly before point, as vi `F`/`T` require.
+    pub(crate) fn find_nth_byte_backward_before(
+        &self,
+        target: u8,
+        count: usize,
+    ) -> (Option<usize>, bool) {
+        let Some(end) = self.point.checked_sub(1) else {
+            return (None, false);
+        };
+        self.find_nth_byte_backward_from(target, count, end)
+    }
+
     /// Find the nth target at or after `start`, advancing past each match.
     /// A short count still reports the last match reached.
     pub(crate) fn find_nth_forward_from(

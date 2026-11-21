@@ -9848,9 +9848,15 @@ fn bash_and_sushline_vi_put_undo_respects_byte_cap() {
             "pppppppppppppppppppppp",
             "baaaaaaaaaaaaaaaaaaaac",
         ),
+        ("put_and_nineteen_dots", "p...................", "bc"),
         (
             "put_and_twenty_dots",
             "p....................",
+            "baaaaaaaaaaaaaaaaaaaac",
+        ),
+        (
+            "put_and_twenty_one_dots",
+            "p.....................",
             "baaaaaaaaaaaaaaaaaaaac",
         ),
         (
@@ -10087,10 +10093,13 @@ fn bash_and_sushline_counted_vi_put_undo_chunks() {
 
 #[test]
 fn bash_and_sushline_emacs_undo_cap_after_vi_mode_switch() {
-    let inputrc = r#"set editing-mode vi
-"\C-o": emacs-editing-mode"#;
+    let inputrc = concat!(
+        "set editing-mode vi\n",
+        "set keymap vi-insert\n",
+        "\"\\C-t\": emacs-editing-mode"
+    );
     for (desc, inserted) in [("twenty_one", 21), ("twenty_five", 25)] {
-        let keys = "abc\x1bA\x0f".to_owned() + &"a".repeat(inserted) + "\x1f\r";
+        let keys = "abc\x1bA\x14".to_owned() + &"a".repeat(inserted) + "\x1f\r";
         let expected = "abc".to_owned() + &"a".repeat(20);
         let bash = run_bash_readline_with_inputrc_file(keys.as_bytes(), inputrc);
         let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
@@ -10117,6 +10126,7 @@ fn bash_and_sushline_emacs_undo_cap_after_vi_mode_switch() {
 fn bash_and_sushline_long_vi_edit_undo_entries() {
     let inputrc = "set editing-mode vi";
     let thirty_a = "a".repeat(30);
+    let thirty_six = "abcdefghijklmnopqrstuvwxyz0123456789".to_string();
     for (desc, keys, expected, bells) in [
         (
             "delete_line",
@@ -10132,14 +10142,14 @@ fn bash_and_sushline_long_vi_edit_undo_entries() {
         ),
         (
             "counted_x",
-            "abcdefghij\x1b030xu\r".to_string(),
-            "abcdefghij".to_string(),
+            format!("{thirty_six}\x1b030xu\r"),
+            thirty_six.clone(),
             0,
         ),
         (
             "counted_r",
-            "abcdefghij\x1b030rxu\r".to_string(),
-            "abcdefghij".to_string(),
+            format!("{thirty_six}\x1b030rxu\r"),
+            thirty_six.clone(),
             0,
         ),
         (
@@ -10190,14 +10200,24 @@ fn bash_and_sushline_vi_insert_redo_chains_and_counts() {
     for (desc, keys, expected, bells) in [
         ("append_then_append_dot", "a1\x1ba2\x1b.\r", "a122", 0),
         ("insert_then_append_dot", "i1\x1ba2\x1b.\r", "i122", 0),
-        ("counted_insert_dot", "5ihello\x1b.\r", "5ihell5ihelloo", 0),
         (
-            "counted_insert_explicit_dot",
-            "5ihello\x1b3.\r",
-            "5ihell5ihello5ihello5ihelloo",
+            "counted_insert_dot",
+            "abc\x1b05ihello\x1b.\r",
+            "hellhellooabc",
             0,
         ),
-        ("counted_append_dot", "5ahello\x1b.\r", "5ahell5ahelloo", 0),
+        (
+            "counted_insert_explicit_dot",
+            "abc\x1b05ihello\x1b3..\r",
+            "hellhellohellohellhelloooabc",
+            0,
+        ),
+        (
+            "counted_append_dot",
+            "abc\x1b05ahello\x1b.\r",
+            "ahellohellobc",
+            0,
+        ),
         ("append_then_append_dot_undo", "a1\x1ba2\x1b.u\r", "a12", 0),
         ("append_then_two_dots", "a1\x1ba2\x1b..\r", "a1222", 0),
     ] {
@@ -11650,4 +11670,54 @@ fn bash_and_sushline_byte_oriented_vi_subst_count_bell() {
         assert_eq!(bell_count(&bash), bells, "{keys:?}");
         assert_eq!(bell_count(&sush), bells, "{keys:?}");
     }
+}
+
+/// Paired GNU 5.3 / Readline 8.3 pin for the default vi `v` boundary.
+///
+/// GNU invokes the external editor on a temporary file holding the current
+/// line; hookless Sushline only rings. The deterministic editor logs the
+/// bytes it was handed and replaces them with `:`, so the fixture checks the
+/// application boundary without adding a launcher to the library.
+#[cfg(unix)]
+#[test]
+fn bash_and_sushline_vi_default_v_application_boundary() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let script = dir.path().join("editor.sh");
+    let log = dir.path().join("seen");
+    fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\ncat \"$1\" > \"{}\"\nprintf ':' > \"$1\"\n",
+            log.display()
+        ),
+    )
+    .expect("write editor");
+    let mut perms = fs::metadata(&script)
+        .expect("editor metadata")
+        .permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&script, perms).expect("editor chmod");
+    let editor = script.to_string_lossy().to_string();
+    let env = [("VISUAL", editor.as_str()), ("EDITOR", editor.as_str())];
+    let keys = b"abc\x1b0v\r";
+    let inputrc = "set editing-mode vi\n";
+
+    let bash = run_bash_readline_with_inputrc_file_and_env(keys, inputrc, &env);
+    assert_eq!(accepted_line(&bash), Some(String::new()), "{bash}");
+    assert_eq!(bell_count(&bash), 0, "{bash}");
+    assert_eq!(
+        fs::read_to_string(&log).expect("editor log"),
+        "abc\n",
+        "GNU should hand the current line to the editor"
+    );
+
+    let sushline = run_sushline_harness_with_inputrc_and_env(keys, inputrc, &env);
+    assert_eq!(
+        accepted_line(&sushline),
+        Some("abc".to_owned()),
+        "{sushline}"
+    );
+    assert_eq!(bell_count(&sushline), 1, "{sushline}");
 }

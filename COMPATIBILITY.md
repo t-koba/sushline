@@ -249,7 +249,11 @@ accepted lines for the default vi command key `v` reflect Bash launching an
 external editor while Sushline rings; that is not a line-editing comparison.
 `vi_default_v_invokes_edit_and_execute_hook` pins Sushline's `v` dispatch to
 the hook, and [`bind_golden.rs`](readline/tests/bind_golden.rs) pins the
-command name in the vi command keymap.
+command name in the vi command keymap. The paired
+`bash_and_sushline_vi_default_v_application_boundary` fixture pins both sides
+with a deterministic temporary editor: GNU hands the current line to the
+editor and accepts an empty line, while hookless Sushline rings once and
+keeps the line.
 
 The classification was measured on the development host, whose Bash links
 Readline statically and carries the 8.3 release; the scope above states the

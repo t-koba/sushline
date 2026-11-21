@@ -4879,7 +4879,7 @@ fn bash_readline_and_sushline_handle_same_vi_eof_maybe() {
 fn bash_readline_and_sushline_yank_pop_bell_matches() {
     let inputrc = r#""\C-]": yank-pop"#;
     for keys in [
-        b"abc\x1d\r".as_slice(),
+        b"abcX\x19\x1d\r".as_slice(),
         b"one\x15two\x15X\x19\x02\x1d\r".as_slice(),
     ] {
         let bash = run_bash_readline_with_inputrc_file(keys, inputrc);
@@ -10276,6 +10276,47 @@ fn bash_and_sushline_vi_explicit_dot_counts() {
             bell_count(&sushline),
             bells,
             "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
+fn bash_and_sushline_vi_insert_yank_pop_matches_gnu() {
+    let inputrc =
+        "set editing-mode vi\nset keymap vi-insert\n\"Q\": vi-yank-pop\n\"W\": yank-pop\n";
+    let mut cases = vec![
+        ("vi_no_yank", "", "Q", 2, 2),
+        ("plain_no_yank", "", "W", 2, 2),
+    ];
+    for (name, cmd) in [("vi", "Q"), ("plain", "W")] {
+        for count in 1..=4 {
+            cases.push((
+                name,
+                "one\x17two\x17three\x17X\x19",
+                cmd,
+                count,
+                if name == "vi" { count } else { 0 },
+            ));
+        }
+    }
+    for (name, prefix, cmd, count, bells) in cases {
+        let keys = format!("{prefix}{}\r", cmd.repeat(count));
+        let bash = run_bash_readline_with_inputrc_file(keys.as_bytes(), inputrc);
+        let sush = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash),
+            accepted_line(&sush),
+            "{name}: bash={bash:?} sushline={sush:?}"
+        );
+        assert_eq!(
+            bell_count(&bash),
+            bells,
+            "{name}: bash={bash:?} sushline={sush:?}"
+        );
+        assert_eq!(
+            bell_count(&sush),
+            bell_count(&bash),
+            "{name}: bash={bash:?} sushline={sush:?}"
         );
     }
 }

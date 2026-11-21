@@ -662,6 +662,12 @@ where
                 }
             }
             "vi-yank-pop" => {
+                // GNU only cycles after a vi put; after vi-insert C-y the
+                // command fails and rings the bell.
+                if self.keymap.current() == KeyMapName::ViInsert {
+                    self.ding()?;
+                    return Ok(EditorOutcome::Continue);
+                }
                 state.record_undo();
                 if !state.yank_pop() {
                     self.ding()?;

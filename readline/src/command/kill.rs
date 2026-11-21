@@ -151,6 +151,12 @@ where
                 Ok(EditorOutcome::Continue)
             }
             EditCommand::YankPop => {
+                // GNU's yank-pop only follows the plain `yank` command. Vi
+                // insertion mode's C-y/yank-pop sequence does not cycle the
+                // kill ring, and the failed pop is silent there.
+                if self.keymap.current() == KeyMapName::ViInsert && state.kill.last_yank.is_some() {
+                    return Ok(EditorOutcome::Continue);
+                }
                 record_kill_undo(state);
                 if !state.yank_pop() {
                     self.ding()?;

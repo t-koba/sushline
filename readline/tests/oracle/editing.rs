@@ -13850,3 +13850,75 @@ fn bash_and_sushline_vi_word_motion_final_combining_grapheme() {
         );
     }
 }
+
+/// Paired GNU 5.3 / Readline 8.3 pin for the vi replace register: `r` makes
+/// the displaced unit pasteable, and a counted replace keeps only the last
+/// displaced unit.
+#[test]
+fn bash_and_sushline_vi_replace_updates_paste_register() {
+    let charwise_rc = "set editing-mode vi";
+    for (desc, keys, expected, bells) in [
+        ("put_before", "abc\x1b0raP\r", "aabc", 0),
+        ("put_after", "abc\x1b0rap\r", "aabc", 0),
+        ("counted_put_before", "abcd\x1b02raP\r", "abacd", 0),
+        ("counted_put_after", "abcd\x1b02rap\r", "aabcd", 0),
+        ("multibyte_put_before", "a\u{e9}b\x1b0rXP\r", "aX\u{e9}b", 0),
+        (
+            "multibyte_counted_put_before",
+            "a\u{e9}b\u{e9}\x1b02rXP\r",
+            "X\u{e9}Xb\u{e9}",
+            0,
+        ),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), charwise_rc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), charwise_rc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_owned()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+
+    let byte_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C")];
+    for (desc, keys, expected, bells) in [
+        ("ascii_put_before", &b"abc\x1b0raP\r"[..], &b"aabc"[..], 0),
+        (
+            "counted_put_before",
+            &b"abcd\x1b02raP\r"[..],
+            &b"abacd"[..],
+            0,
+        ),
+        (
+            "counted_put_after",
+            &b"abcd\x1b02rap\r"[..],
+            &b"aabcd"[..],
+            0,
+        ),
+        (
+            "raw_continuation_put_before",
+            b"a\xc3\xa9b\x1b0f\xa9rAp\r",
+            b"\x61\xc3\x41\xa9\x62",
+            0,
+        ),
+    ] {
+        assert_bytewise_vi_bytes(desc, keys, expected, bells, byte_rc, &env);
+    }
+}

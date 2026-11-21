@@ -531,12 +531,14 @@ where
             }
             state.record_undo();
             let mut last_replaced = None;
+            let mut last_displaced = None;
             for _ in 0..count {
                 let start = state.buffer.point();
                 // In bytewise mode `r` overwrites one destination byte, not
                 // the whole byte sequence that happens to contain point.
                 let replaced = if bytewise {
                     if start < state.buffer.len_chars() {
+                        last_displaced = Some(state.buffer.range_bytes(start, start + 1));
                         state
                             .buffer
                             .replace_range_bytes(start, start + 1, &replacement);
@@ -545,7 +547,14 @@ where
                         false
                     }
                 } else {
-                    state.buffer.replace_char_at_point_bytes(&replacement)
+                    let end = state.buffer.next_char_boundary(start);
+                    let displaced = state.buffer.range_bytes(start, end);
+                    if state.buffer.replace_char_at_point_bytes(&replacement) {
+                        last_displaced = Some(displaced);
+                        true
+                    } else {
+                        false
+                    }
                 };
                 if !replaced {
                     break;
@@ -558,6 +567,11 @@ where
                     state.record_noop_undo();
                     self.ding()?;
                 }
+            }
+            // GNU keeps only the last displaced unit in the vi register;
+            // a counted replace therefore makes that final unit pasteable.
+            if let Some(displaced) = last_displaced {
+                state.push_kill(displaced, KillDirection::Forward, false);
             }
             if let Some(mut change) = state.vi.vi_insert_change.take() {
                 change.extend_from_slice(first);

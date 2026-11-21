@@ -10990,3 +10990,46 @@ fn bash_and_sushline_zero_width_change_undo_steps() {
         assert_eq!(bell_count(&sush), bells, "{keys:?}");
     }
 }
+
+/// Paired GNU 5.3 / Readline 8.3 pin for repeated byte-oriented word points.
+///
+/// In `LC_ALL=C` with `byte-oriented on`, raw non-ASCII bytes are punctuation
+/// for `w`; `W` scans them as non-whitespace bytes and leaves point on the
+/// final byte of a trailing multibyte character. The bell difference for
+/// `aé ESC 0ww` is deliberately not part of this fixture.
+#[test]
+fn bash_and_sushline_byte_oriented_repeated_word_points() {
+    let rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C")];
+    let cases = [
+        ("aé", "0W", "a\u{fffd}X\u{fffd}", 0),
+        ("aé", "w", "a\u{fffd}X\u{fffd}", 1),
+        ("aé", "0w", "aXé", 0),
+        ("aé", "02w", "a\u{fffd}X\u{fffd}", 0),
+        ("aé", "0WW", "a\u{fffd}X\u{fffd}", 1),
+        ("aé b", "0w", "aXé b", 0),
+        ("aé b", "0ww", "aé Xb", 0),
+        ("aé b", "02w", "aé Xb", 0),
+        ("aé b", "0W", "aé Xb", 0),
+        ("éa", "0w", "éXa", 0),
+        ("éa b", "0w", "éXa b", 0),
+        ("éa b", "0ww", "éa Xb", 0),
+        ("abc def", "0ww", "abc deXf", 0),
+        ("a! b", "0w", "aX! b", 0),
+    ];
+    for (line, motion, expected, bells) in cases {
+        let keys = format!("{line}\x1b{motion}iX\r");
+        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), rc, &env);
+        let sush = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), rc, &env);
+        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(bell_count(&bash), bells, "{keys:?}");
+        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+    }
+}

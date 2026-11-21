@@ -32,6 +32,7 @@ fn clamp_vi_word_motion_point(
     state: &mut EditorState,
     had_operator: bool,
     bytewise: bool,
+    bigword: bool,
     before: usize,
 ) -> bool {
     if had_operator || state.buffer.is_empty() || state.buffer.point() < state.buffer.len_chars() {
@@ -43,13 +44,54 @@ fn clamp_vi_word_motion_point(
         last_char -= 1;
     }
     state.buffer.move_end();
-    if bytewise && before >= last_char {
+    // Bigword scans non-whitespace bytes one at a time, so GNU backs off a
+    // single byte even when the motion started before the final character.
+    if bytewise && (bigword || before >= last_char) {
         state.buffer.move_backward_byte();
-        true
+        before >= last_char
     } else {
         state.buffer.move_backward();
         false
     }
+}
+
+/// GNU's byte-oriented `w` classifies raw non-ASCII bytes as punctuation,
+/// not as word characters. That makes it stop at the first byte of a
+/// multibyte sequence, while the UTF-8 word matcher crosses the whole glyph.
+fn vi_bytewise_forward_word(state: &mut EditorState, break_chars: Option<&str>) -> bool {
+    let start = state.buffer.point();
+    let end = {
+        let bytes = state.buffer.as_bytes();
+        if start >= bytes.len() {
+            return false;
+        }
+        let is_word = |byte: u8| match break_chars {
+            Some(breaks) => !byte.is_ascii_whitespace() && !breaks.as_bytes().contains(&byte),
+            None => byte.is_ascii_alphanumeric() || byte == b'_',
+        };
+        let class = |byte: u8| {
+            if byte.is_ascii_whitespace() {
+                0
+            } else if is_word(byte) {
+                1
+            } else {
+                2
+            }
+        };
+        let initial = class(bytes[start]);
+        let mut pos = start;
+        while pos < bytes.len() && class(bytes[pos]) == initial {
+            pos += 1;
+        }
+        if initial != 0 {
+            while pos < bytes.len() && bytes[pos].is_ascii_whitespace() {
+                pos += 1;
+            }
+        }
+        pos
+    };
+    state.buffer.set_point(end);
+    end != start
 }
 
 /// GNU dot-replays lowercase `p` with its forward motion: a put leaves point
@@ -392,8 +434,13 @@ where
                             } else {
                                 state.buffer.forward_bigword();
                             }
-                            let stalled_at_end =
-                                clamp_vi_word_motion_point(state, had_operator, bytewise, before);
+                            let stalled_at_end = clamp_vi_word_motion_point(
+                                state,
+                                had_operator,
+                                bytewise,
+                                true,
+                                before,
+                            );
                             if first && (stalled_at_end || state.buffer.point() == before) {
                                 stalled = true;
                             }
@@ -420,9 +467,18 @@ where
                     } else {
                         repeat(state, |state| {
                             let before = state.buffer.point();
-                            state.buffer.vi_forward_word(word_breaks.as_deref());
-                            let stalled_at_end =
-                                clamp_vi_word_motion_point(state, had_operator, bytewise, before);
+                            if bytewise {
+                                vi_bytewise_forward_word(state, word_breaks.as_deref());
+                            } else {
+                                state.buffer.vi_forward_word(word_breaks.as_deref());
+                            }
+                            let stalled_at_end = clamp_vi_word_motion_point(
+                                state,
+                                had_operator,
+                                bytewise,
+                                false,
+                                before,
+                            );
                             if first && (stalled_at_end || state.buffer.point() == before) {
                                 stalled = true;
                             }

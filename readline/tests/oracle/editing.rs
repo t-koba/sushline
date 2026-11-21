@@ -10513,6 +10513,22 @@ fn bash_and_sushline_vi_failed_word_motion_rings() {
             "abc deXf",
             1,
         ),
+        (
+            "counted_overshoot_silent",
+            "abc def ghi\u{1b}04w\r",
+            "abc def ghi",
+            0,
+        ),
+        (
+            "counted_large_overshoot_silent",
+            "abc def ghi\u{1b}010W\r",
+            "abc def ghi",
+            0,
+        ),
+        ("single_word_count_silent", "abc\u{1b}02w\r", "abc", 0),
+        ("multibyte_w_point", "αβγ\u{1b}0wiX\r", "αβXγ", 0),
+        ("multibyte_counted_w_point", "αβγδ\u{1b}02wiX\r", "αβγXδ", 0),
+        ("multibyte_ww_point", "αβ γδ\u{1b}0wwiX\r", "αβ γXδ", 0),
     ];
     for (name, keys, expected, bells) in cases {
         let bash = run_bash_readline_with_inputrc_file(keys.as_bytes(), inputrc);

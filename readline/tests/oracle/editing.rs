@@ -12879,3 +12879,80 @@ fn bash_and_sushline_byte_oriented_put_after_delete_points() {
         );
     }
 }
+
+/// GNU preserves a pending vi operator across a motion that cannot move and
+/// rings only for the blocked motion; when the motion does reach a byte, the
+/// operator consumes it normally even at the last character.
+#[test]
+fn bash_and_sushline_vi_blocked_operator_motions() {
+    let rc = "set editing-mode vi\n";
+    let env = [("LC_ALL", "C")];
+    for (desc, keys, expected, bells) in [
+        (
+            "backward_word_at_start",
+            b"abc\x1b0db\r".to_vec(),
+            Some("abc"),
+            1,
+        ),
+        (
+            "backward_char_at_start",
+            b"abc\x1b0dh\r".to_vec(),
+            Some("abc"),
+            1,
+        ),
+        (
+            "forward_char_at_end",
+            b"abc\x1bdl\r".to_vec(),
+            Some("ab"),
+            0,
+        ),
+        ("end_at_end", b"abc\x1bd$\r".to_vec(), Some("ab"), 0),
+        (
+            "beginning_at_start",
+            b"abc\x1b0d0\r".to_vec(),
+            Some("abc"),
+            0,
+        ),
+        (
+            "backward_word_after_move",
+            b"abc\x1b0hdb\r".to_vec(),
+            Some("abc"),
+            2,
+        ),
+        (
+            "left_arrow_at_start",
+            b"abc\x1b0d\x1b[D\r".to_vec(),
+            Some("abc"),
+            1,
+        ),
+        (
+            "right_arrow_at_end",
+            b"abc\x1bd\x1b[C\r".to_vec(),
+            Some("abc"),
+            1,
+        ),
+        ("empty_backward_word", b"\x1bdb\r".to_vec(), Some(""), 1),
+        ("empty_backward_char", b"\x1bdh\r".to_vec(), Some(""), 1),
+        ("empty_end", b"\x1bd$\r".to_vec(), Some(""), 0),
+        ("empty_delete_char", b"\x1bdx\r".to_vec(), Some(""), 0),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, rc, &env);
+        let sush = run_sushline_harness_with_inputrc_and_env(&keys, rc, &env);
+        assert_eq!(
+            accepted_line(&bash),
+            expected.map(str::to_owned),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sush),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sush}"
+        );
+        assert_eq!(
+            bell_count(&sush),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sush}"
+        );
+    }
+}

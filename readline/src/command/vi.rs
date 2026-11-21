@@ -1213,6 +1213,9 @@ where
                     )? {
                         self.finish_vi_motion_operator(state, op_start, key, true);
                     } else {
+                        if op_start.is_some() {
+                            self.ding()?;
+                        }
                         state.cancel_pending_command();
                     }
                 } else {
@@ -1237,6 +1240,9 @@ where
                     )? {
                         self.finish_vi_motion_operator(state, op_start, key, true);
                     } else {
+                        if op_start.is_some() {
+                            self.ding()?;
+                        }
                         state.cancel_pending_command();
                     }
                 } else {

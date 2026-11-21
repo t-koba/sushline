@@ -12754,3 +12754,70 @@ fn bash_and_sushline_byte_oriented_operator_char_search() {
         );
     }
 }
+
+/// GNU rings once for a failed vi character search and again when a pending
+/// operator loses its motion. A short count that reaches the last match only
+/// rings once and still applies the operator. These cases hold in both
+/// character and byte-oriented modes.
+#[test]
+fn bash_and_sushline_vi_failed_operator_search_rings_twice() {
+    let plain = "set editing-mode vi\n";
+    let byte = concat!("set editing-mode vi\n", "set byte-oriented on\n");
+    let env = [("LC_ALL", "C")];
+    for (mode, rc) in [("plain", plain), ("byte", byte)] {
+        for (desc, keys, expected, bells) in [
+            ("plain_search", b"abc\x1b0f:\r".to_vec(), Some("abc"), 1),
+            ("delete", b"abc\x1b0df:\r".to_vec(), Some("abc"), 2),
+            ("change", b"abc\x1b0cf:Z\r".to_vec(), Some("abc"), 3),
+            ("till_delete", b"abc\x1b0dt:\r".to_vec(), Some("abc"), 2),
+            ("till_yank", b"abc\x1b0yt:p\r".to_vec(), Some("abc"), 3),
+            ("short_count", b"abc\x1b0d2fb\r".to_vec(), Some("c"), 1),
+            ("repeat_delete", b"abc\x1b0fbd;\r".to_vec(), Some("abc"), 2),
+            ("repeat_comma", b"abc\x1b0fbd,\r".to_vec(), Some("abc"), 2),
+        ] {
+            let bash = run_bash_readline_with_inputrc_file_and_env(&keys, rc, &env);
+            let sush = run_sushline_harness_with_inputrc_and_env(&keys, rc, &env);
+            assert_eq!(
+                accepted_line(&bash),
+                expected.map(str::to_owned),
+                "{mode} {desc}: {bash}"
+            );
+            assert_eq!(bell_count(&bash), bells, "{mode} {desc}: {bash}");
+            assert_eq!(
+                accepted_line(&sush),
+                accepted_line(&bash),
+                "{mode} {desc}: bash={bash}\nsushline={sush}"
+            );
+            assert_eq!(
+                bell_count(&sush),
+                bell_count(&bash),
+                "{mode} {desc}: bash={bash}\nsushline={sush}"
+            );
+        }
+    }
+
+    let rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let mut keys = b"\xc3\xa9a\x1b0f".to_vec();
+    keys.push(0xc3);
+    keys.extend(b"df:p\r");
+    let bash = run_bash_readline_with_inputrc_file_and_env(&keys, rc, &env);
+    let sush = run_sushline_harness_with_inputrc_and_env(&keys, rc, &env);
+    assert_eq!(accepted_line(&bash), Some("\u{e9}a".to_owned()), "{bash}");
+    assert_eq!(bell_count(&bash), 4, "{bash}");
+    assert_eq!(
+        accepted_line(&sush),
+        accepted_line(&bash),
+        "bash={bash}\nsushline={sush}"
+    );
+    assert_eq!(
+        bell_count(&sush),
+        bell_count(&bash),
+        "bash={bash}\nsushline={sush}"
+    );
+}

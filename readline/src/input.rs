@@ -1059,10 +1059,17 @@ where
                 state.consume_numeric_arg_unless_prefix();
                 state.input.changed_display = true;
             } else {
+                // GNU rings again when a pending operator loses its motion.
+                if op_start.is_some() {
+                    self.ding()?;
+                }
                 state.cancel_pending_command();
             }
         } else {
             state.cancel_pending_command();
+            if op_start.is_some() {
+                self.ding()?;
+            }
             self.ding()?;
             if first == [0x1b] {
                 // The failed search consumed ESC, but GNU still lets that ESC

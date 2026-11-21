@@ -213,6 +213,9 @@ where
                             state.buffer.insert_bytes(key);
                             state.record_overwrite_step(point, Vec::new(), key);
                         }
+                        if state.overwrite_mode {
+                            state.mark_noop_undo_if_unchanged();
+                        }
                     }
                     state.record_vi_insert_bytes(key);
                     state.after_self_insert();
@@ -252,6 +255,9 @@ where
                                 } else {
                                     state.buffer.insert_char(ch);
                                     state.record_overwrite_step(start, Vec::new(), bytes);
+                                }
+                                if state.overwrite_mode {
+                                    state.mark_noop_undo_if_unchanged();
                                 }
                             }
                         }

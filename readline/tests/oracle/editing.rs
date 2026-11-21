@@ -13428,6 +13428,35 @@ fn bash_and_sushline_byte_overwrite_identical_byte_undo() {
             "{desc}: bash={bash}\nsushline={sushline}"
         );
     }
+
+    let utf8 = [("LC_ALL", "C.UTF-8")];
+    for (desc, tail, bells) in [
+        ("identical_multibyte", b"R\xc3\xa9\x1bu".as_slice(), 0),
+        ("different_multibyte", b"R\xc3\xa8\x1bu".as_slice(), 0),
+        ("no_replacement", b"\x1bu".as_slice(), 1),
+    ] {
+        let mut keys = [e, b"bc:d\x1b0".as_slice()].concat();
+        keys.extend_from_slice(tail);
+        keys.extend_from_slice(b"\r");
+        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, rc, &utf8);
+        let sushline = run_sushline_harness_with_inputrc_and_env(&keys, rc, &utf8);
+        assert_eq!(
+            accepted_line(&bash),
+            Some("\u{e9}bc:d".to_owned()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
 }
 
 /// Backspace in vi replace mode undoes the last typed unit, not an offset into

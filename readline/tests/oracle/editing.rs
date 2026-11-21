@@ -11071,6 +11071,12 @@ fn bash_and_sushline_zero_width_change_undo_steps() {
         ("αβγ\u{1b}0c0X\u{1b}..uuu\r", "αβγ", 0),
         ("αβγ\u{1b}0c0X\u{1b}...uu\r", "XXαβγ", 0),
         ("αβγ\u{1b}0c0X\u{1b}...uuu\r", "Xαβγ", 0),
+        ("abc\u{1b}0c0X\u{1b}.u\r", "Xabc", 0),
+        ("abc\u{1b}0cbX\u{1b}.u\r", "Xabc", 2),
+        ("abc\u{1b}0chX\u{1b}.u\r", "Xabc", 2),
+        ("abc\u{1b}0cBX\u{1b}.u\r", "Xabc", 2),
+        ("abc\u{1b}0c^X\u{1b}.u\r", "Xabc", 0),
+        ("αβγ\u{1b}0c0X\u{1b}.u\r", "Xαβγ", 0),
     ];
     for (keys, expected, bells) in cases {
         let bash = run_bash_readline_with_inputrc_file(keys.as_bytes(), rc);

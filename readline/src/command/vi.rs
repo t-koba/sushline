@@ -45,6 +45,11 @@ fn clamp_vi_word_motion_point(
     bigword: bool,
     before: usize,
 ) {
+    if !had_operator && !bytewise {
+        // A scalar-classifying word motion can stop between the base and a
+        // combining mark; GNU treats that grapheme as one character.
+        state.buffer.snap_point_to_grapheme_start();
+    }
     if had_operator || state.buffer.is_empty() || state.buffer.point() < state.buffer.len_chars() {
         return;
     }

@@ -13811,3 +13811,73 @@ fn bash_and_sushline_vi_replace_inserts_control_and_quoted_bytes() {
         );
     }
 }
+
+/// At line end, a UTF-8 vi word motion must not stop between a base
+/// character and its combining mark: the edit point stays before the whole
+/// grapheme. Byte-oriented motion keeps its raw-byte endpoint.
+#[test]
+fn bash_and_sushline_vi_word_motion_final_combining_grapheme() {
+    let charwise_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n"
+    );
+    let bytewise_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C.UTF-8")];
+    for (desc, keys, expected, bells, rc) in [
+        (
+            "w_insert",
+            "abe\u{301}\x1b0wiX\x1b\r".as_bytes(),
+            "abXe\u{301}",
+            0,
+            charwise_rc,
+        ),
+        (
+            "bigword_insert",
+            "abe\u{301}\x1b0WiX\x1b\r".as_bytes(),
+            "abXe\u{301}",
+            0,
+            charwise_rc,
+        ),
+        (
+            "w_delete_final_char",
+            "abe\u{301}\x1b0wx\x1b\r".as_bytes(),
+            "ab",
+            0,
+            charwise_rc,
+        ),
+        (
+            "bytewise_w_insert",
+            "abe\u{301}\x1b0wiX\x1b\r".as_bytes(),
+            "abeX\u{301}",
+            0,
+            bytewise_rc,
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_env(keys, rc, &env);
+        let sushline = run_sushline_harness_with_inputrc_and_env(keys, rc, &env);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_owned()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

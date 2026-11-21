@@ -641,6 +641,20 @@ impl LineBuffer {
             .last()
     }
 
+    /// Move a point that lies inside a grapheme to that grapheme's start.
+    pub fn snap_point_to_grapheme_start(&mut self) {
+        let idx = self.point;
+        if idx == 0 || idx >= self.bytes.len() {
+            return;
+        }
+        if let Some(prev) = self.prev_grapheme_boundary_checked(idx)
+            && self.next_grapheme_boundary(prev) > idx
+            && self.next_grapheme_boundary(prev) == self.bytes.len()
+        {
+            self.point = prev;
+        }
+    }
+
     fn replace_mapped_chars<F>(&mut self, start: usize, end: usize, mut f: F)
     where
         F: FnMut(usize, char) -> String,

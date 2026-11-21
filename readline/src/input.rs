@@ -530,10 +530,18 @@ where
                 state.buffer.move_backward();
             }
             state.record_undo();
+            let mut first_undo_point = None;
             let mut last_replaced = None;
             let mut last_displaced = None;
             for _ in 0..count {
                 let start = state.buffer.point();
+                if first_undo_point.is_none() {
+                    first_undo_point = Some(if bytewise {
+                        start + 1
+                    } else {
+                        state.buffer.next_boundary(start).unwrap_or(start + 1)
+                    });
+                }
                 // In bytewise mode `r` overwrites one destination byte, not
                 // the whole byte sequence that happens to contain point.
                 let replaced = if bytewise {
@@ -562,6 +570,7 @@ where
                 }
                 last_replaced = Some(start);
             }
+            state.undo.pending_replace_undo_point = first_undo_point;
             // GNU keeps an undo entry for an identical replacement, so the
             // next `u` consumes it silently instead of undoing an older edit.
             match last_replaced {

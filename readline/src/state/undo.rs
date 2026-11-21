@@ -18,6 +18,9 @@ pub(crate) struct UndoState {
     /// Point after the most recent put in the current undo group. GNU groups
     /// consecutive puts and dot replays, but a motion between puts splits it.
     pub(crate) vi_put_undo_point: Option<usize>,
+    /// Where undoing a counted vi replace restores point: after its first
+    /// replaced unit, not after the last one.
+    pub(crate) pending_replace_undo_point: Option<usize>,
     /// Yank length when the group started; GNU only merges one-byte yanks.
     pub(crate) vi_put_undo_yank_len: Option<usize>,
 }
@@ -27,6 +30,8 @@ pub(crate) struct UndoEntry {
     pub(crate) start: usize,
     pub(crate) deleted: Vec<u8>,
     pub(crate) inserted: Vec<u8>,
+    /// Point to restore on undo, when it differs from the end of `deleted`.
+    pub(crate) undo_point: Option<usize>,
 }
 
 impl EditorState {
@@ -105,11 +110,16 @@ impl EditorState {
             self.undo.pending_undo = None;
             self.undo.pending_noop_undo = false;
             let point = self.buffer.point();
-            let start = self.buffer.next_boundary(point).unwrap_or(point + 1);
+            let start = self
+                .undo
+                .pending_replace_undo_point
+                .take()
+                .unwrap_or_else(|| self.buffer.next_boundary(point).unwrap_or(point + 1));
             self.undo.undo_stack.push(UndoEntry {
                 start,
                 deleted: Vec::new(),
                 inserted: Vec::new(),
+                undo_point: None,
             });
         }
     }
@@ -119,10 +129,12 @@ impl EditorState {
     /// silently instead of ringing on an empty list.
     pub(crate) fn record_noop_undo(&mut self) {
         self.commit_pending_undo();
+        self.undo.pending_replace_undo_point = None;
         self.undo.undo_stack.push(UndoEntry {
             start: self.buffer.point(),
             deleted: Vec::new(),
             inserted: Vec::new(),
+            undo_point: None,
         });
     }
 
@@ -156,6 +168,7 @@ impl EditorState {
                 start,
                 deleted: Vec::new(),
                 inserted: chunk.to_vec(),
+                undo_point: None,
             });
             group_before.set_point(start);
             group_before.insert_bytes(chunk);
@@ -166,6 +179,7 @@ impl EditorState {
             start,
             deleted: Vec::new(),
             inserted: remaining.to_vec(),
+            undo_point: None,
         });
         Some(group_before)
     }
@@ -300,6 +314,7 @@ impl EditorState {
                 start: entry.start,
                 deleted: entry.deleted.clone(),
                 inserted: entry.inserted.clone(),
+                undo_point: None,
             })
             .collect();
     }
@@ -309,13 +324,16 @@ impl EditorState {
             return;
         };
         let noop = std::mem::take(&mut self.undo.pending_noop_undo);
-        if let Some(entry) = UndoEntry::from_buffers(&before, &self.buffer) {
+        let undo_point = self.undo.pending_replace_undo_point.take();
+        if let Some(mut entry) = UndoEntry::from_buffers(&before, &self.buffer) {
+            entry.undo_point = undo_point;
             self.undo.undo_stack.push(entry);
         } else if noop {
             self.undo.undo_stack.push(UndoEntry {
-                start: self.buffer.point(),
+                start: undo_point.unwrap_or_else(|| self.buffer.point()),
                 deleted: Vec::new(),
                 inserted: Vec::new(),
+                undo_point: None,
             });
         }
     }
@@ -346,10 +364,14 @@ impl UndoEntry {
             start,
             deleted: before[start..before_end].to_vec(),
             inserted: after[start..after_end].to_vec(),
+            undo_point: None,
         })
     }
 
     pub(crate) fn undo(self, buffer: &mut LineBuffer) {
         buffer.replace_range_bytes(self.start, self.start + self.inserted.len(), &self.deleted);
+        if let Some(point) = self.undo_point {
+            buffer.set_point(point.min(buffer.len_chars()));
+        }
     }
 }

@@ -14888,3 +14888,25 @@ fn bash_readline_and_sushline_vi_search_abort_bells() {
         );
     }
 }
+
+#[test]
+fn bytewise_counted_vi_replace_undo_restores_first_character_point() {
+    let env = [("LC_ALL", "C.UTF-8")];
+    for (keys, expected) in [
+        (b"xxxx\x1b03rxuiX\r".as_slice(), b"xXxxx".as_slice()),
+        (b"xxxx\x1b02rxuiX\r".as_slice(), b"xXxxx".as_slice()),
+        (b"xxxx\x1b04rxuiX\r".as_slice(), b"xXxxx".as_slice()),
+        (b"yxxx\x1b0l3rxuiX\r".as_slice(), b"yxXxx".as_slice()),
+        (b"abcde\x1b03rXuiX\r".as_slice(), b"aXbcde".as_slice()),
+        ("ééé\x1b02réuiX\r".as_bytes(), "éXéé".as_bytes()),
+    ] {
+        assert_bytewise_vi_bytes(
+            "counted vi replace undo point",
+            keys,
+            expected,
+            0,
+            "set editing-mode vi\n",
+            &env,
+        );
+    }
+}

@@ -840,6 +840,10 @@ where
     ) -> Result<EditorOutcome, ReadlineError> {
         let original_change = bytes.to_vec();
         let omit_escape = Self::vi_change_replay_omits_escape(bytes);
+        if omit_escape {
+            state.vi.zero_width_redo_replays += 1;
+            state.vi.replaying_vi_change = true;
+        }
         let replay = if omit_escape {
             &bytes[..bytes.len() - 1]
         } else {
@@ -851,6 +855,7 @@ where
                 let outcome =
                     self.handle_bytes(state, ch.encode_utf8(&mut buf).as_bytes(), hooks)?;
                 if !matches!(outcome, EditorOutcome::Continue) {
+                    state.vi.replaying_vi_change = omit_escape;
                     state.set_vi_redo(original_change);
                     return Ok(outcome);
                 }
@@ -859,6 +864,7 @@ where
             for byte in replay {
                 let outcome = self.handle_bytes(state, &[*byte], hooks)?;
                 if !matches!(outcome, EditorOutcome::Continue) {
+                    state.vi.replaying_vi_change = omit_escape;
                     state.set_vi_redo(original_change);
                     return Ok(outcome);
                 }
@@ -868,8 +874,14 @@ where
             state.finish_vi_insert_change(&[]);
             self.keymap.set_current(KeyMapName::ViCommand);
             state.after_non_kill_command();
+            if state.vi.zero_width_redo_replays > 1 {
+                state.record_noop_undo();
+            }
         }
         state.set_vi_redo(original_change);
+        if omit_escape {
+            state.vi.replaying_vi_change = false;
+        }
         Ok(EditorOutcome::Continue)
     }
 

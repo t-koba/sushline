@@ -10940,3 +10940,53 @@ fn bash_and_sushline_counted_zero_width_change_matches_gnu() {
         assert_eq!(bell_count(&sush), bells, "{keys:?}");
     }
 }
+
+/// Paired GNU 5.3 / Readline 8.3 pin for undo after repeated zero-width dots.
+///
+/// From the second dot onward GNU consumes one no-op undo entry per replay
+/// before undoing the recorded edits; point still stays after the inserted
+/// text. The `cw` nonzero-width path is deliberately left out of this claim.
+#[test]
+fn bash_and_sushline_zero_width_change_undo_steps() {
+    let rc = "set editing-mode vi\n";
+    let cases = [
+        ("abc\u{1b}0c0X\u{1b}..u\r", "XXabc", 0),
+        ("abc\u{1b}0c0X\u{1b}..uu\r", "Xabc", 0),
+        ("abc\u{1b}0c0X\u{1b}..uuu\r", "abc", 0),
+        ("abc\u{1b}0c0X\u{1b}...uu\r", "XXabc", 0),
+        ("abc\u{1b}0c0X\u{1b}...uuu\r", "Xabc", 0),
+        ("abc\u{1b}0cbX\u{1b}..u\r", "XXabc", 2),
+        ("abc\u{1b}0cbX\u{1b}..uu\r", "Xabc", 2),
+        ("abc\u{1b}0cbX\u{1b}..uuu\r", "abc", 2),
+        ("abc\u{1b}0cbX\u{1b}...uu\r", "XXabc", 2),
+        ("abc\u{1b}0cbX\u{1b}...uuu\r", "Xabc", 2),
+        ("abc\u{1b}0chX\u{1b}..u\r", "XXabc", 2),
+        ("abc\u{1b}0chX\u{1b}..uu\r", "Xabc", 2),
+        ("abc\u{1b}0chX\u{1b}..uuu\r", "abc", 2),
+        ("abc\u{1b}0chX\u{1b}...uu\r", "XXabc", 2),
+        ("abc\u{1b}0chX\u{1b}...uuu\r", "Xabc", 2),
+        ("abc\u{1b}0cBX\u{1b}..u\r", "XXabc", 2),
+        ("abc\u{1b}0cBX\u{1b}..uu\r", "Xabc", 2),
+        ("abc\u{1b}0cBX\u{1b}..uuu\r", "abc", 2),
+        ("abc\u{1b}0cBX\u{1b}...uu\r", "XXabc", 2),
+        ("abc\u{1b}0cBX\u{1b}...uuu\r", "Xabc", 2),
+        ("abc\u{1b}0c^X\u{1b}..u\r", "XXabc", 0),
+        ("abc\u{1b}0c^X\u{1b}..uu\r", "Xabc", 0),
+        ("abc\u{1b}0c^X\u{1b}..uuu\r", "abc", 0),
+        ("abc\u{1b}0c^X\u{1b}...uu\r", "XXabc", 0),
+        ("abc\u{1b}0c^X\u{1b}...uuu\r", "Xabc", 0),
+        ("αβγ\u{1b}0c0X\u{1b}..u\r", "XXαβγ", 0),
+        ("αβγ\u{1b}0c0X\u{1b}..uu\r", "Xαβγ", 0),
+        ("αβγ\u{1b}0c0X\u{1b}..uuu\r", "αβγ", 0),
+        ("αβγ\u{1b}0c0X\u{1b}...uu\r", "XXαβγ", 0),
+        ("αβγ\u{1b}0c0X\u{1b}...uuu\r", "Xαβγ", 0),
+    ];
+    for (keys, expected, bells) in cases {
+        let bash = run_bash_readline_with_inputrc_file(keys.as_bytes(), rc);
+        let sush = run_sushline_harness_with_inputrc(keys.as_bytes(), rc);
+        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(bell_count(&bash), bells, "{keys:?}");
+        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+    }
+}

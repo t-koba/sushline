@@ -20,6 +20,12 @@ pub(crate) struct ViModeState {
     /// insertion rather than recorded from an explicit vi command.
     pub(crate) last_change_is_initial_insert: bool,
     pub(crate) vi_insert_change: Option<Vec<u8>>,
+    /// True while `replay_vi_change` feeds a recorded command back in; new
+    /// changes recorded during replay must not reset the replay counter.
+    pub(crate) replaying_vi_change: bool,
+    /// Number of zero-width redo replays since the original change; GNU adds
+    /// an invisible undo step from the second replay onward.
+    pub(crate) zero_width_redo_replays: u32,
     pub(crate) pending_vi_mark: Option<ViMarkAction>,
     pub(crate) pending_mark_operator: Option<(ViOperator, usize, Vec<u8>)>,
     pub(crate) vi_marks: BTreeMap<char, usize>,
@@ -65,7 +71,14 @@ pub(crate) enum ViOperator {
 }
 
 impl EditorState {
+    fn note_new_vi_change(&mut self) {
+        if !self.vi.replaying_vi_change {
+            self.vi.zero_width_redo_replays = 0;
+        }
+    }
+
     pub(crate) fn set_vi_redo(&mut self, change: Vec<u8>) {
+        self.note_new_vi_change();
         self.vi.last_vi_change = Some(change);
         self.vi.last_change_is_cancelled_operator = false;
         self.vi.last_change_is_initial_insert = false;
@@ -87,6 +100,7 @@ impl EditorState {
         if self.macro_state.replaying_macro {
             return;
         }
+        self.note_new_vi_change();
         let mut change = std::mem::take(&mut self.vi.vi_count_keys);
         change.extend_from_slice(key);
         self.vi.vi_insert_change = Some(change);
@@ -135,6 +149,7 @@ impl EditorState {
         if matches!(op, ViOperator::Change) {
             self.vi.vi_insert_change = Some(change.clone());
         }
+        self.note_new_vi_change();
         self.set_vi_redo(change);
     }
 

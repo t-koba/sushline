@@ -12250,3 +12250,89 @@ fn bash_and_sushline_byte_oriented_search_edit_undo() {
         );
     }
 }
+
+/// Bytewise operators after a raw-byte search agree for character, word and
+/// to-end deletions, yanks and puts. The change-word and change-case paths
+/// are measured separately because their endpoints are not the same here.
+#[test]
+fn bash_and_sushline_byte_oriented_operators_after_raw_byte_search() {
+    let byte_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C")];
+    let e = "\u{e9}".as_bytes();
+    let c3 = [0xc3u8];
+    let prefix = || [b"a".as_slice(), e, b"b \x1b0f", &c3].concat();
+    for (desc, keys, expected) in [
+        (
+            "change",
+            [prefix().as_slice(), b"cZ\x1b\r"].concat(),
+            "a\u{e9}b ",
+        ),
+        (
+            "change_count",
+            [prefix().as_slice(), b"2cZ\x1b\r"].concat(),
+            "a\u{e9}b ",
+        ),
+        (
+            "change_word_count",
+            [prefix().as_slice(), b"c2wZ\x1b\r"].concat(),
+            "aZ",
+        ),
+        (
+            "delete",
+            [prefix().as_slice(), b"dl\r"].concat(),
+            "a\u{fffd}b ",
+        ),
+        (
+            "delete_count",
+            [prefix().as_slice(), b"2dl\r"].concat(),
+            "ab ",
+        ),
+        (
+            "delete_word",
+            [prefix().as_slice(), b"dw\r"].concat(),
+            "ab ",
+        ),
+        ("delete_end", [prefix().as_slice(), b"d$\r"].concat(), "a"),
+        (
+            "yank_put",
+            [prefix().as_slice(), b"ylp\r"].concat(),
+            "a\u{fffd}\u{e9}b ",
+        ),
+        (
+            "yank_word_put",
+            [prefix().as_slice(), b"ywp\r"].concat(),
+            "a\u{fffd}\u{e9}\u{fffd}b ",
+        ),
+        (
+            "change_to_end",
+            [prefix().as_slice(), b"CZ\x1b\r"].concat(),
+            "aZ",
+        ),
+        ("delete_to_end", [prefix().as_slice(), b"D\r"].concat(), "a"),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, byte_rc, &env);
+        let sush = run_sushline_harness_with_inputrc_and_env(&keys, byte_rc, &env);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_owned()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sush),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sush}"
+        );
+        assert_eq!(
+            bell_count(&sush),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sush}"
+        );
+    }
+}

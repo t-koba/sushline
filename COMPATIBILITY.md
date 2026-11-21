@@ -661,7 +661,12 @@ control handling: `bash_readline_and_sushline_vi_search_keeps_escape_in_query`
 matches a history entry containing ESC because ESC is query text, while
 `bash_readline_and_sushline_vi_search_abort_bells` pins the bell on an aborted
 C-g or ESC-terminated query (the latter cannot match and rings once at Enter).
-These cases do not establish general vi search redisplay or locale folding.
+The paired `vi_search_query_control_bytes_are_printable_not_raw_escapes` fixture
+further pins that ESC query bytes render as printable `^[` caret notation in
+both editors instead of injecting a raw terminal escape; the Sushline-only
+`vi_search_query_caret_width_advances_the_sushline_cursor` fixture pins that the
+two printed cells advance the cursor column. No general search redisplay or
+locale folding is claimed.
 
 - **C.UTF-8 lowercase:** the single-entry prefix and reverse-incremental
   `älpha`/`ÄLPHA old` cases, and the forward-incremental case with `prior`

@@ -91,7 +91,7 @@ pub(super) fn display_raw_byte(byte: u8, output_meta: bool) -> String {
     raw_byte_text(byte)
 }
 
-pub(super) fn display_char(
+pub(crate) fn display_char(
     ch: char,
     output_meta: bool,
     byte_oriented: bool,

@@ -65,11 +65,18 @@ impl NonIncrementalSearchState {
     }
 
     pub(crate) fn prompt_text(&self) -> String {
-        format!(
-            "{}{}",
-            self.prompt_char(),
-            String::from_utf8_lossy(&self.query)
-        )
+        let mut prompt = self.prompt_char().to_string();
+        let mut col = 1;
+        // Search query bytes use the same printable control notation as
+        // buffer text: a typed ESC must never be written raw to the terminal
+        // as an escape sequence, and its two printed cells count toward the
+        // prompt width.
+        for ch in String::from_utf8_lossy(&self.query).chars() {
+            let rendered = crate::buffer::display_char(ch, false, false, true, col);
+            col += crate::width::visible_width(&rendered);
+            prompt.push_str(&rendered);
+        }
+        prompt
     }
 }
 

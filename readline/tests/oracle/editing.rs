@@ -14910,3 +14910,62 @@ fn bytewise_counted_vi_replace_undo_restores_first_character_point() {
         );
     }
 }
+
+#[test]
+fn vi_search_query_control_bytes_are_printable_not_raw_escapes() {
+    let rc = "set editing-mode vi\n";
+    for (history, keys, query, raw) in [
+        (
+            vec!["abc"],
+            b"\x1b/a\x1b[2J\r\r".as_slice(),
+            "/a^[[2J",
+            "a\u{1b}[2J",
+        ),
+        (
+            vec!["a\u{1b}b"],
+            b"\x1b/a\x1bb\r\r".as_slice(),
+            "/a^[b",
+            "a\u{1b}b",
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_history(keys, rc, &history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, rc, &history);
+
+        assert!(bash.contains(query), "keys={keys:?}\nbash={bash}");
+        assert!(
+            sushline.contains(query),
+            "keys={keys:?}\nsushline={sushline}"
+        );
+        let transcript = sushline
+            .split("SUSHLINE_ACCEPTED:")
+            .next()
+            .unwrap_or(&sushline);
+        assert!(
+            !transcript.contains(raw),
+            "raw query escape in sushline: keys={keys:?}\n{sushline}"
+        );
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "keys={keys:?}\nbash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bell_count(&bash),
+            "keys={keys:?}\nbash={bash}\nsushline={sushline}"
+        );
+    }
+}
+
+#[test]
+fn vi_search_query_caret_width_advances_the_sushline_cursor() {
+    let rc = "set editing-mode vi\n";
+    let history = ["a\u{1b}b"];
+    let keys = b"\x1b/a\x1bb\r\r";
+    let sushline = run_sushline_harness_with_inputrc_and_history(keys, rc, &history);
+
+    assert!(
+        sushline.contains("/a^[b\u{1b}[K\u{1b}[6G"),
+        "caret notation must count as two cells: {sushline}"
+    );
+}

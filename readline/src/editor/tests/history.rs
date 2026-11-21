@@ -325,7 +325,7 @@ fn history_search_overlay_preserves_the_origin_edit_across_navigation() {
         .expect("previous history");
     editor.replace_from_history(&mut state, &line);
     assert_eq!(state.buffer.as_bytes(), b"AAA EDIT");
-    assert!(state.undo());
+    assert!(state.undo(editor.effective_editing_mode_is_vi()));
     assert_eq!(state.buffer.as_bytes(), b"AAA");
 }
 
@@ -381,7 +381,7 @@ fn history_navigation_preserves_edited_entry_and_undo_ownership() {
     editor.replace_from_history(&mut state, &line);
     assert_eq!(state.buffer.as_bytes(), b"alpha new EDIT");
     assert!(!state.undo_snapshot_lines().is_empty());
-    assert!(state.undo());
+    assert!(state.undo(editor.effective_editing_mode_is_vi()));
     assert_eq!(state.buffer.as_bytes(), b"alpha new");
 }
 

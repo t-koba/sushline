@@ -212,7 +212,7 @@ impl EditorState {
         true
     }
 
-    pub(crate) fn undo(&mut self) -> bool {
+    pub(crate) fn undo(&mut self, vi_active: bool) -> bool {
         self.commit_pending_undo();
         self.clear_vi_put_undo();
         let undone = if let Some(entry) = self.undo.undo_stack.pop() {
@@ -221,7 +221,8 @@ impl EditorState {
             // text at the end of the line; the raw buffer edit lands just
             // past it, where the next vi command would be blocked. Emacs mode
             // keeps the end-of-line point and must not be clamped.
-            if self.vi.command_mode_entered
+            if vi_active
+                && self.vi.command_mode_entered
                 && !self.buffer.is_empty()
                 && self.buffer.point() == self.buffer.as_bytes().len()
             {

@@ -125,7 +125,8 @@ where
                     // whole undo list rather than restoring the line as it
                     // was when the read began, and leaves point at zero.
                     let mut undone = false;
-                    while state.undo() {
+                    let vi_active = self.effective_editing_mode_is_vi();
+                    while state.undo(vi_active) {
                         undone = true;
                     }
                     if undone {
@@ -263,8 +264,9 @@ where
             }
             EditCommand::Undo => {
                 let count = state.take_numeric_arg().unwrap_or(1);
+                let vi_active = self.effective_editing_mode_is_vi();
                 for _ in 0..count {
-                    if !state.undo() {
+                    if !state.undo(vi_active) {
                         self.ding()?;
                         break;
                     }

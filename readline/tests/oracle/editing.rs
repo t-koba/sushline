@@ -10801,3 +10801,26 @@ fn bash_and_sushline_byte_oriented_vi_word_point_matches_gnu() {
         assert_eq!(bell_count(&sush), bells, "{keys:?}");
     }
 }
+
+/// Paired GNU 5.3 / Readline 8.3 pin for undo point after a mode switch.
+///
+/// Undo must use the active editing mode: a prior visit to vi command mode
+/// must not keep the vi end-of-line back-off after `emacs-editing-mode`.
+#[test]
+fn bash_and_sushline_undo_point_follows_active_mode() {
+    let rc = "set editing-mode vi\n\"\\C-o\": emacs-editing-mode\n";
+    let cases = [
+        ("abc\u{1b}A\u{f}\u{7f}\u{1f}X\r", "abcX", 0),
+        ("abc\u{1b}A\u{f}\u{7f}\u{1f}\u{7f}\r", "ab", 0),
+        ("abc\u{f}\u{7f}\u{1f}X\r", "abcX", 0),
+        ("abc\u{1b}A\u{1f}X\r", "abcX", 1),
+    ];
+    for (keys, expected, bells) in cases {
+        let bash = run_bash_readline_with_inputrc_file(keys.as_bytes(), rc);
+        let sush = run_sushline_harness_with_inputrc(keys.as_bytes(), rc);
+        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(bell_count(&bash), bells, "{keys:?}");
+        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+    }
+}

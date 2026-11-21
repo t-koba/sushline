@@ -738,8 +738,9 @@ where
             "vi-undo" => {
                 let count = state.take_numeric_arg().unwrap_or(1).max(1) as usize;
                 let mut exhausted = false;
+                let vi_active = self.effective_editing_mode_is_vi();
                 for _ in 0..count {
-                    if !state.undo() {
+                    if !state.undo(vi_active) {
                         exhausted = true;
                         break;
                     }

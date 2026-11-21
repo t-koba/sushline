@@ -1287,7 +1287,17 @@ where
         if lo == hi {
             return false;
         }
+        // GNU leaves point where the operator was armed, even when a
+        // backward motion puts the yanked range before it.
+        let yank_point = if op == ViOperator::Yank {
+            Some(start)
+        } else {
+            None
+        };
         self.apply_vi_operator_range_bounds(state, op, lo, hi);
+        if let Some(point) = yank_point {
+            state.buffer.set_point(point);
+        }
         true
     }
 

@@ -11299,3 +11299,76 @@ fn bash_and_sushline_byte_oriented_repeated_backward_bells() {
         assert_eq!(bell_count(&sush), bells, "{keys:?}");
     }
 }
+
+/// Paired GNU 5.3 / Readline 8.3 pin for the point left by vi yank.
+///
+/// GNU keeps point where the operator was armed: a forward yank leaves it
+/// at the yank start, while a backward yank leaves it at the original
+/// cursor. A following insert or put exposes that point. Delete and change
+/// ranges are not affected by this point rule.
+#[test]
+fn bash_and_sushline_vi_backward_yank_point() {
+    let rc = "set editing-mode vi\n";
+    let cases = [
+        ("abc def", "$ybiX", "abc deXf", 0),
+        ("abc def", "$yBiX", "abc deXf", 0),
+        ("abc def", "$ywiX", "abc deXf", 0),
+        ("abc def", "$ybP", "abc dedef", 0),
+        ("abc def", "$ybp", "abc defde", 0),
+        ("abc def ghi", "$ybiX", "abc def ghXi", 0),
+        ("abc def ghi", "$ybbiX", "abc def Xghi", 0),
+        ("abc def ghi", "$2ybiX", "abc def ghXi", 0),
+        ("abc def ghi", "$yBwiX", "abc def ghXi", 1),
+        ("abc def ghi", "0ywiX", "Xabc def ghi", 0),
+        ("abc def ghi", "0ywbp", "aabc bc def ghi", 1),
+        ("abc def ghi", "$ybp", "abc def ghigh", 0),
+        ("abc def ghi", "$ybP", "abc def ghghi", 0),
+        ("a! b c", "$ybiX", "a! b Xc", 0),
+        ("a! b c", "$ybbiX", "a! Xb c", 0),
+        ("a! b c", "$ybp", "a! b cb ", 0),
+        ("one", "$ybiX", "onXe", 0),
+        ("one", "0ybiX", "Xone", 1),
+        ("aé b", "ybiX", "aé Xb", 0),
+        ("aé b", "ywiX", "aé Xb", 0),
+        ("aé b", "ybp", "aé baé ", 0),
+        ("aé b", "ybP", "aé aé b", 0),
+        ("aé b c", "$ybiX", "aé b Xc", 0),
+        ("aé b c", "$ybp", "aé b cb ", 0),
+    ];
+    for (line, motion, expected, bells) in cases {
+        let keys = format!("{line}\x1b{motion}\r");
+        let bash = run_bash_readline_with_inputrc_file(keys.as_bytes(), rc);
+        let sush = run_sushline_harness_with_inputrc(keys.as_bytes(), rc);
+        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(bell_count(&bash), bells, "{keys:?}");
+        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+    }
+
+    let byte_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C")];
+    let byte_cases = [
+        ("aé b", "ybiX", "aé Xb", 0),
+        ("aé b", "ybp", "aé baé ", 0),
+        ("éa b", "ybiX", "éa Xb", 0),
+        ("éa b", "ybp", "éa ba ", 0),
+        ("ab é", "ybiX", "ab \u{fffd}X\u{fffd}", 0),
+        ("ab é", "ybp", "ab é\u{fffd}", 0),
+        ("abc def", "$ybp", "abc defde", 0),
+    ];
+    for (line, motion, expected, bells) in byte_cases {
+        let keys = format!("{line}\x1b{motion}\r");
+        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), byte_rc, &env);
+        let sush = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), byte_rc, &env);
+        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(bell_count(&bash), bells, "{keys:?}");
+        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+    }
+}

@@ -11076,3 +11076,64 @@ fn bash_and_sushline_byte_oriented_escape_backoff_matches_gnu() {
         assert_eq!(bell_count(&sush), bells, "{keys:?}");
     }
 }
+
+/// Paired GNU 5.3 / Readline 8.3 pin for byte-oriented backward word points.
+///
+/// In `LC_ALL=C` with `byte-oriented on`, `b`/`B` step one raw byte before
+/// scanning and snap to a byte-sequence lead. High bytes are punctuation for
+/// `b` and non-whitespace for `B`. Pending delete ranges and pure-ASCII
+/// counted bells are measured elsewhere; this fixture pins insert points and
+/// bells for the backward motions themselves.
+#[test]
+fn bash_and_sushline_byte_oriented_backward_word_points() {
+    let rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C")];
+    let cases = [
+        ("aé b", "b", "Xaé b", 0),
+        ("aé b", "B", "Xaé b", 0),
+        ("aé b", "bb", "Xaé b", 1),
+        ("aé b", "2b", "Xaé b", 0),
+        ("aé b", "$b", "Xaé b", 0),
+        ("aé b", "0b", "Xaé b", 1),
+        ("aé b", "3b", "Xaé b", 0),
+        ("aé b", "02b", "Xaé b", 1),
+        ("aé b", "0B", "Xaé b", 1),
+        ("éa b", "b", "éXa b", 0),
+        ("éa b", "B", "Xéa b", 0),
+        ("éa b", "bb", "Xéa b", 0),
+        ("éa b", "2b", "Xéa b", 0),
+        ("éa b", "$b", "éXa b", 0),
+        ("éa b", "0b", "Xéa b", 1),
+        ("éa b", "3b", "Xéa b", 0),
+        ("éa b", "02b", "Xéa b", 1),
+        ("ab é", "b", "ab Xé", 0),
+        ("ab é", "B", "ab Xé", 0),
+        ("ab é", "bb", "Xab é", 0),
+        ("ab é", "$b", "ab Xé", 0),
+        ("ab é", "0b", "Xab é", 1),
+        ("ab é", "3b", "Xab é", 0),
+        ("ab é", "0B", "Xab é", 1),
+        ("é", "b", "Xé", 0),
+        ("é", "B", "Xé", 0),
+        ("é a", "$b", "Xé a", 0),
+        ("é a", "$B", "Xé a", 0),
+        ("abc def", "$b", "abc Xdef", 0),
+        ("abc def", "$bb", "Xabc def", 0),
+        ("a! b", "$b", "Xa! b", 0),
+    ];
+    for (line, motion, expected, bells) in cases {
+        let keys = format!("{line}\x1b{motion}iX\r");
+        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), rc, &env);
+        let sush = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), rc, &env);
+        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(bell_count(&bash), bells, "{keys:?}");
+        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+    }
+}

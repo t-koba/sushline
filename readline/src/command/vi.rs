@@ -94,6 +94,77 @@ fn vi_bytewise_forward_word(state: &mut EditorState, break_chars: Option<&str>) 
     end != start
 }
 
+/// Byte-oriented vi backward motions step one raw byte before scanning.
+/// High bytes are punctuation for `b` and non-whitespace for `B`; landing in
+/// the middle of a byte sequence snaps to its first byte.
+fn vi_bytewise_backward_word(
+    state: &mut EditorState,
+    break_chars: Option<&str>,
+    bigword: bool,
+) -> bool {
+    let start = state.buffer.point();
+    if start == 0 {
+        return false;
+    }
+    let end = {
+        let bytes = state.buffer.as_bytes();
+        let is_word = |byte: u8| match break_chars {
+            Some(breaks) => !byte.is_ascii_whitespace() && !breaks.as_bytes().contains(&byte),
+            None => byte.is_ascii_alphanumeric() || byte == b'_',
+        };
+        let class = |byte: u8| {
+            if byte.is_ascii_whitespace() {
+                0
+            } else if bigword || is_word(byte) {
+                1
+            } else {
+                2
+            }
+        };
+        let snap_lead = |mut pos: usize| {
+            while pos > 0 && bytes[pos] & 0xc0 == 0x80 {
+                pos -= 1;
+            }
+            pos
+        };
+        let scan_back = |mut pos: usize, wanted: u8| {
+            while pos > 0 && class(bytes[pos - 1]) == wanted {
+                pos -= 1;
+            }
+            pos
+        };
+        let mut pos = snap_lead(start - 1);
+        if bigword {
+            if class(bytes[pos]) == 0 {
+                pos = scan_back(pos, 0);
+                pos = snap_lead(pos);
+            }
+            while pos > 0 && class(bytes[pos - 1]) != 0 {
+                pos -= 1;
+            }
+        } else {
+            match class(bytes[pos]) {
+                1 => pos = scan_back(pos, 1),
+                2 => pos = scan_back(pos, 2),
+                _ => {
+                    pos = scan_back(pos, 0);
+                    pos = snap_lead(pos);
+                    if pos > 0 && class(bytes[pos - 1]) == 2 {
+                        pos = scan_back(pos, 2);
+                        pos = snap_lead(pos);
+                    }
+                    if pos > 0 && class(bytes[pos - 1]) == 1 {
+                        pos = scan_back(pos, 1);
+                    }
+                }
+            }
+        }
+        snap_lead(pos)
+    };
+    state.buffer.set_point(end);
+    end != start
+}
+
 /// GNU dot-replays lowercase `p` with its forward motion: a put leaves point
 /// on the last inserted character, so replay steps forward before yanking.
 /// Uppercase `P` replays at the current point without that motion.
@@ -331,9 +402,15 @@ where
     ) -> Result<EditorOutcome, ReadlineError> {
         match command {
             "vi-bWord" | "vi-backward-bigword" => {
+                let bytewise = self.char_motion_is_bytewise();
+                let word_breaks = self.editing_word_breaks(hooks);
                 self.apply_vi_motion_with_operator(state, key, false, |state| {
                     repeat(state, |state| {
-                        state.buffer.backward_bigword();
+                        if bytewise {
+                            vi_bytewise_backward_word(state, word_breaks.as_deref(), true);
+                        } else {
+                            state.buffer.backward_bigword();
+                        }
                     });
                 });
             }
@@ -343,6 +420,8 @@ where
                 });
             }
             "vi-backward-word" | "vi-bword" | "vi-prev-word" => {
+                let bytewise = self.char_motion_is_bytewise();
+                let word_breaks = self.editing_word_breaks(hooks);
                 // GNU rings when b/B fails on its first step from column zero,
                 // including counted motions and pending change operators;
                 // later steps that run out of line after a successful first
@@ -353,7 +432,11 @@ where
                         let mut first = true;
                         repeat(state, |state| {
                             let before = state.buffer.point();
-                            state.buffer.backward_bigword();
+                            if bytewise {
+                                vi_bytewise_backward_word(state, word_breaks.as_deref(), true);
+                            } else {
+                                state.buffer.backward_bigword();
+                            }
                             if first && state.buffer.point() == before {
                                 stalled = true;
                             }
@@ -365,13 +448,16 @@ where
                     }
                     return Ok(EditorOutcome::Continue);
                 }
-                let word_breaks = self.editing_word_breaks(hooks);
                 let mut stalled = false;
                 self.apply_vi_motion_with_operator(state, key, false, |state| {
                     let mut first = true;
                     repeat(state, |state| {
                         let before = state.buffer.point();
-                        state.buffer.vi_backward_word(word_breaks.as_deref());
+                        if bytewise {
+                            vi_bytewise_backward_word(state, word_breaks.as_deref(), false);
+                        } else {
+                            state.buffer.vi_backward_word(word_breaks.as_deref());
+                        }
                         if first && state.buffer.point() == before {
                             stalled = true;
                         }

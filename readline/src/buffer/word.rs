@@ -36,7 +36,10 @@ pub(super) fn is_word_char_with_breaks(ch: char, break_chars: &str) -> bool {
 fn word_matcher(break_chars: Option<&str>) -> impl Fn(char) -> bool + Copy + '_ {
     move |ch| match break_chars {
         Some(break_chars) => is_word_char_with_breaks(ch, break_chars),
-        None => is_word_char(ch),
+        // GNU's vi word commands classify only ASCII letters, digits and
+        // underscore as word characters; non-ASCII scalars start punctuation
+        // runs even in a UTF-8 locale.
+        None => ch.is_ascii_alphanumeric() || ch == '_',
     }
 }
 

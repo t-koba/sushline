@@ -14430,3 +14430,25 @@ fn bash_and_sushline_vi_end_word_final_character_point() {
         assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }
 }
+
+/// GNU's vi word commands classify only ASCII letters, digits and underscore
+/// as word characters in these UTF-8 lines; precomposed non-ASCII letters
+/// start a punctuation run. Exact bytes pin motions, operators and a yank/put.
+#[test]
+fn bash_and_sushline_vi_words_use_ascii_word_char_class() {
+    let rc = "set editing-mode vi\n";
+    let env = [("LC_ALL", "C.UTF-8")];
+    for (desc, keys, expected, bells) in [
+        ("accented_motion", "a\u{e9}bc\x1b0wiX\r", "aX\u{e9}bc", 0),
+        ("accented_delete", "a\u{e9}bc\x1b0dw\r", "\u{e9}bc", 0),
+        ("accented_change", "a\u{e9}bc\x1b0cwZ\r", "Z\u{e9}bc", 0),
+        ("accented_yank_put", "a\u{e9}bc\x1b0ywp\r", "aa\u{e9}bc", 0),
+        ("leading_accented", "\u{e9}abc\x1b0wiX\r", "\u{e9}Xabc", 0),
+        ("latin_capital", "a\u{c4}bc\x1b0wiX\r", "aX\u{c4}bc", 0),
+        ("greek", "a\u{3b1}bc\x1b0wiX\r", "aX\u{3b1}bc", 0),
+        ("cjk", "a\u{4e16}bc\x1b0wiX\r", "aX\u{4e16}bc", 0),
+        ("underscore_control", "a_bc\x1b0wiX\r", "a_bXc", 0),
+    ] {
+        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
+    }
+}

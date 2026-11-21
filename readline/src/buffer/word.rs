@@ -838,10 +838,15 @@ impl LineBuffer {
             return false;
         }
         let mut point = start;
+        let leading_grapheme = self.leading_grapheme_word_end();
+        if let Some(end) = leading_grapheme {
+            point = end;
+        }
 
         // GNU appends a blank for the motion so the last character can be
         // reached; our boundary helpers already stop at the buffer end.
-        for _ in 0..count {
+        let remaining = count.saturating_sub(u32::from(leading_grapheme.is_some()));
+        for _ in 0..remaining {
             if point >= end {
                 break;
             }
@@ -918,7 +923,30 @@ impl LineBuffer {
 
     /// Base character governing a combining mark's vi word class. GNU treats
     /// a mark as part of the preceding grapheme, not as a separate scalar.
+    /// End of the leading mark/ZWJ cluster, when point starts at byte 0 with
+    /// a grapheme extend or joiner. GNU groups that first cluster as one vi
+    /// word before the following characters.
+    fn leading_grapheme_word_end(&self) -> Option<usize> {
+        if self.point != 0 {
+            return None;
+        }
+        let (_, first) = self.decoded_char_at(0)?;
+        if !is_grapheme_extend(first) && first != '\u{200d}' {
+            return None;
+        }
+        let mut at = self.next_char_boundary(0);
+        while let Some((_, ch)) = self.decoded_char_at(at) {
+            if is_grapheme_extend(ch) || ch == '\u{200d}' {
+                at = self.next_char_boundary(at);
+                continue;
+            }
+            return Some(self.next_char_boundary(at));
+        }
+        None
+    }
+
     fn vi_word_base_char(&self, idx: usize) -> Option<char> {
+        let (_, original) = self.decoded_char_at(idx)?;
         let (_, mut ch) = self.decoded_char_at(idx)?;
         if ch == '\u{200d}' {
             // A leading ZWJ takes its class from the character it joins.
@@ -932,7 +960,13 @@ impl LineBuffer {
         }
         let mut at = idx;
         while is_grapheme_extend(ch) || ch == '\u{200d}' {
-            (at, ch) = self.decoded_prev_char(at)?;
+            match self.decoded_prev_char(at) {
+                Some((prev, previous)) => {
+                    at = prev;
+                    ch = previous;
+                }
+                None => return Some(original),
+            }
         }
         Some(ch)
     }
@@ -942,32 +976,36 @@ impl LineBuffer {
         F: Fn(char) -> bool + Copy,
     {
         let start = self.point;
-        match self.vi_word_base_char(self.point) {
-            Some(ch) if ch.is_whitespace() => {
-                while let Some(ch) = self.vi_word_base_char(self.point) {
-                    if !ch.is_whitespace() {
-                        break;
+        if let Some(end) = self.leading_grapheme_word_end() {
+            self.point = end;
+        } else {
+            match self.vi_word_base_char(self.point) {
+                Some(ch) if ch.is_whitespace() => {
+                    while let Some(ch) = self.vi_word_base_char(self.point) {
+                        if !ch.is_whitespace() {
+                            break;
+                        }
+                        self.point = self.next_char_boundary(self.point);
                     }
-                    self.point = self.next_char_boundary(self.point);
                 }
-            }
-            Some(ch) if is_word(ch) => {
-                while let Some(ch) = self.vi_word_base_char(self.point) {
-                    if !is_word(ch) {
-                        break;
+                Some(ch) if is_word(ch) => {
+                    while let Some(ch) = self.vi_word_base_char(self.point) {
+                        if !is_word(ch) {
+                            break;
+                        }
+                        self.point = self.next_char_boundary(self.point);
                     }
-                    self.point = self.next_char_boundary(self.point);
                 }
-            }
-            Some(_) => {
-                while let Some(ch) = self.vi_word_base_char(self.point) {
-                    if ch.is_whitespace() || is_word(ch) {
-                        break;
+                Some(_) => {
+                    while let Some(ch) = self.vi_word_base_char(self.point) {
+                        if ch.is_whitespace() || is_word(ch) {
+                            break;
+                        }
+                        self.point = self.next_char_boundary(self.point);
                     }
-                    self.point = self.next_char_boundary(self.point);
                 }
+                None => return false,
             }
-            None => return false,
         }
         if skip_whitespace {
             while let Some(ch) = self.vi_word_base_char(self.point) {

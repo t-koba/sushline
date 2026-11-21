@@ -14014,3 +14014,41 @@ fn bash_and_sushline_vi_word_motion_combining_mark_graphemes() {
         );
     }
 }
+
+/// Paired GNU 5.3 / Readline 8.3 pin for vi words that start with a grapheme
+/// mark or joiner. The leading cluster is one vi word; `w` moves past it and
+/// `cw` changes it, without stalling or panicking at byte 0.
+#[test]
+fn bash_and_sushline_vi_words_starting_with_grapheme_marks() {
+    let rc = "set editing-mode vi";
+    for (desc, keys, expected, bells) in [
+        ("mark_w", "\u{301}abc\x1b0wiX\r", "\u{301}aXbc", 0),
+        ("mark_cw", "\u{301}abc\x1b0cwZ\r", "Zbc", 0),
+        ("zwj_w", "\u{200d}abc\x1b0wiX\r", "\u{200d}aXbc", 0),
+        ("zwj_cw", "\u{200d}abc\x1b0cwZ\r", "Zbc", 0),
+        ("jamo_w", "\u{1160}abc\x1b0wiX\r", "\u{1160}aXbc", 0),
+        ("jamo_cw", "\u{1160}abc\x1b0cwZ\r", "Zbc", 0),
+        ("mark_counted_w", "\u{301}abc\x1b02wiX\r", "\u{301}abXc", 0),
+        ("mark_only_cw", "\u{301}\x1b0cwZ\r", "Z", 0),
+        ("zwj_only_cw", "\u{200d}\x1b0cwZ\r", "Z", 0),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys.as_bytes(), rc);
+        let sushline = run_sushline_harness_with_inputrc(keys.as_bytes(), rc);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_owned()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(
+            bell_count(&sushline),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sushline}"
+        );
+    }
+}

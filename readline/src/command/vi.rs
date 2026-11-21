@@ -667,6 +667,9 @@ where
                 // after a vi put the failed pop is silent. Other commands
                 // clear the put marker, so a following motion restores the bell.
                 if self.keymap.current() == KeyMapName::ViInsert {
+                    // The failed pop is a new command: GNU drops the yank
+                    // state, so a following plain yank-pop also fails.
+                    state.kill.last_yank = None;
                     self.ding()?;
                     return Ok(EditorOutcome::Continue);
                 }

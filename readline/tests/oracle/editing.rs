@@ -10319,6 +10319,36 @@ fn bash_and_sushline_vi_insert_yank_pop_matches_gnu() {
             "{name}: bash={bash:?} sushline={sush:?}"
         );
     }
+
+    // A failed vi-yank-pop invalidates the yank state in GNU, so the next
+    // plain yank-pop rings instead of staying silent.
+    for (suffix, bells) in [
+        ("QW", 2),
+        ("QWWW", 4),
+        ("WQW", 2),
+        ("WWQWW", 3),
+        ("QWQW", 4),
+    ] {
+        let keys = format!("one\x17two\x17three\x17X\x19{suffix}\r");
+        let bash = run_bash_readline_with_inputrc_file(keys.as_bytes(), inputrc);
+        let sush = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some("Xthree"),
+            "{suffix}: bash={bash:?}"
+        );
+        assert_eq!(
+            accepted_line(&sush),
+            accepted_line(&bash),
+            "{suffix}: bash={bash:?} sushline={sush:?}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{suffix}: bash={bash:?}");
+        assert_eq!(
+            bell_count(&sush),
+            bell_count(&bash),
+            "{suffix}: bash={bash:?} sushline={sush:?}"
+        );
+    }
 }
 
 #[test]

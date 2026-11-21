@@ -14480,3 +14480,37 @@ fn bash_and_sushline_vi_end_word_leading_grapheme_clusters() {
         assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }
 }
+
+/// A remembered multibyte search target must only widen an operator whose
+/// motion is that search (including its repeat), not a later ordinary motion.
+#[test]
+fn bash_and_sushline_vi_char_search_scopes_operator_adjustment() {
+    let rc = "set editing-mode vi\n";
+    let env = [("LC_ALL", "C.UTF-8")];
+    for (desc, keys, expected, bells) in [
+        (
+            "delete_after_search",
+            "a\u{e9}bc d\x1b0f\u{e9}de\r",
+            "a d",
+            0,
+        ),
+        ("to_end_after_search", "a\u{e9}bc d\x1b0f\u{e9}d$\r", "a", 0),
+        (
+            "plain_end_after_search",
+            "a\u{e9}bc d\x1b0f\u{e9}e\r",
+            "a\u{e9}bc d",
+            0,
+        ),
+        ("ascii_control", "abc d\x1b0fbde\r", "a d", 0),
+        ("till_search", "\u{e9}a\u{e9}a\x1b0dt\u{e9}\r", "\u{e9}a", 0),
+        ("repeat_delete", "a\u{e9}\u{e9}bc\x1b0f\u{e9}d;\r", "abc", 0),
+        (
+            "repeat_yank_put",
+            "a\u{e9}\u{e9}bc\x1b0f\u{e9}y;p\r",
+            "a\u{e9}\u{e9}\u{e9}\u{e9}bc",
+            0,
+        ),
+    ] {
+        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
+    }
+}

@@ -1057,7 +1057,7 @@ where
                     let op_start = state.vi.pending_mark_operator.take();
                     if let Some(point) = state.vi.vi_marks.get(&ch).copied() {
                         state.buffer.set_point(point);
-                        self.finish_vi_motion_operator(state, op_start, bytes, false);
+                        self.finish_vi_motion_operator(state, op_start, bytes, false, None);
                         state.input.changed_display = true;
                     } else {
                         state.cancel_pending_command();
@@ -1164,7 +1164,11 @@ where
             // `,` can then repeat it in the opposite direction.
             state.vi.last_char_search = Some((search, ch));
             if success {
-                self.finish_vi_motion_operator(state, op_start, &first, true);
+                let widen = matches!(
+                    search,
+                    crate::state::CharSearchMode::Forward | crate::state::CharSearchMode::Backward
+                );
+                self.finish_vi_motion_operator(state, op_start, &first, true, widen.then_some(ch));
                 state.after_non_kill_command();
                 state.consume_numeric_arg_unless_prefix();
                 state.input.changed_display = true;

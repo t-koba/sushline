@@ -11,25 +11,20 @@ where
         op_start: Option<(ViOperator, usize, Vec<u8>)>,
         key: &[u8],
         inclusive: bool,
+        search_target: Option<char>,
     ) {
         if let Some((op, start, mut change)) = op_start {
             // A char-search motion leaves point on the target's first byte.
             // An inclusive operator must cover the whole target character;
-            // otherwise `df<multibyte>` leaves a truncated final byte.
-            if inclusive && !self.variables.is_on("byte-oriented") {
-                let is_search_key = matches!(key, b"f" | b"F" | b"t" | b"T" | b";" | b",")
-                    || std::str::from_utf8(key).is_ok_and(|text| {
-                        text.chars()
-                            .next()
-                            .is_some_and(|ch| key.len() == ch.len_utf8())
-                    });
-                if is_search_key
-                    && let Some((mode, ch)) = state.vi.last_char_search
-                    && matches!(mode, CharSearchMode::Forward | CharSearchMode::Backward)
-                {
-                    let end = state.buffer.point() + ch.len_utf8() - 1;
-                    state.buffer.set_point(end.min(state.buffer.len_chars()));
-                }
+            // otherwise `df<multibyte>` leaves a truncated final byte. Callers
+            // that performed a char search pass its target explicitly: an
+            // unrelated inclusive motion must not reuse a remembered target.
+            if inclusive
+                && !self.variables.is_on("byte-oriented")
+                && let Some(ch) = search_target
+            {
+                let end = state.buffer.point() + ch.len_utf8() - 1;
+                state.buffer.set_point(end.min(state.buffer.len_chars()));
             }
             if !self.apply_vi_operator_range(state, op, start, inclusive) {
                 // GNU still enters insert mode when a change motion spans no
@@ -69,7 +64,7 @@ where
                 if !cancel_without_motion && !move_by_char(state, false, bytewise) {
                     self.ding()?;
                 }
-                self.finish_vi_motion_operator(state, op_start, key, false);
+                self.finish_vi_motion_operator(state, op_start, key, false, None);
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
             }
@@ -91,7 +86,7 @@ where
             EditCommand::BeginningOfLine => {
                 let op_start = take_vi_motion_operator(state, command, key);
                 state.buffer.move_beginning();
-                self.finish_vi_motion_operator(state, op_start, key, false);
+                self.finish_vi_motion_operator(state, op_start, key, false, None);
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
             }
@@ -110,7 +105,7 @@ where
                         state.buffer.snap_final_grapheme_point();
                     }
                 }
-                self.finish_vi_motion_operator(state, op_start, key, true);
+                self.finish_vi_motion_operator(state, op_start, key, true, None);
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
             }
@@ -139,7 +134,7 @@ where
                 if !moved {
                     self.ding()?;
                 }
-                self.finish_vi_motion_operator(state, op_start, key, false);
+                self.finish_vi_motion_operator(state, op_start, key, false, None);
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
             }

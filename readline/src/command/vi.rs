@@ -602,7 +602,7 @@ where
     ) {
         let op_start = state.take_vi_operator();
         motion(state);
-        self.finish_vi_motion_operator(state, op_start, key, inclusive);
+        self.finish_vi_motion_operator(state, op_start, key, inclusive, None);
         state.after_non_kill_command();
     }
 
@@ -1145,7 +1145,7 @@ where
             "vi-match" => {
                 let op_start = state.take_vi_operator();
                 self.vi_match_bracket(state);
-                self.finish_vi_motion_operator(state, op_start, key, true);
+                self.finish_vi_motion_operator(state, op_start, key, true, None);
                 state.after_non_kill_command();
             }
             "vi-set-register" => {
@@ -1238,7 +1238,14 @@ where
                             keep_partial: op_start.is_some(),
                         },
                     )? {
-                        self.finish_vi_motion_operator(state, op_start, key, true);
+                        self.finish_vi_motion_operator(
+                            state,
+                            op_start,
+                            key,
+                            true,
+                            matches!(mode, CharSearchMode::Forward | CharSearchMode::Backward)
+                                .then_some(ch),
+                        );
                     } else {
                         if op_start.is_some() {
                             self.ding()?;
@@ -1265,7 +1272,14 @@ where
                             keep_partial: op_start.is_some(),
                         },
                     )? {
-                        self.finish_vi_motion_operator(state, op_start, key, true);
+                        self.finish_vi_motion_operator(
+                            state,
+                            op_start,
+                            key,
+                            true,
+                            matches!(mode, CharSearchMode::Forward | CharSearchMode::Backward)
+                                .then_some(ch),
+                        );
                     } else {
                         if op_start.is_some() {
                             self.ding()?;

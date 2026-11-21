@@ -107,6 +107,7 @@ where
                         state.buffer.move_backward_byte();
                     } else {
                         state.buffer.move_backward();
+                        state.buffer.snap_final_grapheme_point();
                     }
                 }
                 self.finish_vi_motion_operator(state, op_start, key, true);

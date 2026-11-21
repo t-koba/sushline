@@ -14411,3 +14411,22 @@ fn bash_and_sushline_vi_char_search_operator_matches_whole_multibyte() {
         assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }
 }
+
+/// Vi `e` invoked on the final character must leave point on that character,
+/// not one position past it, including when the final grapheme carries marks
+/// or a joiner. A following space motion still rings at the line edge.
+#[test]
+fn bash_and_sushline_vi_end_word_final_character_point() {
+    let rc = "set editing-mode vi\n";
+    let env = [("LC_ALL", "C.UTF-8")];
+    for (desc, keys, expected, bells) in [
+        ("ascii", "abc\x1b0$eiX\r", "abXc", 0),
+        ("final_mark", "ab\u{301}\x1b0$eiX\r", "aXb\u{301}", 0),
+        ("final_joiner", "ab\u{200d}\x1b0$eiX\r", "aXb\u{200d}", 0),
+        ("final_jamo", "ab\u{1160}\x1b0$eiX\r", "aXb\u{1160}", 0),
+        ("final_punctuation", "one--\x1b0$eiX\r", "one-X-", 0),
+        ("ascii_space_rings", "abc\x1b0$e iX\r", "abXc", 1),
+    ] {
+        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
+    }
+}

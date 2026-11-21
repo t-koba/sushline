@@ -12504,3 +12504,92 @@ fn bash_and_sushline_byte_oriented_change_word_endpoints() {
         );
     }
 }
+
+/// Undo, redo and dot replay keep the raw-byte ranges changed by bytewise
+/// change-word commands, including a point on an interior byte of a scalar.
+#[test]
+fn bash_and_sushline_byte_oriented_change_word_undo_redo() {
+    let byte_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C")];
+    let e = "\u{e9}".as_bytes();
+    let c3 = [0xc3u8];
+    let a9 = [0xa9u8];
+    let search = |tail: &[u8], key: &[u8]| [b"a".as_slice(), e, tail, b"\x1b0f", key].concat();
+    for (desc, keys, expected) in [
+        (
+            "cw_undo",
+            [search(b"b ", &c3).as_slice(), b"cwZ\x1bu\r"].concat(),
+            "a\u{e9}b ",
+        ),
+        (
+            "cw_dot",
+            [search(b"b ", &c3).as_slice(), b"cwZ\x1b.\r"].concat(),
+            "aZ",
+        ),
+        (
+            "cw_redo",
+            [search(b"b ", &c3).as_slice(), b"cwZ\x1bu\x12\r"].concat(),
+            "a\u{e9}b ",
+        ),
+        (
+            "c2w_undo",
+            [search(b"b ", &c3).as_slice(), b"c2wZ\x1bu\r"].concat(),
+            "a\u{e9}b ",
+        ),
+        (
+            "c2w_dot",
+            [search(b"b ", &c3).as_slice(), b"c2wZ\x1b.\r"].concat(),
+            "aZ",
+        ),
+        (
+            "ce_undo",
+            [search(b"b ", &c3).as_slice(), b"ceZ\x1bu\r"].concat(),
+            "a\u{e9}b ",
+        ),
+        (
+            "ce_dot",
+            [search(b"b ", &c3).as_slice(), b"ceZ\x1b.\r"].concat(),
+            "aZ ",
+        ),
+        (
+            "continuation_undo",
+            [search(b":b", &a9).as_slice(), b"cwZ\x1bu\r"].concat(),
+            "a\u{e9}:b",
+        ),
+        (
+            "continuation_dot",
+            [search(b":b", &a9).as_slice(), b"cwZ\x1b.\r"].concat(),
+            "a\u{fffd}Z",
+        ),
+        (
+            "before_scalar_undo",
+            [b"a".as_slice(), e, b"b \x1b0cwZ\x1bu\r"].concat(),
+            "a\u{e9}b ",
+        ),
+    ] {
+        let bash = run_bash_readline_with_inputrc_file_and_env(&keys, byte_rc, &env);
+        let sush = run_sushline_harness_with_inputrc_and_env(&keys, byte_rc, &env);
+        assert_eq!(
+            accepted_line(&bash),
+            Some(expected.to_owned()),
+            "{desc}: {bash}"
+        );
+        assert_eq!(bell_count(&bash), 0, "{desc}: {bash}");
+        assert_eq!(
+            accepted_line(&sush),
+            accepted_line(&bash),
+            "{desc}: bash={bash}\nsushline={sush}"
+        );
+        assert_eq!(
+            bell_count(&sush),
+            bell_count(&bash),
+            "{desc}: bash={bash}\nsushline={sush}"
+        );
+    }
+}

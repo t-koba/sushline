@@ -727,19 +727,31 @@ impl LineBuffer {
         let lower: String = ch.to_lowercase().collect();
         if upper == ch.to_string() && lower == ch.to_string() {
             // An uncased GNU character is skipped silently when text remains
-            // after the skip. A leading mark/Jamo cluster is skipped whole
-            // only when another character follows it; otherwise only its
-            // first scalar is skipped, and a final uncased character rings.
+            // after the skip. A leading mark/Jamo/joiner run skips through its
+            // base when the cluster ends before the line end, or through the
+            // whole run to the base when the base is final; a run with no base
+            // rings, as does a final uncased character.
             let first_end = self.point + ch.len_utf8();
             let mut skip_end = first_end;
-            if is_grapheme_extend(ch) {
+            if is_grapheme_extend(ch) || ch == '\u{200d}' {
                 let cluster_end = self
                     .next_grapheme_boundary_checked(self.point)
                     .unwrap_or(first_end);
-                // GNU skips the whole leading cluster only when text remains
-                // after it; otherwise it stops after the first scalar.
                 if cluster_end < self.bytes.len() {
                     skip_end = cluster_end;
+                } else {
+                    let mut base = first_end;
+                    while let Some(next) = self.char_at(base) {
+                        if is_grapheme_extend(next) || next == '\u{200d}' {
+                            base = self.next_char_boundary(base);
+                        } else {
+                            break;
+                        }
+                    }
+                    if base >= self.bytes.len() {
+                        return true;
+                    }
+                    skip_end = base;
                 }
             }
             if skip_end >= self.bytes.len() {

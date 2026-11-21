@@ -14094,9 +14094,10 @@ fn bash_and_sushline_vi_replace_combining_grapheme_exact_bytes() {
 /// Paired GNU 5.3 / Readline 8.3 pin for `~` over grapheme clusters.
 ///
 /// A cased scalar maps its whole GNU character, dropping trailing marks or a
-/// joiner. An uncased leading cluster skips its base when another character
-/// follows, and otherwise stops after its first scalar; a final uncased GNU
-/// character rings.
+/// joiner. An uncased leading mark/Jamo/joiner run skips through its base
+/// when the cluster ends before the line end, or through the whole run when
+/// the base is final; a run with no base rings, as does a final uncased GNU
+/// character.
 #[test]
 fn bash_and_sushline_vi_change_case_over_graphemes() {
     let rc = "set editing-mode vi\n";
@@ -14138,6 +14139,36 @@ fn bash_and_sushline_vi_change_case_over_graphemes() {
             "skip_two_leading_marks",
             "\u{301}\u{301}ab\x1b0~iX\r",
             "\u{301}\u{301}aXb",
+            0,
+        ),
+        (
+            "two_marks_final_insert",
+            "\u{301}\u{301}a\x1b0~iZ\r",
+            "\u{301}\u{301}Za",
+            0,
+        ),
+        (
+            "two_marks_only_insert",
+            "\u{301}\u{301}\x1b0~iZ\r",
+            "Z\u{301}\u{301}",
+            1,
+        ),
+        (
+            "two_marks_only_repeat",
+            "\u{301}\u{301}\x1b0~0~\r",
+            "\u{301}\u{301}",
+            2,
+        ),
+        (
+            "two_marks_final_delete",
+            "\u{301}\u{301}a\x1b0~x\r",
+            "\u{301}\u{301}",
+            0,
+        ),
+        (
+            "two_zwj_final_insert",
+            "\u{200d}\u{200d}a\x1b0~iZ\r",
+            "\u{200d}\u{200d}Za",
             0,
         ),
         (

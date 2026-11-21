@@ -11248,3 +11248,54 @@ fn bash_and_sushline_byte_oriented_vi_delete_char() {
         assert_eq!(bell_count(&sush), bells, "{keys:?}");
     }
 }
+
+/// Paired GNU 5.3 / Readline 8.3 pin for repeated byte-oriented `b` bells.
+///
+/// In `LC_ALL=C` with `byte-oriented on`, a failed first step rings, but later
+/// counted or repeated steps that run out of line stay silent. The fixture
+/// pins those bells with the insert point left by the successful steps, and
+/// includes punctuation-run and single-character-word controls.
+#[test]
+fn bash_and_sushline_byte_oriented_repeated_backward_bells() {
+    let rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C")];
+    let cases = [
+        ("abc def ghi", "$b", "abc def Xghi", 0),
+        ("abc def ghi", "$bb", "abc Xdef ghi", 0),
+        ("abc def ghi", "$bbb", "Xabc def ghi", 0),
+        ("abc def ghi", "4b", "Xabc def ghi", 0),
+        ("a! b c", "$b", "a! Xb c", 0),
+        ("a! b c", "$bb", "Xa! b c", 0),
+        ("a! b c", "$bbb", "Xa! b c", 1),
+        ("a! b c", "4b", "Xa! b c", 0),
+        ("abc def", "$b", "abc Xdef", 0),
+        ("abc def", "$bb", "Xabc def", 0),
+        ("abc def", "$bbb", "Xabc def", 1),
+        ("abc def", "3b", "Xabc def", 0),
+        ("a b", "$b", "Xa b", 0),
+        ("a b", "$bb", "Xa b", 1),
+        ("a b", "$bbb", "Xa b", 2),
+        ("one", "$b", "Xone", 0),
+        ("one", "$bb", "Xone", 1),
+        ("one", "0b", "Xone", 1),
+        ("one", "2b", "Xone", 0),
+        ("a! b", "$b", "Xa! b", 0),
+        ("a! b", "$bb", "Xa! b", 1),
+        ("a! b", "$bbb", "Xa! b", 2),
+    ];
+    for (line, motion, expected, bells) in cases {
+        let keys = format!("{line}\x1b{motion}iX\r");
+        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), rc, &env);
+        let sush = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), rc, &env);
+        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(bell_count(&bash), bells, "{keys:?}");
+        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+    }
+}

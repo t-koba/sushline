@@ -12774,6 +12774,42 @@ fn bash_and_sushline_vi_failed_operator_search_rings_twice() {
             ("short_count", b"abc\x1b0d2fb\r".to_vec(), Some("c"), 1),
             ("repeat_delete", b"abc\x1b0fbd;\r".to_vec(), Some("abc"), 2),
             ("repeat_comma", b"abc\x1b0fbd,\r".to_vec(), Some("abc"), 2),
+            (
+                "delete_esc_target",
+                b"abc def\x1b0df\x1b\r".to_vec(),
+                Some("abc def"),
+                2,
+            ),
+            (
+                "delete_control_target",
+                b"abc def\x1b0df\x01\r".to_vec(),
+                Some("abc def"),
+                2,
+            ),
+            (
+                "change_esc_target",
+                b"abc def\x1b0cf\x1b\r".to_vec(),
+                Some("abc def"),
+                2,
+            ),
+            (
+                "yank_control_target",
+                b"abc def\x1b0yf\x01\r".to_vec(),
+                Some("abc def"),
+                2,
+            ),
+            (
+                "no_operator_esc_target",
+                b"abc def\x1b0f\x1b\r".to_vec(),
+                Some("abc def"),
+                1,
+            ),
+            (
+                "no_operator_control_target",
+                b"abc def\x1b0f\x01\r".to_vec(),
+                Some("abc def"),
+                1,
+            ),
         ] {
             let bash = run_bash_readline_with_inputrc_file_and_env(&keys, rc, &env);
             let sush = run_sushline_harness_with_inputrc_and_env(&keys, rc, &env);

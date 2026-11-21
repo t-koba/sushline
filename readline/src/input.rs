@@ -805,6 +805,17 @@ where
         self.handle_unbound(state, &pending, hooks)
     }
 
+    /// A zero-width vi change is replayed without its trailing ESC: in vi
+    /// command mode the ESC backs point onto the inserted text, but GNU
+    /// leaves the redo point after it, so a later dot edits the next span.
+    fn vi_change_replay_omits_escape(bytes: &[u8]) -> bool {
+        let Some(body) = bytes.strip_suffix(b"\x1b") else {
+            return false;
+        };
+        matches!(body.first(), Some(&b'c'))
+            && matches!(body.get(1), Some(b'0' | b'h' | b'b' | b'B' | b'^'))
+    }
+
     pub(super) fn replay_vi_change(
         &mut self,
         state: &mut EditorState,
@@ -812,7 +823,13 @@ where
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
         let original_change = bytes.to_vec();
-        if let Ok(text) = std::str::from_utf8(bytes) {
+        let omit_escape = Self::vi_change_replay_omits_escape(bytes);
+        let replay = if omit_escape {
+            &bytes[..bytes.len() - 1]
+        } else {
+            bytes
+        };
+        if let Ok(text) = std::str::from_utf8(replay) {
             for ch in text.chars() {
                 let mut buf = [0_u8; 4];
                 let outcome =
@@ -823,13 +840,18 @@ where
                 }
             }
         } else {
-            for byte in bytes {
+            for byte in replay {
                 let outcome = self.handle_bytes(state, &[*byte], hooks)?;
                 if !matches!(outcome, EditorOutcome::Continue) {
                     state.set_vi_redo(original_change);
                     return Ok(outcome);
                 }
             }
+        }
+        if omit_escape {
+            state.finish_vi_insert_change(&[]);
+            self.keymap.set_current(KeyMapName::ViCommand);
+            state.after_non_kill_command();
         }
         state.set_vi_redo(original_change);
         Ok(EditorOutcome::Continue)

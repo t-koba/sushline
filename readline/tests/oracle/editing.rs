@@ -10872,3 +10872,41 @@ fn bash_and_sushline_vi_invalid_tail_word_motion_bells() {
         assert_eq!(bell_count(&sush), bells, "{keys:?}");
     }
 }
+
+/// Paired GNU 5.3 / Readline 8.3 pin for repeated zero-width change dot replay.
+///
+/// GNU leaves redo point after the inserted text, so a second dot edits the
+/// next span; the trailing ESC of a recorded zero-width redo must not back it
+/// up. The `cw` control keeps the nonzero-width replay point unchanged.
+#[test]
+fn bash_and_sushline_zero_width_change_repeated_dot_point() {
+    let rc = "set editing-mode vi\n";
+    let cases = [
+        ("abc\u{1b}0c0X\u{1b}..\r", "XXabc", 0),
+        ("abc\u{1b}0c0X\u{1b}...\r", "XXabc", 0),
+        ("abc\u{1b}0c0X\u{1b}.iY\u{1b}\r", "XYXabc", 0),
+        ("abc\u{1b}0c0X\u{1b}.aY\u{1b}\r", "XXYabc", 0),
+        ("abc\u{1b}0cbX\u{1b}..\r", "XXabc", 2),
+        ("abc\u{1b}0cbX\u{1b}.iY\u{1b}\r", "XYXabc", 2),
+        ("abc\u{1b}0cbX\u{1b}.aY\u{1b}\r", "XXYabc", 2),
+        ("abc\u{1b}0chX\u{1b}..\r", "XXabc", 2),
+        ("abc\u{1b}0chX\u{1b}.iY\u{1b}\r", "XYXabc", 2),
+        ("abc\u{1b}0chX\u{1b}.aY\u{1b}\r", "XXYabc", 2),
+        ("abc\u{1b}0cBX\u{1b}..\r", "XXabc", 2),
+        ("abc\u{1b}0cBX\u{1b}.iY\u{1b}\r", "XYXabc", 2),
+        ("abc\u{1b}0cBX\u{1b}.aY\u{1b}\r", "XXYabc", 2),
+        ("abc\u{1b}0c^X\u{1b}..\r", "XXabc", 0),
+        ("abc\u{1b}0c^X\u{1b}.iY\u{1b}\r", "XYXabc", 0),
+        ("abc\u{1b}0c^X\u{1b}.aY\u{1b}\r", "XXYabc", 0),
+        ("αβγ\u{1b}0c0X\u{1b}..iY\u{1b}\r", "XYXαβγ", 0),
+        ("abc\u{1b}0cwX\u{1b}..iY\u{1b}\r", "YX", 0),
+    ];
+    for (keys, expected, bells) in cases {
+        let bash = run_bash_readline_with_inputrc_file(keys.as_bytes(), rc);
+        let sush = run_sushline_harness_with_inputrc(keys.as_bytes(), rc);
+        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(bell_count(&bash), bells, "{keys:?}");
+        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+    }
+}

@@ -557,6 +557,7 @@ where
                     let change = state.vi_key_sequence_for_change(key);
                     state.set_vi_redo(change);
                     state.after_non_kill_command();
+                    state.kill.last_was_vi_put = true;
                     // GNU keeps a lowercase put and its dot-replays in one
                     // undo entry; an uppercase put starts a separate group.
                     if !(key == b"p"
@@ -662,16 +663,17 @@ where
                 }
             }
             "vi-yank-pop" => {
-                // GNU only cycles after a vi put; after vi-insert C-y the
-                // command fails and rings the bell.
+                // GNU only follows a vi put. After vi-insert C-y it rings;
+                // after a vi put the failed pop is silent. Other commands
+                // clear the put marker, so a following motion restores the bell.
                 if self.keymap.current() == KeyMapName::ViInsert {
                     self.ding()?;
                     return Ok(EditorOutcome::Continue);
                 }
-                state.record_undo();
-                if !state.yank_pop() {
-                    self.ding()?;
+                if state.kill.last_was_vi_put {
+                    return Ok(EditorOutcome::Continue);
                 }
+                self.ding()?;
             }
             _ => unreachable!("named vi edit command mismatch"),
         }

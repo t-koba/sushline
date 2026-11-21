@@ -5,6 +5,7 @@ pub(crate) struct KillRingState {
     pub(crate) kill_ring: Vec<Vec<u8>>,
     pub(crate) last_was_kill: bool,
     pub(crate) last_yank: Option<YankState>,
+    pub(crate) last_was_vi_put: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -40,6 +41,7 @@ impl EditorState {
         let text = text.into();
         self.note_history_edit();
         self.kill.last_yank = None;
+        self.kill.last_was_vi_put = false;
         if text.is_empty() {
             self.kill.last_was_kill = true;
             return;
@@ -67,6 +69,7 @@ impl EditorState {
 
     pub(crate) fn yank(&mut self) -> bool {
         self.kill.last_was_kill = false;
+        self.kill.last_was_vi_put = false;
         let Some(index) = self.kill.kill_ring.len().checked_sub(1) else {
             self.kill.last_yank = None;
             return false;
@@ -77,6 +80,7 @@ impl EditorState {
 
     pub(crate) fn yank_pop(&mut self) -> bool {
         self.kill.last_was_kill = false;
+        self.kill.last_was_vi_put = false;
         let Some(last_yank) = self.kill.last_yank else {
             return false;
         };

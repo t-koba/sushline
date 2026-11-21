@@ -207,6 +207,7 @@ impl EditorState {
         }
         self.kill.last_was_kill = false;
         self.kill.last_yank = None;
+        self.kill.last_was_vi_put = false;
         self.search.reverse_search = None;
         self.undo.last_undo_was_insert = false;
     }

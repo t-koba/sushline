@@ -10320,3 +10320,91 @@ fn bash_and_sushline_vi_insert_yank_pop_matches_gnu() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_vi_command_yank_pop_matches_gnu() {
+    let inputrc =
+        "set editing-mode vi\nset keymap vi-command\n\"Q\": vi-yank-pop\n\"W\": yank-pop\n";
+    let cases = [
+        ("no_kill", "Q", "Q", 0),
+        ("kills_without_put", "one\x17two\x17three\x17\x1bQ", "", 1),
+        (
+            "insert_yank_then_command",
+            "one\x17two\x17three\x17X\x19\x1bQ",
+            "Xthree",
+            1,
+        ),
+        (
+            "command_yank",
+            "one\x17two\x17three\x17\x1b\x19Q",
+            "three",
+            1,
+        ),
+        ("put", "one\x17two\x17three\x17\x1bpQ", "three", 0),
+        ("put_before", "one\x17two\x17three\x17\x1bPQ", "three", 0),
+        (
+            "put_repeated",
+            "one\x17two\x17three\x17\x1bpQQQ",
+            "three",
+            0,
+        ),
+        (
+            "put_then_motion_zero",
+            "one\x17two\x17three\x17\x1bp0Q",
+            "three",
+            1,
+        ),
+        (
+            "put_then_motion_back",
+            "one\x17two\x17three\x17\x1bphQ",
+            "three",
+            1,
+        ),
+        (
+            "put_then_failed_motion",
+            "one\x17two\x17three\x17\x1bplQ",
+            "three",
+            2,
+        ),
+        ("single_byte_put", "a\x17b\x17c\x17\x1bpQ", "c", 0),
+        (
+            "single_byte_put_repeated",
+            "a\x17b\x17c\x17\x1bpQQQ",
+            "c",
+            0,
+        ),
+        (
+            "plain_pop_after_put",
+            "one\x17two\x17three\x17\x1bpWWW",
+            "three",
+            3,
+        ),
+        (
+            "plain_pop_then_vi_pop",
+            "one\x17two\x17three\x17\x1bpWQ",
+            "three",
+            2,
+        ),
+    ];
+    for (name, keys, line, bells) in cases {
+        let keys = format!("{keys}\r");
+        let bash = run_bash_readline_with_inputrc_file(keys.as_bytes(), inputrc);
+        let sush = run_sushline_harness_with_inputrc(keys.as_bytes(), inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(line),
+            "{name}: bash={bash:?}"
+        );
+        assert_eq!(
+            accepted_line(&sush),
+            accepted_line(&bash),
+            "{name}: bash={bash:?} sushline={sush:?}"
+        );
+        assert_eq!(bell_count(&bash), bells, "{name}: bash={bash:?}");
+        assert_eq!(
+            bell_count(&sush),
+            bell_count(&bash),
+            "{name}: bash={bash:?} sushline={sush:?}"
+        );
+    }
+}

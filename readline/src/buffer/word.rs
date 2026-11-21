@@ -898,17 +898,28 @@ impl LineBuffer {
         // range to the current run. Starting in whitespace or at a run end
         // leaves a single character to change; starting earlier in a run
         // advances over its last character so `cw` behaves like `ce`.
-        if point < end && class_at(point).is_some_and(|current| current != 0) {
-            point = self.prev_char(point).map(|(prev, _)| prev).unwrap_or(point);
-        }
-        while point > start && class_at(point) == Some(0) {
-            point = self.prev_char(point).map(|(prev, _)| prev).unwrap_or(point);
-        }
-        let advance = point == start
-            || (point < end.saturating_sub(1)
-                && class_at(point).is_some_and(|current| current != 0));
-        if advance {
-            point = self.next_char_boundary(point);
+        // A mark or joiner after whitespace belongs to that whitespace
+        // grapheme. GNU includes the whole grapheme in the changed range, so
+        // leave the point at the first character of the following word.
+        let prev_is_whitespace_grapheme = self
+            .prev_char(point)
+            .zip(self.prev_grapheme_boundary_checked(point))
+            .is_some_and(|((prev, _), grapheme_start)| {
+                grapheme_start < prev && class_at(grapheme_start) == Some(0)
+            });
+        if !prev_is_whitespace_grapheme {
+            if point < end && class_at(point).is_some_and(|current| current != 0) {
+                point = self.prev_char(point).map(|(prev, _)| prev).unwrap_or(point);
+            }
+            while point > start && class_at(point) == Some(0) {
+                point = self.prev_char(point).map(|(prev, _)| prev).unwrap_or(point);
+            }
+            let advance = point == start
+                || (point < end.saturating_sub(1)
+                    && class_at(point).is_some_and(|current| current != 0));
+            if advance {
+                point = self.next_char_boundary(point);
+            }
         }
         self.point = point;
         point != start
@@ -982,7 +993,15 @@ impl LineBuffer {
         let (_, original) = self.decoded_char_at(idx)?;
         let (_, mut ch) = self.decoded_char_at(idx)?;
         if ch == '\u{200d}' {
-            // A leading ZWJ takes its class from the character it joins.
+            // A joiner follows the base before it when one exists; only a
+            // leading joiner run takes its class from the character it joins.
+            let mut back = idx;
+            while let Some((prev, previous)) = self.decoded_prev_char(back) {
+                if !is_grapheme_extend(previous) && previous != '\u{200d}' {
+                    return Some(previous);
+                }
+                back = prev;
+            }
             let mut forward = self.next_char_boundary(idx);
             while let Some((_, next)) = self.decoded_char_at(forward) {
                 if next != '\u{200d}' {

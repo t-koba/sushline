@@ -14199,3 +14199,33 @@ fn bash_and_sushline_vi_character_operators_over_graphemes() {
         assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }
 }
+
+/// GNU includes a whitespace grapheme with trailing marks or a joiner in the
+/// changed range of `cw`, while a plain space stays in place. The exact-byte
+/// rows cover both the word-start and final-cluster forms.
+#[test]
+fn bash_and_sushline_vi_cw_whitespace_graphemes() {
+    let rc = "set editing-mode vi\n";
+    let env = [("LC_ALL", "C.UTF-8")];
+    for (desc, keys, expected, bells) in [
+        ("whitespace_mark", "e \u{301}abc\x1b0cwZ\r", "Zabc", 0),
+        ("whitespace_mark_single", "e \u{301}a\x1b0cwZ\r", "Za", 0),
+        (
+            "whitespace_two_spaces_mark",
+            "e  \u{301}abc\x1b0cwZ\r",
+            "Zabc",
+            0,
+        ),
+        (
+            "whitespace_mark_longer",
+            "abc \u{301}def\x1b0cwZ\r",
+            "Zdef",
+            0,
+        ),
+        ("whitespace_joiner", "e \u{200d}abc\x1b0cwZ\r", "Zabc", 0),
+        ("whitespace_mark_final", "e \u{301}\x1b0cwZ\r", "Z", 0),
+        ("plain_space_control", "e abc\x1b0cwZ\r", "Z abc", 0),
+    ] {
+        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
+    }
+}

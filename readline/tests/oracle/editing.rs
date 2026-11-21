@@ -13596,10 +13596,11 @@ fn bash_and_sushline_vi_replace_mode_arrow_sequences_end_replace_mode() {
     }
 }
 
-/// Control bytes and quoted single bytes typed in vi replace mode are
-/// inserted before the text at point without displacing it. They are not
-/// replace steps, so backspace rings at the replace origin and leaves the
-/// inserted bytes (and the original text) intact.
+/// Control bytes and quoted single bytes typed in vi replace mode insert
+/// without displacing the text at point. Backspace rings at the replace origin
+/// while no printable step exists; after printable steps GNU removes the
+/// trailing inserted bytes and restores overwritten bytes with its undo
+/// grouping.
 #[test]
 fn bash_and_sushline_vi_replace_inserts_control_and_quoted_bytes() {
     let charwise_rc = concat!(

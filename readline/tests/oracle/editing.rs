@@ -11562,3 +11562,92 @@ fn bash_and_sushline_vi_change_case() {
         assert_eq!(bell_count(&sush), bells, "{keys:?}");
     }
 }
+
+/// Paired GNU 5.3 / Readline 8.3 pin for counted vi substitute bells.
+///
+/// In byte-oriented mode GNU rings once when a count exceeds the characters
+/// that can be deleted, even though some were removed; UTF-8 mode stays
+/// silent for the same forms. An empty line rings once in both modes.
+#[test]
+fn bash_and_sushline_byte_oriented_vi_subst_count_bell() {
+    let rc = "set editing-mode vi\n";
+    let cases = [
+        ("abc", "sZZ\x1b", "abZZZ", 0),
+        ("abc", "2sZZ\x1b", "abZZZ", 0),
+        ("abc", "3sZZ\x1b", "abZZZ", 0),
+        ("abc", "4sZZ\x1b", "abZZZ", 0),
+        ("abc", "0sZZ\x1b", "ZZZbc", 0),
+        ("abc def", "0sZZ\x1b", "ZZZbc def", 0),
+        ("abc def", "sZZ\x1b", "abc deZZZ", 0),
+        ("abc def", "2sZZ\x1b", "abc deZZZ", 0),
+        ("abc def", "3sZZ\x1b", "abc deZZZ", 0),
+        ("abc def", "7sZZ\x1b", "abc deZZZ", 0),
+        ("abc def", "0lsZZ\x1b", "aZZZc def", 0),
+        ("abc def", "0l2sZZ\x1b", "aZZZ def", 0),
+        ("", "sZZ\x1b", "ZZZ", 1),
+        ("", "2sZZ\x1b", "ZZZ", 1),
+        ("", "0sZZ\x1b", "ZZZ", 1),
+        ("é", "sZZ\x1b", "ZZZ", 0),
+        ("é", "2sZZ\x1b", "ZZZ", 0),
+        ("é", "3sZZ\x1b", "ZZZ", 0),
+        ("aé", "sZZ\x1b", "aZZZ", 0),
+        ("aé", "2sZZ\x1b", "aZZZ", 0),
+        ("aé", "3sZZ\x1b", "aZZZ", 0),
+        ("日本", "sZZ\x1b", "日ZZZ", 0),
+        ("日本", "2sZZ\x1b", "日ZZZ", 0),
+        ("日本", "3sZZ\x1b", "日ZZZ", 0),
+    ];
+    for (line, motion, expected, bells) in cases {
+        let keys = format!("{line}\x1b{motion}iZ\r");
+        let bash = run_bash_readline_with_inputrc_file(keys.as_bytes(), rc);
+        let sush = run_sushline_harness_with_inputrc(keys.as_bytes(), rc);
+        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(bell_count(&bash), bells, "{keys:?}");
+        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+    }
+
+    let byte_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C")];
+    let byte_cases = [
+        ("abc", "sZZ\x1b", "abZZZ", 0),
+        ("abc", "2sZZ\x1b", "abZZZ", 1),
+        ("abc", "3sZZ\x1b", "abZZZ", 1),
+        ("abc", "4sZZ\x1b", "abZZZ", 1),
+        ("abc", "0sZZ\x1b", "ZZZbc", 0),
+        ("abc def", "0sZZ\x1b", "ZZZbc def", 0),
+        ("abc def", "sZZ\x1b", "abc deZZZ", 0),
+        ("abc def", "2sZZ\x1b", "abc deZZZ", 1),
+        ("abc def", "3sZZ\x1b", "abc deZZZ", 1),
+        ("abc def", "7sZZ\x1b", "abc deZZZ", 1),
+        ("abc def", "0lsZZ\x1b", "aZZZc def", 0),
+        ("abc def", "0l2sZZ\x1b", "aZZZ def", 0),
+        ("", "sZZ\x1b", "ZZZ", 1),
+        ("", "2sZZ\x1b", "ZZZ", 1),
+        ("", "0sZZ\x1b", "ZZZ", 1),
+        ("é", "sZZ\x1b", "\u{fffd}ZZZ", 0),
+        ("é", "2sZZ\x1b", "\u{fffd}ZZZ", 1),
+        ("é", "3sZZ\x1b", "\u{fffd}ZZZ", 1),
+        ("aé", "sZZ\x1b", "a\u{fffd}ZZZ", 0),
+        ("aé", "2sZZ\x1b", "a\u{fffd}ZZZ", 1),
+        ("aé", "3sZZ\x1b", "a\u{fffd}ZZZ", 1),
+        ("日本", "sZZ\x1b", "日\u{fffd}ZZZ", 0),
+        ("日本", "2sZZ\x1b", "日\u{fffd}ZZZ", 1),
+        ("日本", "3sZZ\x1b", "日\u{fffd}ZZZ", 1),
+    ];
+    for (line, motion, expected, bells) in byte_cases {
+        let keys = format!("{line}\x1b{motion}iZ\r");
+        let bash = run_bash_readline_with_inputrc_file_and_env(keys.as_bytes(), byte_rc, &env);
+        let sush = run_sushline_harness_with_inputrc_and_env(keys.as_bytes(), byte_rc, &env);
+        assert_eq!(accepted_line(&bash), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(accepted_line(&sush), Some(expected.to_owned()), "{keys:?}");
+        assert_eq!(bell_count(&bash), bells, "{keys:?}");
+        assert_eq!(bell_count(&sush), bells, "{keys:?}");
+    }
+}

@@ -709,6 +709,7 @@ where
                 state.after_non_kill_command();
             }
             "vi-subst" => {
+                let bytewise = self.char_motion_is_bytewise();
                 state.record_undo();
                 state.vi.defer_undo_commit = true;
                 if key == b"S" {
@@ -724,13 +725,19 @@ where
                         state.buffer.move_backward();
                     }
                     let mut killed = Vec::new();
+                    let mut deleted = 0;
                     for _ in 0..count {
                         match state.buffer.delete_char_bytes() {
-                            Some(bytes) => killed.extend_from_slice(&bytes),
+                            Some(bytes) => {
+                                killed.extend_from_slice(&bytes);
+                                deleted += 1;
+                            }
                             None => break,
                         }
                     }
-                    if killed.is_empty() {
+                    // Byte-oriented GNU rings when a count cannot be met,
+                    // even though some characters were deleted.
+                    if killed.is_empty() || (bytewise && deleted < count) {
                         self.ding()?;
                     } else {
                         state.push_kill(killed, KillDirection::Forward, self.kill_append_allowed());

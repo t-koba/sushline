@@ -14052,3 +14052,24 @@ fn bash_and_sushline_vi_words_starting_with_grapheme_marks() {
         );
     }
 }
+
+/// Paired Bash 5.3 / Readline 8.3 pin for UTF-8 vi replace over a base with a
+/// combining mark. The write, cursor advance and undo record must cover the
+/// whole grapheme; hex acceptance markers reject invalid or lossy bytes.
+#[test]
+fn bash_and_sushline_vi_replace_combining_grapheme_exact_bytes() {
+    let rc = "set editing-mode vi\n";
+    let env = [("LC_ALL", "C.UTF-8")];
+    for (desc, keys, expected, bells) in [
+        ("printable", "e\u{301}xy\x1b0RXY\r", "XYy", 0),
+        (
+            "grouped_backspace",
+            "e\u{301}xy\x1b0RXY\x01\x7f\x7f\r",
+            "e\u{301}xy",
+            0,
+        ),
+        ("single", "e\u{301}xy\x1b0RX\r", "Xxy", 0),
+    ] {
+        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
+    }
+}

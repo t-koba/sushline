@@ -233,10 +233,16 @@ where
                                             state.record_overwrite_step(at, replaced, &[byte]);
                                         }
                                     } else {
-                                        let end = state.buffer.next_char_boundary(start);
+                                        // GNU replaces the whole grapheme in
+                                        // UTF-8 mode: writing, advancing and
+                                        // undo recording must use one range.
+                                        let end = state
+                                            .buffer
+                                            .next_boundary(start)
+                                            .unwrap_or_else(|| state.buffer.len_chars());
                                         let replaced = state.buffer.as_bytes()[start..end].to_vec();
-                                        state.buffer.set_char_at_point(ch);
-                                        state.buffer.move_forward();
+                                        state.buffer.replace_range_bytes(start, end, bytes);
+                                        state.buffer.set_point(start + bytes.len());
                                         state.record_overwrite_step(start, replaced, bytes);
                                     }
                                 } else {

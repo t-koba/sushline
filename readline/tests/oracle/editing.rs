@@ -14969,3 +14969,25 @@ fn vi_search_query_caret_width_advances_the_sushline_cursor() {
         "caret notation must count as two cells: {sushline}"
     );
 }
+
+#[test]
+fn bash_readline_and_sushline_keep_replace_undo_point_across_history_recall() {
+    let rc = "set editing-mode vi\n";
+    let history = ["abcd", "zzzz"];
+    for count in *b"23" {
+        let mut keys = b"\x1b\x1b[A\x1b[A0".to_vec();
+        keys.extend_from_slice(&[
+            count, b'r', b'X', 0x1b, b'[', b'B', 0x1b, b'[', b'A', b'u', b'i', b'Y', b'\r',
+        ]);
+        let bash = run_bash_readline_with_inputrc_file_and_history(&keys, rc, &history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(&keys, rc, &history);
+
+        assert_eq!(accepted_line(&bash), Some("aYbcd".to_string()), "{bash}");
+        assert_eq!(
+            accepted_line(&sushline),
+            accepted_line(&bash),
+            "count={count}\nbash={bash}\nsushline={sushline}"
+        );
+        assert_eq!(bell_count(&sushline), bell_count(&bash));
+    }
+}

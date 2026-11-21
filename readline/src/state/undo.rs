@@ -302,6 +302,7 @@ impl EditorState {
                 start: entry.start,
                 deleted: entry.deleted.clone(),
                 inserted: entry.inserted.clone(),
+                undo_point: entry.undo_point,
             })
             .collect()
     }
@@ -314,7 +315,7 @@ impl EditorState {
                 start: entry.start,
                 deleted: entry.deleted.clone(),
                 inserted: entry.inserted.clone(),
-                undo_point: None,
+                undo_point: entry.undo_point,
             })
             .collect();
     }

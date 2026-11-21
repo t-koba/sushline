@@ -148,6 +148,8 @@ pub struct HistoryUndoEntry {
     pub deleted: Vec<u8>,
     /// Inserted.
     pub inserted: Vec<u8>,
+    /// Optional editor point to restore after applying the entry.
+    pub undo_point: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

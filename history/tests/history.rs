@@ -5713,6 +5713,7 @@ fn set_line_bytes_preserves_metadata_and_marks_only_changed_content() {
         start: 1,
         deleted: b"old".to_vec(),
         inserted: b"new".to_vec(),
+        undo_point: None,
     }];
     assert!(history.set_undo_list(0, undo.clone()));
 
@@ -5739,6 +5740,7 @@ fn replace_preserves_timestamps_undo_history_and_timestamped_serialization() {
         start: 1,
         deleted: b"old".to_vec(),
         inserted: b"new".to_vec(),
+        undo_point: None,
     }];
     assert!(history.set_undo_list(0, undo.clone()));
 
@@ -7790,4 +7792,18 @@ fn full_file_crlf_import_matches_measured_grouping_and_timestamps() {
             }
         }
     }
+}
+
+#[test]
+fn undo_snapshot_preserves_editor_point() {
+    let mut history = History::new();
+    history.push("abcd");
+    let undo = vec![HistoryUndoEntry {
+        start: 1,
+        deleted: b"bc".to_vec(),
+        inserted: b"BC".to_vec(),
+        undo_point: Some(2),
+    }];
+    assert!(history.set_undo_list(0, undo.clone()));
+    assert_eq!(history.undo_list(0), Some(undo.as_slice()));
 }

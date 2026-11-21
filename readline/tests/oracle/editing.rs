@@ -14191,6 +14191,10 @@ fn bash_and_sushline_vi_character_operators_over_graphemes() {
         ("x_leading_jamo_zwj", "\u{1160}\u{200d}ab\x1b0x\r", "b", 0),
         ("r_leading_mark_zwj", "\u{301}\u{200d}ab\x1b0rZ\r", "Zb", 0),
         ("r_leading_two_marks", "\u{301}\u{301}ab\x1b0rZ\r", "Zb", 0),
+        ("x_bare_leading_zwj", "\u{200d}ab\x1b0x\r", "b", 0),
+        ("x_two_leading_zwj", "\u{200d}\u{200d}ab\x1b0x\r", "b", 0),
+        ("x_bare_leading_zwj_single", "\u{200d}a\x1b0x\r", "", 0),
+        ("r_bare_leading_zwj", "\u{200d}ab\x1b0rZ\r", "Zb", 0),
     ] {
         assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }

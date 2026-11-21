@@ -603,7 +603,9 @@ impl LineBuffer {
         if self.char_at(idx).is_none() {
             return self.bytes.len();
         };
-        let leading_extend = self.char_at(idx).is_some_and(is_grapheme_extend);
+        let leading_extend = self
+            .char_at(idx)
+            .is_some_and(|ch| is_grapheme_extend(ch) || ch == '\u{200d}');
         let mut end = self.next_char_boundary(idx);
         if leading_extend {
             // A leading mark, Jamo or joiner run absorbs the base character

@@ -727,7 +727,12 @@ where
                     let mut killed = Vec::new();
                     let mut deleted = 0;
                     for _ in 0..count {
-                        match state.buffer.delete_char_bytes() {
+                        let part = if bytewise {
+                            state.buffer.delete_byte()
+                        } else {
+                            state.buffer.delete_char_bytes()
+                        };
+                        match part {
                             Some(bytes) => {
                                 killed.extend_from_slice(&bytes);
                                 deleted += 1;

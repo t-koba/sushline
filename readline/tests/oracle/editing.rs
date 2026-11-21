@@ -14777,3 +14777,66 @@ fn bash_and_sushline_vi_inclusive_operator_consumes_multibyte_endpoint() {
     keys.extend_from_slice(b"\x1b0de\r");
     assert_bytewise_vi_bytes("bytewise_e9_endpoint", &keys, b"", 0, byte_rc, &byte_env);
 }
+
+#[test]
+fn bash_and_sushline_vi_identical_replace_keeps_undo_point() {
+    let rc = "set editing-mode vi\n";
+    let env = [("LC_ALL", "C.UTF-8")];
+    for (desc, keys, expected) in [
+        (
+            "same_byte_replace_undo",
+            b"xxbc\x1b0rxu\r".as_slice(),
+            b"xxbc".as_slice(),
+        ),
+        (
+            "same_byte_replace_undo_point",
+            b"xxbc\x1b0rxuiX\r".as_slice(),
+            b"xXxbc".as_slice(),
+        ),
+        (
+            "dot_replace_undo",
+            b"abcdef\x1b0rx.u\r".as_slice(),
+            b"xbcdef".as_slice(),
+        ),
+        (
+            "dot_replace_two_undos",
+            b"abcdef\x1b0rx.uu\r".as_slice(),
+            b"abcdef".as_slice(),
+        ),
+        (
+            "dot_replace_two_undos_point",
+            b"abcdef\x1b0rx.uuiX\r".as_slice(),
+            b"aXbcdef".as_slice(),
+        ),
+        (
+            "dot_replace_undo_then_dot",
+            b"abcdef\x1b0rx..u.\r".as_slice(),
+            b"xxcdef".as_slice(),
+        ),
+    ] {
+        assert_bytewise_vi_bytes(desc, keys, expected, 0, rc, &env);
+    }
+
+    let byte_rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let byte_env = [("LC_ALL", "C")];
+    for (desc, keys, expected) in [
+        (
+            "byte_same_replace_undo",
+            b"xxbc\x1b0rxu\r".as_slice(),
+            b"xxbc".as_slice(),
+        ),
+        (
+            "byte_dot_replace_undo",
+            b"abcdef\x1b0rx.u\r".as_slice(),
+            b"xbcdef".as_slice(),
+        ),
+    ] {
+        assert_bytewise_vi_bytes(desc, keys, expected, 0, byte_rc, &byte_env);
+    }
+}

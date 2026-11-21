@@ -562,8 +562,13 @@ where
                 }
                 last_replaced = Some(start);
             }
+            // GNU keeps an undo entry for an identical replacement, so the
+            // next `u` consumes it silently instead of undoing an older edit.
             match last_replaced {
-                Some(start) => state.buffer.set_point(start),
+                Some(start) => {
+                    state.buffer.set_point(start);
+                    state.finish_noop_replace_undo();
+                }
                 None => {
                     state.record_noop_undo();
                     self.ding()?;

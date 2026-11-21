@@ -93,6 +93,27 @@ impl EditorState {
         }
     }
 
+    /// A vi replace that writes the same byte still gets an undo entry, but
+    /// GNU restores the point after the replaced character rather than on it.
+    pub(crate) fn finish_noop_replace_undo(&mut self) {
+        if self
+            .undo
+            .pending_undo
+            .as_ref()
+            .is_some_and(|before| before.as_bytes() == self.buffer.as_bytes())
+        {
+            self.undo.pending_undo = None;
+            self.undo.pending_noop_undo = false;
+            let point = self.buffer.point();
+            let start = self.buffer.next_boundary(point).unwrap_or(point + 1);
+            self.undo.undo_stack.push(UndoEntry {
+                start,
+                deleted: Vec::new(),
+                inserted: Vec::new(),
+            });
+        }
+    }
+
     /// GNU pushes an undo entry even when a command such as a failed vi
     /// replace leaves the buffer unchanged, so the next undo consumes it
     /// silently instead of ringing on an empty list.

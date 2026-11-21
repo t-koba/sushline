@@ -49,6 +49,8 @@ pub(crate) enum DecodedUnit {
 pub struct LineBuffer {
     bytes: Vec<u8>,
     point: usize,
+    /// Inclusive end for the pending leading-cluster end-word operator.
+    operator_grapheme_end: Option<usize>,
 }
 
 impl LineBuffer {
@@ -62,13 +64,18 @@ impl LineBuffer {
         Self {
             bytes: text.as_bytes().to_vec(),
             point: text.len(),
+            operator_grapheme_end: None,
         }
     }
 
     /// From bytes.
     pub fn from_bytes(bytes: Vec<u8>) -> Self {
         let point = bytes.len();
-        Self { bytes, point }
+        Self {
+            bytes,
+            point,
+            operator_grapheme_end: None,
+        }
     }
 
     /// Return a lossy UTF-8 view of the buffer's bytes.
@@ -662,10 +669,12 @@ impl LineBuffer {
         (idx < self.bytes.len()).then(|| self.next_grapheme_boundary(idx))
     }
 
-    /// Whether `idx` starts a decoded character. Interior UTF-8 byte offsets
-    /// are used by byte-oriented commands and must not be treated as starts.
-    pub fn is_char_boundary(&self, idx: usize) -> bool {
-        self.decoded_char_at(idx).is_some()
+    pub(crate) fn set_operator_grapheme_end(&mut self, end: usize) {
+        self.operator_grapheme_end = Some(end);
+    }
+
+    pub(crate) fn take_operator_grapheme_end(&mut self) -> Option<usize> {
+        self.operator_grapheme_end.take()
     }
 
     /// End of the character at `idx`, when `idx` is inside the line.

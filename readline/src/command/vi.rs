@@ -1413,18 +1413,12 @@ where
         op: ViOperator,
         start: usize,
         inclusive: bool,
+        operator_grapheme_end: Option<usize>,
     ) -> bool {
         let mut end = state.buffer.point();
         if inclusive {
             if end >= start {
-                end = if !self.char_motion_is_bytewise() && state.buffer.is_char_boundary(end) {
-                    state
-                        .buffer
-                        .next_boundary(end)
-                        .unwrap_or_else(|| (end + 1).min(state.buffer.len_chars()))
-                } else {
-                    (end + 1).min(state.buffer.len_chars())
-                };
+                end = operator_grapheme_end.unwrap_or((end + 1).min(state.buffer.len_chars()));
             }
         } else if end > start && matches!(op, ViOperator::Delete) {
             end = state.buffer.next_nonblank_from(end);

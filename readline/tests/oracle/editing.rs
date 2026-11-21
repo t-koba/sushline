@@ -14592,3 +14592,21 @@ fn bash_and_sushline_emacs_words_use_ascii_word_classes_in_c_locale() {
         assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), 0, rc, &env);
     }
 }
+
+/// A trailing mark or joiner on an ordinary word is not part of GNU's
+/// inclusive operator range, even though a leading-cluster end-word endpoint
+/// consumes its own final grapheme. Exact bytes pin both sides.
+#[test]
+fn bash_and_sushline_vi_inclusive_operators_keep_plain_grapheme_tails() {
+    let rc = "set editing-mode vi\n";
+    let env = [("LC_ALL", "C.UTF-8")];
+    for (desc, keys, expected, bells) in [
+        ("delete_mark_tail", "ab\u{301}\x1b0de\r", "\u{301}", 0),
+        ("delete_joiner_tail", "ab\u{200d}\x1b0de\r", "\u{200d}", 0),
+        ("search_mark_tail", "ab\u{301}cd\x1b0dfb\r", "\u{301}cd", 0),
+        ("leading_mark_change", "\u{301}a\u{301}\x1b0cEZ\r", "Z", 0),
+        ("leading_mark_delete", "\u{301}a\u{301}\x1b0dE\r", "", 0),
+    ] {
+        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
+    }
+}

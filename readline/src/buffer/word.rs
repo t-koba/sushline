@@ -1268,6 +1268,9 @@ impl LineBuffer {
             }
             if base > self.point && !is_grapheme_extend(base_ch) && base_ch != '\u{200d}' {
                 self.point = base;
+                if let Some(end) = self.next_boundary(base) {
+                    self.set_operator_grapheme_end(end);
+                }
                 return self.point != start;
             }
         }

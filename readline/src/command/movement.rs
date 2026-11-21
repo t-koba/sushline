@@ -13,6 +13,7 @@ where
         inclusive: bool,
         search_target: Option<char>,
     ) {
+        let operator_grapheme_end = state.buffer.take_operator_grapheme_end();
         if let Some((op, start, mut change)) = op_start {
             // A char-search motion leaves point on the target's first byte.
             // An inclusive operator must cover the whole target character;
@@ -26,7 +27,7 @@ where
                 let end = state.buffer.point() + ch.len_utf8() - 1;
                 state.buffer.set_point(end.min(state.buffer.len_chars()));
             }
-            if !self.apply_vi_operator_range(state, op, start, inclusive) {
+            if !self.apply_vi_operator_range(state, op, start, inclusive, operator_grapheme_end) {
                 // GNU still enters insert mode when a change motion spans no
                 // text; the typed replacement becomes the redo change. Other
                 // operators keep the failed motion as the redo command: dot

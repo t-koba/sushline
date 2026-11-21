@@ -231,7 +231,11 @@ where
                     }
                 } else {
                     for _ in 0..count {
-                        state.buffer.insert_bytes(key);
+                        if state.overwrite_mode && self.char_motion_is_bytewise() {
+                            self.overwrite_bytes_bytewise(state, key);
+                        } else {
+                            state.buffer.insert_bytes(key);
+                        }
                     }
                     state.record_vi_insert_bytes(key);
                 }

@@ -13175,3 +13175,68 @@ fn bash_and_sushline_vi_redo_after_blocked_motion() {
         );
     }
 }
+
+/// In bytewise vi replace mode a raw high replacement key overwrites the
+/// single raw byte at point, just like an ASCII key. The lossy accepted line
+/// shows the remaining bytes of `é` as replacement characters when the lead
+/// byte is replaced, or the replaced byte itself when the continuation byte
+/// is replaced.
+#[test]
+fn bash_and_sushline_byte_oriented_vi_raw_replacement_keys() {
+    let rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C")];
+    let e = "\u{e9}".as_bytes();
+    for (label, start, cases) in [
+        (
+            "lead",
+            0xc3u8,
+            vec![
+                ("lead_byte", 0xc3u8, "\u{e9}bc:d", 1),
+                ("continuation_byte", 0xa9u8, "\u{fffd}\u{fffd}bc:d", 1),
+                ("other_lead", 0xe3u8, "\u{fffd}bc:d", 1),
+                ("invalid_byte", 0xffu8, "\u{fffd}\u{fffd}bc:d", 1),
+                ("ascii", b'Z', "Z\u{fffd}bc:d", 1),
+            ],
+        ),
+        (
+            "continuation",
+            0xa9u8,
+            vec![
+                ("lead_byte", 0xc3u8, "\u{fffd}\u{fffd}bc:d", 0),
+                ("continuation_byte", 0xa9u8, "\u{e9}bc:d", 0),
+                ("other_lead", 0xe3u8, "\u{fffd}\u{fffd}bc:d", 0),
+                ("invalid_byte", 0xffu8, "\u{fffd}\u{fffd}bc:d", 0),
+                ("ascii", b'Z', "\u{fffd}Zbc:d", 0),
+            ],
+        ),
+    ] {
+        for (desc, key, expected, bells) in cases {
+            let mut keys = [e, b"bc:d\x1b0f".as_slice()].concat();
+            keys.extend([start, b'R', key, 0x1b, b'\r']);
+            let bash = run_bash_readline_with_inputrc_file_and_env(&keys, rc, &env);
+            let sush = run_sushline_harness_with_inputrc_and_env(&keys, rc, &env);
+            assert_eq!(
+                accepted_line(&bash),
+                Some(expected.to_owned()),
+                "{label} {desc}: {bash}"
+            );
+            assert_eq!(bell_count(&bash), bells, "{label} {desc}: {bash}");
+            assert_eq!(
+                accepted_line(&sush),
+                accepted_line(&bash),
+                "{label} {desc}: bash={bash}\nsushline={sush}"
+            );
+            assert_eq!(
+                bell_count(&sush),
+                bell_count(&bash),
+                "{label} {desc}: bash={bash}\nsushline={sush}"
+            );
+        }
+    }
+}

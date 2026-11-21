@@ -358,7 +358,9 @@ where
         let remaining = state.input.quoted_insert_remaining;
         if remaining == 0 {
             state.input.quoted_insert = false;
+            state.input.quoted_single_byte = true;
             self.insert_literal(state, bytes, true);
+            state.input.quoted_single_byte = false;
             // GNU quotes the lead byte of a multibyte key as a normal literal,
             // then applies bytewise overwrite to the continuation bytes that
             // follow it. Arm that tail only for the vi replace case.
@@ -587,12 +589,14 @@ where
             self.keymap.current() == KeyMapName::ViInsert,
         );
         for _ in 0..count {
-            // A single quoted byte is inserted in bytewise overwrite mode;
-            // for a quoted multibyte key its continuation bytes overwrite raw
-            // bytes one at a time. Non-bytewise modes keep whole-character
-            // overwrite.
+            // In bytewise overwrite mode unquoted literal bytes and the tail
+            // of a quoted multibyte key overwrite raw bytes one at a time,
+            // while a single quoted byte is inserted. Non-bytewise modes keep
+            // whole-character overwrite.
             if state.overwrite_mode && self.char_motion_is_bytewise() {
-                if state.input.quoted_multibyte_tail {
+                if state.input.quoted_multibyte_tail
+                    || (!state.input.quoted_single_byte && bytes.iter().any(|byte| *byte >= 0x80))
+                {
                     self.overwrite_bytes_bytewise(state, bytes);
                 } else {
                     state.buffer.insert_bytes(bytes);

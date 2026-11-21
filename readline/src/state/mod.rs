@@ -110,6 +110,7 @@ impl EditorState {
         self.input.quoted_insert = false;
         self.input.quoted_insert_remaining = 0;
         self.input.quoted_multibyte_tail = false;
+        self.input.quoted_single_byte = false;
         self.input.skipping_csi = false;
         self.input.csi_sequence_started = false;
         self.input.csi_bare_introducer = None;

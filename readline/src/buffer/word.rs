@@ -36,9 +36,16 @@ pub(super) fn is_word_char_with_breaks(ch: char, break_chars: &str) -> bool {
 fn word_matcher(break_chars: Option<&str>) -> impl Fn(char) -> bool + Copy + '_ {
     move |ch| match break_chars {
         Some(break_chars) => is_word_char_with_breaks(ch, break_chars),
-        // GNU's vi word commands classify only ASCII letters, digits and
-        // underscore as word characters; non-ASCII scalars start punctuation
-        // runs even in a UTF-8 locale.
+        None => is_word_char(ch),
+    }
+}
+
+/// GNU's vi word commands classify only ASCII letters, digits and underscore
+/// as word characters in a UTF-8 locale; emacs word commands keep the Unicode
+/// class, so vi motions need their own matcher.
+fn vi_word_matcher(break_chars: Option<&str>) -> impl Fn(char) -> bool + Copy + '_ {
+    move |ch| match break_chars {
+        Some(break_chars) => is_word_char_with_breaks(ch, break_chars),
         None => ch.is_ascii_alphanumeric() || ch == '_',
     }
 }
@@ -854,7 +861,7 @@ impl LineBuffer {
 
     /// Vi forward word.
     pub fn vi_forward_word(&mut self, break_chars: Option<&str>) -> bool {
-        self.vi_word_motion_by(word_matcher(break_chars), true)
+        self.vi_word_motion_by(vi_word_matcher(break_chars), true)
     }
 
     /// Vi change-word motion (lowercase `cw`, with a numeric argument).
@@ -864,7 +871,7 @@ impl LineBuffer {
     /// the start of the change, so `cw` never crosses the whitespace after
     /// a word on its first repetition.
     pub fn vi_change_words(&mut self, count: u32, break_chars: Option<&str>) -> bool {
-        let is_word = word_matcher(break_chars);
+        let is_word = vi_word_matcher(break_chars);
         let class = |ch: char| {
             if ch.is_whitespace() {
                 0u8
@@ -1093,7 +1100,7 @@ impl LineBuffer {
     /// punctuation run is therefore handled without treating every single
     /// character as a separate word.
     pub fn vi_backward_word(&mut self, break_chars: Option<&str>) -> bool {
-        self.vi_backward_word_by(word_matcher(break_chars))
+        self.vi_backward_word_by(vi_word_matcher(break_chars))
     }
 
     fn vi_backward_word_by<F>(&mut self, is_word: F) -> bool
@@ -1189,7 +1196,7 @@ impl LineBuffer {
     /// `e` stops at its end; from the end of a run it advances to the end of
     /// the following run, skipping whitespace on the way.
     pub fn vi_end_word(&mut self, break_chars: Option<&str>) -> bool {
-        self.vi_end_word_by(word_matcher(break_chars))
+        self.vi_end_word_by(vi_word_matcher(break_chars))
     }
 
     fn vi_end_word_by<F>(&mut self, is_word: F) -> bool

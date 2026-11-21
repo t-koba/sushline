@@ -14514,3 +14514,21 @@ fn bash_and_sushline_vi_char_search_scopes_operator_adjustment() {
         assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }
 }
+
+/// Emacs word commands keep GNU's Unicode word class in C.UTF-8, even though
+/// vi word commands use the ASCII class. Exact bytes pin both directions,
+/// kill and case conversion.
+#[test]
+fn bash_and_sushline_emacs_words_keep_unicode_classes() {
+    let rc = "set output-meta on\nset convert-meta off\n";
+    let env = [("LC_ALL", "C.UTF-8")];
+    for (desc, keys, expected) in [
+        ("forward", "a\u{e9}b\x01\x1bfX\r", "a\u{e9}bX"),
+        ("backward", "xx\u{e9}yy\x1bbX\r", "Xxx\u{e9}yy"),
+        ("kill", "a\u{e9}b cd\x01\x1bd\r", " cd"),
+        ("upcase", "a\u{e9}b cd\x01\x1bu\r", "A\u{c9}B cd"),
+        ("downcase", "A\u{c9}B cd\x01\x1bl\r", "a\u{e9}b cd"),
+    ] {
+        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), 0, rc, &env);
+    }
+}

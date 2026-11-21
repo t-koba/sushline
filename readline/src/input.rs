@@ -552,7 +552,10 @@ where
             self.keymap.current() == KeyMapName::ViInsert,
         );
         for _ in 0..count {
-            if state.overwrite_mode {
+            // Quoted and otherwise literal bytes are inserted even in
+            // overwrite mode; GNU does not apply the bytewise replace rule to
+            // them. Whole-character overwrite is kept for other modes.
+            if state.overwrite_mode && !self.char_motion_is_bytewise() {
                 for byte in bytes {
                     let point = state.buffer.point();
                     if point < state.buffer.len_chars() {

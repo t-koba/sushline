@@ -23,6 +23,24 @@ where
             == *byte
     }
 
+    /// Overwrite raw bytes one at a time when byte motion is in effect.
+    /// Returns false when the editor is not bytewise so callers keep their
+    /// whole-character overwrite path.
+    fn overwrite_bytes_bytewise(&self, state: &mut EditorState, bytes: &[u8]) -> bool {
+        if !self.char_motion_is_bytewise() {
+            return false;
+        }
+        for &byte in bytes {
+            let point = state.buffer.point();
+            if point < state.buffer.len_chars() {
+                state.buffer.replace_range_bytes(point, point + 1, &[byte]);
+            } else {
+                state.buffer.insert_bytes(&[byte]);
+            }
+        }
+        true
+    }
+
     pub(super) fn apply_editing_command(
         &mut self,
         state: &mut EditorState,
@@ -171,7 +189,12 @@ where
                 );
                 if key.iter().any(|byte| byte.is_ascii_control()) {
                     for _ in 0..count {
-                        if state.overwrite_mode && state.buffer.point() < state.buffer.len_chars() {
+                        // Bytewise overwrite applies to printable keys; GNU
+                        // still inserts control bytes into the line.
+                        if state.overwrite_mode
+                            && state.buffer.point() < state.buffer.len_chars()
+                            && !self.char_motion_is_bytewise()
+                        {
                             let point = state.buffer.point();
                             state.buffer.replace_char_at_point_bytes(key);
                             state.buffer.set_point(point + key.len());
@@ -190,8 +213,12 @@ where
                                 if state.overwrite_mode
                                     && state.buffer.point() < state.buffer.len_chars()
                                 {
-                                    state.buffer.set_char_at_point(ch);
-                                    state.buffer.move_forward();
+                                    let mut encoded = [0u8; 4];
+                                    let bytes = ch.encode_utf8(&mut encoded).as_bytes();
+                                    if !self.overwrite_bytes_bytewise(state, bytes) {
+                                        state.buffer.set_char_at_point(ch);
+                                        state.buffer.move_forward();
+                                    }
                                 } else {
                                     state.buffer.insert_char(ch);
                                 }

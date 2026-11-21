@@ -12992,3 +12992,109 @@ fn bash_and_sushline_vi_blocked_operator_motions() {
         );
     }
 }
+
+/// Vi replace mode (`R`) overwrites one raw byte per printable key when byte
+/// motion is in effect, so replacing the lead or continuation byte of a
+/// multibyte scalar leaves the other byte intact. Control and quoted-inserted
+/// bytes are still inserted rather than overwriting, as in GNU.
+#[test]
+fn bash_and_sushline_byte_oriented_vi_overwrite_mode() {
+    let rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C")];
+    let e = "\u{e9}".as_bytes();
+    let c3 = [0xc3u8];
+    let a9 = [0xa9u8];
+    for (label, start, cases) in [
+        (
+            "lead",
+            &c3[..],
+            vec![
+                ("printable", b"RZ\x1b\r".to_vec(), "Z\u{fffd}bc:d", 1),
+                ("two_printable", b"RZY\x1b\r".to_vec(), "ZYbc:d", 1),
+                ("counted", b"3RZ\x1b\r".to_vec(), "Z\u{fffd}bc:d", 1),
+                ("control", b"R\x01\x1b\r".to_vec(), "\u{1}\u{e9}bc:d", 1),
+                (
+                    "multibyte_replacement",
+                    [b"R".as_slice(), e, b"\x1b\r"].concat(),
+                    "\u{e9}bc:d",
+                    1,
+                ),
+                (
+                    "quoted_control",
+                    b"R\x16\x01\x1b\r".to_vec(),
+                    "\u{1}\u{e9}bc:d",
+                    1,
+                ),
+                (
+                    "quoted_printable",
+                    b"R\x16Z\x1b\r".to_vec(),
+                    "Z\u{e9}bc:d",
+                    1,
+                ),
+            ],
+        ),
+        (
+            "cont",
+            &a9[..],
+            vec![
+                ("printable", b"RZ\x1b\r".to_vec(), "\u{fffd}Zbc:d", 0),
+                ("two_printable", b"RZY\x1b\r".to_vec(), "\u{fffd}ZYc:d", 0),
+                ("counted", b"3RZ\x1b\r".to_vec(), "\u{fffd}Zbc:d", 0),
+                (
+                    "control",
+                    b"R\x01\x1b\r".to_vec(),
+                    "\u{fffd}\u{1}\u{fffd}bc:d",
+                    0,
+                ),
+                (
+                    "multibyte_replacement",
+                    [b"R".as_slice(), e, b"\x1b\r"].concat(),
+                    "\u{fffd}\u{e9}c:d",
+                    0,
+                ),
+                (
+                    "quoted_control",
+                    b"R\x16\x01\x1b\r".to_vec(),
+                    "\u{fffd}\u{1}\u{fffd}bc:d",
+                    0,
+                ),
+                (
+                    "quoted_printable",
+                    b"R\x16Z\x1b\r".to_vec(),
+                    "\u{fffd}Z\u{fffd}bc:d",
+                    0,
+                ),
+            ],
+        ),
+    ] {
+        for (desc, tail, expected, bells) in cases {
+            let mut keys = [e, b"bc:d\x1b0f".as_slice()].concat();
+            keys.extend_from_slice(start);
+            keys.extend(tail);
+            let bash = run_bash_readline_with_inputrc_file_and_env(&keys, rc, &env);
+            let sush = run_sushline_harness_with_inputrc_and_env(&keys, rc, &env);
+            assert_eq!(
+                accepted_line(&bash),
+                Some(expected.to_owned()),
+                "{label} {desc}: {bash}"
+            );
+            assert_eq!(bell_count(&bash), bells, "{label} {desc}: {bash}");
+            assert_eq!(
+                accepted_line(&sush),
+                accepted_line(&bash),
+                "{label} {desc}: bash={bash}\nsushline={sush}"
+            );
+            assert_eq!(
+                bell_count(&sush),
+                bell_count(&bash),
+                "{label} {desc}: bash={bash}\nsushline={sush}"
+            );
+        }
+    }
+}

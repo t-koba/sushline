@@ -25,6 +25,16 @@ choices are product decisions, not oracle compatibility claims:
 - Oracle fixtures reject lossy U+FFFD substitutions rather than treating them
   as an acceptable match for GNU output.
 
+### Known display limits
+
+- Wrapping assumes `xenl`-style auto-wrap. On terminals advertising `am`
+  without `xenl`, such as `TERM=ansi`, GNU writes an explicit physical-row
+  wrap at the right margin. Paired Bash 5.3 and Sushline PTY probes at 20 and
+  30 columns show Sushline placing one more cell on the first row, so the
+  rendered rows can differ by one column after a wrap. Current oracle
+  fixtures assert xterm-style wrapping and do not claim parity for this
+  terminal class.
+
 ### Oracle identity
 
 The CI oracle host is GNU Bash 5.3 patch level 0, built from the pinned

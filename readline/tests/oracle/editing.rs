@@ -22,12 +22,12 @@ fn assert_screen_row(editor: &str, output: &str, expected: &str) {
     );
 }
 
-/// Run one byte-oriented vi case on both editors and require each ASCII-hex
+/// Run one byte-oriented editing case on both editors and require each ASCII-hex
 /// acceptance marker to equal the exact hex of `expected`, plus the pinned
 /// bell count. Comparing lossy strings would hide invalid raw bytes behind
 /// U+FFFD; comparing only the editors with each other would accept two absent
 /// markers.
-fn assert_bytewise_vi_bytes(
+fn assert_bytewise_editing_bytes(
     desc: &str,
     keys: &[u8],
     expected: &[u8],
@@ -10903,7 +10903,7 @@ fn bash_and_sushline_byte_oriented_vi_word_point_matches_gnu() {
         ("aé b\u{1b}wiX\r", b"a\xc3\xa9 Xb", 1),
     ];
     for (keys, expected, bells) in cases {
-        assert_bytewise_vi_bytes("{keys:?}", keys.as_bytes(), expected, bells, byte_rc, &env);
+        assert_bytewise_editing_bytes("{keys:?}", keys.as_bytes(), expected, bells, byte_rc, &env);
     }
 }
 
@@ -10954,7 +10954,7 @@ fn bash_and_sushline_vi_invalid_tail_word_motion_bells() {
         let mut keys = b"a".to_vec();
         keys.push(tail);
         keys.extend_from_slice(&[0x1b, motion, b'i', b'X', b'\r']);
-        assert_bytewise_vi_bytes(
+        assert_bytewise_editing_bytes(
             &format!("tail={tail:02x}, motion={}", motion as char),
             &keys,
             expected,
@@ -10969,7 +10969,7 @@ fn bash_and_sushline_vi_invalid_tail_word_motion_bells() {
         ("aé\u{1b}0wiX\r", b"aX\xc3\xa9", 0),
     ];
     for (keys, expected, bells) in cases {
-        assert_bytewise_vi_bytes("{keys:?}", keys.as_bytes(), expected, bells, rc, &env);
+        assert_bytewise_editing_bytes("{keys:?}", keys.as_bytes(), expected, bells, rc, &env);
     }
 }
 
@@ -11113,7 +11113,41 @@ fn bash_and_sushline_byte_oriented_repeated_word_points() {
     ];
     for (line, motion, expected, bells) in cases {
         let keys = format!("{line}\x1b{motion}iX\r");
-        assert_bytewise_vi_bytes("{keys:?}", keys.as_bytes(), expected, bells, rc, &env);
+        assert_bytewise_editing_bytes("{keys:?}", keys.as_bytes(), expected, bells, rc, &env);
+    }
+}
+
+/// Paired GNU 5.3 / Readline 8.3 pin for the Emacs word class.
+///
+/// GNU treats letters, decimal digits and letter-numbers as word characters,
+/// but leaves underscores and other numeric symbols outside a word. The
+/// accented-letter row is the control showing the Unicode word class still
+/// applies.
+#[test]
+fn bash_and_sushline_emacs_word_class_excludes_underscores_and_number_symbols() {
+    let rc = concat!(
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n"
+    );
+    let utf8 = [("LC_ALL", "C.UTF-8")];
+    let utf8_cases: [(&str, &[u8]); 6] = [
+        ("a\u{e9}b", b"a\xc3\xa9bX"),
+        ("a\u{e9}b_cd", b"a\xc3\xa9bX_cd"),
+        ("a_b", b"aX_b"),
+        ("a\u{b2}b", b"aX\xc2\xb2b"),
+        ("a\u{bc}b", b"aX\xc2\xbcb"),
+        ("a\u{660}b", b"a\xd9\xa0bX"),
+    ];
+    for (line, expected) in utf8_cases {
+        let keys = format!("{line}\x01\x1bfX\r");
+        assert_bytewise_editing_bytes(line, keys.as_bytes(), expected, 0, rc, &utf8);
+    }
+
+    let c_locale = [("LC_ALL", "C")];
+    for (line, expected) in [("a_b", b"aX_b".as_slice()), ("a1b", b"a1bX")] {
+        let keys = format!("{line}\x01\x1bfX\r");
+        assert_bytewise_editing_bytes(line, keys.as_bytes(), expected, 0, rc, &c_locale);
     }
 }
 
@@ -11141,7 +11175,7 @@ fn bash_and_sushline_byte_oriented_end_bigword_is_bytewise() {
     ];
     for (motion, expected, bells) in cases {
         let keys = format!("a\u{e9}\x1b{motion}\r");
-        assert_bytewise_vi_bytes(motion, keys.as_bytes(), expected, bells, rc, &env);
+        assert_bytewise_editing_bytes(motion, keys.as_bytes(), expected, bells, rc, &env);
     }
 }
 
@@ -11179,7 +11213,7 @@ fn bash_and_sushline_byte_oriented_escape_backoff_matches_gnu() {
     ];
     for (line, motion, expected, bells) in cases {
         let keys = format!("{line}\x1b{motion}X\r");
-        assert_bytewise_vi_bytes("{keys:?}", keys.as_bytes(), expected, bells, rc, &env);
+        assert_bytewise_editing_bytes("{keys:?}", keys.as_bytes(), expected, bells, rc, &env);
     }
 }
 
@@ -11235,7 +11269,7 @@ fn bash_and_sushline_byte_oriented_backward_word_points() {
     ];
     for (line, motion, expected, bells) in cases {
         let keys = format!("{line}\x1b{motion}iX\r");
-        assert_bytewise_vi_bytes("{keys:?}", keys.as_bytes(), expected, bells, rc, &env);
+        assert_bytewise_editing_bytes("{keys:?}", keys.as_bytes(), expected, bells, rc, &env);
     }
 }
 
@@ -11275,7 +11309,7 @@ fn bash_and_sushline_byte_oriented_backward_operator_ranges() {
     ];
     for (line, motion, expected, bells) in cases {
         let keys = format!("{line}\x1b{motion}\r");
-        assert_bytewise_vi_bytes("{keys:?}", keys.as_bytes(), expected, bells, rc, &env);
+        assert_bytewise_editing_bytes("{keys:?}", keys.as_bytes(), expected, bells, rc, &env);
     }
 }
 
@@ -11336,7 +11370,7 @@ fn bash_and_sushline_byte_oriented_vi_delete_char() {
     ];
     for (line, motion, expected, bells) in cases {
         let keys = format!("{line}\x1b{motion}iZ\r");
-        assert_bytewise_vi_bytes("{keys:?}", keys.as_bytes(), expected, bells, rc, &env);
+        assert_bytewise_editing_bytes("{keys:?}", keys.as_bytes(), expected, bells, rc, &env);
     }
 }
 
@@ -11382,7 +11416,7 @@ fn bash_and_sushline_byte_oriented_repeated_backward_bells() {
     ];
     for (line, motion, expected, bells) in cases {
         let keys = format!("{line}\x1b{motion}iX\r");
-        assert_bytewise_vi_bytes(&keys, keys.as_bytes(), expected, bells, rc, &env);
+        assert_bytewise_editing_bytes(&keys, keys.as_bytes(), expected, bells, rc, &env);
     }
 }
 
@@ -11450,7 +11484,7 @@ fn bash_and_sushline_vi_backward_yank_point() {
     ];
     for (line, motion, expected, bells) in byte_cases {
         let keys = format!("{line}\x1b{motion}\r");
-        assert_bytewise_vi_bytes(&keys, keys.as_bytes(), expected, bells, byte_rc, &env);
+        assert_bytewise_editing_bytes(&keys, keys.as_bytes(), expected, bells, byte_rc, &env);
     }
 }
 
@@ -11520,7 +11554,7 @@ fn bash_and_sushline_vi_put_after_delete() {
     ];
     for (line, motion, expected, bells) in byte_cases {
         let keys = format!("{line}\x1b{motion}iZ\r");
-        assert_bytewise_vi_bytes(&keys, keys.as_bytes(), expected, bells, byte_rc, &env);
+        assert_bytewise_editing_bytes(&keys, keys.as_bytes(), expected, bells, byte_rc, &env);
     }
 }
 
@@ -11630,7 +11664,7 @@ fn bash_and_sushline_vi_change_case() {
     ];
     for (line, motion, expected, bells) in byte_cases {
         let keys = format!("{line}\x1b{motion}iZ\r");
-        assert_bytewise_vi_bytes(&keys, keys.as_bytes(), expected, bells, byte_rc, &env);
+        assert_bytewise_editing_bytes(&keys, keys.as_bytes(), expected, bells, byte_rc, &env);
     }
 }
 
@@ -11714,7 +11748,7 @@ fn bash_and_sushline_byte_oriented_vi_subst_count_bell() {
     ];
     for (line, motion, expected, bells) in byte_cases {
         let keys = format!("{line}\x1b{motion}iZ\r");
-        assert_bytewise_vi_bytes(&keys, keys.as_bytes(), expected, bells, byte_rc, &env);
+        assert_bytewise_editing_bytes(&keys, keys.as_bytes(), expected, bells, byte_rc, &env);
     }
 
     // An unmet bytewise count rings, but the deleted bytes must still be
@@ -12014,7 +12048,7 @@ fn bash_and_sushline_vi_char_search_multibyte_and_byte_modes() {
             0,
         ),
     ] {
-        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected, bells, byte_rc, &env);
+        assert_bytewise_editing_bytes(desc, keys.as_bytes(), expected, bells, byte_rc, &env);
     }
 }
 
@@ -12079,7 +12113,7 @@ fn bash_and_sushline_vi_char_search_byte_oriented_multibyte_keys() {
             0,
         ),
     ] {
-        assert_bytewise_vi_bytes(desc, &keys, expected, bells, byte_rc, &env);
+        assert_bytewise_editing_bytes(desc, &keys, expected, bells, byte_rc, &env);
     }
 }
 
@@ -12156,7 +12190,7 @@ fn bash_and_sushline_byte_oriented_command_key_boundary() {
         ),
     ];
     for (desc, keys, expected, bells) in cases {
-        assert_bytewise_vi_bytes(desc, &keys, expected, bells, byte_rc, &env);
+        assert_bytewise_editing_bytes(desc, &keys, expected, bells, byte_rc, &env);
     }
 
     let macro_rc = concat!(
@@ -12184,7 +12218,7 @@ fn bash_and_sushline_byte_oriented_command_key_boundary() {
         ),
         ("macro_ctrl_x_e", b"ab\x1b0\x18ex\r".to_vec(), &b"a"[..], 1),
     ] {
-        assert_bytewise_vi_bytes(desc, &keys, expected, bells, macro_rc, &env);
+        assert_bytewise_editing_bytes(desc, &keys, expected, bells, macro_rc, &env);
     }
 }
 
@@ -12286,7 +12320,7 @@ fn bash_and_sushline_byte_oriented_search_edit_undo() {
             0,
         ),
     ] {
-        assert_bytewise_vi_bytes(desc, &keys, expected, bells, byte_rc, &env);
+        assert_bytewise_editing_bytes(desc, &keys, expected, bells, byte_rc, &env);
     }
 }
 
@@ -12404,7 +12438,7 @@ fn bash_and_sushline_byte_oriented_operators_after_raw_byte_search() {
             &b"a"[..],
         ),
     ] {
-        assert_bytewise_vi_bytes(desc, &keys, expected, 0, byte_rc, &env);
+        assert_bytewise_editing_bytes(desc, &keys, expected, 0, byte_rc, &env);
     }
 }
 
@@ -12451,7 +12485,7 @@ fn bash_and_sushline_byte_oriented_change_case_skips_uncased_bytes() {
             1,
         ),
     ] {
-        assert_bytewise_vi_bytes(desc, &keys, expected, bells, byte_rc, &env);
+        assert_bytewise_editing_bytes(desc, &keys, expected, bells, byte_rc, &env);
     }
 }
 
@@ -12547,7 +12581,7 @@ fn bash_and_sushline_byte_oriented_change_word_endpoints() {
             &b"a\xc3Zb"[..],
         ),
     ] {
-        assert_bytewise_vi_bytes(desc, &keys, expected, 0, byte_rc, &env);
+        assert_bytewise_editing_bytes(desc, &keys, expected, 0, byte_rc, &env);
     }
 }
 
@@ -12619,7 +12653,7 @@ fn bash_and_sushline_byte_oriented_change_word_undo_redo() {
             &b"a\xc3\xa9b "[..],
         ),
     ] {
-        assert_bytewise_vi_bytes(desc, &keys, expected, 0, byte_rc, &env);
+        assert_bytewise_editing_bytes(desc, &keys, expected, 0, byte_rc, &env);
     }
 }
 
@@ -12763,7 +12797,7 @@ fn bash_and_sushline_byte_oriented_operator_char_search() {
             1,
         ),
     ] {
-        assert_bytewise_vi_bytes(desc, &keys, expected, bells, byte_rc, &env);
+        assert_bytewise_editing_bytes(desc, &keys, expected, bells, byte_rc, &env);
     }
 }
 
@@ -12903,7 +12937,7 @@ fn bash_and_sushline_byte_oriented_put_after_delete_points() {
         ("x_lead_dot", [e, b"a\x1b0x.\r"].concat(), b"a", 0),
     ];
     for (desc, keys, expected, bells) in cases {
-        assert_bytewise_vi_bytes(desc, &keys, expected, bells, rc, &env);
+        assert_bytewise_editing_bytes(desc, &keys, expected, bells, rc, &env);
     }
 }
 
@@ -13099,7 +13133,14 @@ fn bash_and_sushline_byte_oriented_vi_overwrite_mode() {
             let mut keys = [e, b"bc:d\x1b0f".as_slice()].concat();
             keys.extend_from_slice(start);
             keys.extend(tail);
-            assert_bytewise_vi_bytes(&format!("{label} {desc}"), &keys, expected, bells, rc, &env);
+            assert_bytewise_editing_bytes(
+                &format!("{label} {desc}"),
+                &keys,
+                expected,
+                bells,
+                rc,
+                &env,
+            );
         }
     }
 }
@@ -13197,7 +13238,14 @@ fn bash_and_sushline_byte_oriented_vi_raw_replacement_keys() {
         for (desc, key, expected, bells) in cases {
             let mut keys = [e, b"bc:d\x1b0f".as_slice()].concat();
             keys.extend([start, b'R', key, 0x1b, b'\r']);
-            assert_bytewise_vi_bytes(&format!("{label} {desc}"), &keys, expected, bells, rc, &env);
+            assert_bytewise_editing_bytes(
+                &format!("{label} {desc}"),
+                &keys,
+                expected,
+                bells,
+                rc,
+                &env,
+            );
         }
     }
 }
@@ -14003,7 +14051,7 @@ fn bash_and_sushline_vi_replace_updates_paste_register() {
             0,
         ),
     ] {
-        assert_bytewise_vi_bytes(desc, keys, expected, bells, byte_rc, &env);
+        assert_bytewise_editing_bytes(desc, keys, expected, bells, byte_rc, &env);
     }
 }
 
@@ -14131,7 +14179,7 @@ fn bash_and_sushline_vi_replace_combining_grapheme_exact_bytes() {
         ),
         ("single", "e\u{301}xy\x1b0RX\r", "Xxy", 0),
     ] {
-        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
+        assert_bytewise_editing_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }
 }
 
@@ -14228,7 +14276,7 @@ fn bash_and_sushline_vi_change_case_over_graphemes() {
             0,
         ),
     ] {
-        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
+        assert_bytewise_editing_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }
 }
 
@@ -14271,7 +14319,7 @@ fn bash_and_sushline_vi_character_operators_over_graphemes() {
         ("x_bare_leading_zwj_single", "\u{200d}a\x1b0x\r", "", 0),
         ("r_bare_leading_zwj", "\u{200d}ab\x1b0rZ\r", "Zb", 0),
     ] {
-        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
+        assert_bytewise_editing_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }
 }
 
@@ -14301,7 +14349,7 @@ fn bash_and_sushline_vi_cw_whitespace_graphemes() {
         ("whitespace_mark_final", "e \u{301}\x1b0cwZ\r", "Z", 0),
         ("plain_space_control", "e abc\x1b0cwZ\r", "Z abc", 0),
     ] {
-        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
+        assert_bytewise_editing_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }
 }
 
@@ -14346,7 +14394,7 @@ fn bash_and_sushline_vi_end_word_grapheme_boundaries() {
         ),
         ("jamo_control", "\u{1160}ab\x1b0eiX\r", "\u{1160}aXb", 0),
     ] {
-        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
+        assert_bytewise_editing_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }
 }
 
@@ -14393,7 +14441,7 @@ fn bash_and_sushline_vi_grapheme_word_motion_repeats() {
             0,
         ),
     ] {
-        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
+        assert_bytewise_editing_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }
 }
 
@@ -14445,7 +14493,7 @@ fn bash_and_sushline_vi_char_search_operator_matches_whole_multibyte() {
             0,
         ),
     ] {
-        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
+        assert_bytewise_editing_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }
 }
 
@@ -14464,7 +14512,7 @@ fn bash_and_sushline_vi_end_word_final_character_point() {
         ("final_punctuation", "one--\x1b0$eiX\r", "one-X-", 0),
         ("ascii_space_rings", "abc\x1b0$e iX\r", "abXc", 1),
     ] {
-        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
+        assert_bytewise_editing_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }
 }
 
@@ -14486,7 +14534,7 @@ fn bash_and_sushline_vi_words_use_ascii_word_char_class() {
         ("cjk", "a\u{4e16}bc\x1b0wiX\r", "aX\u{4e16}bc", 0),
         ("underscore_control", "a_bc\x1b0wiX\r", "a_bXc", 0),
     ] {
-        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
+        assert_bytewise_editing_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }
 }
 
@@ -14550,7 +14598,7 @@ fn bash_and_sushline_vi_end_word_leading_grapheme_clusters() {
         ("trailing_mark_change", "\u{301}a\u{301}\x1b0cEZ\r", "Z", 0),
         ("trailing_mark_delete", "\u{301}a\u{301}\x1b0dE\r", "", 0),
     ] {
-        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
+        assert_bytewise_editing_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }
 }
 
@@ -14584,7 +14632,7 @@ fn bash_and_sushline_vi_char_search_scopes_operator_adjustment() {
             0,
         ),
     ] {
-        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
+        assert_bytewise_editing_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }
 }
 
@@ -14602,7 +14650,7 @@ fn bash_and_sushline_emacs_words_keep_unicode_classes() {
         ("upcase", "a\u{e9}b cd\x01\x1bu\r", "A\u{c9}B cd"),
         ("downcase", "A\u{c9}B cd\x01\x1bl\r", "a\u{e9}b cd"),
     ] {
-        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), 0, rc, &env);
+        assert_bytewise_editing_bytes(desc, keys.as_bytes(), expected.as_bytes(), 0, rc, &env);
     }
 }
 
@@ -14626,7 +14674,7 @@ fn bash_and_sushline_emacs_words_use_ascii_word_classes_in_c_locale() {
         ),
         ("upcase", "a\u{e9}bc\x01\x1bu\r", "A\u{e9}bc"),
     ] {
-        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), 0, rc, &env);
+        assert_bytewise_editing_bytes(desc, keys.as_bytes(), expected.as_bytes(), 0, rc, &env);
     }
 }
 
@@ -14644,7 +14692,7 @@ fn bash_and_sushline_vi_inclusive_operators_keep_plain_grapheme_tails() {
         ("leading_mark_change", "\u{301}a\u{301}\x1b0cEZ\r", "Z", 0),
         ("leading_mark_delete", "\u{301}a\u{301}\x1b0dE\r", "", 0),
     ] {
-        assert_bytewise_vi_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
+        assert_bytewise_editing_bytes(desc, keys.as_bytes(), expected.as_bytes(), bells, rc, &env);
     }
 }
 
@@ -14695,7 +14743,7 @@ fn bash_and_sushline_bytewise_end_word_all_operators() {
     ] {
         let mut keys = line.to_vec();
         keys.extend_from_slice(keys_tail);
-        assert_bytewise_vi_bytes(desc, &keys, &expected, 0, rc, &env);
+        assert_bytewise_editing_bytes(desc, &keys, &expected, 0, rc, &env);
     }
 }
 
@@ -14739,7 +14787,7 @@ fn bash_and_sushline_vi_yank_line_keeps_point_for_put() {
     ] {
         let mut keys = initial.to_vec();
         keys.extend_from_slice(tail);
-        assert_bytewise_vi_bytes(desc, &keys, expected, 0, rc, &env);
+        assert_bytewise_editing_bytes(desc, &keys, expected, 0, rc, &env);
     }
 }
 
@@ -14799,7 +14847,7 @@ fn bash_and_sushline_vi_inclusive_operator_consumes_multibyte_endpoint() {
     ] {
         let mut keys = initial.to_vec();
         keys.extend_from_slice(tail);
-        assert_bytewise_vi_bytes(desc, &keys, expected, 0, rc, &env);
+        assert_bytewise_editing_bytes(desc, &keys, expected, 0, rc, &env);
     }
 
     let byte_rc = concat!(
@@ -14812,7 +14860,7 @@ fn bash_and_sushline_vi_inclusive_operator_consumes_multibyte_endpoint() {
     let byte_env = [("LC_ALL", "C.UTF-8")];
     let mut keys = dash_e9.clone();
     keys.extend_from_slice(b"\x1b0de\r");
-    assert_bytewise_vi_bytes("bytewise_e9_endpoint", &keys, b"", 0, byte_rc, &byte_env);
+    assert_bytewise_editing_bytes("bytewise_e9_endpoint", &keys, b"", 0, byte_rc, &byte_env);
 }
 
 #[test]
@@ -14851,7 +14899,7 @@ fn bash_and_sushline_vi_identical_replace_keeps_undo_point() {
             b"xxcdef".as_slice(),
         ),
     ] {
-        assert_bytewise_vi_bytes(desc, keys, expected, 0, rc, &env);
+        assert_bytewise_editing_bytes(desc, keys, expected, 0, rc, &env);
     }
 
     let byte_rc = concat!(
@@ -14874,7 +14922,7 @@ fn bash_and_sushline_vi_identical_replace_keeps_undo_point() {
             b"xbcdef".as_slice(),
         ),
     ] {
-        assert_bytewise_vi_bytes(desc, keys, expected, 0, byte_rc, &byte_env);
+        assert_bytewise_editing_bytes(desc, keys, expected, 0, byte_rc, &byte_env);
     }
 }
 
@@ -14937,7 +14985,7 @@ fn bytewise_counted_vi_replace_undo_restores_first_character_point() {
         (b"abcde\x1b03rXuiX\r".as_slice(), b"aXbcde".as_slice()),
         ("ééé\x1b02réuiX\r".as_bytes(), "éXéé".as_bytes()),
     ] {
-        assert_bytewise_vi_bytes(
+        assert_bytewise_editing_bytes(
             "counted vi replace undo point",
             keys,
             expected,

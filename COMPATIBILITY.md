@@ -358,15 +358,17 @@ completion fixture; a completion with no matching name rings once per key in
 both editors. Whitespace-only names remain out of scope.
 
 The query accumulates printable bytes and supports backspace in both editors.
-GNU runs a full recursive editor in this prompt, so other in-query editing keys
-(such as `C-w` kill-word or `C-u` kill-line) and cursor motion are not
-implemented in Sushline; those cases are outside the paired fixtures.
+GNU runs a full recursive editor in this prompt; Sushline implements the paired
+whole-query clears for `C-u` and `C-w` and the measured single-byte `C-v`
+quoting, while other in-query editing keys and cursor motion remain outside the
+fixtures.
 
 Cancelling the named-command prompt with Ctrl-G discards a pending count: with
 `M-3` or `M-2` before `M-x`, `C-g` then `X Enter` (or `Y Enter`) accepts a
-single `X` (or `Y`) in both editors. Only the accepted line is compared; GNU
-rings on the Ctrl-G abort while Sushline stays silent, and Escape is not
-covered because GNU reads it as a meta prefix inside the prompt.
+single `X` (or `Y`) in both editors. Both editors ring once, and the paired
+fixtures compare the accepted line and the bell count. Escape remains raw
+query text rather than a cancel key; that separate case is pinned by
+`bash_readline_and_sushline_keep_escape_in_named_command_query`.
 
 A minus after a multiplied positive no-op chain is inserted as literal text
 repeated by the multiplied count, including when the minus is Meta-prefixed,

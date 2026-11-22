@@ -1261,7 +1261,7 @@ impl LineBuffer {
             && let Some((mut base, mut base_ch)) = self.decoded_prev_char_backward(end)
         {
             while (is_grapheme_extend(base_ch) || base_ch == '\u{200d}')
-                && let Some((previous, previous_ch)) = self.decoded_prev_char(base)
+                && let Some((previous, previous_ch)) = self.decoded_prev_char_backward(base)
             {
                 base = previous;
                 base_ch = previous_ch;

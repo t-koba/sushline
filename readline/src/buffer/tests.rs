@@ -418,6 +418,26 @@ fn backward_decoder_matches_forward_decoder_on_raw_bytes() {
 }
 
 #[test]
+fn backward_steps_over_a_long_raw_run_are_exact() {
+    let bytes = vec![0x80; 4_096];
+    let mut buffer = LineBuffer::from_bytes(bytes.clone());
+    buffer.set_point(bytes.len());
+    for step in 1..=128 {
+        assert!(buffer.move_backward());
+        assert_eq!(buffer.point, bytes.len() - step);
+    }
+}
+
+#[test]
+fn vi_end_word_finds_the_leading_base_across_a_long_mark_run() {
+    let line = format!("\u{301}a{}", "\u{301}".repeat(2_000));
+    let mut buffer = LineBuffer::from(line.as_str());
+    buffer.set_point(0);
+    assert!(buffer.vi_end_word(None));
+    assert_eq!(buffer.point, 2);
+}
+
+#[test]
 fn backward_delete_removes_only_a_stray_continuation_byte() {
     let mut buffer = LineBuffer::from_bytes(vec![0xc3, 0x80, 0xa9]);
     buffer.set_point(3);

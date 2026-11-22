@@ -2051,19 +2051,19 @@ where
                 // carry a pending count into the next ordinary key. Submitted
                 // named commands (digit-argument/self-insert) keep it.
                 state.take_numeric_arg();
+                if let Some(command) = state.input.named_command.as_mut() {
+                    command.pending_bytes.clear();
+                }
                 state.input.named_command = None;
                 state.input.changed_display = true;
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
             }
             &[0x7f] => {
-                if state
-                    .input
-                    .named_command
-                    .as_mut()
-                    .is_some_and(|command| command.query.pop().is_some())
-                {
-                    state.input.changed_display = true;
+                if let Some(command) = state.input.named_command.as_mut() {
+                    let removed =
+                        command.pending_bytes.pop().is_some() || command.query.pop().is_some();
+                    state.input.changed_display |= removed;
                 }
                 Ok(EditorOutcome::Continue)
             }
@@ -2089,13 +2089,8 @@ where
                 if state.input.named_command.is_none() {
                     return self.handle_bytes(state, bytes, hooks);
                 }
-                if let Ok(text) = std::str::from_utf8(bytes)
-                    && let Some(command) = state.input.named_command.as_mut()
-                {
-                    command
-                        .query
-                        .extend(text.chars().filter(|ch| !ch.is_control()));
-                    state.input.changed_display = true;
+                if let Some(command) = state.input.named_command.as_mut() {
+                    state.input.changed_display |= append_named_query_bytes(command, bytes);
                 }
                 Ok(EditorOutcome::Continue)
             }
@@ -2312,6 +2307,63 @@ fn accept_search_line(state: &EditorState, search: &ReverseSearchState) -> Vec<u
 fn save_incremental_search(state: &mut EditorState, search: &ReverseSearchState) {
     state.search.last_incremental_search = (!search.query.is_empty()).then(|| search.query.clone());
     state.search.last_incremental_search_direction = Some(search.direction);
+}
+
+/// Append query bytes, holding an incomplete UTF-8 sequence until its
+/// remaining bytes arrive. Control characters are never query text.
+fn append_named_query_bytes(pending: &mut PendingNamedCommand, bytes: &[u8]) -> bool {
+    fn push_chars(query: &mut String, text: &str) -> bool {
+        let before = query.len();
+        query.extend(text.chars().filter(|ch| !ch.is_control()));
+        query.len() != before
+    }
+
+    let mut raw = std::mem::take(&mut pending.pending_bytes);
+    raw.extend_from_slice(bytes);
+    let mut consumed = 0;
+    let mut changed = false;
+    while consumed < raw.len() {
+        let slice = &raw[consumed..];
+        match std::str::from_utf8(slice) {
+            Ok(text) => {
+                changed |= push_chars(&mut pending.query, text);
+                consumed = raw.len();
+            }
+            Err(error) => {
+                let valid = error.valid_up_to();
+                if valid > 0 {
+                    let text = std::str::from_utf8(&slice[..valid]).expect("valid UTF-8 prefix");
+                    changed |= push_chars(&mut pending.query, text);
+                    consumed += valid;
+                }
+                match error.error_len() {
+                    Some(len) => consumed += len,
+                    None => break,
+                }
+            }
+        }
+    }
+    pending.pending_bytes.extend_from_slice(&raw[consumed..]);
+    changed
+}
+
+#[cfg(test)]
+mod named_query_tests {
+    use super::append_named_query_bytes;
+    use crate::state::PendingNamedCommand;
+
+    #[test]
+    fn fragmented_utf8_query_bytes_form_one_character() {
+        let mut pending = PendingNamedCommand::default();
+        assert!(!append_named_query_bytes(&mut pending, &[0xe2]));
+        assert!(!append_named_query_bytes(&mut pending, &[0x80]));
+        assert!(append_named_query_bytes(&mut pending, &[0x8b]));
+        assert_eq!(pending.query, "\u{200b}");
+        assert!(pending.pending_bytes.is_empty());
+
+        assert!(append_named_query_bytes(&mut pending, b"ab"));
+        assert_eq!(pending.query, "\u{200b}ab");
+    }
 }
 
 #[cfg(test)]

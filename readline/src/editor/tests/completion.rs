@@ -304,6 +304,7 @@ fn named_command_completion_uses_embedder_supplied_names() {
     state.input.named_command = Some(PendingNamedCommand {
         query: "app-".to_string(),
         invoking_key: None,
+        ..Default::default()
     });
 
     line.handle_named_command(&mut state, b"\t", &mut AppCommands)
@@ -352,6 +353,7 @@ fn named_command_completion_then_embedder_execution() {
     state.input.named_command = Some(PendingNamedCommand {
         query: "app-".to_string(),
         invoking_key: None,
+        ..Default::default()
     });
     let mut hooks = NamedApplicationHook {
         invoked: Vec::new(),

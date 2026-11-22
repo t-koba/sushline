@@ -15091,3 +15091,21 @@ fn horizontal_named_command_prompt_shows_query() {
         "prompt query missing: {output:?}"
     );
 }
+
+#[test]
+fn bash_readline_and_sushline_keep_multibyte_named_command_query() {
+    let inputrc = r#""\C-o": execute-named-command"#;
+    for (keys, expected) in [
+        (b"\x0f\xe2\x80\x8bab".as_slice(), "!\u{200b}ab"),
+        (b"\x0f\xe2\x80\x8b\x7fc".as_slice(), "!c"),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+        assert!(bash.contains(expected), "keys={keys:?} Bash: {bash}");
+        assert!(
+            sushline.contains(expected),
+            "keys={keys:?} Sushline: {sushline}"
+        );
+    }
+}

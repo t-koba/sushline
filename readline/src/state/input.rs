@@ -51,6 +51,8 @@ pub(crate) struct InputState {
 pub(crate) struct PendingNamedCommand {
     pub(crate) query: String,
     pub(crate) invoking_key: Option<u8>,
+    /// Bytes of a UTF-8 character that arrived in fragments.
+    pub(crate) pending_bytes: Vec<u8>,
 }
 
 impl EditorState {

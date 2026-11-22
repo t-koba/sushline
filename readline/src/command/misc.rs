@@ -359,6 +359,7 @@ where
                 state.input.named_command = Some(PendingNamedCommand {
                     query: String::new(),
                     invoking_key: key.last().copied(),
+                    pending_bytes: Vec::new(),
                 });
             }
             "re-read-init-file" => {

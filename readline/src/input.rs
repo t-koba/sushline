@@ -1655,13 +1655,14 @@ where
                 state.after_non_kill_command();
                 EditorOutcome::Continue
             }
-            // In the incremental prompt these kills apply to the query, not
-            // to the line already selected by the current match. Ctrl-U
-            // clears the query and rings once. Ctrl-W clears a query without
-            // a measured separator (ringing once, and again with no match);
-            // with one of those separators it retains the query, keeping the
-            // selected line when a later extension fails. The bell counts
-            // below follow the measured cases, not a general rubout model.
+            // Ctrl-W applies to the query, not to the line already selected
+            // by the current match: it clears a query without a measured
+            // separator (ringing once, and again with no match); with one of
+            // those separators it retains the query, keeping the selected
+            // line when a later extension fails. Ctrl-U instead ends the
+            // search and dispatches its bound command on the established
+            // line. The bell counts below follow measured cases, not a
+            // general rubout model.
             &[0x15] => {
                 // Ctrl-U in GNU Readline ends the search, establishes the
                 // selected line and then runs unix-line-discard from the
@@ -1669,12 +1670,11 @@ where
                 // range is empty, which is the measured negative control.
                 state.search.quoted_pending = false;
                 self.restore_isearch_line_for_editing(state, &search, true);
-                return self.apply_binding(
-                    state,
-                    KeyBinding::Command(EditCommand::UnixLineDiscard),
-                    bytes,
-                    hooks,
-                );
+                let binding = self.keymap.lookup(self.keymap.current(), bytes).cloned();
+                return match binding {
+                    Some(binding) => self.apply_binding(state, binding, bytes, hooks),
+                    None => self.handle_bytes(state, bytes, hooks),
+                };
             }
             &[0x17] => {
                 let has_separator = search

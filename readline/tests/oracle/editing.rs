@@ -16730,3 +16730,33 @@ fn bash_readline_and_sushline_decode_multibyte_char_search_after_search_nul_free
         }
     }
 }
+
+/// Readline 8.3 patch 4 keeps the prompt correct when the cursor moves before
+/// a multibyte prompt's last invisible run. The settled screen is the same in
+/// both editors: GNU writes an incremental insertion where Sushline redraws
+/// the full prompt.
+#[test]
+fn bash_and_sushline_multibyte_prompt_with_invisible_run_redraws_same_screen() {
+    require_oracle_host();
+    let env = [("LC_ALL", "C.UTF-8")];
+    let prompts = [
+        "SUSHLINE_READY>\u{e4}[\u{1}\u{1b}[31mR\u{1b}[0m\u{2}] ",
+        "\u{1}\u{1b}[31mSUSHLINE_READY>\u{1b}[0m\u{2}\u{e4} ",
+        "SUSHLINE_READY>a\u{e4}\u{1}\u{1b}[31mR\u{1b}[0m\u{2} ",
+    ];
+    let keys = b"abc\x01X\r\r";
+    for prompt in prompts {
+        let bash = run_bash_readline_with_prompt(keys, prompt, &env);
+        let sushline = run_sushline_harness_with_prompt(keys, prompt, &env);
+        let screen = Screen::new(24, 80);
+        let expected = screen
+            .last_rows_starting_with(bash.as_bytes(), "SUSHLINE_READY")
+            .unwrap_or_else(|| panic!("GNU has no settled prompt: {bash:?}"));
+        let actual = screen
+            .last_rows_starting_with(sushline.as_bytes(), "SUSHLINE_READY")
+            .unwrap_or_else(|| panic!("Sushline has no settled prompt: {sushline:?}"));
+        assert_eq!(actual, expected, "prompt {prompt:?}");
+        assert_eq!(accepted_line(&bash).as_deref(), Some("Xabc"));
+        assert_eq!(accepted_line(&sushline).as_deref(), Some("Xabc"));
+    }
+}

@@ -2682,3 +2682,42 @@ fn accepted_line_after_marker_stops_at_first_line_break() {
         Some("first")
     );
 }
+
+pub(super) fn run_bash_readline_with_prompt(
+    keys: &[u8],
+    prompt: &str,
+    env: &[(&str, &str)],
+) -> String {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    fs::write(&path, "").expect("write inputrc");
+    let mut command = CommandBuilder::new("bash");
+    command.env("INPUTRC", path.to_string_lossy().as_ref());
+    command.env("PROBE_PROMPT", prompt);
+    for (name, value) in env {
+        command.env(name, value);
+    }
+    command.args([
+        "--noprofile",
+        "--norc",
+        "-i",
+        "-c",
+        r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "$PROBE_PROMPT" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#,
+    ]);
+    run_pty(command, keys)
+}
+
+pub(super) fn run_sushline_harness_with_prompt(
+    keys: &[u8],
+    prompt: &str,
+    env: &[(&str, &str)],
+) -> String {
+    let mut command = sushline_harness_command();
+    command.env("SUSHLINE_INPUTRC", "");
+    command.env("SUSHLINE_PROMPT", prompt);
+    command.env("SUSHLINE_HISTORY", "");
+    for (name, value) in env {
+        command.env(name, value);
+    }
+    run_pty(command, keys)
+}

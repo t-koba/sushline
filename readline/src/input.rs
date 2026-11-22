@@ -11,6 +11,14 @@ use history::HistoryDirection;
 const BRACKETED_PASTE_START_SEQUENCE: &[u8] = b"\x1b[200~";
 const BRACKETED_PASTE_END_SEQUENCE: &[u8] = b"\x1b[201~";
 const NUL_FROZEN_KEY_SEQUENCE_MAX: usize = 8;
+/// Single-byte commands measured to leave a NUL-frozen search and act on the
+/// established match line.
+const NUL_FROZEN_LINE_COMMAND_KEYS: &[u8] = &[
+    0x01, 0x02, 0x04, 0x05, 0x06, 0x09, 0x0b, 0x0c, 0x0e, 0x10, 0x14, 0x1e, 0x1f,
+];
+/// Query-editing keys measured to ring once after a successful NUL freeze
+/// while the query stays frozen.
+const NUL_FROZEN_RING_KEYS: &[u8] = &[0x08, 0x17, 0x18, 0x19, 0x1d, 0x7f];
 
 // GNU Readline normalizes CR while collecting bracketed-paste input.
 fn normalize_bracketed_paste_carriage_returns(bytes: &mut [u8]) {
@@ -1641,22 +1649,9 @@ where
             // GNU applies the bound cursor commands after the freeze, with
             // point where the search left it. Only the measured keys are
             // routed here; unmeasured controls keep the frozen behavior.
-            if matches!(
-                bytes,
-                [0x01]
-                    | [0x02]
-                    | [0x04]
-                    | [0x05]
-                    | [0x06]
-                    | [0x09]
-                    | [0x0b]
-                    | [0x0c]
-                    | [0x0e]
-                    | [0x10]
-                    | [0x14]
-                    | [0x1e]
-                    | [0x1f]
-            ) && let Some(binding) = self.keymap.lookup(self.keymap.current(), bytes).cloned()
+            if bytes.len() == 1
+                && NUL_FROZEN_LINE_COMMAND_KEYS.contains(&bytes[0])
+                && let Some(binding) = self.keymap.lookup(self.keymap.current(), bytes).cloned()
             {
                 let search = state
                     .search
@@ -1674,7 +1669,7 @@ where
             // GNU rings once for each of these frozen query-editing control
             // bytes unless the NUL freeze itself already failed and rang. C-r
             // rings in either case.
-            if matches!(bytes, [0x08] | [0x17] | [0x18] | [0x19] | [0x1d] | [0x7f]) {
+            if bytes.len() == 1 && NUL_FROZEN_RING_KEYS.contains(&bytes[0]) {
                 if !failed {
                     self.ding()?;
                 }

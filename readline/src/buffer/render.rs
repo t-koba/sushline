@@ -4,7 +4,7 @@
 //! widths, including control-character and meta-byte display semantics.
 
 use super::{DecodedUnit, LineBuffer, private_byte_char, private_byte_value};
-use crate::width::{advance_cell, char_width};
+use crate::width::{advance_cell, char_width, visible_width};
 use std::borrow::Cow;
 
 #[derive(Debug, Clone)]
@@ -227,6 +227,41 @@ pub(crate) fn append_bytes_decoded_lossless(out: &mut String, bytes: &[u8]) {
         }
         idx += 1;
     }
+}
+
+/// Render raw query bytes for a search prompt.
+///
+/// Valid UTF-8 sequences become characters and control bytes become printable
+/// caret notation; a byte that spells out no character keeps its lossless raw
+/// byte representation instead of a replacement character. The returned text
+/// is already in display domain, so callers must not escape the raw-byte
+/// marker again.
+pub(crate) fn display_search_query_bytes(bytes: &[u8], start_col: usize) -> String {
+    let mut out = String::new();
+    let mut col = start_col;
+    let mut idx = 0;
+    while idx < bytes.len() {
+        let first = bytes[idx];
+        let needed = break_sequence_len(first);
+        let piece = if needed > 1
+            && idx + needed <= bytes.len()
+            && let Ok(text) = std::str::from_utf8(&bytes[idx..idx + needed])
+            && let Some(ch) = text.chars().next()
+        {
+            idx += needed;
+            display_char(ch, false, false, true, col)
+        } else {
+            idx += 1;
+            if first.is_ascii() {
+                display_char(first as char, false, false, true, col)
+            } else {
+                raw_byte_text(first)
+            }
+        };
+        col += visible_width(&piece);
+        out.push_str(&piece);
+    }
+    out
 }
 
 pub(crate) fn bytes_decoded_lossless(bytes: &[u8]) -> String {
@@ -623,6 +658,16 @@ mod tests {
         assert_eq!(
             rendered_string_to_bytes(&text),
             vec![0xff, 0xee, 0x83, 0xbf, 0xff]
+        );
+    }
+
+    #[test]
+    fn search_query_invalid_byte_keeps_its_lossless_representation() {
+        let rendered = display_search_query_bytes(b"a\xff\x1b", 0);
+        assert_eq!(rendered, format!("a{}^[", raw_byte_text(0xff)));
+        assert_eq!(
+            rendered_string_to_bytes(&rendered),
+            vec![b'a', 0xff, b'^', b'[']
         );
     }
 

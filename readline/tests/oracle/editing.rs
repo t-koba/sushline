@@ -15018,3 +15018,21 @@ fn search_prompt_does_not_duplicate_genuine_raw_byte_marker() {
         "one typed zero-width space must render once: {output}"
     );
 }
+
+#[test]
+fn incremental_search_preserves_quoted_invalid_bytes() {
+    let keys = b"\x12\x16\xff\r\r";
+    let output = run_sushline_harness_with_inputrc_and_env_raw(keys, "", &[("LC_ALL", "C.UTF-8")]);
+
+    let mut needle = b"(failed reverse-i-search)`".to_vec();
+    needle.push(0xff);
+    needle.extend_from_slice(b"': ");
+    assert!(
+        output.windows(needle.len()).any(|window| window == needle),
+        "the query byte must survive redisplay: {output:?}"
+    );
+    assert!(
+        !output.windows(3).any(|window| window == [0xef, 0xbf, 0xbd]),
+        "a replacement character must not stand in for the raw byte: {output:?}"
+    );
+}

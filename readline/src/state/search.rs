@@ -57,14 +57,7 @@ pub(crate) struct NonIncrementalSearchState {
 /// notation. The result is already in display domain: a genuine raw-byte
 /// marker is escaped here and must not be escaped again by the caller.
 pub(crate) fn render_search_query(query: &[u8], start_col: usize) -> String {
-    let mut rendered = String::new();
-    let mut col = start_col;
-    for ch in String::from_utf8_lossy(query).chars() {
-        let piece = crate::buffer::display_char(ch, false, false, true, col);
-        col += crate::width::visible_width(&piece);
-        rendered.push_str(&piece);
-    }
-    rendered
+    crate::buffer::display_search_query_bytes(query, start_col)
 }
 
 impl NonIncrementalSearchState {

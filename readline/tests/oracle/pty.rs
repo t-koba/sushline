@@ -952,6 +952,31 @@ pub(super) fn run_sushline_harness_with_inputrc_and_env(
     run_sushline_harness_with_inputrc_and_env_removing(keys, inputrc, env, &[])
 }
 
+pub(super) fn run_sushline_harness_with_inputrc_and_env_raw(
+    keys: &[u8],
+    inputrc: &str,
+    env: &[(&str, &str)],
+) -> Vec<u8> {
+    let mut command = sushline_harness_command();
+    command.env("SUSHLINE_INPUTRC", inputrc);
+    command.env("SUSHLINE_PROMPT", READY_PROMPT);
+    command.env("SUSHLINE_HISTORY", "");
+    for (name, value) in env {
+        command.env(name, value);
+    }
+    run_pty_in_dir_with_size_raw(
+        command,
+        keys,
+        Path::new("/"),
+        PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        },
+    )
+}
+
 pub(super) fn run_sushline_harness_with_inputrc_and_env_in_dir(
     keys: &[u8],
     inputrc: &str,

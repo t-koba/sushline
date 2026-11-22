@@ -13985,12 +13985,6 @@ fn bash_and_sushline_vi_replace_updates_paste_register() {
     let charwise_rc = "set editing-mode vi";
     for (desc, keys, expected, bells) in [
         ("put_before", "abc\x1b0raP\r", "aabc", 0),
-        (
-            "x_seeds_register_then_replace_put",
-            "abcde\x1b0x02rQp\r",
-            "QQcde",
-            0,
-        ),
         ("put_after", "abc\x1b0rap\r", "aabc", 0),
         ("counted_put_before", "abcd\x1b02raP\r", "abacd", 0),
         ("counted_put_after", "abcd\x1b02rap\r", "aabcd", 0),
@@ -14048,6 +14042,12 @@ fn bash_and_sushline_vi_replace_updates_paste_register() {
             "raw_continuation_put_before",
             b"a\xc3\xa9b\x1b0f\xa9rAp\r",
             b"\x61\xc3\x41\xa9\x62",
+            0,
+        ),
+        (
+            "x_seeds_register_then_replace_put",
+            b"abcde\x1b0x02rQp\r",
+            b"QQcde",
             0,
         ),
     ] {
@@ -15181,6 +15181,24 @@ fn horizontal_named_command_prompt_shows_query() {
             .any(|window| window == expected),
         "prompt query missing: {output:?}"
     );
+}
+
+#[test]
+fn bash_readline_and_sushline_keep_named_command_decorations() {
+    let inputrc = concat!(
+        "set mark-modified-lines on\n",
+        "set show-mode-in-prompt on\n",
+        "set editing-mode vi\n",
+        "set vi-ins-mode-string \"(ins)\"\n",
+        "\"\\C-o\": execute-named-command\n"
+    );
+    let keys = b"\x1b[AX\x0fabc";
+    let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &["abcdef"]);
+    let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &["abcdef"]);
+
+    for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+        assert_screen_row(editor, output, "*SUSHLINE_READY>!abc");
+    }
 }
 
 #[test]

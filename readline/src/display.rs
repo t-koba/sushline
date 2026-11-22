@@ -514,7 +514,11 @@ fn active_search_prompt(state: &EditorState) -> Option<(String, usize)> {
     // so the first query byte is drawn one column past the prefix.
     let (query, extra) =
         crate::state::render_search_query(&search.query, prefix.chars().count() + 1);
-    Some((format!("{prefix}`{query}': "), extra))
+    // GNU expands a TAB in the matched line from one column past the query's
+    // rendered width: the raw query TAB leaves the terminator drawn, and the
+    // cursor moves over three cells without erasing that extra column.
+    // Paired Bash 5.3 PTY fixtures pin the bias for several match prefixes.
+    Some((format!("{prefix}`{query}': "), extra + 1))
 }
 
 impl<T> Editor<T>

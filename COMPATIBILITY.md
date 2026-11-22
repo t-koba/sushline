@@ -33,6 +33,13 @@ insertion fixture pins those bytes with ASCII-hex markers instead of lossy
 strings. Sushline redraws the full visible line where GNU emits an incremental
 partial-byte update, so redisplay bytes are not asserted for this case.
 
+### Search prompt columns
+
+A literal TAB in a reverse-search query advances the physical prompt column
+by one beyond the query terminator GNU leaves drawn. A TAB in the matched
+history line expands from that physical column; the paired search-match
+fixture pins the expansion for prefixes of one to four bytes.
+
 ### Terminal wrap margins
 
 - With both `am` and `xenl` (xterm-style deferred wrapping), redisplay uses

@@ -15233,6 +15233,51 @@ fn incremental_search_preserves_quoted_invalid_bytes() {
     );
 }
 
+/// Bash 5.3 PTY evidence: a literal TAB in a reverse-search query advances
+/// the physical prompt column by one beyond the query terminator it leaves
+/// drawn. A TAB in the matched history line then expands from that physical
+/// column, so one-, two-, three- and four-byte prefixes expand to 8, 7, 6
+/// and 5 spaces. Counting the query's logical width here would drift by one.
+#[test]
+fn bash_and_sushline_search_match_tab_uses_physical_prompt_column() {
+    require_oracle_host();
+    let keys = b"\x12\x16\t\r\r";
+    let env = [("LC_ALL", "C.UTF-8")];
+    for prefix_len in 1..=4 {
+        let entry = format!("{}\there", "a".repeat(prefix_len));
+        let history = [entry.as_str()];
+        let bash =
+            run_bash_readline_with_inputrc_file_and_history_and_env(keys, "", &history, &env);
+        let sushline =
+            run_sushline_harness_with_inputrc_and_history_and_env(keys, "", &history, &env);
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            let marker = format!("': {}", "a".repeat(prefix_len));
+            let start = output
+                .find(&marker)
+                .unwrap_or_else(|| panic!("{editor} has no search match: {output:?}"))
+                + marker.len();
+            let end = output[start..]
+                .find("here")
+                .unwrap_or_else(|| panic!("{editor} has no match suffix: {output:?}"))
+                + start;
+            let spaces = output[start..end]
+                .bytes()
+                .filter(|byte| *byte == b' ')
+                .count();
+            assert_eq!(
+                spaces,
+                9 - prefix_len,
+                "{editor} prefix_len={prefix_len}: {output:?}"
+            );
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(entry.as_str()),
+                "{editor} prefix_len={prefix_len}: {output:?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn horizontal_search_prompt_keeps_one_raw_byte_marker() {
     let output = run_sushline_harness_with_inputrc_and_env_raw(

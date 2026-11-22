@@ -129,6 +129,10 @@ fn main() -> ExitCode {
     // the current prompt, so a shared prompt cannot frame batched PTY input.
     let numbered_prompts = std::env::var_os("SUSHLINE_NUMBERED_PROMPTS").is_some();
     let shell_escapes = std::env::var_os("SUSHLINE_PROMPT_SHELL_ESCAPES").is_some();
+    if let Ok(prelude) = std::env::var("SUSHLINE_PRELUDE") {
+        print!("{prelude}");
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+    }
     for read_idx in 1..=reads {
         let read_prompt = if numbered_prompts {
             format!("{prompt}{read_idx}:")

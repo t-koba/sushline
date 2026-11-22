@@ -16731,32 +16731,36 @@ fn bash_readline_and_sushline_decode_multibyte_char_search_after_search_nul_free
     }
 }
 
-/// Readline 8.3 patch 4 keeps the prompt correct when the cursor moves before
-/// a multibyte prompt's last invisible run. The settled screen is the same in
-/// both editors: GNU writes an incremental insertion where Sushline redraws
-/// the full prompt.
+/// GNU 8.3-p0 reprints a multibyte prompt from column 0 after unterminated
+/// output leaves the cursor off that column, but does not clear the first
+/// copy's tail; a stray multibyte glyph remains. Sushline clears the tail.
+/// The fixture pins accepted-line parity and Sushline's clean screen.
 #[test]
-fn bash_and_sushline_multibyte_prompt_with_invisible_run_redraws_same_screen() {
+fn bash_and_sushline_reprint_prompt_after_unterminated_output() {
     require_oracle_host();
     let env = [("LC_ALL", "C.UTF-8")];
-    let prompts = [
-        "SUSHLINE_READY>\u{e4}[\u{1}\u{1b}[31mR\u{1b}[0m\u{2}] ",
-        "\u{1}\u{1b}[31mSUSHLINE_READY>\u{1b}[0m\u{2}\u{e4} ",
-        "SUSHLINE_READY>a\u{e4}\u{1}\u{1b}[31mR\u{1b}[0m\u{2} ",
-    ];
-    let keys = b"abc\x01X\r\r";
-    for prompt in prompts {
-        let bash = run_bash_readline_with_prompt(keys, prompt, &env);
-        let sushline = run_sushline_harness_with_prompt(keys, prompt, &env);
-        let screen = Screen::new(24, 80);
-        let expected = screen
-            .last_rows_starting_with(bash.as_bytes(), "SUSHLINE_READY")
-            .unwrap_or_else(|| panic!("GNU has no settled prompt: {bash:?}"));
-        let actual = screen
-            .last_rows_starting_with(sushline.as_bytes(), "SUSHLINE_READY")
-            .unwrap_or_else(|| panic!("Sushline has no settled prompt: {sushline:?}"));
-        assert_eq!(actual, expected, "prompt {prompt:?}");
-        assert_eq!(accepted_line(&bash).as_deref(), Some("Xabc"));
-        assert_eq!(accepted_line(&sushline).as_deref(), Some("Xabc"));
-    }
+    // A multibyte glyph immediately before the invisible run is the shape
+    // GNU's p0 reprint decision mishandles.
+    let prompt = "SUSHLINE_READY>\u{20ac}\u{1}\u{1b}[0m\u{2} ";
+    let keys = b"X\r\r";
+    let bash = run_bash_readline_with_prompt(keys, prompt, "abc", &env);
+    let sushline = run_sushline_harness_with_prompt(keys, prompt, "abc", &env);
+    assert_eq!(
+        bash.matches("SUSHLINE_READY>").count(),
+        2,
+        "the p0 prompt-reprint path must be exercised: {bash:?}"
+    );
+    assert!(
+        bash.contains("\rSUSHLINE_READY>"),
+        "GNU must reprint from column 0: {bash:?}"
+    );
+    assert_eq!(accepted_line(&bash).as_deref(), Some("X"));
+    assert_eq!(accepted_line(&sushline).as_deref(), Some("X"));
+    let mut screen = Screen::new(24, 80);
+    screen.feed(sushline.as_bytes());
+    assert_eq!(
+        screen.rows_text()[0].trim_end(),
+        "SUSHLINE_READY>\u{20ac} X",
+        "Sushline must leave no stale prompt tail: {sushline:?}"
+    );
 }

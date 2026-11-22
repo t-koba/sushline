@@ -24,6 +24,11 @@ choices are product decisions, not oracle compatibility claims:
   a Unix-style `HOME`.
 - Oracle fixtures reject lossy U+FFFD substitutions rather than treating them
   as an acceptable match for GNU output.
+- When output without a trailing newline leaves the cursor off column 0 and a
+  multibyte prompt ends with an invisible run, GNU 8.3-p0 reprints the prompt
+  without clearing the first copy's tail and leaves a stray glyph. Sushline
+  clears the tail; the paired reprint fixture pins accepted-line parity and
+  Sushline's clean screen.
 
 ### Byte-wise redisplay
 

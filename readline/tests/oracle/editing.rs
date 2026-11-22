@@ -15578,8 +15578,8 @@ fn bash_readline_and_sushline_keep_byte_oriented_named_query_text() {
     }
 }
 
-/// Ctrl-U ends the search before dispatching its bound command; Ctrl-W clears
-/// the incremental-search query only when
+/// Ctrl-U ends the search before applying its measured binding rule; Ctrl-W
+/// clears the incremental-search query only when
 /// it is a single word, not the line already selected by the current match.
 /// Multi-word retention is covered by a separate fixture. The bell counts
 /// include the failed query extensions for a needle that never matches; a
@@ -16174,25 +16174,37 @@ fn bash_readline_and_sushline_apply_cursor_commands_after_nul_freeze() {
 #[test]
 fn bash_readline_and_sushline_honor_ctrl_u_binding_in_isearch() {
     let keys = b"\x12cd\x15X\r".as_slice();
-    let bindings = r#""\C-u": "Q""#;
     let history = &["abcdef"][..];
-    for (editor, output) in [
+    // GNU honors a macro/string rebinding of Ctrl-U during isearch, but a
+    // command or named-command rebinding still performs unix-line-discard.
+    for (label, bindings, expected) in [
+        (r#"macro Q"#, r#""\C-u": "Q""#, "abQXcdef"),
+        ("forward-char", r#""\C-u": forward-char"#, "Xcdef"),
+        ("beginning-of-line", r#""\C-u": beginning-of-line"#, "Xcdef"),
         (
-            "Bash",
-            run_bash_readline_with_bindings_and_history(keys, bindings, history),
-        ),
-        (
-            "Sushline",
-            run_sushline_harness_with_inputrc_and_history(keys, bindings, history),
+            "do-lowercase-version",
+            r#""\C-u": do-lowercase-version"#,
+            "Xcdef",
         ),
     ] {
-        let context = format!("{editor} keys={keys:?}: {output:?}");
-        assert_eq!(bell_count(&output), 0, "{context}");
-        assert_eq!(
-            accepted_line(&output).as_deref(),
-            Some("abQXcdef"),
-            "{context}"
-        );
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(keys, bindings, history),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, bindings, history),
+            ),
+        ] {
+            let context = format!("{label} {editor} keys={keys:?}: {output:?}");
+            assert_eq!(bell_count(&output), 0, "{context}");
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(expected),
+                "{context}"
+            );
+        }
     }
 }
 

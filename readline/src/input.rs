@@ -1681,20 +1681,27 @@ where
             // separator (ringing once, and again with no match); with one of
             // those separators it retains the query, keeping the selected
             // line when a later extension fails. Ctrl-U instead ends the
-            // search and dispatches its bound command on the established
-            // line. The bell counts below follow measured cases, not a
-            // general rubout model.
+            // search and applies its measured binding rule on the
+            // established line. The bell counts below follow measured cases,
+            // not a general rubout model.
             &[0x15] => {
-                // Ctrl-U in GNU Readline ends the search, establishes the
-                // selected line and then runs unix-line-discard from the
-                // match start. The existing command rings only when that
+                // Ctrl-U ends the search and establishes the selected line.
+                // GNU honors a macro/string rebinding here, but a command or
+                // named-command rebinding still performs unix-line-discard
+                // from the match start; that command rings only when the
                 // range is empty, which is the measured negative control.
                 state.search.quoted_pending = false;
                 self.restore_isearch_line_for_editing(state, &search, true);
-                let binding = self.keymap.lookup(self.keymap.current(), bytes).cloned();
-                return match binding {
-                    Some(binding) => self.apply_binding(state, binding, bytes, hooks),
-                    None => self.handle_bytes(state, bytes, hooks),
+                return match self.keymap.lookup(self.keymap.current(), bytes).cloned() {
+                    Some(binding @ KeyBinding::Macro(_)) => {
+                        self.apply_binding(state, binding, bytes, hooks)
+                    }
+                    _ => self.apply_binding(
+                        state,
+                        KeyBinding::Command(EditCommand::UnixLineDiscard),
+                        bytes,
+                        hooks,
+                    ),
                 };
             }
             &[0x17] => {

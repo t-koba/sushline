@@ -39,6 +39,10 @@ let mut editor = Editor::new(
 let _ = editor.read_line(Prompt::new("> "), &mut ());
 ```
 
+This example uses the facade crate. When depending on the individual crates,
+use `readline::` for `sushline-readline` and `history::` for
+`sushline-history`.
+
 On Unix, the built-in terminal restores terminal/signal state and, by default,
 re-delivers an actually caught SIGINT to the saved disposition, including fatal
 `SIG_DFL`.

@@ -2320,6 +2320,7 @@ fn named_query_control_is_text(ch: char) -> bool {
             | 0x0b
             | 0x0c
             | 0x0e
+            | 0x0f
             | 0x10
             | 0x12
             | 0x14
@@ -2384,16 +2385,16 @@ mod named_query_tests {
         let mut pending = PendingNamedCommand::default();
         assert!(append_named_query_bytes(
             &mut pending,
-            b"\x1b\x01\x06\x12\x19\x1d\x1e\x1fa"
+            b"\x1b\x01\x06\x0f\x12\x19\x1d\x1e\x1fa"
         ));
         assert_eq!(
             pending.query,
-            "\u{1b}\u{1}\u{6}\u{12}\u{19}\u{1d}\u{1e}\u{1f}a"
+            "\u{1b}\u{1}\u{6}\u{f}\u{12}\u{19}\u{1d}\u{1e}\u{1f}a"
         );
         assert!(append_named_query_bytes(&mut pending, b"\x07b\x7fc"));
         assert_eq!(
             pending.query,
-            "\u{1b}\u{1}\u{6}\u{12}\u{19}\u{1d}\u{1e}\u{1f}abc"
+            "\u{1b}\u{1}\u{6}\u{f}\u{12}\u{19}\u{1d}\u{1e}\u{1f}abc"
         );
     }
 

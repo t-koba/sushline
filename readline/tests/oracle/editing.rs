@@ -16030,7 +16030,8 @@ fn bash_readline_and_sushline_freeze_all_following_search_input() {
 /// ends the search, keeps the selected line with point at the match start,
 /// and rings once. A typed key after Ctrl-U exposes the point; an empty
 /// query leaves an empty line, and a failed query keeps the displayed line
-/// while adding its own per-keystroke bells.
+/// while adding its own per-keystroke bells. A NUL freeze does not disable
+/// Ctrl-U.
 #[test]
 fn bash_readline_and_sushline_commit_search_line_on_ctrl_u() {
     for (name, keys, bells, accepted) in [
@@ -16052,6 +16053,12 @@ fn bash_readline_and_sushline_commit_search_line_on_ctrl_u() {
             b"\x12abc xyz\x15\r".as_slice(),
             1,
             Some("abc xyz"),
+        ),
+        (
+            "after_nul_freeze",
+            b"\x12abc xyz\x00\x15Q\r".as_slice(),
+            1,
+            Some("Qabc xyz"),
         ),
     ] {
         let history = &["abcQ", "abc xyz"][..];

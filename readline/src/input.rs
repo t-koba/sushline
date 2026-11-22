@@ -1968,9 +1968,7 @@ where
                 }
                 let remaining = &bytes[pos..];
                 // Single-byte controls first, matching the one-byte path.
-                if remaining.len() == 1
-                    || matches!(remaining[0], b'\r' | b'\n' | 0x07 | 0x1b | 0x7f)
-                {
+                if remaining.len() == 1 || matches!(remaining[0], b'\r' | b'\n' | 0x07 | 0x7f) {
                     let single = [remaining[0]];
                     let outcome = self.handle_named_command_single(state, &single, hooks)?;
                     if !matches!(outcome, EditorOutcome::Continue) {
@@ -2046,7 +2044,7 @@ where
                 }
                 self.apply_named_command(state, command, b"", hooks)
             }
-            &[0x07] | &[0x1b] => {
+            &[0x07] => {
                 // Dismissing the prompt without submitting a command must not
                 // carry a pending count into the next ordinary key. Submitted
                 // named commands (digit-argument/self-insert) keep it.
@@ -2314,7 +2312,13 @@ fn save_incremental_search(state: &mut EditorState, search: &ReverseSearchState)
 fn append_named_query_bytes(pending: &mut PendingNamedCommand, bytes: &[u8]) -> bool {
     fn push_chars(query: &mut String, text: &str) -> bool {
         let before = query.len();
-        query.extend(text.chars().filter(|ch| !ch.is_control()));
+        // GNU reads Escape as a meta prefix in the named-command query but
+        // keeps its raw byte in the query text, where the prompt renders it
+        // as `^[`. Other control bytes stay out of the command name.
+        query.extend(
+            text.chars()
+                .filter(|ch| !ch.is_control() || *ch == '\u{1b}'),
+        );
         query.len() != before
     }
 
@@ -2351,6 +2355,15 @@ fn append_named_query_bytes(pending: &mut PendingNamedCommand, bytes: &[u8]) -> 
 mod named_query_tests {
     use super::append_named_query_bytes;
     use crate::state::PendingNamedCommand;
+
+    #[test]
+    fn escape_stays_in_query_and_other_controls_are_dropped() {
+        let mut pending = PendingNamedCommand::default();
+        assert!(append_named_query_bytes(&mut pending, b"\x1ba"));
+        assert_eq!(pending.query, "\u{1b}a");
+        assert!(append_named_query_bytes(&mut pending, b"\x07b\x7fc"));
+        assert_eq!(pending.query, "\u{1b}abc");
+    }
 
     #[test]
     fn fragmented_utf8_query_bytes_form_one_character() {

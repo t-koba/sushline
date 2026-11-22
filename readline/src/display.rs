@@ -373,8 +373,24 @@ fn named_command_prompt(state: &EditorState, mark_modified: bool) -> Option<Stri
         "{}{}!{}",
         modified_prompt_mark(state, mark_modified),
         crate::buffer::escape_raw_marker(state.prompt.visible()),
-        crate::buffer::escape_raw_marker(&pending.query)
+        escape_named_query_controls(&crate::buffer::escape_raw_marker(&pending.query))
     ))
+}
+
+/// Renders control bytes GNU echoes in caret notation inside a prompt.
+fn escape_named_query_controls(text: &str) -> String {
+    if !text.contains('\u{1b}') {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len() + 1);
+    for ch in text.chars() {
+        if ch == '\u{1b}' {
+            out.push_str("^[");
+        } else {
+            out.push(ch);
+        }
+    }
+    out
 }
 
 /// The indicator GNU Readline draws while a numeric argument is pending.

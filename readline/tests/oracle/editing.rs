@@ -2174,9 +2174,9 @@ fn bash_readline_and_sushline_insert_bound_named_self_insert_key_literally() {
 
 /// Dismissing the execute-named-command prompt without submitting a command
 /// drops a pending count. Pinned on Readline 8.3 with Ctrl-G as the cancel key:
-/// Escape is not used here because GNU reads it as a meta prefix inside the
-/// prompt, a separate gap that predates count preservation. Only the accepted
-/// line is compared: GNU rings on Ctrl-G abort while Sushline stays silent.
+/// Ctrl-G is used as the abort key here; Escape stays in the query as raw
+/// text. Only the accepted line is compared: GNU rings on Ctrl-G abort while
+/// Sushline stays silent.
 #[test]
 fn bash_readline_and_sushline_drop_count_when_named_command_is_cancelled() {
     if !host_carries_measured_release() {
@@ -15182,6 +15182,21 @@ fn search_query_tab_expands_at_the_drawn_column() {
         output.contains("(failed reverse-i-search)`      ': \u{1b}[K\u{1b}[36G"),
         "the query starts after the backtick: {output}"
     );
+}
+
+#[test]
+fn bash_readline_and_sushline_keep_escape_in_named_command_query() {
+    let inputrc = r#""\C-o": execute-named-command"#;
+    for (keys, row) in [
+        (b"\x0f\x1b5abc".as_slice(), "SUSHLINE_READY>!^[5abc"),
+        (b"\x0f\x1b\x1babc".as_slice(), "SUSHLINE_READY>!^[^[abc"),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_screen_row(editor, output, row);
+        }
+    }
 }
 
 #[test]

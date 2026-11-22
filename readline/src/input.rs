@@ -2091,7 +2091,9 @@ where
                 }
                 Ok(EditorOutcome::Continue)
             }
-            &[0x15] => {
+            &[0x15] | &[0x17] => {
+                // GNU clears the whole query for both unix-line-discard and
+                // unix-word-rubout here; only an empty query rings.
                 let empty = state.input.named_command.as_ref().is_some_and(|command| {
                     command.query.is_empty() && command.pending_bytes.is_empty()
                 });

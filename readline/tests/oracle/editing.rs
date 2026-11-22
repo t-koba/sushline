@@ -15220,8 +15220,8 @@ fn bash_readline_and_sushline_echo_named_command_control_bytes() {
     }
 }
 
-/// Ctrl-U clears the whole query and rings only when there was no query to
-/// clear. The two rows and their bells were measured with Ctrl-O bound to
+/// Ctrl-U and Ctrl-W clear the whole query and ring only when there was no
+/// query to clear. The rows and their bells were measured with Ctrl-O bound to
 /// execute-named-command on the Readline 8.3 host.
 #[test]
 fn bash_readline_and_sushline_clear_named_command_query_with_ctrl_u() {
@@ -15235,6 +15235,8 @@ fn bash_readline_and_sushline_clear_named_command_query_with_ctrl_u() {
     for (keys, row, bells) in [
         (b"\x0f\x15".as_slice(), "SUSHLINE_READY>!", 1),
         (b"\x0fabc\x15def".as_slice(), "SUSHLINE_READY>!def", 0),
+        (b"\x0f\x17".as_slice(), "SUSHLINE_READY>!", 1),
+        (b"\x0fabc-def\x17XYZ".as_slice(), "SUSHLINE_READY>!XYZ", 0),
     ] {
         let bash = run_bash_readline_with_bindings(keys, inputrc);
         let sushline = run_sushline_harness_with_inputrc(keys, inputrc);

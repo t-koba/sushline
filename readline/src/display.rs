@@ -71,13 +71,13 @@ where
     }
 
     pub(crate) fn effective_prompt(&self, state: &EditorState) -> (String, usize) {
-        if let Some(prompt) = active_search_prompt(state) {
-            let width = last_line_width(&prompt);
+        if let Some((prompt, extra)) = active_search_prompt(state) {
+            let width = last_line_width(&prompt) + extra;
             return (prompt, width);
         }
         if let Some(search) = state.search.non_incremental_search.as_ref() {
-            let prompt = search.prompt_text();
-            let width = last_line_width(&prompt);
+            let (prompt, extra) = search.prompt_text();
+            let width = last_line_width(&prompt) + extra;
             return (prompt, width);
         }
         if let Some(prompt) =
@@ -121,7 +121,7 @@ where
     }
 
     fn horizontal_prompt(&self, state: &EditorState) -> horizontal::DisplayLine {
-        if let Some(prompt) = active_search_prompt(state) {
+        if let Some((prompt, _)) = active_search_prompt(state) {
             return Prompt::marked_text(prompt).horizontal_line();
         }
         if let Some(indicator) = numeric_arg_indicator(state) {
@@ -451,7 +451,7 @@ fn normalize_terminal_size(size: TerminalSize) -> TerminalSize {
     }
 }
 
-fn active_search_prompt(state: &EditorState) -> Option<String> {
+fn active_search_prompt(state: &EditorState) -> Option<(String, usize)> {
     let search = state.search.reverse_search.as_ref()?;
     let direction = match search.direction {
         SearchDirection::Backward => "reverse-i-search",
@@ -465,8 +465,9 @@ fn active_search_prompt(state: &EditorState) -> Option<String> {
     let prefix = format!("({failed}{direction})");
     // The backtick separating the prefix from the query occupies one cell,
     // so the first query byte is drawn one column past the prefix.
-    let query = crate::state::render_search_query(&search.query, prefix.chars().count() + 1);
-    Some(format!("{prefix}`{query}': "))
+    let (query, extra) =
+        crate::state::render_search_query(&search.query, prefix.chars().count() + 1);
+    Some((format!("{prefix}`{query}': "), extra))
 }
 
 impl<T> Editor<T>

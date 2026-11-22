@@ -1,4 +1,5 @@
 use crate::locale::LocaleLowercase;
+use crate::width::visible_width;
 use history::{History, HistoryDirection, HistorySearchMatch};
 
 use super::{EditorState, UndoState};
@@ -65,9 +66,13 @@ pub(crate) struct NonIncrementalSearchState {
 
 /// Render search query bytes once, using the buffer's printable control
 /// notation. The result is already in display domain: a genuine raw-byte
-/// marker is escaped here and must not be escaped again by the caller.
-pub(crate) fn render_search_query(query: &[u8], start_col: usize) -> String {
-    crate::buffer::display_search_query_bytes(query, start_col)
+/// marker is escaped here and must not be escaped again by the caller. The
+/// second value is the physical column advance a raw TAB and its cursor moves
+/// add beyond the text's visible width.
+pub(crate) fn render_search_query(query: &[u8], start_col: usize) -> (String, usize) {
+    let (text, columns) = crate::buffer::display_search_query_bytes(query, start_col);
+    let extra = columns.saturating_sub(visible_width(&text));
+    (text, extra)
 }
 
 impl NonIncrementalSearchState {
@@ -81,12 +86,9 @@ impl NonIncrementalSearchState {
         }
     }
 
-    pub(crate) fn prompt_text(&self) -> String {
-        format!(
-            "{}{}",
-            self.prompt_char(),
-            render_search_query(&self.query, 1)
-        )
+    pub(crate) fn prompt_text(&self) -> (String, usize) {
+        let (query, extra) = render_search_query(&self.query, 1);
+        (format!("{}{}", self.prompt_char(), query), extra)
     }
 }
 

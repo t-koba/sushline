@@ -229,19 +229,39 @@ pub(crate) fn append_bytes_decoded_lossless(out: &mut String, bytes: &[u8]) {
     }
 }
 
+/// The cursor moves GNU Readline writes after a literal TAB in a search
+/// query, skipping the three cells of the query terminator it leaves drawn.
+const SEARCH_TAB_CORRECTION: &str = "\x1b[C\x1b[C\x1b[C";
+const SEARCH_TAB_CORRECTIONS: usize = 3;
+
 /// Render raw query bytes for a search prompt.
 ///
 /// Valid UTF-8 sequences become characters and control bytes become printable
 /// caret notation; a byte that spells out no character keeps its lossless raw
 /// byte representation instead of a replacement character. The returned text
 /// is already in display domain, so callers must not escape the raw-byte
-/// marker again.
-pub(crate) fn display_search_query_bytes(bytes: &[u8], start_col: usize) -> String {
+/// marker again. A literal TAB is the exception: GNU writes the raw byte and
+/// then moves the cursor past the query terminator, so it is returned that
+/// way. The second value is the physical column advance, which `visible_width`
+/// cannot see for a raw TAB or the cursor moves.
+pub(crate) fn display_search_query_bytes(bytes: &[u8], start_col: usize) -> (String, usize) {
     let mut out = String::new();
     let mut col = start_col;
     let mut idx = 0;
     while idx < bytes.len() {
         let first = bytes[idx];
+        if first == b'\t' {
+            // Bash 5.3 / Readline 8.3 PTY evidence: the quoted TAB in a
+            // search query is written raw, followed by exactly three CSI-C
+            // moves whatever column it starts at. The terminal expands the
+            // TAB to the next stop; ordinary buffer TAB expansion is
+            // untouched and still uses spaces.
+            out.push('\t');
+            out.push_str(SEARCH_TAB_CORRECTION);
+            col += tab_expansion(col).len() + SEARCH_TAB_CORRECTIONS;
+            idx += 1;
+            continue;
+        }
         let needed = break_sequence_len(first);
         let piece = if needed > 1
             && idx + needed <= bytes.len()
@@ -261,7 +281,7 @@ pub(crate) fn display_search_query_bytes(bytes: &[u8], start_col: usize) -> Stri
         col += visible_width(&piece);
         out.push_str(&piece);
     }
-    out
+    (out, col - start_col)
 }
 
 pub(crate) fn bytes_decoded_lossless(bytes: &[u8]) -> String {
@@ -663,12 +683,34 @@ mod tests {
 
     #[test]
     fn search_query_invalid_byte_keeps_its_lossless_representation() {
-        let rendered = display_search_query_bytes(b"a\xff\x1b", 0);
+        let (rendered, columns) = display_search_query_bytes(b"a\xff\x1b", 0);
         assert_eq!(rendered, format!("a{}^[", raw_byte_text(0xff)));
+        assert_eq!(columns, 4);
         assert_eq!(
             rendered_string_to_bytes(&rendered),
             vec![b'a', 0xff, b'^', b'[']
         );
+    }
+
+    #[test]
+    fn search_query_literal_tab_writes_the_byte_and_three_cursor_moves() {
+        // Bash 5.3 / Readline 8.3 PTY: a quoted TAB in the search query is
+        // written raw and followed by three CSI-C moves at every start
+        // column. Ordinary buffer TAB expansion still writes spaces.
+        let (rendered, columns) = display_search_query_bytes(b"\t", 26);
+        assert_eq!(rendered, "\t\x1b[C\x1b[C\x1b[C");
+        assert_eq!(rendered_string_to_bytes(&rendered), b"\t\x1b[C\x1b[C\x1b[C");
+        assert_eq!(columns, 9);
+
+        let (rendered, columns) = display_search_query_bytes(b"a\tb", 26);
+        assert_eq!(rendered, "a\t\x1b[C\x1b[C\x1b[Cb");
+        assert_eq!(columns, 10);
+
+        // The tab stop for a second TAB counts the first one's cursor moves.
+        let (rendered, columns) = display_search_query_bytes(b"\t\t", 26);
+        assert_eq!(rendered, "\t\x1b[C\x1b[C\x1b[C\t\x1b[C\x1b[C\x1b[C");
+        assert_eq!(columns, 17);
+        assert_eq!(display_char('\t', false, false, true, 26), "      ");
     }
 
     #[test]

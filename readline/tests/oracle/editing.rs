@@ -15228,15 +15228,38 @@ fn horizontal_search_prompt_keeps_one_raw_byte_marker() {
     assert_eq!(count, 1, "one typed marker must render once: {output:?}");
 }
 
+/// Bash 5.3 PTY evidence (Readline 8.3): for `\x12\x16\t\r\r` under
+/// C.UTF-8, the failed reverse-i-search redraw writes the quoted TAB as a
+/// raw byte followed by three CSI-C moves, not as spaces at the tab stop.
 #[test]
-fn search_query_tab_expands_at_the_drawn_column() {
-    let output =
-        run_sushline_harness_with_inputrc_and_env(b"\x12\x16\t\r\r", "", &[("LC_ALL", "C.UTF-8")]);
-
-    assert!(
-        output.contains("(failed reverse-i-search)`      ': \u{1b}[K\u{1b}[36G"),
-        "the query starts after the backtick: {output}"
-    );
+fn bash_readline_and_sushline_keep_a_literal_tab_in_the_search_query() {
+    require_oracle_host();
+    let keys = b"\x12\x16\t\r\r";
+    let env = [("LC_ALL", "C.UTF-8")];
+    let fragment: &[u8] = b"failed reverse-i-search)`\t\x1b[C\x1b[C\x1b[C";
+    for (editor, output) in [
+        (
+            "Bash",
+            run_bash_readline_with_inputrc_file_and_env(keys, "", &env),
+        ),
+        (
+            "Sushline",
+            run_sushline_harness_with_inputrc_and_env(keys, "", &env),
+        ),
+    ] {
+        assert!(
+            output
+                .as_bytes()
+                .windows(fragment.len())
+                .any(|window| window == fragment),
+            "{editor} must write the raw query TAB and three cursor moves: {output:?}"
+        );
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some(""),
+            "{editor} must accept the empty line, not a completion: {output:?}"
+        );
+    }
 }
 
 #[test]

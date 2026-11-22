@@ -16327,13 +16327,9 @@ fn bash_readline_and_sushline_dispatch_esc_key_after_isearch() {
     }
 }
 
-/// After an unquoted NUL freezes an incremental search on the measured Bash
-/// 5.3 host, ESC-prefixed arrow bindings act on the established match line at
-/// the match point: left (CSI and SS3) rings at column zero, while right, Home
-/// and End move or keep point without a bell. Only these five measured keys
-/// are claimed.
-/// The same frozen-search path applies other complete ESC-prefixed bindings.
-/// Each case pins GNU's accepted line and bell count against Sushline.
+/// The same frozen-search path applies six other complete ESC-prefixed
+/// bindings: up, down, Delete, Page Up, Ctrl-left and Meta-b. Each case pins
+/// GNU's accepted line and bell count against Sushline.
 #[test]
 fn bash_readline_and_sushline_apply_more_key_sequences_after_search_nul_freeze() {
     require_oracle_host();
@@ -16406,6 +16402,11 @@ fn bash_readline_and_sushline_apply_bound_actions_after_search_nul_freeze() {
     }
 }
 
+/// After an unquoted NUL freezes an incremental search on the measured Bash
+/// 5.3 host, ESC-prefixed arrow bindings act on the established match line at
+/// the match point: left (CSI and SS3) rings at column zero, while right, Home
+/// and End move or keep point without a bell. Only these five measured keys
+/// are claimed.
 #[test]
 fn bash_readline_and_sushline_apply_arrow_keys_after_search_nul_freeze() {
     require_oracle_host();

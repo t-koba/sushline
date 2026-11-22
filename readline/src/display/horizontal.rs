@@ -69,15 +69,16 @@ impl DisplayLine {
         self.width += width;
     }
 
-    /// Physical prompt-column correction with no bytes to emit. Search
-    /// prompts use this for terminal tab expansion and cursor moves that
-    /// advance cells but must not be recounted as prompt escape bytes.
-    pub(crate) fn push_hidden_width(&mut self, width: usize) {
+    /// One prompt cell whose emitted bytes and logical width differ. A
+    /// literal TAB in a search query carries its terminal expansion and
+    /// cursor moves as one clippable unit.
+    pub(crate) fn push_prompt_cell(&mut self, text: String, width: usize) {
+        self.prompt_bytes += text.len();
         self.units.push(Unit {
-            text: String::new(),
+            text,
             width,
             bytes: 0,
-            hidden: true,
+            hidden: false,
         });
         self.width += width;
     }

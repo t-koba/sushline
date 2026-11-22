@@ -7,7 +7,8 @@
 pub(crate) mod horizontal;
 
 use crate::buffer::{
-    RenderOptions, SEARCH_TAB_CORRECTION, bytes_lossless, rendered_string_to_bytes,
+    RenderOptions, SEARCH_TAB_CORRECTION, SEARCH_TAB_CORRECTIONS, bytes_lossless,
+    rendered_string_to_bytes, tab_expansion,
 };
 use crate::editor::{Editor, ReadlineError};
 use crate::keymap::KeyMapName;
@@ -123,8 +124,8 @@ where
     }
 
     fn horizontal_prompt(&self, state: &EditorState) -> horizontal::DisplayLine {
-        if let Some((prompt, extra)) = active_search_prompt(state) {
-            return horizontal_search_prompt_line(&prompt, extra);
+        if let Some((prompt, _)) = active_search_prompt(state) {
+            return horizontal_search_prompt_line(&prompt);
         }
         if let Some(indicator) = numeric_arg_indicator(state) {
             // The indicator takes the place of the whole prompt.
@@ -183,8 +184,7 @@ where
                 // named-command prefix, instead of wrapping it: the original
                 // buffer is not part of this line, so start a fresh viewport
                 // and put the point at the end of the composed query.
-                let mut line =
-                    horizontal_search_prompt_line(&prompt, prompt_width - last_line_width(&prompt));
+                let mut line = horizontal_search_prompt_line(&prompt);
                 line.scroll_all_as_buffer();
                 if state
                     .input
@@ -456,17 +456,37 @@ fn normalize_terminal_size(size: TerminalSize) -> TerminalSize {
 
 /// Build the horizontal line for a search prompt.
 ///
-/// The raw TAB and CSI-C moves are terminal instructions: they must be
-/// emitted verbatim, but their logical width is the physical column advance
-/// returned by the renderer. Marking the moves hidden keeps the horizontal
-/// line from counting each CSI byte as a visible cell.
-fn horizontal_search_prompt_line(prompt: &str, extra: usize) -> horizontal::DisplayLine {
-    let marked = prompt.replace(
-        SEARCH_TAB_CORRECTION,
-        &format!("\x01{SEARCH_TAB_CORRECTION}\x02"),
-    );
-    let mut line = Prompt::marked_text(marked).horizontal_line();
-    line.push_hidden_width(extra);
+/// A raw TAB and its CSI-C moves form one clippable prompt cell: the bytes
+/// are emitted when the cell is visible and replaced with spaces when it is
+/// clipped. Its logical width is the physical column advance, so it agrees
+/// with the wrap-mode prompt measurement.
+fn horizontal_search_prompt_line(prompt: &str) -> horizontal::DisplayLine {
+    let mut line = horizontal::DisplayLine::default();
+    let mut span = String::new();
+    let mut extra = 0;
+    let mut chars = prompt.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\t' {
+            let mut probe = chars.clone();
+            if SEARCH_TAB_CORRECTION
+                .chars()
+                .all(|expected| probe.next() == Some(expected))
+            {
+                for _ in SEARCH_TAB_CORRECTION.chars() {
+                    chars.next();
+                }
+                let width =
+                    tab_expansion(visible_width(&span) + extra).len() + SEARCH_TAB_CORRECTIONS;
+                line.push_prompt_text(&span);
+                span.clear();
+                line.push_prompt_cell(format!("\t{SEARCH_TAB_CORRECTION}"), width);
+                extra += width;
+                continue;
+            }
+        }
+        span.push(ch);
+    }
+    line.push_prompt_text(&span);
     line
 }
 

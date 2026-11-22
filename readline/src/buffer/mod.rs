@@ -1,6 +1,8 @@
 mod render;
 mod word;
-pub(crate) use render::{RenderOptions, SEARCH_TAB_CORRECTION};
+pub(crate) use render::{
+    RenderOptions, SEARCH_TAB_CORRECTION, SEARCH_TAB_CORRECTIONS, tab_expansion,
+};
 pub(crate) use render::{
     append_bytes_lossless, bytes_decoded_lossless, bytes_lossless, display_search_query_bytes,
     escape_raw_marker, rendered_string_to_bytes,

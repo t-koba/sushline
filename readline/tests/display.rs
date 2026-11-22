@@ -573,3 +573,19 @@ fn horizontal_search_prompt_counts_literal_tab_physical_width() {
     // physical corrections, not three logical columns each.
     assert_eq!(line.terminal().moved_columns.last(), Some(&38));
 }
+
+#[test]
+fn horizontal_search_prompt_does_not_replay_clipped_tab_cursor_moves() {
+    let mut terminal =
+        MemoryTerminal::with_events(vec![TerminalEvent::Bytes(b"\x12a\x16\t\r\r".to_vec())]);
+    terminal.columns = 32;
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set horizontal-scroll-mode on")
+        .unwrap();
+    let _ = line.read_line(Prompt::new(""), &mut ()).unwrap();
+    assert!(
+        !line.terminal().out.contains("\x1b[C"),
+        "a clipped TAB must not replay its cursor moves: {:?}",
+        line.terminal().out
+    );
+}

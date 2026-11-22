@@ -424,7 +424,7 @@ fn active_search_prompt(state: &EditorState) -> Option<String> {
         SearchDirection::Backward => "reverse-i-search",
         SearchDirection::Forward => "i-search",
     };
-    let failed = if search.query.is_empty() || search.match_line.is_some() {
+    let failed = if search.query.is_empty() || (search.match_line.is_some() && !search.nul_failed) {
         ""
     } else {
         "failed "

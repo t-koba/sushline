@@ -15662,3 +15662,76 @@ fn bash_readline_and_sushline_apply_search_kills_to_query() {
         }
     }
 }
+
+/// An unquoted NUL freezes the incremental-search query on the measured
+/// Readline 8.3 host: the selected line and query stay as they were, later
+/// printable bytes are ignored, and a failed freeze rings for each ignored
+/// byte and shows the `failed ` prompt. The empty query never fails.
+#[test]
+fn bash_readline_and_sushline_freeze_search_query_on_nul() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!(
+            "Incremental-search NUL was measured on Readline 8.3; this case reports nothing on other releases"
+        );
+        return;
+    }
+    for (name, keys, bells, accepted, failed_prompt) in [
+        (
+            "nul_then_abc",
+            b"\x12\x00abc\r\r".as_slice(),
+            0,
+            Some(""),
+            false,
+        ),
+        (
+            "a_nul_then_bc",
+            b"\x12a\x00bc\r\r".as_slice(),
+            3,
+            Some("abc"),
+            true,
+        ),
+        (
+            "abc_nul_then_x",
+            b"\x12abc\x00x\r\r".as_slice(),
+            0,
+            Some("abc"),
+            false,
+        ),
+        (
+            "x_nul_then_abc",
+            b"\x12x\x00abc\r\r".as_slice(),
+            5,
+            Some(""),
+            true,
+        ),
+        ("a_nul", b"\x12a\x00\r\r".as_slice(), 1, Some("abc"), true),
+        (
+            "abc_nul",
+            b"\x12abc\x00\r\r".as_slice(),
+            0,
+            Some("abc"),
+            false,
+        ),
+    ] {
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(keys, "", &["alpha", "abc"]),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, "", &["alpha", "abc"]),
+            ),
+        ] {
+            let context = format!("{editor} {name} keys={keys:?}: {output:?}");
+            assert_eq!(bell_count(&output), bells, "{context}");
+            assert_eq!(accepted_line(&output).as_deref(), accepted, "{context}");
+            assert_eq!(
+                output.contains("failed reverse-i-search"),
+                failed_prompt,
+                "{context}"
+            );
+        }
+    }
+}

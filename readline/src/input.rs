@@ -1474,6 +1474,43 @@ where
             state.search.quoted_pending = true;
             return Ok(EditorOutcome::Continue);
         }
+        // NUL is set-mark in the default keymap. Inside a search GNU leaves
+        // the query and the selected match in place and freezes the query.
+        // The measured freeze is failed when the query has no match or a
+        // repeat in the same direction would move off the current match;
+        // a selected match with no further match is a successful freeze,
+        // and an empty query never fails.
+        if bytes == [0x00] {
+            let Some(mut search) = state.search.reverse_search.take() else {
+                return Ok(EditorOutcome::Continue);
+            };
+            let repeat_moves = !search.query.is_empty() && {
+                let mut repeated = search.clone();
+                self.refresh_reverse_search_match(&mut repeated, true)
+            };
+            let failed = !search.query.is_empty() && (search.match_line.is_none() || repeat_moves);
+            search.nul_pending = true;
+            search.nul_failed = failed;
+            state.search.reverse_search = Some(search);
+            state.input.changed_display = true;
+            if failed {
+                self.ding()?;
+            }
+            return Ok(EditorOutcome::Continue);
+        }
+        // Printable bytes that follow a frozen NUL never extend the query:
+        // they are ignored, ringing once each only for a failed freeze.
+        // Control bytes still take their normal search paths.
+        if let Some(search) = state.search.reverse_search.as_ref()
+            && search.nul_pending
+            && matches!(bytes, [byte] if (0x20..=0x7e).contains(byte) || *byte >= 0x80)
+        {
+            let failed = search.nul_failed;
+            if failed {
+                self.ding()?;
+            }
+            return Ok(EditorOutcome::Continue);
+        }
         let Some(mut search) = state.search.reverse_search.take() else {
             return Ok(EditorOutcome::Continue);
         };

@@ -38,6 +38,10 @@ pub(crate) struct ReverseSearchState {
     pub(crate) original_history_entry_index: Option<usize>,
     pub(crate) original_undo: UndoState,
     pub(crate) exclude_cursor: bool,
+    /// NUL (set-mark) froze the query: later printable bytes are ignored.
+    pub(crate) nul_pending: bool,
+    /// The frozen search was marked failed, so ignored bytes ring the bell.
+    pub(crate) nul_failed: bool,
 }
 
 #[derive(Debug, Clone)]

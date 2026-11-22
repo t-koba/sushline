@@ -15220,6 +15220,75 @@ fn bash_readline_and_sushline_echo_named_command_control_bytes() {
     }
 }
 
+/// Ctrl-U clears the whole query and rings only when there was no query to
+/// clear. The two rows and their bells were measured with Ctrl-O bound to
+/// execute-named-command on the Readline 8.3 host.
+#[test]
+fn bash_readline_and_sushline_clear_named_command_query_with_ctrl_u() {
+    if !host_carries_measured_release() {
+        eprintln!(
+            "Named-command Ctrl-U was measured on Readline 8.3; this case reports nothing on other releases"
+        );
+        return;
+    }
+    let inputrc = r#""\C-o": execute-named-command"#;
+    for (keys, row, bells) in [
+        (b"\x0f\x15".as_slice(), "SUSHLINE_READY>!", 1),
+        (b"\x0fabc\x15def".as_slice(), "SUSHLINE_READY>!def", 0),
+    ] {
+        let bash = run_bash_readline_with_bindings(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_screen_row(editor, output, row);
+            assert_eq!(
+                bell_count(output),
+                bells,
+                "{editor} keys={keys:?}: {output:?}"
+            );
+        }
+    }
+}
+
+/// A quoted byte bypasses the query's command controls and is drawn in caret
+/// notation. Quoted NUL is the measured exception that is not echoed; a
+/// quoted LF still follows the existing Enter path.
+#[test]
+fn bash_readline_and_sushline_echo_quoted_control_bytes_in_named_query() {
+    if !host_carries_measured_release() {
+        eprintln!(
+            "Named-command quoted insert was measured on Readline 8.3; this case reports nothing on other releases"
+        );
+        return;
+    }
+    let inputrc = r#""\C-o": execute-named-command"#;
+    for (prefix, quoted, row) in [
+        (b"".as_slice(), b"\x07".as_slice(), "SUSHLINE_READY>!^Gabc"),
+        (b"".as_slice(), b"\x08".as_slice(), "SUSHLINE_READY>!^Habc"),
+        (b"".as_slice(), b"\x15".as_slice(), "SUSHLINE_READY>!^Uabc"),
+        (b"".as_slice(), b"\x16".as_slice(), "SUSHLINE_READY>!^Vabc"),
+        (b"".as_slice(), b"\x0d".as_slice(), "SUSHLINE_READY>!^Mabc"),
+        (b"".as_slice(), b"\x7f".as_slice(), "SUSHLINE_READY>!^?abc"),
+        (
+            b"xyz".as_slice(),
+            b"\x15".as_slice(),
+            "SUSHLINE_READY>!^Uabc",
+        ),
+        (b"".as_slice(), b"\x00".as_slice(), "SUSHLINE_READY>!abc"),
+    ] {
+        let mut keys = Vec::new();
+        keys.extend_from_slice(prefix);
+        keys.extend_from_slice(b"\x0f\x16");
+        keys.extend_from_slice(quoted);
+        keys.extend_from_slice(b"abc");
+        let bash = run_bash_readline_with_bindings(&keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&keys, inputrc);
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_screen_row(editor, output, row);
+            assert_eq!(bell_count(output), 0, "{editor} keys={keys:?}: {output:?}");
+        }
+    }
+}
+
 #[test]
 fn bash_readline_and_sushline_show_named_command_query_in_prompt() {
     let inputrc = r#""\C-o": execute-named-command"#;

@@ -360,6 +360,7 @@ where
                     query: String::new(),
                     invoking_key: key.last().copied(),
                     pending_bytes: Vec::new(),
+                    quoted_pending: false,
                 });
             }
             "re-read-init-file" => {

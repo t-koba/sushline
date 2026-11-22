@@ -1995,6 +1995,32 @@ where
         bytes: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
+        // Ctrl-V quotes just the next unit: consume the pending flag before
+        // any query control is interpreted, so even a normally active control
+        // reaches the query as literal text.
+        if state
+            .input
+            .named_command
+            .as_ref()
+            .is_some_and(|command| command.quoted_pending)
+        {
+            if let Some(command) = state.input.named_command.as_mut() {
+                command.quoted_pending = false;
+            }
+            match bytes {
+                b"\x00" | b"\x1a" => return Ok(EditorOutcome::Continue),
+                // A quoted LF still submits the query through the Enter arm
+                // below; a quoted CR is literal text and renders as ^M.
+                b"\n" => {}
+                _ => {
+                    if let Some(command) = state.input.named_command.as_mut() {
+                        state.input.changed_display |=
+                            append_named_query_bytes(command, bytes, true);
+                    }
+                    return Ok(EditorOutcome::Continue);
+                }
+            }
+        }
         match bytes {
             b"\r" | b"\n" => {
                 let pending = state.input.named_command.take().unwrap_or_default();
@@ -2065,6 +2091,27 @@ where
                 }
                 Ok(EditorOutcome::Continue)
             }
+            &[0x15] => {
+                let empty = state.input.named_command.as_ref().is_some_and(|command| {
+                    command.query.is_empty() && command.pending_bytes.is_empty()
+                });
+                if let Some(command) = state.input.named_command.as_mut() {
+                    command.query.clear();
+                    command.pending_bytes.clear();
+                    command.quoted_pending = false;
+                }
+                state.input.changed_display = true;
+                if empty {
+                    self.ding()?;
+                }
+                Ok(EditorOutcome::Continue)
+            }
+            &[0x16] => {
+                if let Some(command) = state.input.named_command.as_mut() {
+                    command.quoted_pending = true;
+                }
+                Ok(EditorOutcome::Continue)
+            }
             &[b'\t'] | &[b' '] => {
                 let before = state
                     .input
@@ -2088,7 +2135,7 @@ where
                     return self.handle_bytes(state, bytes, hooks);
                 }
                 if let Some(command) = state.input.named_command.as_mut() {
-                    state.input.changed_display |= append_named_query_bytes(command, bytes);
+                    state.input.changed_display |= append_named_query_bytes(command, bytes, false);
                 }
                 Ok(EditorOutcome::Continue)
             }
@@ -2335,14 +2382,19 @@ fn named_query_control_is_text(ch: char) -> bool {
 
 /// Append query bytes, buffering an incomplete UTF-8 sequence until its
 /// remaining bytes arrive. Editing controls are handled before this path;
-/// only the measured caret-echoed controls stay in the command name.
-fn append_named_query_bytes(pending: &mut PendingNamedCommand, bytes: &[u8]) -> bool {
-    fn push_chars(query: &mut String, text: &str) -> bool {
+/// only the measured caret-echoed controls stay in the command name. A quoted
+/// byte bypasses that filter and is appended literally.
+fn append_named_query_bytes(
+    pending: &mut PendingNamedCommand,
+    bytes: &[u8],
+    keep_controls: bool,
+) -> bool {
+    fn push_chars(query: &mut String, text: &str, keep_controls: bool) -> bool {
         let before = query.len();
-        query.extend(
-            text.chars()
-                .filter(|ch| !ch.is_control() || named_query_control_is_text(*ch)),
-        );
+        query
+            .extend(text.chars().filter(|ch| {
+                keep_controls || !ch.is_control() || named_query_control_is_text(*ch)
+            }));
         query.len() != before
     }
 
@@ -2354,14 +2406,14 @@ fn append_named_query_bytes(pending: &mut PendingNamedCommand, bytes: &[u8]) -> 
         let slice = &raw[consumed..];
         match std::str::from_utf8(slice) {
             Ok(text) => {
-                changed |= push_chars(&mut pending.query, text);
+                changed |= push_chars(&mut pending.query, text, keep_controls);
                 consumed = raw.len();
             }
             Err(error) => {
                 let valid = error.valid_up_to();
                 if valid > 0 {
                     let text = std::str::from_utf8(&slice[..valid]).expect("valid UTF-8 prefix");
-                    changed |= push_chars(&mut pending.query, text);
+                    changed |= push_chars(&mut pending.query, text, keep_controls);
                     consumed += valid;
                 }
                 match error.error_len() {
@@ -2385,13 +2437,14 @@ mod named_query_tests {
         let mut pending = PendingNamedCommand::default();
         assert!(append_named_query_bytes(
             &mut pending,
-            b"\x1b\x01\x06\x0f\x12\x19\x1d\x1e\x1fa"
+            b"\x1b\x01\x06\x0f\x12\x19\x1d\x1e\x1fa",
+            false
         ));
         assert_eq!(
             pending.query,
             "\u{1b}\u{1}\u{6}\u{f}\u{12}\u{19}\u{1d}\u{1e}\u{1f}a"
         );
-        assert!(append_named_query_bytes(&mut pending, b"\x07b\x7fc"));
+        assert!(append_named_query_bytes(&mut pending, b"\x07b\x7fc", false));
         assert_eq!(
             pending.query,
             "\u{1b}\u{1}\u{6}\u{f}\u{12}\u{19}\u{1d}\u{1e}\u{1f}abc"
@@ -2399,15 +2452,32 @@ mod named_query_tests {
     }
 
     #[test]
+    fn quoted_controls_stay_in_query_and_fragmented_utf8_still_joins() {
+        let mut pending = PendingNamedCommand::default();
+        assert!(append_named_query_bytes(
+            &mut pending,
+            b"\x16\x15\x07\x0d\x7f",
+            true
+        ));
+        assert_eq!(pending.query, "\u{16}\u{15}\u{7}\u{d}\u{7f}");
+
+        assert!(!append_named_query_bytes(&mut pending, &[0xe2], true));
+        assert!(!append_named_query_bytes(&mut pending, &[0x80], true));
+        assert!(append_named_query_bytes(&mut pending, &[0x8b], true));
+        assert_eq!(pending.query, "\u{16}\u{15}\u{7}\u{d}\u{7f}\u{200b}");
+        assert!(pending.pending_bytes.is_empty());
+    }
+
+    #[test]
     fn fragmented_utf8_query_bytes_form_one_character() {
         let mut pending = PendingNamedCommand::default();
-        assert!(!append_named_query_bytes(&mut pending, &[0xe2]));
-        assert!(!append_named_query_bytes(&mut pending, &[0x80]));
-        assert!(append_named_query_bytes(&mut pending, &[0x8b]));
+        assert!(!append_named_query_bytes(&mut pending, &[0xe2], false));
+        assert!(!append_named_query_bytes(&mut pending, &[0x80], false));
+        assert!(append_named_query_bytes(&mut pending, &[0x8b], false));
         assert_eq!(pending.query, "\u{200b}");
         assert!(pending.pending_bytes.is_empty());
 
-        assert!(append_named_query_bytes(&mut pending, b"ab"));
+        assert!(append_named_query_bytes(&mut pending, b"ab", false));
         assert_eq!(pending.query, "\u{200b}ab");
     }
 }

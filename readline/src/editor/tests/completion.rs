@@ -304,6 +304,7 @@ fn named_command_completion_uses_embedder_supplied_names() {
     state.input.named_command = Some(PendingNamedCommand {
         query: "app-".to_string(),
         invoking_key: None,
+        quoted_pending: false,
         ..Default::default()
     });
 
@@ -353,6 +354,7 @@ fn named_command_completion_then_embedder_execution() {
     state.input.named_command = Some(PendingNamedCommand {
         query: "app-".to_string(),
         invoking_key: None,
+        quoted_pending: false,
         ..Default::default()
     });
     let mut hooks = NamedApplicationHook {

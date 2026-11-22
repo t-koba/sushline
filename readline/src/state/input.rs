@@ -53,6 +53,8 @@ pub(crate) struct PendingNamedCommand {
     pub(crate) invoking_key: Option<u8>,
     /// Bytes of a UTF-8 character that arrived in fragments.
     pub(crate) pending_bytes: Vec<u8>,
+    /// Ctrl-V in the query quotes the next input byte.
+    pub(crate) quoted_pending: bool,
 }
 
 impl EditorState {

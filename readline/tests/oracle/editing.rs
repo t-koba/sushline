@@ -15501,3 +15501,32 @@ fn bash_readline_and_sushline_ring_on_named_command_abort() {
         }
     }
 }
+
+/// An unquoted NUL inside the query submits the name just like Enter on the
+/// measured Readline 8.3 host: preceding text is dispatched as the command
+/// name, and later bytes edit the restored main line.
+#[test]
+fn bash_readline_and_sushline_submit_named_command_on_nul() {
+    if !host_carries_measured_release() {
+        eprintln!(
+            "Named-command NUL was measured on Readline 8.3; this case reports nothing on other releases"
+        );
+        return;
+    }
+    let inputrc = r#""\C-o": execute-named-command"#;
+    for (keys, bells, accepted) in [
+        (b"\x0f\x00abc\r".as_slice(), 0, Some("abc")),
+        (b"\x0fa\x00bc\r".as_slice(), 1, Some("bc")),
+        (b"\x0fabc\x00\r".as_slice(), 1, Some("")),
+        (b"\x0f\x00\r".as_slice(), 0, Some("")),
+    ] {
+        for (editor, output) in [
+            ("Bash", run_bash_readline_with_bindings(keys, inputrc)),
+            ("Sushline", run_sushline_harness_with_inputrc(keys, inputrc)),
+        ] {
+            let context = format!("{editor} keys={keys:?}: {output:?}");
+            assert_eq!(bell_count(&output), bells, "{context}");
+            assert_eq!(accepted_line(&output).as_deref(), accepted, "{context}");
+        }
+    }
+}

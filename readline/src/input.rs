@@ -2022,7 +2022,9 @@ where
             }
         }
         match bytes {
-            b"\r" | b"\n" => {
+            // GNU treats an unquoted NUL inside the query like Enter: the
+            // name is submitted and the remaining bytes edit the main line.
+            b"\x00" | b"\r" | b"\n" => {
                 let pending = state.input.named_command.take().unwrap_or_default();
                 let command = pending.query.trim();
                 if command.is_empty() {

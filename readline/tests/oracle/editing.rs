@@ -11179,6 +11179,42 @@ fn bash_and_sushline_byte_oriented_end_bigword_is_bytewise() {
     }
 }
 
+/// Paired GNU 5.3 / Readline 8.3 pin for byte-oriented uppercase `B`.
+///
+/// In byte mode `B` treats raw non-whitespace bytes as one bigword, including
+/// continuation bytes, and lands at the start of the line. The prefix cases
+/// set the point on the last byte, a continuation byte and a lead byte; the
+/// `0` prefix starts at the beginning so `B` fails with a bell.
+#[test]
+fn bash_and_sushline_byte_oriented_backward_bigword_is_bytewise() {
+    let rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C.UTF-8")];
+    let expected = b"Xa\xc3\xa9a\xc3\xa9";
+    for (prefix, motion, bells) in [
+        ("", "BiX", 0),
+        ("h", "BiX", 0),
+        ("hh", "BiX", 0),
+        ("", "2BiX", 0),
+        ("0", "BiX", 1),
+    ] {
+        let keys = format!("a\u{e9}a\u{e9}\x1b{prefix}{motion}\r");
+        assert_bytewise_editing_bytes(
+            &format!("{prefix}+{motion}"),
+            keys.as_bytes(),
+            expected,
+            bells,
+            rc,
+            &env,
+        );
+    }
+}
+
 /// Paired GNU 5.3 / Readline 8.3 pin for byte-oriented vi ESC backoff.
 ///
 /// Leaving insert mode steps one raw byte, so a typed multibyte character

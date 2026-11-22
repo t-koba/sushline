@@ -581,7 +581,7 @@ fn expand_tilde_at_point(buffer: &mut LineBuffer) {
 fn expand_tilde_word(word: &[u8]) -> Option<Vec<u8>> {
     expand_tilde_word_with_home(
         word,
-        std::env::var_os("HOME").as_deref(),
+        crate::home::env_home().as_deref(),
         crate::home::passwd_home_dir,
     )
 }

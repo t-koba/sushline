@@ -741,7 +741,7 @@ where
         // Guarded Readline 8.3 fixtures retain a bare literal prefix unescaped:
         // `~/` for HOME absent/nonempty and `~` for HOME-empty. Keep this to
         // built-in filename completion; other tilde words and commands differ.
-        let preserve_bare_tilde_value = match std::env::var_os("HOME") {
+        let preserve_bare_tilde_value = match crate::home::env_home() {
             Some(home) if home.is_empty() => value == b"~",
             _ => value == b"~/",
         };

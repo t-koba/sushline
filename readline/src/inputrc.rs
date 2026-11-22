@@ -821,7 +821,7 @@ fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
 fn expand_include_path(path: &str) -> Option<PathBuf> {
     expand_include_path_with_home(
         path,
-        std::env::var_os("HOME").as_deref(),
+        crate::home::env_home().as_deref(),
         crate::home::passwd_home_dir,
     )
 }
@@ -1124,7 +1124,7 @@ mod tests;
 
 pub(crate) fn discover_inputrc_path() -> PathBuf {
     let inputrc = std::env::var_os("INPUTRC");
-    let home = std::env::var_os("HOME");
+    let home = crate::home::env_home();
     discover_inputrc_path_from_env(inputrc.as_deref(), home.as_deref())
 }
 

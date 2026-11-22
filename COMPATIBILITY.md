@@ -19,6 +19,9 @@ choices are product decisions, not oracle compatibility claims:
   including an opt-out of fatal default-disposition redelivery.
 - Editor input keeps the bytes it read; multibyte key-sequence targets are
   decoded as characters, so continuation bytes cannot leak into the line.
+- Home lookup uses `HOME` first, then `USERPROFILE` or `HOMEDRIVE` with
+  `HOMEPATH` on Windows, so inputrc discovery and tilde expansion work without
+  a Unix-style `HOME`.
 - Oracle fixtures reject lossy U+FFFD substitutions rather than treating them
   as an acceptable match for GNU output.
 

@@ -923,7 +923,7 @@ fn current_directory_bytes_for_pwd(
 fn expand_tilde_word_bytes(word: &[u8]) -> Option<Vec<u8>> {
     expand_tilde_word_bytes_with_home(
         word,
-        std::env::var_os("HOME").as_deref(),
+        crate::home::env_home().as_deref(),
         crate::home::passwd_home_dir,
     )
 }

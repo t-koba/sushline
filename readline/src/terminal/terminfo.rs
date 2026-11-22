@@ -86,7 +86,7 @@ fn load_terminfo_capabilities() -> Option<HashMap<&'static str, Vec<u8>>> {
 fn find_terminfo_path(term: &str) -> Option<PathBuf> {
     let terminfo = std::env::var_os("TERMINFO");
     let terminfo_dirs = std::env::var_os("TERMINFO_DIRS");
-    let home = std::env::var_os("HOME");
+    let home = crate::home::env_home();
     find_terminfo_path_with_env(
         term,
         terminfo.as_deref(),

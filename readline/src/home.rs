@@ -1,5 +1,26 @@
 //! Private home-source selection shared by tilde consumers.
 use std::ffi::{OsStr, OsString};
+use std::path::Path;
+
+/// Select the environment home source: HOME, then the Windows fallbacks.
+pub(crate) fn env_home() -> Option<OsString> {
+    env_home_with(|name| std::env::var_os(name), cfg!(windows))
+}
+
+fn env_home_with(get: impl Fn(&str) -> Option<OsString>, windows: bool) -> Option<OsString> {
+    if let Some(home) = get("HOME") {
+        return Some(home);
+    }
+    if !windows {
+        return None;
+    }
+    if let Some(profile) = get("USERPROFILE") {
+        return Some(profile);
+    }
+    let drive = get("HOMEDRIVE")?;
+    let path = get("HOMEPATH")?;
+    Some(Path::new(&drive).join(path).into_os_string())
+}
 
 pub(crate) fn resolve(
     home: Option<&OsStr>,
@@ -108,5 +129,66 @@ mod tests {
             );
             assert_eq!(resolve(home, user, |_| None), None);
         }
+    }
+
+    #[test]
+    fn env_home_prefers_present_home_even_when_empty() {
+        for home in [OsString::from(""), OsString::from("/environment-home")] {
+            assert_eq!(
+                env_home_with(
+                    |name| {
+                        assert_eq!(name, "HOME");
+                        Some(home.clone())
+                    },
+                    true,
+                ),
+                Some(home),
+            );
+        }
+    }
+
+    #[test]
+    fn env_home_stops_at_home_outside_windows() {
+        assert_eq!(
+            env_home_with(
+                |name| match name {
+                    "HOME" => None,
+                    _ => panic!("no fallback outside Windows: {name}"),
+                },
+                false,
+            ),
+            None,
+        );
+    }
+
+    #[test]
+    fn env_home_falls_back_to_user_profile_on_windows() {
+        assert_eq!(
+            env_home_with(
+                |name| match name {
+                    "HOME" => None,
+                    "USERPROFILE" => Some(OsString::from("C:\\Users\\test")),
+                    other => panic!("unexpected lookup: {other}"),
+                },
+                true,
+            ),
+            Some(OsString::from("C:\\Users\\test")),
+        );
+    }
+
+    #[test]
+    fn env_home_joins_home_drive_and_home_path_on_windows() {
+        assert_eq!(
+            env_home_with(
+                |name| match name {
+                    "HOME" | "USERPROFILE" => None,
+                    "HOMEDRIVE" => Some(OsString::from("C:")),
+                    "HOMEPATH" => Some(OsString::from("Users\\test")),
+                    other => panic!("unexpected lookup: {other}"),
+                },
+                true,
+            ),
+            Some(Path::new("C:").join("Users\\test").into_os_string()),
+        );
     }
 }

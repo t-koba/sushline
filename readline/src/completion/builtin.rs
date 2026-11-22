@@ -293,7 +293,7 @@ fn known_host_names_in_line_bytes(line: &[u8]) -> impl Iterator<Item = &[u8]> {
 }
 
 pub(super) fn known_host_names_bytes() -> Vec<Vec<u8>> {
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+    let Some(home) = crate::home::env_home().map(PathBuf::from) else {
         return Vec::new();
     };
     let path = home.join(".ssh").join("known_hosts");

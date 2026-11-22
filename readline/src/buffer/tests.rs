@@ -418,6 +418,63 @@ fn backward_decoder_matches_forward_decoder_on_raw_bytes() {
 }
 
 #[test]
+fn backward_decoder_matches_forward_on_long_random_sequences() {
+    let alphabet = [
+        b'a', 0xc3, 0xa9, 0xe2, 0x80, 0x8b, 0xf0, 0x90, 0x81, 0x82, 0xff,
+    ];
+    let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+    for len in 0..=12 {
+        for _ in 0..2_000 {
+            let mut bytes = Vec::with_capacity(len);
+            for _ in 0..len {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                bytes.push(alphabet[(state >> 32) as usize % alphabet.len()]);
+            }
+            let buffer = LineBuffer::from_bytes(bytes.clone());
+            for idx in 0..=bytes.len() {
+                assert_eq!(
+                    buffer.decoded_prev_char_backward(idx),
+                    buffer.decoded_prev_char(idx),
+                    "bytes={bytes:?} idx={idx}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn backward_decoder_keeps_interior_points_on_whole_scalars() {
+    let cases = [
+        vec![0xc3, 0xa9, 0xf0, 0x90, 0x81, 0xa9, 0xf0, b'a', 0xcc, 0x80],
+        vec![0xf0, 0x90, 0x80, 0x80, 0xf0, 0x90, 0x80, 0x80],
+    ];
+    for bytes in cases {
+        let buffer = LineBuffer::from_bytes(bytes.clone());
+        for idx in 0..=bytes.len() {
+            assert_eq!(
+                buffer.decoded_prev_char_backward(idx),
+                buffer.decoded_prev_char(idx),
+                "bytes={bytes:?} idx={idx}"
+            );
+        }
+    }
+
+    let bytes = [0xf0, 0x90, 0x80, 0x80, 0xf0, 0x90, 0x80, 0x80];
+    let mut buffer = LineBuffer::from_bytes(bytes.to_vec());
+    buffer.set_point(5);
+    assert!(buffer.move_backward());
+    assert_eq!(buffer.point, 0);
+
+    let mut buffer = LineBuffer::from_bytes(bytes.to_vec());
+    buffer.set_point(5);
+    buffer.backward_delete_char_bytes();
+    assert_eq!(buffer.as_bytes(), &bytes[5..]);
+    assert_eq!(buffer.point, 0);
+}
+
+#[test]
 fn backward_steps_over_a_long_raw_run_are_exact() {
     let bytes = vec![0x80; 4_096];
     let mut buffer = LineBuffer::from_bytes(bytes.clone());

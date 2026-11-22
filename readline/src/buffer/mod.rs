@@ -287,21 +287,32 @@ impl LineBuffer {
         if target == 0 {
             return None;
         }
-        // A UTF-8 scalar is at most four bytes, so only the four bytes before
-        // the target can contribute to the previous decoded unit. Decoding
-        // that window forward keeps the forward decoder's raw-byte semantics
-        // without rescanning an arbitrarily long continuation-byte run.
-        let mut current = target.saturating_sub(4);
-        let mut previous = None;
-        while current < target {
-            let (end, ch) = self.decoded_char_at(current)?;
-            if end > target {
-                break;
-            }
-            previous = Some((current, ch));
-            current = end;
+        let mut leader = target - 1;
+        let mut scanned = 0;
+        while leader > 0 && self.bytes[leader] & 0xc0 == 0x80 && scanned < 3 {
+            leader -= 1;
+            scanned += 1;
         }
-        previous
+        // A UTF-8 scalar has at most three continuation bytes. A longer run
+        // cannot be one scalar, so the previous unit is its last raw byte;
+        // stopping there also avoids rescanning the whole run on each step.
+        if scanned == 3 && self.bytes[leader] & 0xc0 == 0x80 {
+            let (end, ch) = self.decoded_char_at(target - 1)?;
+            return (end == target).then_some((target - 1, ch));
+        }
+        let (end, ch) = self.decoded_char_at(leader)?;
+        if end == target {
+            return Some((leader, ch));
+        }
+        if end > target {
+            // The target lies inside a sequence; step back to the last
+            // complete unit before its leader.
+            return self.decoded_prev_char_backward(leader);
+        }
+        // Raw bytes follow a complete unit: the previous unit is the last of
+        // those bytes, not the earlier leader.
+        let (raw_end, raw_ch) = self.decoded_char_at(target - 1)?;
+        (raw_end == target).then_some((target - 1, raw_ch))
     }
 
     fn decoded_prev_char(&self, idx: usize) -> Option<(usize, char)> {

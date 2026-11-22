@@ -379,13 +379,19 @@ fn named_command_prompt(state: &EditorState, mark_modified: bool) -> Option<Stri
 
 /// Renders control bytes GNU echoes in caret notation inside a prompt.
 fn escape_named_query_controls(text: &str) -> String {
-    if !text.contains('\u{1b}') {
+    if !text.chars().any(|ch| ch.is_ascii_control()) {
         return text.to_string();
     }
-    let mut out = String::with_capacity(text.len() + 1);
+    let mut out = String::with_capacity(text.len() * 2);
     for ch in text.chars() {
-        if ch == '\u{1b}' {
-            out.push_str("^[");
+        if ch.is_ascii_control() {
+            let shown = if ch == '\u{7f}' {
+                '?'
+            } else {
+                char::from(ch as u8 + 0x40)
+            };
+            out.push('^');
+            out.push(shown);
         } else {
             out.push(ch);
         }

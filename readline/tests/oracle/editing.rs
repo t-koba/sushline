@@ -15200,6 +15200,25 @@ fn bash_readline_and_sushline_keep_escape_in_named_command_query() {
 }
 
 #[test]
+fn bash_readline_and_sushline_echo_named_command_control_bytes() {
+    let inputrc = r#""\C-o": execute-named-command"#;
+    for (controls, caret) in [
+        (&b"\x01\x02\x04\x05"[..], "^A^B^D^E"),
+        (&b"\x0b\x0c\x0e\x10\x14\x18"[..], "^K^L^N^P^T^X"),
+    ] {
+        let mut keys = vec![0x0f];
+        keys.extend_from_slice(controls);
+        keys.extend_from_slice(b"abc");
+        let row = format!("SUSHLINE_READY>!{caret}abc");
+        let bash = run_bash_readline_with_bindings(&keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(&keys, inputrc);
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_screen_row(editor, output, &row);
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_show_named_command_query_in_prompt() {
     let inputrc = r#""\C-o": execute-named-command"#;
     for keys in [

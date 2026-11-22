@@ -2309,15 +2309,22 @@ fn save_incremental_search(state: &mut EditorState, search: &ReverseSearchState)
 
 /// Append query bytes, holding an incomplete UTF-8 sequence until its
 /// remaining bytes arrive. Control characters are never query text.
+/// ASCII control bytes GNU echoes into an execute-named-command query as
+/// caret notation. Command and editing controls are handled before the query
+/// text path; the measured set here is echoed rather than interpreted.
+fn named_query_control_is_text(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0x01 | 0x02 | 0x04 | 0x05 | 0x0b | 0x0c | 0x0e | 0x10 | 0x14 | 0x18 | 0x1b
+    )
+}
+
 fn append_named_query_bytes(pending: &mut PendingNamedCommand, bytes: &[u8]) -> bool {
     fn push_chars(query: &mut String, text: &str) -> bool {
         let before = query.len();
-        // GNU reads Escape as a meta prefix in the named-command query but
-        // keeps its raw byte in the query text, where the prompt renders it
-        // as `^[`. Other control bytes stay out of the command name.
         query.extend(
             text.chars()
-                .filter(|ch| !ch.is_control() || *ch == '\u{1b}'),
+                .filter(|ch| !ch.is_control() || named_query_control_is_text(*ch)),
         );
         query.len() != before
     }
@@ -2357,12 +2364,12 @@ mod named_query_tests {
     use crate::state::PendingNamedCommand;
 
     #[test]
-    fn escape_stays_in_query_and_other_controls_are_dropped() {
+    fn echoed_controls_stay_in_query_and_command_controls_are_dropped() {
         let mut pending = PendingNamedCommand::default();
-        assert!(append_named_query_bytes(&mut pending, b"\x1ba"));
-        assert_eq!(pending.query, "\u{1b}a");
+        assert!(append_named_query_bytes(&mut pending, b"\x1b\x01a"));
+        assert_eq!(pending.query, "\u{1b}\u{1}a");
         assert!(append_named_query_bytes(&mut pending, b"\x07b\x7fc"));
-        assert_eq!(pending.query, "\u{1b}abc");
+        assert_eq!(pending.query, "\u{1b}\u{1}abc");
     }
 
     #[test]

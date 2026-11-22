@@ -269,10 +269,10 @@ where
         Ok((EditorOutcome::Continue, Vec::new(), drawn))
     }
 
-    /// Longest complete ESC-prefixed command binding in `bytes` while an
-    /// incremental search is frozen by NUL. Only direct editing commands
-    /// qualify: a lone ESC, terminators, macros and named commands keep the
-    /// paths they had before the freeze.
+    /// Longest complete ESC-prefixed binding in `bytes` while an incremental
+    /// search is frozen by NUL. GNU runs the bound action after establishing
+    /// the match line; only plain self-insert is excluded, so a lone ESC and
+    /// other incomplete prefixes keep their existing paths.
     fn nul_frozen_esc_command_binding(
         &self,
         state: &EditorState,
@@ -290,11 +290,10 @@ where
         let max = bytes.len().min(NUL_FROZEN_KEY_SEQUENCE_MAX);
         (2..=max).rev().find_map(|len| {
             let binding = self.keymap.lookup(self.keymap.current(), &bytes[..len])?;
-            if matches!(binding, KeyBinding::Command(command) if *command != EditCommand::SelfInsert)
-            {
-                Some((len, binding.clone()))
-            } else {
+            if matches!(binding, KeyBinding::Command(EditCommand::SelfInsert)) {
                 None
+            } else {
+                Some((len, binding.clone()))
             }
         })
     }

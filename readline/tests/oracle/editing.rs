@@ -16366,6 +16366,46 @@ fn bash_readline_and_sushline_apply_more_key_sequences_after_search_nul_freeze()
     }
 }
 
+/// A bound action, not just a direct editing command, runs after the frozen
+/// search is committed: GNU applies both a macro string and a named command
+/// bound to the same ESC sequence.
+#[test]
+fn bash_readline_and_sushline_apply_bound_actions_after_search_nul_freeze() {
+    require_oracle_host();
+    let history = &["abc", "abd"][..];
+    for (name, inputrc, keys, bells, accepted) in [
+        (
+            "macro",
+            r#""\e[D": "X""#,
+            b"\x12abc\x00\x1b[D\r\r".as_slice(),
+            0,
+            Some("Xabc"),
+        ),
+        (
+            "named_command",
+            r#""\e[D": beginning-of-line"#,
+            b"\x12abc\x00\x1b[DX\r\r".as_slice(),
+            0,
+            Some("Xabc"),
+        ),
+    ] {
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(keys, inputrc, history),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, inputrc, history),
+            ),
+        ] {
+            let context = format!("{name} {editor} keys={keys:?}: {output:?}");
+            assert_eq!(bell_count(&output), bells, "{context}");
+            assert_eq!(accepted_line(&output).as_deref(), accepted, "{context}");
+        }
+    }
+}
+
 #[test]
 fn bash_readline_and_sushline_apply_arrow_keys_after_search_nul_freeze() {
     require_oracle_host();

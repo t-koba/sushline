@@ -1438,6 +1438,58 @@ where
         byte.is_ascii_whitespace() || matches!(byte, b'-' | b',' | b'_' | b'.')
     }
 
+    /// Restore the selected incremental-search line for ordinary editing.
+    /// Both the terminator and Ctrl-U leave search state with the line
+    /// established here; their bell and execute decisions stay separate.
+    fn restore_isearch_line_for_editing(
+        &mut self,
+        state: &mut EditorState,
+        search: &ReverseSearchState,
+        keep_failed_display: bool,
+    ) {
+        let accepted =
+            if keep_failed_display && search.match_line.is_none() && !search.query.is_empty() {
+                // Ctrl-U keeps the line displayed by a failed query, unlike
+                // terminate-without-execute which restores the original line.
+                state.buffer.as_bytes().to_vec()
+            } else {
+                accept_search_line(state, search)
+            };
+        let mut buffer = LineBuffer::from_bytes(accepted);
+        if search.query.is_empty() {
+            buffer.set_point(search.original_point.min(buffer.len_chars()));
+        } else if search.match_line.is_some() {
+            let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
+            let locale_lowercase = self.search_locale_lowercase(ignore_case);
+            buffer.set_point(isearch_terminate_point(
+                buffer.as_bytes(),
+                &search.query,
+                ignore_case,
+                locale_lowercase.as_ref(),
+            ));
+        } else if matches!(search.direction, SearchDirection::Forward)
+            && search.original_history_pos >= self.history.entries().len()
+        {
+            buffer.set_point(search.original_point.min(buffer.len_chars()));
+        } else {
+            buffer.set_point(0);
+        }
+        state.buffer = buffer;
+        state.history_entry_index = if search.match_line.is_some() {
+            search.match_index
+        } else {
+            search.original_history_entry_index
+        };
+        if search.match_line.is_none() {
+            state.undo = search.original_undo.clone();
+        }
+        if let Some(index) = search.match_index {
+            self.history.set_pos(index);
+        }
+        save_incremental_search(state, search);
+        state.after_non_kill_command();
+    }
+
     fn handle_reverse_search_single(
         &mut self,
         state: &mut EditorState,
@@ -1532,7 +1584,6 @@ where
         let outcome = match bytes {
             bytes if self.is_isearch_terminator(bytes) => {
                 state.search.quoted_pending = false;
-                let accepted = accept_search_line(state, &search);
                 // GNU point after terminate-without-execute (patch 0 Bash 5.3
                 // PTY oracle): empty query restores the original point;
                 // a match leaves point at the match start (`alpha` + C-J +
@@ -1541,49 +1592,15 @@ where
                 // point at 0, except a forward search started at the end of
                 // history keeps the original point (`draft` + C-s + `zzz` +
                 // C-J + `!` yields `draft!`, while the same query from a
-                // history line yields `!beta`).
-                let mut buffer = LineBuffer::from_bytes(accepted);
-                if search.query.is_empty() {
-                    buffer.set_point(search.original_point.min(buffer.len_chars()));
-                } else if search.match_line.is_some() {
-                    let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
-                    let locale_lowercase = self.search_locale_lowercase(ignore_case);
-                    buffer.set_point(isearch_terminate_point(
-                        buffer.as_bytes(),
-                        &search.query,
-                        ignore_case,
-                        locale_lowercase.as_ref(),
-                    ));
-                } else if matches!(search.direction, SearchDirection::Forward)
-                    && search.original_history_pos >= self.history.entries().len()
-                {
-                    buffer.set_point(search.original_point.min(buffer.len_chars()));
-                } else {
-                    buffer.set_point(0);
-                }
-                state.buffer = buffer;
-                state.history_entry_index = if search.match_line.is_some() {
-                    search.match_index
-                } else {
-                    search.original_history_entry_index
-                };
-                if search.match_line.is_none() {
-                    state.undo = search.original_undo.clone();
-                }
-                // Keep the history cursor on the match so a later `n`/`N`
-                // (`vi-search-again`) steps exclusively past it instead of
-                // re-finding it from the pre-search position.
-                if let Some(index) = search.match_index {
-                    self.history.set_pos(index);
-                }
+                // history line yields `!beta`). The history cursor stays on
+                // the match so a later `n`/`N` steps past it.
+                self.restore_isearch_line_for_editing(state, &search, false);
                 // No-match terminate keeps the original line (no
                 // query-as-line); emacs already belled per keystroke.
                 if search.match_line.is_none() && !search.query.is_empty() && search.exclude_cursor
                 {
                     self.ding()?;
                 }
-                save_incremental_search(state, &search);
-                state.after_non_kill_command();
                 EditorOutcome::Continue
             }
             b"\r" | b"\n" => {
@@ -1622,8 +1639,12 @@ where
             // selected line when a later extension fails. The bell counts
             // below follow the measured cases, not a general rubout model.
             &[0x15] => {
-                search.query.clear();
-                state.search.reverse_search = Some(search);
+                // Ctrl-U in GNU Readline does not edit the query: it leaves
+                // the search with the selected line established and point
+                // at the match start, then rings once. The measured traces
+                // cover matching, empty and non-matching queries.
+                state.search.quoted_pending = false;
+                self.restore_isearch_line_for_editing(state, &search, true);
                 self.ding()?;
                 EditorOutcome::Continue
             }

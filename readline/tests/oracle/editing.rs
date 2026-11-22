@@ -16025,3 +16025,49 @@ fn bash_readline_and_sushline_freeze_all_following_search_input() {
         }
     }
 }
+
+/// On the measured GNU Readline 8.3 host, Ctrl-U in an incremental search
+/// ends the search, keeps the selected line with point at the match start,
+/// and rings once. A typed key after Ctrl-U exposes the point; an empty
+/// query leaves an empty line, and a failed query keeps the displayed line
+/// while adding its own per-keystroke bells.
+#[test]
+fn bash_readline_and_sushline_commit_search_line_on_ctrl_u() {
+    for (name, keys, bells, accepted) in [
+        (
+            "matching_query",
+            b"\x12abc xyz\x15Q\r".as_slice(),
+            1,
+            Some("Qabc xyz"),
+        ),
+        ("empty_query", b"\x12\x15Q\r".as_slice(), 1, Some("Q")),
+        (
+            "failed_query",
+            b"\x12zzz\x15Q\r".as_slice(),
+            3,
+            Some("Qabc xyz"),
+        ),
+        (
+            "no_following_key",
+            b"\x12abc xyz\x15\r".as_slice(),
+            1,
+            Some("abc xyz"),
+        ),
+    ] {
+        let history = &["abcQ", "abc xyz"][..];
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(keys, "", history),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, "", history),
+            ),
+        ] {
+            let context = format!("{editor} {name} keys={keys:?}: {output:?}");
+            assert_eq!(bell_count(&output), bells, "{context}");
+            assert_eq!(accepted_line(&output).as_deref(), accepted, "{context}");
+        }
+    }
+}

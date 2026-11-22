@@ -2071,9 +2071,12 @@ where
                 self.apply_named_command(state, command, b"", hooks)
             }
             &[0x07] => {
-                // Dismissing the prompt without submitting a command must not
-                // carry a pending count into the next ordinary key. Submitted
-                // named commands (digit-argument/self-insert) keep it.
+                // GNU rings once when abort dismisses the named-command
+                // prompt, whether or not a query has been typed. Dismissing
+                // the prompt without submitting a command must not carry a
+                // pending count into the next ordinary key. Submitted named
+                // commands (digit-argument/self-insert) keep it.
+                self.ding()?;
                 state.take_numeric_arg();
                 if let Some(command) = state.input.named_command.as_mut() {
                     command.pending_bytes.clear();

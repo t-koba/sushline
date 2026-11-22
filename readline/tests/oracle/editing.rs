@@ -15476,3 +15476,26 @@ fn bash_readline_and_sushline_page_named_command_completions() {
         assert_eq!(bell_count(&output), 0, "{editor}: {output:?}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_ring_on_named_command_abort() {
+    if !host_carries_measured_release() {
+        eprintln!("Named-command abort bells were measured on Readline 8.3");
+        return;
+    }
+    let inputrc = r#""\C-o": execute-named-command"#;
+    for (name, keys, accepted) in [
+        ("query", b"abc\x0fdef\x07X\r".as_slice(), Some("abcX")),
+        ("empty", b"abc\x0f\x07X\r".as_slice(), Some("abcX")),
+        ("submit", b"abc\x0fdef\x07\r".as_slice(), Some("abc")),
+    ] {
+        for (editor, output) in [
+            ("Bash", run_bash_readline_with_bindings(keys, inputrc)),
+            ("Sushline", run_sushline_harness_with_inputrc(keys, inputrc)),
+        ] {
+            let context = format!("{name} {editor} keys={keys:?}: {output:?}");
+            assert_eq!(bell_count(&output), 1, "{context}");
+            assert_eq!(accepted_line(&output).as_deref(), accepted, "{context}");
+        }
+    }
+}

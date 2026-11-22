@@ -1437,6 +1437,20 @@ where
         bytes: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
+        // An unquoted NUL freezes the query: after the freeze, all following
+        // query-editing input is ignored, whether printable, quoted or
+        // control. Accept, abort and Ctrl-C keep their normal paths. C-r
+        // rings once; control bytes and repeated NUL are silent; printable
+        // and quoted literal bytes ring once only for a failed freeze.
+        if let Some(search) = state.search.reverse_search.as_ref()
+            && search.nul_pending
+            && !matches!(bytes, [0x0d] | [0x0a] | [0x07] | [0x03])
+        {
+            if bytes == [0x12] || (search.nul_failed && !bytes.iter().all(u8::is_ascii_control)) {
+                self.ding()?;
+            }
+            return Ok(EditorOutcome::Continue);
+        }
         // Search-scoped quoted-insert: a pending quote consumes the next
         // byte literally into the query, even controls/terminators.
         if state.search.quoted_pending {
@@ -1493,19 +1507,6 @@ where
             search.nul_failed = failed;
             state.search.reverse_search = Some(search);
             state.input.changed_display = true;
-            if failed {
-                self.ding()?;
-            }
-            return Ok(EditorOutcome::Continue);
-        }
-        // Printable bytes that follow a frozen NUL never extend the query:
-        // they are ignored, ringing once each only for a failed freeze.
-        // Control bytes still take their normal search paths.
-        if let Some(search) = state.search.reverse_search.as_ref()
-            && search.nul_pending
-            && matches!(bytes, [byte] if (0x20..=0x7e).contains(byte) || *byte >= 0x80)
-        {
-            let failed = search.nul_failed;
             if failed {
                 self.ding()?;
             }

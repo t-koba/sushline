@@ -15800,3 +15800,103 @@ fn bash_readline_and_sushline_freeze_search_query_on_nul() {
         }
     }
 }
+
+/// An unquoted NUL freezes the incremental-search query on the measured
+/// Readline 8.3 host: after the freeze, further query-editing input is
+/// frozen; the fixture lists the measured printable, quoted and control
+/// bytes. Accept, abort and Ctrl-C still take their normal paths. The
+/// unfrozen quoted case is a control: on this host GNU keeps the last match
+/// while Sushline restores the original line.
+#[test]
+fn bash_readline_and_sushline_freeze_all_following_search_input() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!(
+            "Incremental-search NUL was measured on Readline 8.3; this case reports nothing on other releases"
+        );
+        return;
+    }
+    for (name, keys, history, bells, bash_accepted, sushline_accepted) in [
+        (
+            "del_then_bc",
+            b"\x12\x61\x00\x7f\x62\x63\x0d\x0d".as_slice(),
+            &["alpha", "abc"][..],
+            3,
+            Some("abc"),
+            Some("abc"),
+        ),
+        (
+            "ctrl_r_then_bc",
+            b"\x12\x61\x00\x12\x62\x63\x0d\x0d".as_slice(),
+            &["alpha", "abc"][..],
+            4,
+            Some("abc"),
+            Some("abc"),
+        ),
+        (
+            "ctrl_r_then_enter",
+            b"\x12\x61\x00\x12\x0d\x0d".as_slice(),
+            &["alpha", "abc"][..],
+            2,
+            Some("abc"),
+            Some("abc"),
+        ),
+        (
+            "matching_query_then_ctrl_r",
+            b"\x12\x61\x62\x63\x00\x12\x0d\x0d".as_slice(),
+            &["alpha", "abc"][..],
+            1,
+            Some("abc"),
+            Some("abc"),
+        ),
+        (
+            "ctrl_a",
+            b"\x12\x61\x00\x01\x0d\x0d".as_slice(),
+            &["alpha", "abc"][..],
+            1,
+            Some("abc"),
+            Some("abc"),
+        ),
+        (
+            "quoted_insert_then_x",
+            b"\x12\x61\x62\x00\x16\x78\x0d\x0d".as_slice(),
+            &["alpha", "abc", "abd"][..],
+            2,
+            Some("abd"),
+            Some("abd"),
+        ),
+        (
+            "quoted_insert_without_freeze",
+            b"\x12\x61\x62\x16\x78\x0d\x0d".as_slice(),
+            &["alpha", "abc", "abd"][..],
+            1,
+            Some("abd"),
+            Some(""),
+        ),
+        (
+            "x_after_freeze",
+            b"\x12\x61\x62\x00\x78\x0d\x0d".as_slice(),
+            &["alpha", "abc", "abd"][..],
+            2,
+            Some("abd"),
+            Some("abd"),
+        ),
+    ] {
+        for (editor, output, accepted) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(keys, "", history),
+                bash_accepted,
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, "", history),
+                sushline_accepted,
+            ),
+        ] {
+            let context = format!("{editor} {name} keys={keys:?}: {output:?}");
+            assert_eq!(bell_count(&output), bells, "{context}");
+            assert_eq!(accepted_line(&output).as_deref(), accepted, "{context}");
+        }
+    }
+}

@@ -22,6 +22,23 @@ fn assert_screen_row(editor: &str, output: &str, expected: &str) {
     );
 }
 
+/// Count the raw U+200B bytes in the final incremental-search query: the last
+/// search prompt prefix and the editor's query terminator bound the slice.
+fn final_search_query_markers<'a>(output: &'a [u8], terminator: &[u8]) -> &'a [u8] {
+    let prefix = b"reverse-i-search)`";
+    let start = output
+        .windows(prefix.len())
+        .rposition(|window| window == prefix)
+        .expect("search prompt prefix")
+        + prefix.len();
+    let end = output[start..]
+        .windows(terminator.len())
+        .position(|window| window == terminator)
+        .expect("search query terminator")
+        + start;
+    &output[start..end]
+}
+
 /// Prompt-only named-command fixtures stop when the expected row is rendered,
 /// instead of waiting for an accept line that these cases never send.
 fn named_query_outputs(
@@ -15464,21 +15481,34 @@ fn bash_and_sushline_emit_one_zero_width_space_in_incremental_query() {
             .windows(needle.len())
             .any(|window| window == needle)
     };
-    let marker = [b"reverse-i-search)`".as_slice(), &[0xe2, 0x80, 0x8b]].concat();
+    let marker = b"\xe2\x80\x8b";
+    let prompt_marker = [b"reverse-i-search)`".as_slice(), marker.as_slice()].concat();
 
-    assert!(contains(&bash, &marker), "GNU query bytes: {bash:?}");
+    assert!(contains(&bash, &prompt_marker), "GNU query bytes: {bash:?}");
     assert!(
         contains(&sushline, &[marker.as_slice(), b"': ".as_slice()].concat()),
         "Sushline query bytes: {sushline:?}"
     );
-    for (editor, output) in [("GNU", &bash), ("Sushline", &sushline)] {
-        let start = output.rfind("reverse-i-search)`").unwrap();
-        let count = output.as_bytes()[start..]
-            .windows(marker.len())
-            .filter(|window| *window == marker)
-            .count();
-        assert_eq!(count, 1, "{editor} query must emit one marker: {output:?}");
-    }
+
+    // GNU ends the query with cursor motion; Sushline ends it with `': `.
+    let gnu_query = final_search_query_markers(bash.as_bytes(), b"\x1b");
+    let sushline_query = final_search_query_markers(sushline.as_bytes(), b"': ");
+    assert_eq!(gnu_query, marker, "GNU final query: {bash:?}");
+    assert_eq!(sushline_query, marker, "Sushline final query: {sushline:?}");
+
+    // A doubled marker in the query must be counted twice, unlike the old
+    // prefix-inclusive count that could only match the first marker.
+    let doubled = [
+        b"(failed reverse-i-search)`".as_slice(),
+        marker.as_slice(),
+        marker.as_slice(),
+        b"\x1b[C".as_slice(),
+    ]
+    .concat();
+    assert_eq!(
+        final_search_query_markers(&doubled, b"\x1b").len(),
+        marker.len() * 2
+    );
 }
 
 #[test]

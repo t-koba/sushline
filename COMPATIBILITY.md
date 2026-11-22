@@ -675,7 +675,9 @@ fixture records the intentional difference: GNU emits the raw ESC followed by
 cursor positioning, while Sushline keeps the printable `^[` so a query cannot
 inject a terminal escape. The paired
 `bash_and_sushline_emit_one_zero_width_space_in_incremental_query` fixture pins
-a single U+200B in both incremental queries; the Sushline-only
+a single U+200B in both incremental queries by counting the raw marker between
+the final search prompt and each editor's query terminator, and rejects a
+synthetic doubled marker; the Sushline-only
 `search_prompt_does_not_duplicate_genuine_raw_byte_marker` covers the vi-mode
 query. The Sushline-only
 `incremental_search_preserves_quoted_invalid_bytes` fixture pins that a quoted

@@ -192,6 +192,27 @@ where
             }
             state.input.applied_command = false;
             state.input.changed_display = false;
+            // An ESC that shares an input batch with following bytes starts
+            // a key sequence in GNU Readline, so it ends the search as a
+            // meta prefix rather than as an isearch terminator. Establish
+            // the selected line at the match point and let the ESC continue
+            // through ordinary dispatch with the rest of the batch. A lone
+            // ESC, including one at the end of a batch, still terminates.
+            if !state.search.quoted_pending
+                && !rest.is_empty()
+                && byte == b"\x1b"
+                && self.is_isearch_terminator(byte)
+                && state
+                    .search
+                    .reverse_search
+                    .as_ref()
+                    .is_some_and(|search| !search.nul_pending)
+                && let Some(search) = state.search.reverse_search.take()
+            {
+                state.input.changed_display = true;
+                state.search.quoted_pending = false;
+                self.restore_isearch_line_for_editing(state, &search, false);
+            }
             let outcome = if state.search.non_incremental_search.is_some() {
                 self.handle_non_incremental_search(state, byte, hooks)?
             } else if state.search.reverse_search.is_some() {

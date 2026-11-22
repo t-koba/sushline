@@ -16195,3 +16195,31 @@ fn bash_readline_and_sushline_honor_ctrl_u_binding_in_isearch() {
         );
     }
 }
+
+/// An ESC-prefixed key sequence in one input chunk ends incremental search as
+/// a meta command: its binding runs at the match point, and an unbound meta
+/// key rings once instead of inserting its character. The bell count for each
+/// measured key sequence is included in the fixture.
+#[test]
+fn bash_readline_and_sushline_dispatch_esc_key_after_isearch() {
+    let history = &["abcdef"][..];
+    for (label, keys, bells, line) in [
+        ("unbound meta-Q", b"\x12abc\x1bQ\r".as_slice(), 1, "abcdef"),
+        ("meta-C-a", b"\x12abc\x1b\x01Q\r".as_slice(), 1, "Qabcdef"),
+    ] {
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(keys, "", history),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, "", history),
+            ),
+        ] {
+            let context = format!("{label} {editor} keys={keys:?}: {output:?}");
+            assert_eq!(bell_count(&output), bells, "{context}");
+            assert_eq!(accepted_line(&output).as_deref(), Some(line), "{context}");
+        }
+    }
+}

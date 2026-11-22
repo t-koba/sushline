@@ -1,4 +1,5 @@
 use crate::buffer::LineBuffer;
+use crate::command::CharSearchBehavior;
 use crate::editor::{Editor, EditorOutcome, ReadlineError, ReadlineResult};
 use crate::hooks::Hooks;
 use crate::keymap::{EditCommand, KeyBinding, KeyMapName};
@@ -201,7 +202,7 @@ where
             // line as literal text. Restore the match line and run the whole
             // bound command instead; lone ESC and other bindings stay on
             // their existing paths.
-            if let Some((len, binding)) = self.nul_frozen_esc_command_binding(state, remaining) {
+            if let Some((len, binding)) = self.nul_frozen_bound_command(state, remaining) {
                 let search = state
                     .search
                     .reverse_search
@@ -217,6 +218,35 @@ where
                 if !matches!(outcome, EditorOutcome::Continue) {
                     return Ok((outcome, rest.to_vec(), drawn));
                 }
+                continue;
+            }
+            // GNU's C-] character search runs on the established match line
+            // when a NUL-frozen search is followed by its target byte.
+            if remaining.first() == Some(&0x1d)
+                && remaining.len() >= 2
+                && state
+                    .search
+                    .reverse_search
+                    .as_ref()
+                    .is_some_and(|search| search.nul_pending)
+                && let Some(search) = state.search.reverse_search.take()
+            {
+                self.restore_isearch_line_for_editing(state, &search, true);
+                let bytewise = self.variables.is_on("byte-oriented");
+                self.apply_char_search(
+                    state,
+                    CharSearchMode::Forward,
+                    remaining[1] as char,
+                    1,
+                    bytewise,
+                    CharSearchBehavior {
+                        repeat: false,
+                        keep_partial: false,
+                    },
+                )?;
+                rest = &remaining[2..];
+                self.render(state)?;
+                drawn = true;
                 continue;
             }
             // An ESC that shares an input batch with following bytes starts
@@ -269,16 +299,16 @@ where
         Ok((EditorOutcome::Continue, Vec::new(), drawn))
     }
 
-    /// Longest complete ESC-prefixed binding in `bytes` while an incremental
-    /// search is frozen by NUL. GNU runs the bound action after establishing
-    /// the match line; only plain self-insert is excluded, so a lone ESC and
-    /// other incomplete prefixes keep their existing paths.
-    fn nul_frozen_esc_command_binding(
+    /// Longest complete control-prefixed binding in `bytes` while an
+    /// incremental search is frozen by NUL. GNU runs the bound action after
+    /// establishing the match line; only plain self-insert is excluded, so
+    /// lone prefixes and incomplete sequences keep their existing paths.
+    fn nul_frozen_bound_command(
         &self,
         state: &EditorState,
         bytes: &[u8],
     ) -> Option<(usize, KeyBinding)> {
-        if bytes.first() != Some(&0x1b)
+        if !bytes.first().is_some_and(|byte| byte.is_ascii_control())
             || !state
                 .search
                 .reverse_search
@@ -1588,6 +1618,22 @@ where
             .reverse_search
             .as_ref()
             .is_some_and(|search| search.nul_pending);
+        if nul_frozen && state.search.quoted_pending {
+            state.search.quoted_pending = false;
+            if state
+                .search
+                .reverse_search
+                .as_ref()
+                .is_some_and(|search| search.nul_failed)
+            {
+                self.ding()?;
+            }
+            return Ok(EditorOutcome::Continue);
+        }
+        if nul_frozen && self.is_quoted_insert_binding(bytes) {
+            state.search.quoted_pending = true;
+            return Ok(EditorOutcome::Continue);
+        }
         if nul_frozen
             && !matches!(bytes, [0x0d] | [0x0a] | [0x07] | [0x03] | [0x15])
             && !self.is_isearch_terminator(bytes)

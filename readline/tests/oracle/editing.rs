@@ -16481,3 +16481,43 @@ fn bash_readline_and_sushline_apply_control_commands_after_search_nul_freeze() {
         }
     }
 }
+
+/// After an unquoted NUL freezes an incremental search, complete C-x bindings
+/// and C-] followed by a target character act on the established match line.
+/// Quoted-insert instead consumes the next byte while the query stays frozen.
+/// This fixture pins only these six measured sequences.
+#[test]
+fn bash_readline_and_sushline_apply_control_prefixes_after_search_nul_freeze() {
+    require_oracle_host();
+    for (name, seq, bells, accepted) in [
+        (
+            "exchange_point_and_mark",
+            b"\x18\x18".as_slice(),
+            0,
+            Some("Yabc"),
+        ),
+        ("undo", b"\x18\x15".as_slice(), 1, Some("Yabc")),
+        ("char_search_hit", b"\x1db".as_slice(), 0, Some("aYbc")),
+        ("char_search_miss", b"\x1da".as_slice(), 1, Some("Yabc")),
+        ("quoted_char", b"\x16X".as_slice(), 0, Some("abc")),
+        ("quoted_control", b"\x16\x01".as_slice(), 0, Some("abc")),
+    ] {
+        let mut keys = b"\x12abc\x00".to_vec();
+        keys.extend_from_slice(seq);
+        keys.extend_from_slice(b"Y\r\r");
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(&keys, "", &["abc", "abd"]),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(&keys, "", &["abc", "abd"]),
+            ),
+        ] {
+            let context = format!("{name} {editor} keys={keys:?}: {output:?}");
+            assert_eq!(bell_count(&output), bells, "{context}");
+            assert_eq!(accepted_line(&output).as_deref(), accepted, "{context}");
+        }
+    }
+}

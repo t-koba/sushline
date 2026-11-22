@@ -80,6 +80,10 @@ where
             let width = last_line_width(&prompt);
             return (prompt, width);
         }
+        if let Some(prompt) = named_command_prompt(state) {
+            let width = last_line_width(&prompt);
+            return (prompt, width);
+        }
         if let Some(indicator) = numeric_arg_indicator(state) {
             // GNU Readline draws the pending argument in place of the whole
             // prompt, so the mode indicator and the decorations go with it.
@@ -126,6 +130,9 @@ where
             .as_ref()
             .map(|search| search.prompt_text())
         {
+            return Prompt::marked_text(prompt).horizontal_line();
+        }
+        if let Some(prompt) = named_command_prompt(state) {
             return Prompt::marked_text(prompt).horizontal_line();
         }
         if let Some(indicator) = numeric_arg_indicator(state) {
@@ -354,6 +361,17 @@ where
         // already: it carries the raw-byte markers of the render domain.
         Prompt::marked_text(raw)
     }
+}
+
+/// The prompt GNU Readline draws while an `execute-named-command` name is
+/// being typed. The query is already text; escape a genuine raw-byte marker
+/// once so the display and horizontal paths read it identically.
+fn named_command_prompt(state: &EditorState) -> Option<String> {
+    let pending = state.input.named_command.as_ref()?;
+    Some(format!(
+        "!{}",
+        crate::buffer::escape_raw_marker(&pending.query)
+    ))
 }
 
 /// The indicator GNU Readline draws while a numeric argument is pending.

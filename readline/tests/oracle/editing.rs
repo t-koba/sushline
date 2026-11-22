@@ -15062,3 +15062,32 @@ fn search_query_tab_expands_at_the_drawn_column() {
         "the query starts after the backtick: {output}"
     );
 }
+
+#[test]
+fn bash_readline_and_sushline_show_named_command_query_in_prompt() {
+    let inputrc = r#""\C-o": execute-named-command"#;
+    for keys in [b"\x0fabc".as_slice(), b"\x1b5\x0fabc".as_slice()] {
+        let bash = run_bash_readline_with_bindings(keys, inputrc);
+        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
+
+        assert!(bash.contains("!abc"), "Bash: {bash}");
+        assert!(sushline.contains("!abc"), "Sushline: {sushline}");
+    }
+}
+
+#[test]
+fn horizontal_named_command_prompt_shows_query() {
+    let inputrc = "set horizontal-scroll-mode on\n\"\\C-o\": execute-named-command\n";
+    let output = run_sushline_harness_with_inputrc_and_env_raw(
+        b"\x0fabc",
+        inputrc,
+        &[("LC_ALL", "C.UTF-8")],
+    );
+
+    assert!(
+        output
+            .windows(7)
+            .any(|window| window == [b'!', b'a', b'b', b'c', 0x1b, b'[', b'K']),
+        "prompt query missing: {output:?}"
+    );
+}

@@ -2052,17 +2052,37 @@ where
                 // named commands (digit-argument/self-insert) keep it.
                 state.take_numeric_arg();
                 state.input.named_command = None;
+                state.input.changed_display = true;
                 state.after_non_kill_command();
                 Ok(EditorOutcome::Continue)
             }
             &[0x7f] => {
-                if let Some(command) = state.input.named_command.as_mut() {
-                    command.query.pop();
+                if state
+                    .input
+                    .named_command
+                    .as_mut()
+                    .is_some_and(|command| command.query.pop().is_some())
+                {
+                    state.input.changed_display = true;
                 }
                 Ok(EditorOutcome::Continue)
             }
             &[b'\t'] | &[b' '] => {
+                let before = state
+                    .input
+                    .named_command
+                    .as_ref()
+                    .map(|command| command.query.clone());
                 self.complete_named_command_query(state, hooks)?;
+                if before
+                    != state
+                        .input
+                        .named_command
+                        .as_ref()
+                        .map(|command| command.query.clone())
+                {
+                    state.input.changed_display = true;
+                }
                 Ok(EditorOutcome::Continue)
             }
             _ => {
@@ -2075,6 +2095,7 @@ where
                     command
                         .query
                         .extend(text.chars().filter(|ch| !ch.is_control()));
+                    state.input.changed_display = true;
                 }
                 Ok(EditorOutcome::Continue)
             }

@@ -108,12 +108,10 @@ where
 
     fn prompt_decorations(&self, state: &EditorState) -> String {
         let mut decorations = String::new();
-        if self.flag(BoolVariable::MarkModifiedLines)
-            && state.history_entry_index.is_some()
-            && state.history_modified
-        {
-            decorations.push('*');
-        }
+        decorations.push_str(modified_prompt_mark(
+            state,
+            self.flag(BoolVariable::MarkModifiedLines),
+        ));
         if self.flag(BoolVariable::ShowModeInPrompt)
             && let Some(operator) = state.vi_operator_prompt()
         {
@@ -358,15 +356,22 @@ where
 /// Build the GNU named-command prompt: the application prompt stays and
 /// `!query` is appended to it. Mode indicators are suppressed while the
 /// query is active, like GNU's show-mode-in-prompt redraw.
+/// The modified-line marker GNU prepends when `mark-modified-lines` is on.
+/// Ordinary and named-command prompts share this rule so their decorations
+/// cannot drift apart.
+fn modified_prompt_mark(state: &EditorState, mark_modified: bool) -> &'static str {
+    if mark_modified && state.history_entry_index.is_some() && state.history_modified {
+        "*"
+    } else {
+        ""
+    }
+}
+
 fn named_command_prompt(state: &EditorState, mark_modified: bool) -> Option<String> {
     let pending = state.input.named_command.as_ref()?;
-    let mut decorations = String::new();
-    if mark_modified && state.history_entry_index.is_some() && state.history_modified {
-        decorations.push('*');
-    }
     Some(format!(
         "{}{}!{}",
-        decorations,
+        modified_prompt_mark(state, mark_modified),
         crate::buffer::escape_raw_marker(state.prompt.visible()),
         crate::buffer::escape_raw_marker(&pending.query)
     ))

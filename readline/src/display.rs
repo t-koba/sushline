@@ -462,31 +462,24 @@ fn normalize_terminal_size(size: TerminalSize) -> TerminalSize {
 /// with the wrap-mode prompt measurement.
 fn horizontal_search_prompt_line(prompt: &str) -> horizontal::DisplayLine {
     let mut line = horizontal::DisplayLine::default();
-    let mut span = String::new();
-    let mut extra = 0;
-    let mut chars = prompt.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '\t' {
-            let mut probe = chars.clone();
-            if SEARCH_TAB_CORRECTION
-                .chars()
-                .all(|expected| probe.next() == Some(expected))
-            {
-                for _ in SEARCH_TAB_CORRECTION.chars() {
-                    chars.next();
-                }
-                let width =
-                    tab_expansion(visible_width(&span) + extra).len() + SEARCH_TAB_CORRECTIONS;
-                line.push_prompt_text(&span);
-                span.clear();
-                line.push_prompt_cell(format!("\t{SEARCH_TAB_CORRECTION}"), width);
-                extra += width;
-                continue;
-            }
+    let mut rest = prompt;
+    let mut column = 0;
+    while let Some(position) = rest.find('\t') {
+        let before = &rest[..position];
+        line.push_prompt_text(before);
+        column += visible_width(before);
+        let after = &rest[position + 1..];
+        if let Some(tail) = after.strip_prefix(SEARCH_TAB_CORRECTION) {
+            let width = tab_expansion(column).len() + SEARCH_TAB_CORRECTIONS;
+            line.push_cell(format!("\t{SEARCH_TAB_CORRECTION}"), width);
+            column += width;
+            rest = tail;
+        } else {
+            line.push_prompt_text("\t");
+            rest = after;
         }
-        span.push(ch);
     }
-    line.push_prompt_text(&span);
+    line.push_prompt_text(rest);
     line
 }
 

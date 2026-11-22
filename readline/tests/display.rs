@@ -589,3 +589,19 @@ fn horizontal_search_prompt_does_not_replay_clipped_tab_cursor_moves() {
         line.terminal().out
     );
 }
+
+#[test]
+fn horizontal_search_prompt_uses_absolute_columns_for_repeated_tabs() {
+    let terminal = MemoryTerminal::with_events(vec![TerminalEvent::Bytes(
+        b"\x12a\x16\t\x16\t\r\r".to_vec(),
+    )]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set horizontal-scroll-mode on")
+        .unwrap();
+    let _ = line.read_line(Prompt::new(""), &mut ()).unwrap();
+    assert_eq!(
+        line.terminal().moved_columns.last(),
+        Some(&46),
+        "both TABs must use the cumulative physical column"
+    );
+}

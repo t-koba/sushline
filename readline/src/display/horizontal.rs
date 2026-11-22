@@ -69,20 +69,6 @@ impl DisplayLine {
         self.width += width;
     }
 
-    /// One prompt cell whose emitted bytes and logical width differ. A
-    /// literal TAB in a search query carries its terminal expansion and
-    /// cursor moves as one clippable unit.
-    pub(crate) fn push_prompt_cell(&mut self, text: String, width: usize) {
-        self.prompt_bytes += text.len();
-        self.units.push(Unit {
-            text,
-            width,
-            bytes: 0,
-            hidden: false,
-        });
-        self.width += width;
-    }
-
     pub(crate) fn push_hidden(&mut self, text: String) {
         if text.contains('\n') {
             self.finish_prompt_line(&text);

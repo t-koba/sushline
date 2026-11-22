@@ -4,6 +4,7 @@ version = "0.2.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/t-koba/sushline"
+readme = "../README.md"
 description = "Pure Rust Readline-style line editing foundation for Sush"
 
 [lib]

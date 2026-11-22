@@ -2175,8 +2175,8 @@ fn bash_readline_and_sushline_insert_bound_named_self_insert_key_literally() {
 /// Dismissing the execute-named-command prompt without submitting a command
 /// drops a pending count. Pinned on Readline 8.3 with Ctrl-G as the cancel key:
 /// Ctrl-G is used as the abort key here; Escape stays in the query as raw
-/// text. Only the accepted line is compared: GNU rings on Ctrl-G abort while
-/// Sushline stays silent.
+/// text. Both editors ring once and drop the pending count; the accepted line
+/// and bell count are compared.
 #[test]
 fn bash_readline_and_sushline_drop_count_when_named_command_is_cancelled() {
     if !host_carries_measured_release() {
@@ -2197,6 +2197,7 @@ fn bash_readline_and_sushline_drop_count_when_named_command_is_cancelled() {
                 Some(expected),
                 "{name} keys={keys:?}: {output:?}"
             );
+            assert_eq!(bell_count(output), 1, "{name} keys={keys:?}: {output:?}");
         }
     }
 }

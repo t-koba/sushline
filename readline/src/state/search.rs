@@ -42,6 +42,10 @@ pub(crate) struct ReverseSearchState {
     pub(crate) nul_pending: bool,
     /// The frozen search was marked failed, so ignored bytes ring the bell.
     pub(crate) nul_failed: bool,
+    /// A multi-word Ctrl-W kept the query and a selected match; accepting a
+    /// later failing query keeps the displayed line instead of restoring the
+    /// pre-search line.
+    pub(crate) retain_match_on_failure: bool,
 }
 
 #[derive(Debug, Clone)]

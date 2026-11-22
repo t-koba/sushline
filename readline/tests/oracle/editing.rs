@@ -15578,10 +15578,11 @@ fn bash_readline_and_sushline_keep_byte_oriented_named_query_text() {
     }
 }
 
-/// Ctrl-U and Ctrl-W clear the incremental-search query, not the line already
-/// selected by the current match. The bell counts include the failed query
-/// extensions for a needle that never matches; a word rubout also rings once
-/// more when no match is active.
+/// Ctrl-U clears the incremental-search query, and Ctrl-W clears it only when
+/// it is a single word, not the line already selected by the current match.
+/// Multi-word retention is covered by a separate fixture. The bell counts
+/// include the failed query extensions for a needle that never matches; a
+/// word rubout also rings once more when no match is active.
 #[test]
 fn bash_readline_and_sushline_apply_search_kills_to_query() {
     if !host_carries_measured_release() {
@@ -15659,6 +15660,70 @@ fn bash_readline_and_sushline_apply_search_kills_to_query() {
             let context = format!("{editor} {name} keys={keys:?}: {output:?}");
             assert_eq!(bell_count(&output), bells, "{context}");
             assert_eq!(accepted_line(&output).as_deref(), accepted, "{context}");
+        }
+    }
+}
+
+/// On the measured Readline 8.3 host, Ctrl-W retains a query containing
+/// whitespace instead of clearing it: each Ctrl-W rings once, except when
+/// the query ends in whitespace, and a later non-matching key still rings
+/// and shows the failed prompt while the selected match is accepted.
+#[test]
+fn bash_readline_and_sushline_retain_multiword_search_query_on_ctrl_w() {
+    if !host_carries_measured_release() {
+        eprintln!(
+            "Multi-word search Ctrl-W was measured on Readline 8.3; this case reports nothing on other releases"
+        );
+        return;
+    }
+    for (name, keys, bells, accepted, failed_prompt) in [
+        (
+            "multiword_then_q",
+            b"\x12abc xyz\x17Q\r\r".as_slice(),
+            2,
+            Some("abc xyz"),
+            true,
+        ),
+        (
+            "two_ctrl_w_then_q",
+            b"\x12abc xyz\x17\x17Q\r\r".as_slice(),
+            3,
+            Some("abc xyz"),
+            true,
+        ),
+        (
+            "trailing_space_then_q",
+            b"\x12abc \x17Q\r\r".as_slice(),
+            1,
+            Some("abc xyz"),
+            true,
+        ),
+        (
+            "single_word_then_q",
+            b"\x12abc\x17Q\r\r".as_slice(),
+            1,
+            Some("abcQ"),
+            false,
+        ),
+    ] {
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(keys, "", &["abcQ", "abc xyz"]),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, "", &["abcQ", "abc xyz"]),
+            ),
+        ] {
+            let context = format!("{editor} {name} keys={keys:?}: {output:?}");
+            assert_eq!(bell_count(&output), bells, "{context}");
+            assert_eq!(accepted_line(&output).as_deref(), accepted, "{context}");
+            assert_eq!(
+                output.contains("failed reverse-i-search"),
+                failed_prompt,
+                "{context}"
+            );
         }
     }
 }

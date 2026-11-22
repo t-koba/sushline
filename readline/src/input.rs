@@ -1604,9 +1604,12 @@ where
                 state.after_non_kill_command();
                 EditorOutcome::Continue
             }
-            // In the incremental prompt GNU applies these kills to the query,
-            // not to the line already selected by the current match. Both
-            // ring once; a word rubout with no match rings again.
+            // In the incremental prompt these kills apply to the query, not
+            // to the line already selected by the current match. Ctrl-U
+            // clears the query and rings once. Ctrl-W clears only a
+            // single-word query (ringing once, and again with no match);
+            // with internal whitespace it retains the query and rings once
+            // unless the query ends in whitespace.
             &[0x15] => {
                 search.query.clear();
                 state.search.reverse_search = Some(search);
@@ -1614,13 +1617,27 @@ where
                 EditorOutcome::Continue
             }
             &[0x17] => {
-                let no_match = search.match_line.is_none();
-                search.query.clear();
-                state.search.reverse_search = Some(search);
-                self.ding()?;
-                if no_match {
+                let has_whitespace = search.query.iter().any(u8::is_ascii_whitespace);
+                let trailing_whitespace = search
+                    .query
+                    .last()
+                    .is_some_and(|byte| byte.is_ascii_whitespace());
+                if !has_whitespace {
+                    let no_match = search.match_line.is_none();
+                    search.query.clear();
                     self.ding()?;
+                    if no_match {
+                        self.ding()?;
+                    }
+                } else {
+                    if search.match_line.is_some() {
+                        search.retain_match_on_failure = true;
+                    }
+                    if !trailing_whitespace {
+                        self.ding()?;
+                    }
                 }
+                state.search.reverse_search = Some(search);
                 EditorOutcome::Continue
             }
             &[0x12] | &[0x13] => {
@@ -2407,9 +2424,11 @@ fn isearch_terminate_point(
 }
 
 fn accept_search_line(state: &EditorState, search: &ReverseSearchState) -> Vec<u8> {
-    if search.match_line.is_some() {
+    if search.match_line.is_some() || search.retain_match_on_failure {
         // A match on the buffer's own entry preserves its live edit, which
-        // may be newer than the line stored in the search result.
+        // may be newer than the line stored in the search result. A retained
+        // multi-word query likewise keeps its selected line when a later
+        // query extension fails; Ctrl-G still restores the original line.
         state.buffer.as_bytes().to_vec()
     } else {
         search.original_line.clone()

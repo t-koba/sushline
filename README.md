@@ -89,7 +89,8 @@ CI runs the following checks by event:
 For every workflow event, `ci / check` runs formatting, Clippy, and the
 non-oracle workspace tests. `ci / windows-terminal` compiles the readline
 library on Windows and runs targeted native-console, filename, quoting,
-editor-completion, locale-default, and C-locale history tests. These Windows
+editor-completion, home-resolution, locale-default, and C-locale history tests.
+These Windows
 tests cover those named fixtures only; they are not a full workspace run or a
 GNU compatibility claim. `ci / oracle` builds or restores and validates the
 same digest-pinned Readline 8.3 and Bash 5.3, runs `Run the oracle suite`, and

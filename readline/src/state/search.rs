@@ -53,6 +53,20 @@ pub(crate) struct NonIncrementalSearchState {
     pub(crate) vi: bool,
 }
 
+/// Render search query bytes once, using the buffer's printable control
+/// notation. The result is already in display domain: a genuine raw-byte
+/// marker is escaped here and must not be escaped again by the caller.
+pub(crate) fn render_search_query(query: &[u8], start_col: usize) -> String {
+    let mut rendered = String::new();
+    let mut col = start_col;
+    for ch in String::from_utf8_lossy(query).chars() {
+        let piece = crate::buffer::display_char(ch, false, false, true, col);
+        col += crate::width::visible_width(&piece);
+        rendered.push_str(&piece);
+    }
+    rendered
+}
+
 impl NonIncrementalSearchState {
     pub(crate) fn prompt_char(&self) -> char {
         if !self.vi {
@@ -65,18 +79,11 @@ impl NonIncrementalSearchState {
     }
 
     pub(crate) fn prompt_text(&self) -> String {
-        let mut prompt = self.prompt_char().to_string();
-        let mut col = 1;
-        // Search query bytes use the same printable control notation as
-        // buffer text: a typed ESC must never be written raw to the terminal
-        // as an escape sequence, and its two printed cells count toward the
-        // prompt width.
-        for ch in String::from_utf8_lossy(&self.query).chars() {
-            let rendered = crate::buffer::display_char(ch, false, false, true, col);
-            col += crate::width::visible_width(&rendered);
-            prompt.push_str(&rendered);
-        }
-        prompt
+        format!(
+            "{}{}",
+            self.prompt_char(),
+            render_search_query(&self.query, 1)
+        )
     }
 }
 

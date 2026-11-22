@@ -14991,3 +14991,30 @@ fn bash_readline_and_sushline_keep_replace_undo_point_across_history_recall() {
         assert_eq!(bell_count(&sushline), bell_count(&bash));
     }
 }
+
+#[test]
+fn incremental_search_quoted_escape_uses_printable_caret_notation() {
+    let keys = b"\x12\x16\x1b[2J";
+    let output = run_sushline_harness_with_inputrc_and_env(keys, "", &[("LC_ALL", "C.UTF-8")]);
+
+    assert!(
+        output.contains("(failed reverse-i-search)`^[[2J': "),
+        "{output}"
+    );
+    assert!(!output.contains("\u{1b}[2J'"), "raw query escape: {output}");
+}
+
+#[test]
+fn search_prompt_does_not_duplicate_genuine_raw_byte_marker() {
+    let keys = b"\x1b/\xe2\x80\x8b";
+    let output = run_sushline_harness_with_inputrc_and_env(
+        keys,
+        "set editing-mode vi\n",
+        &[("LC_ALL", "C.UTF-8")],
+    );
+
+    assert!(
+        output.ends_with("\u{200b}\u{1b}[K\u{1b}[2G"),
+        "one typed zero-width space must render once: {output}"
+    );
+}

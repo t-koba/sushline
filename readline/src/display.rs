@@ -73,12 +73,12 @@ where
     pub(crate) fn effective_prompt(&self, state: &EditorState) -> (String, usize) {
         if let Some(prompt) = active_search_prompt(state) {
             let width = last_line_width(&prompt);
-            return (crate::buffer::escape_raw_marker(&prompt), width);
+            return (prompt, width);
         }
         if let Some(search) = state.search.non_incremental_search.as_ref() {
             let prompt = search.prompt_text();
             let width = last_line_width(&prompt);
-            return (crate::buffer::escape_raw_marker(&prompt), width);
+            return (prompt, width);
         }
         if let Some(indicator) = numeric_arg_indicator(state) {
             // GNU Readline draws the pending argument in place of the whole
@@ -378,8 +378,9 @@ fn active_search_prompt(state: &EditorState) -> Option<String> {
     } else {
         "failed "
     };
-    let query = String::from_utf8_lossy(&search.query);
-    Some(format!("({failed}{direction})`{query}': "))
+    let prefix = format!("({failed}{direction})");
+    let query = crate::state::render_search_query(&search.query, prefix.chars().count());
+    Some(format!("{prefix}`{query}': "))
 }
 
 impl<T> Editor<T>

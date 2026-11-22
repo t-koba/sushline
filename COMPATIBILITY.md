@@ -665,8 +665,13 @@ The paired `vi_search_query_control_bytes_are_printable_not_raw_escapes` fixture
 further pins that ESC query bytes render as printable `^[` caret notation in
 both editors instead of injecting a raw terminal escape; the Sushline-only
 `vi_search_query_caret_width_advances_the_sushline_cursor` fixture pins that the
-two printed cells advance the cursor column. No general search redisplay or
-locale folding is claimed.
+two printed cells advance the cursor column. The Sushline-only
+`incremental_search_quoted_escape_uses_printable_caret_notation` fixture pins
+the same caret notation for a quoted ESC in the incremental C-r prompt, and
+`search_prompt_does_not_duplicate_genuine_raw_byte_marker` pins that a typed
+zero-width-space query character is emitted once. Those two display-byte
+assertions are not GNU parity claims for their key sequences. No general
+search redisplay or locale folding is claimed.
 
 - **C.UTF-8 lowercase:** the single-entry prefix and reverse-incremental
   `älpha`/`ÄLPHA old` cases, and the forward-incremental case with `prior`

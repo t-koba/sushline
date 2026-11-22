@@ -477,17 +477,27 @@ where
                 });
             }
             "vi-eWord" | "vi-end-bigword" => {
+                let bytewise = self.char_motion_is_bytewise();
                 self.apply_vi_motion_with_operator(state, key, true, |state| {
                     repeat(state, |state| {
-                        state.buffer.end_bigword();
+                        if bytewise {
+                            state.buffer.end_bigword_bytewise();
+                        } else {
+                            state.buffer.end_bigword();
+                        }
                     });
                 });
             }
             "vi-end-word" | "vi-eword" => {
                 if command == "vi-end-word" && key == b"E" {
+                    let bytewise = self.char_motion_is_bytewise();
                     self.apply_vi_motion_with_operator(state, key, true, |state| {
                         repeat(state, |state| {
-                            state.buffer.end_bigword();
+                            if bytewise {
+                                state.buffer.end_bigword_bytewise();
+                            } else {
+                                state.buffer.end_bigword();
+                            }
                         });
                     });
                     return Ok(EditorOutcome::Continue);

@@ -1310,7 +1310,20 @@ impl LineBuffer {
     /// A high byte is punctuation, so a point on its first byte changes only
     /// the bytes of that scalar rather than the following ASCII word.
     pub fn vi_end_word_bytewise(&mut self, break_chars: Option<&str>) -> bool {
-        let class = |byte| crate::buffer::vi_byte_class(byte, break_chars, false);
+        self.vi_end_byte_class_bytewise(|byte| {
+            crate::buffer::vi_byte_class(byte, break_chars, false)
+        })
+    }
+
+    /// Byte-oriented `E` ends at the last byte of a non-whitespace run.
+    pub fn end_bigword_bytewise(&mut self) -> bool {
+        self.vi_end_byte_class_bytewise(|byte| crate::buffer::vi_byte_class(byte, None, true))
+    }
+
+    fn vi_end_byte_class_bytewise<F>(&mut self, class: F) -> bool
+    where
+        F: Fn(u8) -> u8,
+    {
         let start = self.point;
         let end = self.bytes.len();
         if start >= end {

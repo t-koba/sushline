@@ -11117,6 +11117,34 @@ fn bash_and_sushline_byte_oriented_repeated_word_points() {
     }
 }
 
+/// Paired GNU 5.3 / Readline 8.3 pin for byte-oriented uppercase `E`.
+///
+/// With `byte-oriented on`, `E` consumes raw non-whitespace bytes, so a final
+/// multibyte scalar can be removed or traversed bytewise, unlike the UTF-8
+/// grapheme path.
+#[test]
+fn bash_and_sushline_byte_oriented_end_bigword_is_bytewise() {
+    let rc = concat!(
+        "set editing-mode vi\n",
+        "set input-meta on\n",
+        "set output-meta on\n",
+        "set convert-meta off\n",
+        "set byte-oriented on\n"
+    );
+    let env = [("LC_ALL", "C.UTF-8")];
+    let cases: [(&str, &[u8], usize); 5] = [
+        ("0dE", b"", 0),
+        ("0cEZ", b"Z", 0),
+        ("0yEP", b"a\xc3\xa9a\xc3\xa9", 0),
+        ("0EiX", b"a\xc3X\xa9", 0),
+        ("02EiX", b"a\xc3X\xa9", 0),
+    ];
+    for (motion, expected, bells) in cases {
+        let keys = format!("a\u{e9}\x1b{motion}\r");
+        assert_bytewise_vi_bytes(motion, keys.as_bytes(), expected, bells, rc, &env);
+    }
+}
+
 /// Paired GNU 5.3 / Readline 8.3 pin for byte-oriented vi ESC backoff.
 ///
 /// Leaving insert mode steps one raw byte, so a typed multibyte character

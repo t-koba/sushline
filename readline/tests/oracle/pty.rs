@@ -421,6 +421,25 @@ pub(super) fn run_bash_readline_with_term(
     inputrc: &str,
     term: Option<&str>,
 ) -> String {
+    run_bash_readline_with_term_and_size(
+        keys,
+        inputrc,
+        term,
+        PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        },
+    )
+}
+
+pub(super) fn run_bash_readline_with_term_and_size(
+    keys: &[u8],
+    inputrc: &str,
+    term: Option<&str>,
+    size: PtySize,
+) -> String {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("inputrc");
     fs::write(&path, inputrc).expect("write inputrc");
@@ -440,23 +459,32 @@ pub(super) fn run_bash_readline_with_term(
             r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
         ),
     ]);
-    run_pty_with_size_until_preserving_term(
-        command,
-        keys,
-        PtySize {
-            rows: 24,
-            cols: 80,
-            pixel_width: 0,
-            pixel_height: 0,
-        },
-        "SUSHLINE_ACCEPTED:",
-    )
+    run_pty_with_size_until_preserving_term(command, keys, size, "SUSHLINE_ACCEPTED:")
 }
 
 pub(super) fn run_sushline_harness_with_term(
     keys: &[u8],
     inputrc: &str,
     term: Option<&str>,
+) -> String {
+    run_sushline_harness_with_term_and_size(
+        keys,
+        inputrc,
+        term,
+        PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        },
+    )
+}
+
+pub(super) fn run_sushline_harness_with_term_and_size(
+    keys: &[u8],
+    inputrc: &str,
+    term: Option<&str>,
+    size: PtySize,
 ) -> String {
     let mut command = sushline_harness_command();
     command.env("SUSHLINE_INPUTRC", inputrc);
@@ -467,17 +495,7 @@ pub(super) fn run_sushline_harness_with_term(
     } else {
         command.env_remove("TERM");
     }
-    run_pty_with_size_until_preserving_term(
-        command,
-        keys,
-        PtySize {
-            rows: 24,
-            cols: 80,
-            pixel_width: 0,
-            pixel_height: 0,
-        },
-        "SUSHLINE_ACCEPTED:",
-    )
+    run_pty_with_size_until_preserving_term(command, keys, size, "SUSHLINE_ACCEPTED:")
 }
 
 pub(super) fn run_bash_readline_with_inputrc_file(keys: &[u8], inputrc: &str) -> String {

@@ -25,15 +25,15 @@ choices are product decisions, not oracle compatibility claims:
 - Oracle fixtures reject lossy U+FFFD substitutions rather than treating them
   as an acceptable match for GNU output.
 
-### Known display limits
+### Terminal wrap margins
 
-- Wrapping assumes `xenl`-style auto-wrap. On terminals advertising `am`
-  without `xenl`, such as `TERM=ansi`, GNU writes an explicit physical-row
-  wrap at the right margin. Paired Bash 5.3 and Sushline PTY probes at 20 and
-  30 columns show Sushline placing one more cell on the first row, so the
-  rendered rows can differ by one column after a wrap. Current oracle
-  fixtures assert xterm-style wrapping and do not claim parity for this
-  terminal class.
+- With both `am` and `xenl` (xterm-style deferred wrapping), redisplay uses
+  every physical column. When terminfo advertises `am` without `xenl`, such as
+  `TERM=ansi`, it leaves the last column unused and writes an explicit
+  CR/LF/CR at the logical right margin. Paired Bash 5.3 and Sushline PTY
+  fixtures at 20 columns cover both classes; full redisplay-byte parity is
+  not claimed. Without a usable terminfo entry Sushline keeps deferred
+  wrapping rather than guessing a narrower width.
 
 ### Oracle identity
 

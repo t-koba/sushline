@@ -1041,3 +1041,48 @@ fn bash_and_sushline_do_not_mark_fresh_lines() {
         }
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_wrap_before_the_last_column_without_xenl() {
+    let size = PtySize {
+        rows: 8,
+        cols: 20,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let keys = b"xxxxx\x7f\r";
+    let bash = run_bash_readline_with_term_and_size(keys, "", Some("ansi"), size);
+    let sushline = run_sushline_harness_with_term_and_size(keys, "", Some("ansi"), size);
+
+    for output in [&bash, &sushline] {
+        assert_eq!(accepted_line(output), Some("xxxx".to_string()), "{output}");
+    }
+    // GNU writes an explicit CRLF/CR at the logical margin and puts the next
+    // cell on the second row. Sushline emits the same wrap sequence and then
+    // places point on that row's second column, instead of consuming the
+    // terminal's immediate-wrap column as a normal cell.
+    assert!(bash.contains("SUSHLINE_READY>xxxx\r\n\rx"), "{bash}");
+    assert!(sushline.contains("\r\n\r"), "{sushline}");
+    assert!(sushline.contains("\u{1b}[2G"), "{sushline}");
+}
+
+#[test]
+fn bash_readline_and_sushline_keep_deferred_wrap_with_xenl() {
+    let size = PtySize {
+        rows: 8,
+        cols: 20,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let keys = b"xxxxx\x7f\r";
+    let bash = run_bash_readline_with_term_and_size(keys, "", Some("xterm-256color"), size);
+    let sushline = run_sushline_harness_with_term_and_size(keys, "", Some("xterm-256color"), size);
+
+    for output in [&bash, &sushline] {
+        assert_eq!(accepted_line(output), Some("xxxx".to_string()), "{output}");
+        // With `xenl`, GNU fills the whole physical row before wrapping and
+        // Sushline keeps placing point at its last column.
+        assert!(output.contains("SUSHLINE_READY>xxxxx"), "{output}");
+    }
+    assert!(sushline.contains("\u{1b}[20G"), "{sushline}");
+}

@@ -26,12 +26,23 @@ impl<T> Editor<T>
 where
     T: TerminalIo,
 {
+    fn effective_terminal_size(&self, size: TerminalSize) -> TerminalSize {
+        let mut size = normalize_terminal_size(size);
+        // GNU Readline leaves the last physical column unused when the
+        // terminal wraps immediately at the right margin (`am` without
+        // `xenl`), so redisplay never relies on the terminal's wrap timing.
+        if !self.auto_wrap && size.columns > 1 {
+            size.columns -= 1;
+        }
+        size
+    }
+
     pub(crate) fn usable_terminal_size(&self) -> TerminalSize {
         let size = self.terminal.size().unwrap_or(TerminalSize {
             columns: 80,
             rows: 24,
         });
-        normalize_terminal_size(size)
+        self.effective_terminal_size(size)
     }
 
     /// Terminal columns, always at least one (normalized sizes never report zero).
@@ -39,7 +50,7 @@ where
         (state
             .display
             .last_terminal_size
-            .map(normalize_terminal_size)
+            .map(|size| self.effective_terminal_size(size))
             .unwrap_or_else(|| self.usable_terminal_size())
             .columns as usize)
             .max(1)
@@ -49,7 +60,7 @@ where
         let terminal_width = if let Ok(size) = self.terminal.size()
             && size.columns > 0
         {
-            normalize_terminal_size(size).columns as usize
+            self.effective_terminal_size(size).columns as usize
         } else {
             std::env::var("COLUMNS")
                 .ok()
@@ -210,7 +221,7 @@ where
             let (rendered_rows, ends_at_wrap_boundary) =
                 measured_rows_for_output(&rendered_output, columns);
             if ends_at_wrap_boundary {
-                self.terminal.write("\r\n")?;
+                self.terminal.write(self.wrap_sequence())?;
             }
             state.display.rendered_rows = rendered_rows;
             state.display.rendered_cursor_row = state.display.rendered_rows;
@@ -247,7 +258,7 @@ where
         let (rendered_rows, ends_at_wrap_boundary) =
             measured_rows_for_output(&rendered_output, columns);
         if ends_at_wrap_boundary {
-            self.terminal.write("\r\n")?;
+            self.terminal.write(self.wrap_sequence())?;
         }
         let (last_row, point_row, point_col) =
             state
@@ -261,6 +272,10 @@ where
         state.display.rendered_cursor_row = state.display.rendered_rows.saturating_sub(rows_back);
         self.terminal.move_to_column(point_col as u16)?;
         self.terminal.flush()
+    }
+
+    fn wrap_sequence(&self) -> &'static str {
+        if self.auto_wrap { "\r\n" } else { "\r\n\r" }
     }
 
     pub(crate) fn write_tracked_newline(&mut self, state: &mut EditorState) -> io::Result<()> {

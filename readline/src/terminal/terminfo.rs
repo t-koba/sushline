@@ -14,14 +14,28 @@ pub(super) fn terminfo_keypad_sequence(enabled: bool) -> Option<Vec<u8>> {
 #[cfg(unix)]
 pub(super) fn terminfo_sequence(cap: &str) -> Option<Vec<u8>> {
     terminfo_capabilities()
-        .and_then(|caps| caps.get(cap).cloned())
+        .and_then(|caps| caps.strings.get(cap).cloned())
         .or_else(|| hardcoded_terminfo_fallback(cap))
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DefaultCapabilities {
     pub(crate) bracketed_paste: bool,
     pub(crate) active_region_colors: Option<(Vec<u8>, Vec<u8>)>,
+    /// Whether the terminal defers a wrap until the next printable cell,
+    /// as xterm does with both `am` and `xenl`. Defaults to true when no
+    /// terminfo entry is available, preserving Sushline's existing policy.
+    pub(crate) auto_wrap: bool,
+}
+
+impl Default for DefaultCapabilities {
+    fn default() -> Self {
+        Self {
+            bracketed_paste: false,
+            active_region_colors: None,
+            auto_wrap: true,
+        }
+    }
 }
 
 pub(crate) fn default_capabilities() -> DefaultCapabilities {
@@ -36,13 +50,14 @@ pub(crate) fn default_capabilities() -> DefaultCapabilities {
 }
 
 fn default_capabilities_from_terminfo(
-    capabilities: Option<&HashMap<&'static str, Vec<u8>>>,
+    capabilities: Option<&TerminfoCapabilities>,
 ) -> DefaultCapabilities {
     let Some(capabilities) = capabilities else {
         return DefaultCapabilities::default();
     };
+    let strings = &capabilities.strings;
     let capability = |name: &str| {
-        capabilities
+        strings
             .get(name)
             .map(Vec::as_slice)
             .filter(|sequence| !sequence.is_empty())
@@ -58,6 +73,7 @@ fn default_capabilities_from_terminfo(
     DefaultCapabilities {
         bracketed_paste: active_region_colors.is_some(),
         active_region_colors,
+        auto_wrap: capabilities.am && capabilities.xenl,
     }
 }
 
@@ -69,15 +85,22 @@ fn hardcoded_terminfo_fallback(cap: &str) -> Option<Vec<u8>> {
     }
 }
 
-static TERMINFO_CAPABILITIES: OnceLock<Option<HashMap<&'static str, Vec<u8>>>> = OnceLock::new();
+#[derive(Debug, Clone, Default)]
+struct TerminfoCapabilities {
+    strings: HashMap<&'static str, Vec<u8>>,
+    am: bool,
+    xenl: bool,
+}
 
-fn terminfo_capabilities() -> Option<&'static HashMap<&'static str, Vec<u8>>> {
+static TERMINFO_CAPABILITIES: OnceLock<Option<TerminfoCapabilities>> = OnceLock::new();
+
+fn terminfo_capabilities() -> Option<&'static TerminfoCapabilities> {
     TERMINFO_CAPABILITIES
         .get_or_init(load_terminfo_capabilities)
         .as_ref()
 }
 
-fn load_terminfo_capabilities() -> Option<HashMap<&'static str, Vec<u8>>> {
+fn load_terminfo_capabilities() -> Option<TerminfoCapabilities> {
     let term = std::env::var("TERM").ok()?;
     let bytes = std::fs::read(find_terminfo_path(&term)?).ok()?;
     parse_terminfo(&bytes)
@@ -153,8 +176,11 @@ fn find_terminfo_path_with_env(
     None
 }
 
-fn parse_terminfo(bytes: &[u8]) -> Option<HashMap<&'static str, Vec<u8>>> {
+fn parse_terminfo(bytes: &[u8]) -> Option<TerminfoCapabilities> {
     let header = parse_terminfo_header(bytes)?;
+    // ncurses boolean capability indices: `am` is 1 and `xenl` is 4.
+    let bools_start = 12 + header.names_size;
+    let flag = |index: usize| bytes.get(bools_start + index).copied().unwrap_or_default() != 0;
     let mut offset = 12usize
         .checked_add(header.names_size)?
         .checked_add(header.bool_count)?;
@@ -192,7 +218,11 @@ fn parse_terminfo(bytes: &[u8]) -> Option<HashMap<&'static str, Vec<u8>>> {
         caps.insert(*name, bytes[start..end].to_vec());
     }
     parse_extended_terminfo(bytes, string_table_end, header.num_size, &mut caps);
-    Some(caps)
+    Some(TerminfoCapabilities {
+        strings: caps,
+        am: flag(1),
+        xenl: flag(4),
+    })
 }
 
 fn parse_extended_terminfo(
@@ -343,11 +373,15 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
 
-    fn caps(entries: &[(&'static str, &[u8])]) -> HashMap<&'static str, Vec<u8>> {
-        entries
-            .iter()
-            .map(|(name, value)| (*name, value.to_vec()))
-            .collect()
+    fn caps(entries: &[(&'static str, &[u8])]) -> super::TerminfoCapabilities {
+        super::TerminfoCapabilities {
+            strings: entries
+                .iter()
+                .map(|(name, value)| (*name, value.to_vec()))
+                .collect(),
+            am: true,
+            xenl: true,
+        }
     }
 
     fn terminfo_entry(smkx: &[u8], rmkx: &[u8]) -> Vec<u8> {
@@ -396,7 +430,7 @@ mod tests {
         home: Option<&OsStr>,
     ) -> HashMap<&'static str, Vec<u8>> {
         let path = find_terminfo_path_with_env(term, terminfo, terminfo_dirs, home).unwrap();
-        parse_terminfo(&fs::read(path).unwrap()).unwrap()
+        parse_terminfo(&fs::read(path).unwrap()).unwrap().strings
     }
 
     #[test]
@@ -486,7 +520,7 @@ mod tests {
     fn extended_e3_is_not_standard_initialize_pair() {
         // Compiled with tic -x from the adjacent source; no runtime tic dependency.
         let bytes = include_bytes!("../../tests/fixtures/terminfo-e3.bin");
-        let capabilities = super::parse_terminfo(bytes).unwrap();
+        let capabilities = super::parse_terminfo(bytes).unwrap().strings;
         assert_eq!(
             capabilities.get("E3").map(Vec::as_slice),
             Some(&b"SCROLL"[..])
@@ -538,9 +572,39 @@ mod tests {
         let bytes = include_bytes!("../../tests/fixtures/terminfo-e3.bin");
         for end in 0..bytes.len() {
             if let Some(capabilities) = super::parse_terminfo(&bytes[..end]) {
-                assert!(!capabilities.contains_key("E3"), "prefix length {end}");
+                assert!(
+                    !capabilities.strings.contains_key("E3"),
+                    "prefix length {end}"
+                );
             }
         }
+    }
+
+    #[test]
+    fn auto_wrap_requires_both_am_and_xenl() {
+        let entry = |am: bool, xenl: bool| {
+            let mut bytes = 0x011au16.to_le_bytes().to_vec();
+            for field in [2u16, 5, 0, 0, 0] {
+                bytes.extend(field.to_le_bytes());
+            }
+            bytes.extend(b"x\0");
+            bytes.extend([0, if am { 1 } else { 0 }, 0, 0, if xenl { 1 } else { 0 }, 0]);
+            bytes
+        };
+        for (am, xenl, expected) in [
+            (true, true, true),
+            (true, false, false),
+            (false, true, false),
+        ] {
+            let parsed = super::parse_terminfo(&entry(am, xenl)).unwrap();
+            assert_eq!(parsed.am, am);
+            assert_eq!(parsed.xenl, xenl);
+            assert_eq!(
+                default_capabilities_from_terminfo(Some(&parsed)).auto_wrap,
+                expected
+            );
+        }
+        assert!(DefaultCapabilities::default().auto_wrap);
     }
 
     #[test]
@@ -606,6 +670,7 @@ mod tests {
             DefaultCapabilities {
                 bracketed_paste: true,
                 active_region_colors: Some((b"standout".to_vec(), b"standout-reset".to_vec())),
+                auto_wrap: true,
             }
         );
     }
@@ -622,6 +687,7 @@ mod tests {
             DefaultCapabilities {
                 bracketed_paste: true,
                 active_region_colors: Some((b"standout".to_vec(), b"reset-all".to_vec())),
+                auto_wrap: true,
             }
         );
     }

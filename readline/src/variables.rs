@@ -641,6 +641,7 @@ mod tests {
             &DefaultCapabilities {
                 bracketed_paste: true,
                 active_region_colors: Some((b"<standout>".to_vec(), b"<reset>".to_vec())),
+                auto_wrap: true,
             },
         );
         assert!(available.is_on("enable-active-region"));

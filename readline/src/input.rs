@@ -1639,14 +1639,18 @@ where
             // selected line when a later extension fails. The bell counts
             // below follow the measured cases, not a general rubout model.
             &[0x15] => {
-                // Ctrl-U in GNU Readline does not edit the query: it leaves
-                // the search with the selected line established and point
-                // at the match start, then rings once. The measured traces
-                // cover matching, empty and non-matching queries.
+                // Ctrl-U in GNU Readline ends the search, establishes the
+                // selected line and then runs unix-line-discard from the
+                // match start. The existing command rings only when that
+                // range is empty, which is the measured negative control.
                 state.search.quoted_pending = false;
                 self.restore_isearch_line_for_editing(state, &search, true);
-                self.ding()?;
-                EditorOutcome::Continue
+                return self.apply_binding(
+                    state,
+                    KeyBinding::Command(EditCommand::UnixLineDiscard),
+                    bytes,
+                    hooks,
+                );
             }
             &[0x17] => {
                 let has_separator = search

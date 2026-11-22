@@ -16027,41 +16027,79 @@ fn bash_readline_and_sushline_freeze_all_following_search_input() {
 }
 
 /// On the measured GNU Readline 8.3 host, Ctrl-U in an incremental search
-/// ends the search, keeps the selected line with point at the match start,
-/// and rings once. A typed key after Ctrl-U exposes the point; an empty
-/// query leaves an empty line, and a failed query keeps the displayed line
-/// while adding its own per-keystroke bells. A NUL freeze does not disable
-/// Ctrl-U.
+/// ends the search, establishes the selected line and then applies
+/// unix-line-discard from the match start. A typed key after Ctrl-U exposes
+/// the point; when nothing precedes the point GNU rings instead. An empty
+/// query leaves an empty line, a failed query keeps the displayed line, and
+/// a NUL freeze does not disable Ctrl-U. Each case is paired on the same
+/// oracle host.
 #[test]
 fn bash_readline_and_sushline_commit_search_line_on_ctrl_u() {
-    for (name, keys, bells, accepted) in [
+    for (name, keys, history, bells, accepted) in [
         (
-            "matching_query",
+            "matching_query_at_start",
             b"\x12abc xyz\x15Q\r".as_slice(),
+            &["abcQ", "abc xyz"][..],
             1,
             Some("Qabc xyz"),
         ),
-        ("empty_query", b"\x12\x15Q\r".as_slice(), 1, Some("Q")),
+        (
+            "empty_query",
+            b"\x12\x15Q\r".as_slice(),
+            &["abcQ", "abc xyz"][..],
+            1,
+            Some("Q"),
+        ),
         (
             "failed_query",
             b"\x12zzz\x15Q\r".as_slice(),
+            &["abcQ", "abc xyz"][..],
             3,
             Some("Qabc xyz"),
         ),
         (
             "no_following_key",
             b"\x12abc xyz\x15\r".as_slice(),
+            &["abcQ", "abc xyz"][..],
             1,
             Some("abc xyz"),
         ),
         (
             "after_nul_freeze",
             b"\x12abc xyz\x00\x15Q\r".as_slice(),
+            &["abcQ", "abc xyz"][..],
             1,
             Some("Qabc xyz"),
         ),
+        (
+            "matching_query_after_prefix",
+            b"\x12cd\x15Q\r".as_slice(),
+            &["abcdef"][..],
+            0,
+            Some("Qcdef"),
+        ),
+        (
+            "matching_query_after_prefix_no_follow",
+            b"\x12cd\x15\r".as_slice(),
+            &["abcdef"][..],
+            0,
+            Some("cdef"),
+        ),
+        (
+            "prefix_before_space",
+            b"\x12abc\x15Q\r".as_slice(),
+            &["xxabc yy"][..],
+            0,
+            Some("Qabc yy"),
+        ),
+        (
+            "match_at_start_kills_nothing",
+            b"\x12ab\x15\r".as_slice(),
+            &["abcdef"][..],
+            1,
+            Some("abcdef"),
+        ),
     ] {
-        let history = &["abcQ", "abc xyz"][..];
         for (editor, output) in [
             (
                 "Bash",

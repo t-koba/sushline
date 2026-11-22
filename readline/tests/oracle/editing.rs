@@ -22,6 +22,32 @@ fn assert_screen_row(editor: &str, output: &str, expected: &str) {
     );
 }
 
+/// Prompt-only named-command fixtures stop when the expected row is rendered,
+/// instead of waiting for an accept line that these cases never send.
+fn named_query_outputs(
+    keys: &[u8],
+    inputrc: &str,
+    history: &[&str],
+    row: &str,
+) -> [(&'static str, String); 2] {
+    let size = portable_pty::PtySize {
+        rows: 24,
+        cols: 80,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    [
+        (
+            "Bash",
+            run_bash_readline_inputrc_until_screen_row(keys, inputrc, history, size, row),
+        ),
+        (
+            "Sushline",
+            run_sushline_harness_until_screen_row(keys, inputrc, history, size, row),
+        ),
+    ]
+}
+
 /// Run one byte-oriented editing case on both editors and require each ASCII-hex
 /// acceptance marker to equal the exact hex of `expected`, plus the pinned
 /// bell count. Comparing lossy strings would hide invalid raw bytes behind
@@ -15203,10 +15229,8 @@ fn bash_readline_and_sushline_keep_escape_in_named_command_query() {
         (b"\x0f\x1b5abc".as_slice(), "SUSHLINE_READY>!^[5abc"),
         (b"\x0f\x1b\x1babc".as_slice(), "SUSHLINE_READY>!^[^[abc"),
     ] {
-        let bash = run_bash_readline_with_bindings(keys, inputrc);
-        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
-        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
-            assert_screen_row(editor, output, row);
+        for (editor, output) in named_query_outputs(keys, inputrc, &[], row) {
+            assert_screen_row(editor, &output, row);
         }
     }
 }
@@ -15224,10 +15248,8 @@ fn bash_readline_and_sushline_echo_named_command_control_bytes() {
         keys.extend_from_slice(controls);
         keys.extend_from_slice(b"abc");
         let row = format!("SUSHLINE_READY>!{caret}abc");
-        let bash = run_bash_readline_with_bindings(&keys, inputrc);
-        let sushline = run_sushline_harness_with_inputrc(&keys, inputrc);
-        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
-            assert_screen_row(editor, output, &row);
+        for (editor, output) in named_query_outputs(&keys, inputrc, &[], &row) {
+            assert_screen_row(editor, &output, &row);
         }
     }
 }
@@ -15250,12 +15272,10 @@ fn bash_readline_and_sushline_clear_named_command_query_with_ctrl_u() {
         (b"\x0f\x17".as_slice(), "SUSHLINE_READY>!", 1),
         (b"\x0fabc-def\x17XYZ".as_slice(), "SUSHLINE_READY>!XYZ", 0),
     ] {
-        let bash = run_bash_readline_with_bindings(keys, inputrc);
-        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
-        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
-            assert_screen_row(editor, output, row);
+        for (editor, output) in named_query_outputs(keys, inputrc, &[], row) {
+            assert_screen_row(editor, &output, row);
             assert_eq!(
-                bell_count(output),
+                bell_count(&output),
                 bells,
                 "{editor} keys={keys:?}: {output:?}"
             );
@@ -15294,11 +15314,9 @@ fn bash_readline_and_sushline_echo_quoted_control_bytes_in_named_query() {
         keys.extend_from_slice(b"\x0f\x16");
         keys.extend_from_slice(quoted);
         keys.extend_from_slice(b"abc");
-        let bash = run_bash_readline_with_bindings(&keys, inputrc);
-        let sushline = run_sushline_harness_with_inputrc(&keys, inputrc);
-        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
-            assert_screen_row(editor, output, row);
-            assert_eq!(bell_count(output), 0, "{editor} keys={keys:?}: {output:?}");
+        for (editor, output) in named_query_outputs(&keys, inputrc, &[], row) {
+            assert_screen_row(editor, &output, row);
+            assert_eq!(bell_count(&output), 0, "{editor} keys={keys:?}: {output:?}");
         }
     }
 }
@@ -15311,11 +15329,8 @@ fn bash_readline_and_sushline_show_named_command_query_in_prompt() {
         b"\x1b5\x0fabc".as_slice(),
         b"xyz\x0fabc".as_slice(),
     ] {
-        let bash = run_bash_readline_with_bindings(keys, inputrc);
-        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
-
-        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
-            assert_screen_row(editor, output, "SUSHLINE_READY>!abc");
+        for (editor, output) in named_query_outputs(keys, inputrc, &[], "SUSHLINE_READY>!abc") {
+            assert_screen_row(editor, &output, "SUSHLINE_READY>!abc");
         }
     }
 }
@@ -15344,11 +15359,11 @@ fn bash_readline_and_sushline_keep_named_command_query_on_one_row() {
         for (editor, output) in [
             (
                 "Bash",
-                run_bash_readline_inputrc_until_screen_row(keys, inputrc, size, row),
+                run_bash_readline_inputrc_until_screen_row(keys, inputrc, &[], size, row),
             ),
             (
                 "Sushline",
-                run_sushline_harness_until_screen_row(keys, inputrc, size, row),
+                run_sushline_harness_until_screen_row(keys, inputrc, &[], size, row),
             ),
         ] {
             let mut screen = Screen::new(24, 24);
@@ -15377,29 +15392,34 @@ fn bash_readline_and_sushline_keep_named_command_decorations() {
         "\"\\C-o\": execute-named-command\n"
     );
     let keys = b"\x1b[AX\x0fabc";
-    let bash = run_bash_readline_with_inputrc_file_and_history(keys, inputrc, &["abcdef"]);
-    let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &["abcdef"]);
-
-    for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
-        assert_screen_row(editor, output, "*SUSHLINE_READY>!abc");
+    for (editor, output) in named_query_outputs(keys, inputrc, &["abcdef"], "*SUSHLINE_READY>!abc")
+    {
+        assert_screen_row(editor, &output, "*SUSHLINE_READY>!abc");
     }
 }
 
 #[test]
 fn bash_readline_and_sushline_keep_multibyte_named_command_query() {
     let inputrc = r#""\C-o": execute-named-command"#;
-    for (keys, expected) in [
-        (b"\x0f\xe2\x80\x8bab".as_slice(), "!\u{200b}ab"),
-        (b"\x0f\xe2\x80\x8b\x7fc".as_slice(), "!c"),
+    for (keys, expected, row) in [
+        (
+            b"\x0f\xe2\x80\x8bab".as_slice(),
+            "!\u{200b}ab",
+            "SUSHLINE_READY>!\u{200b}ab",
+        ),
+        (
+            b"\x0f\xe2\x80\x8b\x7fc".as_slice(),
+            "!c",
+            "SUSHLINE_READY>!c",
+        ),
     ] {
-        let bash = run_bash_readline_with_bindings(keys, inputrc);
-        let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
-
-        assert!(bash.contains(expected), "keys={keys:?} Bash: {bash}");
-        assert!(
-            sushline.contains(expected),
-            "keys={keys:?} Sushline: {sushline}"
-        );
+        for (editor, output) in named_query_outputs(keys, inputrc, &[], row) {
+            assert!(
+                output.contains(expected),
+                "keys={keys:?} {editor}: {output}"
+            );
+            assert_screen_row(editor, &output, row);
+        }
     }
 }
 

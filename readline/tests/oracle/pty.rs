@@ -523,12 +523,22 @@ pub(super) fn run_bash_readline_with_inputrc_file_and_env_and_size(
 pub(super) fn run_bash_readline_inputrc_until_screen_row(
     keys: &[u8],
     inputrc: &str,
+    history: &[&str],
     size: PtySize,
     row: &str,
 ) -> String {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("inputrc");
     fs::write(&path, inputrc).expect("write inputrc");
+    let history_commands = if history.is_empty() {
+        ":".to_string()
+    } else {
+        history
+            .iter()
+            .map(|entry| format!("history -s {}", shell_single_quote(entry)))
+            .collect::<Vec<_>>()
+            .join("; ")
+    };
     let mut command = CommandBuilder::new("bash");
     command.env("INPUTRC", path.to_string_lossy().as_ref());
     command.args([
@@ -537,7 +547,7 @@ pub(super) fn run_bash_readline_inputrc_until_screen_row(
         "-i",
         "-c",
         &format!(
-            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; {history_commands}; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
         ),
     ]);
     lossy_output(&run_pty_until_screen_row_raw(command, keys, size, row))
@@ -546,13 +556,14 @@ pub(super) fn run_bash_readline_inputrc_until_screen_row(
 pub(super) fn run_sushline_harness_until_screen_row(
     keys: &[u8],
     inputrc: &str,
+    history: &[&str],
     size: PtySize,
     row: &str,
 ) -> String {
     let mut command = sushline_harness_command();
     command.env("SUSHLINE_INPUTRC", inputrc);
     command.env("SUSHLINE_PROMPT", READY_PROMPT);
-    command.env("SUSHLINE_HISTORY", "");
+    command.env("SUSHLINE_HISTORY", history.join("\n"));
     lossy_output(&run_pty_until_screen_row_raw(command, keys, size, row))
 }
 
@@ -569,6 +580,7 @@ fn run_pty_until_screen_row_raw(
     let deadline = Instant::now() + PTY_HANG_BOUND;
     let mut out = Vec::new();
     let mut sent_keys = false;
+    let mut row_seen = false;
     while Instant::now() < deadline {
         match session.read(Duration::from_millis(20)) {
             PtyOutput::Chunk(chunk) => {
@@ -578,9 +590,12 @@ fn run_pty_until_screen_row_raw(
                     sent_keys = true;
                 }
                 if screen_shows_row_at_size(&out, row, size) {
-                    break;
+                    row_seen = true;
                 }
             }
+            // A bell can follow the redraw that establishes the row; stop only
+            // once the output has been quiet, without waiting for accept-line.
+            PtyOutput::Timeout if row_seen => break,
             PtyOutput::Timeout => {}
             PtyOutput::Closed => break,
         }

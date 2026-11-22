@@ -6,7 +6,9 @@
 
 pub(crate) mod horizontal;
 
-use crate::buffer::{RenderOptions, bytes_lossless, rendered_string_to_bytes};
+use crate::buffer::{
+    RenderOptions, SEARCH_TAB_CORRECTION, bytes_lossless, rendered_string_to_bytes,
+};
 use crate::editor::{Editor, ReadlineError};
 use crate::keymap::KeyMapName;
 use crate::prompt::Prompt;
@@ -121,8 +123,8 @@ where
     }
 
     fn horizontal_prompt(&self, state: &EditorState) -> horizontal::DisplayLine {
-        if let Some((prompt, _)) = active_search_prompt(state) {
-            return Prompt::marked_text(prompt).horizontal_line();
+        if let Some((prompt, extra)) = active_search_prompt(state) {
+            return horizontal_search_prompt_line(&prompt, extra);
         }
         if let Some(indicator) = numeric_arg_indicator(state) {
             // The indicator takes the place of the whole prompt.
@@ -181,7 +183,8 @@ where
                 // named-command prefix, instead of wrapping it: the original
                 // buffer is not part of this line, so start a fresh viewport
                 // and put the point at the end of the composed query.
-                let mut line = Prompt::marked_text(&prompt).horizontal_line();
+                let mut line =
+                    horizontal_search_prompt_line(&prompt, prompt_width - last_line_width(&prompt));
                 line.scroll_all_as_buffer();
                 if state
                     .input
@@ -449,6 +452,22 @@ fn normalize_terminal_size(size: TerminalSize) -> TerminalSize {
         columns: if size.columns == 0 { 80 } else { size.columns },
         rows: if size.rows == 0 { 24 } else { size.rows },
     }
+}
+
+/// Build the horizontal line for a search prompt.
+///
+/// The raw TAB and CSI-C moves are terminal instructions: they must be
+/// emitted verbatim, but their logical width is the physical column advance
+/// returned by the renderer. Marking the moves hidden keeps the horizontal
+/// line from counting each CSI byte as a visible cell.
+fn horizontal_search_prompt_line(prompt: &str, extra: usize) -> horizontal::DisplayLine {
+    let marked = prompt.replace(
+        SEARCH_TAB_CORRECTION,
+        &format!("\x01{SEARCH_TAB_CORRECTION}\x02"),
+    );
+    let mut line = Prompt::marked_text(marked).horizontal_line();
+    line.push_hidden_width(extra);
+    line
 }
 
 fn active_search_prompt(state: &EditorState) -> Option<(String, usize)> {

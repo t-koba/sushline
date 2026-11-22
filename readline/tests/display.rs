@@ -560,3 +560,16 @@ fn a_private_use_character_in_the_prompt_and_the_line_is_written_as_itself() {
     assert!(out.contains("\u{e0b0}> "), "out: {out:?}");
     assert!(out.contains('\u{e0ff}'), "out: {out:?}");
 }
+
+#[test]
+fn horizontal_search_prompt_counts_literal_tab_physical_width() {
+    let terminal =
+        MemoryTerminal::with_events(vec![TerminalEvent::Bytes(b"\x12a\x16\t\r\r".to_vec())]);
+    let mut line = Editor::new(Config::default(), terminal, History::new());
+    line.load_inputrc_str("set horizontal-scroll-mode on")
+        .unwrap();
+    let _ = line.read_line(Prompt::new(""), &mut ()).unwrap();
+    // The prompt and query occupy 38 cells; the synthetic CSI-C moves are
+    // physical corrections, not three logical columns each.
+    assert_eq!(line.terminal().moved_columns.last(), Some(&38));
+}

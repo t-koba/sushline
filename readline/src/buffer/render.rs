@@ -231,7 +231,7 @@ pub(crate) fn append_bytes_decoded_lossless(out: &mut String, bytes: &[u8]) {
 
 /// The cursor moves GNU Readline writes after a literal TAB in a search
 /// query, skipping the three cells of the query terminator it leaves drawn.
-const SEARCH_TAB_CORRECTION: &str = "\x1b[C\x1b[C\x1b[C";
+pub(crate) const SEARCH_TAB_CORRECTION: &str = "\x1b[C\x1b[C\x1b[C";
 const SEARCH_TAB_CORRECTIONS: usize = 3;
 
 /// Render raw query bytes for a search prompt.

@@ -3,6 +3,7 @@ name = "sushline"
 version = "0.2.3"
 edition = "2024"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/t-koba/sushline"
 description = "Pure Rust Readline-style line editing and history for Sush"
 
 [workspace]

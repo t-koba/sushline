@@ -3,6 +3,7 @@ name = "sushline-history"
 version = "0.2.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/t-koba/sushline"
 description = "History library for sushline"
 
 [lib]

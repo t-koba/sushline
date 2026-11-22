@@ -353,9 +353,6 @@ where
     }
 }
 
-/// Build the GNU named-command prompt: the application prompt stays and
-/// `!query` is appended to it. Mode indicators are suppressed while the
-/// query is active, like GNU's show-mode-in-prompt redraw.
 /// The modified-line marker GNU prepends when `mark-modified-lines` is on.
 /// Ordinary and named-command prompts share this rule so their decorations
 /// cannot drift apart.
@@ -367,6 +364,9 @@ fn modified_prompt_mark(state: &EditorState, mark_modified: bool) -> &'static st
     }
 }
 
+/// Build the GNU named-command prompt: the application prompt stays and
+/// `!query` is appended to it. Mode indicators are suppressed while the
+/// query is active, like GNU's show-mode-in-prompt redraw.
 fn named_command_prompt(state: &EditorState, mark_modified: bool) -> Option<String> {
     let pending = state.input.named_command.as_ref()?;
     Some(format!(

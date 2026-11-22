@@ -151,6 +151,24 @@ impl DisplayLine {
         self.prompt_bytes = 0;
     }
 
+    /// Treat a composed prompt as the scrollable text itself, as GNU does
+    /// for the prompt-only named-command line in horizontal mode.
+    pub(crate) fn scroll_all_as_buffer(&mut self) {
+        for unit in &mut self.units {
+            if !unit.hidden && unit.width > 0 {
+                unit.bytes = unit.text.len();
+            }
+        }
+        self.point = self.width;
+        self.point_bytes = self
+            .units
+            .iter()
+            .filter(|unit| !unit.hidden)
+            .map(|unit| unit.text.len())
+            .sum();
+        self.prompt_bytes = 0;
+    }
+
     pub(crate) fn append(&mut self, other: Self) {
         if !other.prefix.is_empty() {
             self.finish_prompt_line(&other.prefix);

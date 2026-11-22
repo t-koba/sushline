@@ -176,6 +176,30 @@ where
         // Render prompt-only here so the original line stays hidden until
         // execute/abort.
         if state.search.non_incremental_search.is_some() || state.input.named_command.is_some() {
+            if self.flag(BoolVariable::HorizontalScrollMode) {
+                // GNU scrolls the whole prompt-only line, including the
+                // named-command prefix, instead of wrapping it: the original
+                // buffer is not part of this line, so start a fresh viewport
+                // and put the point at the end of the composed query.
+                let mut line = Prompt::marked_text(&prompt).horizontal_line();
+                line.scroll_all_as_buffer();
+                if state
+                    .input
+                    .named_command
+                    .as_ref()
+                    .is_some_and(|pending| pending.query.is_empty())
+                {
+                    state.display.horizontal = horizontal::HorizontalViewport::default();
+                }
+                let (output, column) = state.display.horizontal.layout(&line, columns);
+                self.terminal
+                    .write_bytes(&rendered_string_to_bytes(&output))?;
+                self.terminal.clear_after_cursor()?;
+                state.display.rendered_rows = rendered_rows_for_output(&output, columns);
+                state.display.rendered_cursor_row = state.display.rendered_rows;
+                self.terminal.move_to_column(column as u16)?;
+                return self.terminal.flush();
+            }
             self.terminal
                 .write_bytes(&rendered_string_to_bytes(&prompt))?;
             self.terminal.clear_after_cursor()?;

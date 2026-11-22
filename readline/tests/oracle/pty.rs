@@ -518,6 +518,77 @@ pub(super) fn run_bash_readline_with_inputrc_file_and_env_and_size(
     run_pty_with_size(command, keys, size)
 }
 
+/// Run a prompt-only fixture until the requested rendered row appears, with
+/// no Enter that would replace the redraw evidence.
+pub(super) fn run_bash_readline_inputrc_until_screen_row(
+    keys: &[u8],
+    inputrc: &str,
+    size: PtySize,
+    row: &str,
+) -> String {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    fs::write(&path, inputrc).expect("write inputrc");
+    let mut command = CommandBuilder::new("bash");
+    command.env("INPUTRC", path.to_string_lossy().as_ref());
+    command.args([
+        "--noprofile",
+        "--norc",
+        "-i",
+        "-c",
+        &format!(
+            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+        ),
+    ]);
+    lossy_output(&run_pty_until_screen_row_raw(command, keys, size, row))
+}
+
+pub(super) fn run_sushline_harness_until_screen_row(
+    keys: &[u8],
+    inputrc: &str,
+    size: PtySize,
+    row: &str,
+) -> String {
+    let mut command = sushline_harness_command();
+    command.env("SUSHLINE_INPUTRC", inputrc);
+    command.env("SUSHLINE_PROMPT", READY_PROMPT);
+    command.env("SUSHLINE_HISTORY", "");
+    lossy_output(&run_pty_until_screen_row_raw(command, keys, size, row))
+}
+
+fn run_pty_until_screen_row_raw(
+    mut command: CommandBuilder,
+    keys: &[u8],
+    size: PtySize,
+    row: &str,
+) -> Vec<u8> {
+    require_oracle_host();
+    command.env("TERM", "xterm-256color");
+    command.cwd("/");
+    let mut session = PtySession::spawn(command, size);
+    let deadline = Instant::now() + PTY_HANG_BOUND;
+    let mut out = Vec::new();
+    let mut sent_keys = false;
+    while Instant::now() < deadline {
+        match session.read(Duration::from_millis(20)) {
+            PtyOutput::Chunk(chunk) => {
+                out.extend_from_slice(&chunk);
+                if !sent_keys && find_bytes(&out, READY_PROMPT.as_bytes()).is_some() {
+                    session.write(keys);
+                    sent_keys = true;
+                }
+                if screen_shows_row_at_size(&out, row, size) {
+                    break;
+                }
+            }
+            PtyOutput::Timeout => {}
+            PtyOutput::Closed => break,
+        }
+    }
+    session.finish();
+    out
+}
+
 pub(super) fn run_bash_readline_with_inputrc_file_and_env_in_dir(
     keys: &[u8],
     inputrc: &str,
@@ -1791,7 +1862,20 @@ fn take_pty_step<'a>(
 }
 
 fn screen_shows_row(output: &[u8], row_marker: &str) -> bool {
-    let mut screen = super::screen::Screen::new(24, 80);
+    screen_shows_row_at_size(
+        output,
+        row_marker,
+        PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        },
+    )
+}
+
+fn screen_shows_row_at_size(output: &[u8], row_marker: &str, size: PtySize) -> bool {
+    let mut screen = super::screen::Screen::new(size.rows as usize, size.cols as usize);
     screen.feed(output);
     screen.rows_text().iter().any(|row| row == row_marker)
 }

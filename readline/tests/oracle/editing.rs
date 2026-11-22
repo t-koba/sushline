@@ -15320,22 +15320,51 @@ fn bash_readline_and_sushline_show_named_command_query_in_prompt() {
     }
 }
 
+/// In horizontal-scroll mode the named-command query is one scrolled row:
+/// a short query stays after the prompt, and a long one scrolls the prompt
+/// out of view, leaving the same tail in both editors.
 #[test]
-fn horizontal_named_command_prompt_shows_query() {
+fn bash_readline_and_sushline_keep_named_command_query_on_one_row() {
+    use portable_pty::PtySize;
+    let size = PtySize {
+        rows: 24,
+        cols: 24,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
     let inputrc = "set horizontal-scroll-mode on\n\"\\C-o\": execute-named-command\n";
-    let output = run_sushline_harness_with_inputrc_and_env_raw(
-        b"\x0fabc",
-        inputrc,
-        &[("LC_ALL", "C.UTF-8")],
-    );
-
-    let expected = b"SUSHLINE_READY>!abc\x1b[K";
-    assert!(
-        output
-            .windows(expected.len())
-            .any(|window| window == expected),
-        "prompt query missing: {output:?}"
-    );
+    for (label, keys, row) in [
+        ("short", b"\x0fabc".as_slice(), "SUSHLINE_READY>!abc"),
+        (
+            "long",
+            b"\x0fabcdefghijklmnopqrstuvwxyzabcdefgh".as_slice(),
+            "<rstuvwxyzabcdefgh",
+        ),
+    ] {
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_inputrc_until_screen_row(keys, inputrc, size, row),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_until_screen_row(keys, inputrc, size, row),
+            ),
+        ] {
+            let mut screen = Screen::new(24, 24);
+            screen.feed(output.as_bytes());
+            let rows: Vec<_> = screen
+                .rows_text()
+                .into_iter()
+                .filter(|text| !text.is_empty())
+                .collect();
+            assert_eq!(
+                rows,
+                vec![row.to_string()],
+                "{label} {editor} keys={keys:?}: {output:?}"
+            );
+        }
+    }
 }
 
 #[test]

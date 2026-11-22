@@ -16437,3 +16437,47 @@ fn bash_readline_and_sushline_apply_arrow_keys_after_search_nul_freeze() {
         }
     }
 }
+
+/// After an unquoted NUL freezes an incremental search, GNU ends the search
+/// and applies the measured editing, history, completion and display keys to
+/// the established match line. Other measured query-editing control bytes
+/// keep the frozen query and ring once for a successful freeze. This fixture
+/// pins only these codes.
+#[test]
+fn bash_readline_and_sushline_apply_control_commands_after_search_nul_freeze() {
+    require_oracle_host();
+    for (name, control, bells, accepted) in [
+        ("delete_char", 0x04u8, 0, Some("Xbc")),
+        ("complete", 0x09, 1, Some("Xabc")),
+        ("kill_line", 0x0b, 0, Some("X")),
+        ("clear_screen", 0x0c, 0, Some("Xabc")),
+        ("next_history", 0x0e, 0, Some("abdX")),
+        ("previous_history", 0x10, 1, Some("Xabc")),
+        ("transpose_chars", 0x14, 1, Some("Xabc")),
+        ("unbound_caret", 0x1e, 1, Some("Xabc")),
+        ("undo", 0x1f, 1, Some("Xabc")),
+        ("backspace", 0x08, 1, Some("abc")),
+        ("unix_word_rubout", 0x17, 1, Some("abc")),
+        ("ctrl_x_prefix", 0x18, 1, Some("abc")),
+        ("yank", 0x19, 1, Some("abc")),
+        ("char_search_prefix", 0x1d, 1, Some("abc")),
+        ("delete_backward", 0x7f, 1, Some("abc")),
+    ] {
+        let mut keys = b"\x12abc\x00".to_vec();
+        keys.extend_from_slice(&[control, b'X', b'\r', b'\r']);
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(&keys, "", &["abc", "abd"]),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(&keys, "", &["abc", "abd"]),
+            ),
+        ] {
+            let context = format!("{name} {editor} keys={keys:?}: {output:?}");
+            assert_eq!(bell_count(&output), bells, "{context}");
+            assert_eq!(accepted_line(&output).as_deref(), accepted, "{context}");
+        }
+    }
+}

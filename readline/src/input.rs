@@ -1577,9 +1577,12 @@ where
         // query-editing input is ignored, whether printable, quoted or
         // control. Accept, abort, Ctrl-C, Ctrl-U and configured isearch
         // terminators keep their normal paths. The measured cursor commands
-        // instead leave the search and run on the established line. C-r
-        // rings once; control bytes and repeated NUL are silent; printable
-        // and quoted literal bytes ring once only for a failed freeze.
+        // instead leave the search and run on the established line. The
+        // measured editing, history, completion and display keys listed
+        // below also leave the search. C-r and the measured query-editing
+        // control prefixes ring once while staying frozen; other controls
+        // and repeated NUL are silent, and printable or quoted literal bytes
+        // ring once only for a failed freeze.
         let nul_frozen = state
             .search
             .reverse_search
@@ -1592,8 +1595,22 @@ where
             // GNU applies the bound cursor commands after the freeze, with
             // point where the search left it. Only the measured keys are
             // routed here; unmeasured controls keep the frozen behavior.
-            if matches!(bytes, [0x01] | [0x02] | [0x05] | [0x06])
-                && let Some(binding) = self.keymap.lookup(self.keymap.current(), bytes).cloned()
+            if matches!(
+                bytes,
+                [0x01]
+                    | [0x02]
+                    | [0x04]
+                    | [0x05]
+                    | [0x06]
+                    | [0x09]
+                    | [0x0b]
+                    | [0x0c]
+                    | [0x0e]
+                    | [0x10]
+                    | [0x14]
+                    | [0x1e]
+                    | [0x1f]
+            ) && let Some(binding) = self.keymap.lookup(self.keymap.current(), bytes).cloned()
             {
                 let search = state
                     .search
@@ -1608,7 +1625,29 @@ where
                 .reverse_search
                 .as_ref()
                 .is_some_and(|search| search.nul_failed);
-            if bytes == [0x12] || (failed && !bytes.iter().all(u8::is_ascii_control)) {
+            // GNU rings once for each of these frozen query-editing control
+            // bytes unless the NUL freeze itself already failed and rang. C-r
+            // rings in either case.
+            if matches!(bytes, [0x08] | [0x17] | [0x18] | [0x19] | [0x1d] | [0x7f]) {
+                if !failed {
+                    self.ding()?;
+                }
+                return Ok(EditorOutcome::Continue);
+            }
+            if bytes == [0x12] {
+                self.ding()?;
+                return Ok(EditorOutcome::Continue);
+            }
+            // C-^ has no default binding, yet GNU ends the frozen search and
+            // rings; the following bytes then edit the established line.
+            if bytes == [0x1e]
+                && let Some(search) = state.search.reverse_search.take()
+            {
+                self.restore_isearch_line_for_editing(state, &search, true);
+                self.ding()?;
+                return Ok(EditorOutcome::Continue);
+            }
+            if failed && !bytes.iter().all(u8::is_ascii_control) {
                 self.ding()?;
             }
             return Ok(EditorOutcome::Continue);

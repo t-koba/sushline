@@ -1,5 +1,4 @@
 use crate::buffer::LineBuffer;
-use crate::command::CharSearchBehavior;
 use crate::editor::{Editor, EditorOutcome, ReadlineError, ReadlineResult};
 use crate::hooks::Hooks;
 use crate::keymap::{EditCommand, KeyBinding, KeyMapName};
@@ -229,9 +228,9 @@ where
                 continue;
             }
             // GNU's C-] character search runs on the established match line
-            // when a NUL-frozen search is followed by its target byte.
+            // when a NUL-frozen search ends. The ordinary pending-character
+            // path decodes the target, including multibyte and split reads.
             if remaining.first() == Some(&0x1d)
-                && remaining.len() >= 2
                 && state
                     .search
                     .reverse_search
@@ -240,19 +239,10 @@ where
                 && let Some(search) = state.search.reverse_search.take()
             {
                 self.restore_isearch_line_for_editing(state, &search, true);
-                let bytewise = self.variables.is_on("byte-oriented");
-                self.apply_char_search(
-                    state,
-                    CharSearchMode::Forward,
-                    remaining[1] as char,
-                    1,
-                    bytewise,
-                    CharSearchBehavior {
-                        repeat: false,
-                        keep_partial: false,
-                    },
-                )?;
-                rest = &remaining[2..];
+                rest = &remaining[1..];
+                state.vi.pending_char_search = Some(CharSearchMode::Forward);
+                state.vi.pending_char_search_count = Some(1);
+                state.vi.pending_char_search_operator = None;
                 self.render(state)?;
                 drawn = true;
                 continue;

@@ -16521,3 +16521,51 @@ fn bash_readline_and_sushline_apply_control_prefixes_after_search_nul_freeze() {
         }
     }
 }
+
+/// Multibyte C-] targets must be decoded as one character; continuation bytes
+/// must not leak into the established match line or the accepted input.
+#[test]
+fn bash_readline_and_sushline_decode_multibyte_char_search_after_search_nul_freeze() {
+    require_oracle_host();
+    for (name, target, history, bells, accepted) in [
+        (
+            "ascii_miss",
+            "b".as_bytes(),
+            &["abc", "abd"][..],
+            1,
+            Some("aYbd"),
+        ),
+        (
+            "e_acute_miss",
+            "é".as_bytes(),
+            &["aéb", "abd"][..],
+            2,
+            Some("Yabd"),
+        ),
+        (
+            "euro_miss",
+            "€".as_bytes(),
+            &["a€b", "abd"][..],
+            2,
+            Some("Yabd"),
+        ),
+    ] {
+        let mut keys = b"\x12a\x00\x1d".to_vec();
+        keys.extend_from_slice(target);
+        keys.extend_from_slice(b"Y\r\r");
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(&keys, "", history),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(&keys, "", history),
+            ),
+        ] {
+            let context = format!("{name} {editor} keys={keys:?}: {output:?}");
+            assert_eq!(bell_count(&output), bells, "{context}");
+            assert_eq!(accepted_line(&output).as_deref(), accepted, "{context}");
+        }
+    }
+}

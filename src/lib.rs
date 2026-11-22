@@ -1,4 +1,14 @@
 //! Facade crate for sushline's line-editing and history components.
+//!
+//! The main embedding example is compiled here; it is not run because it
+//! needs a live terminal:
+//!
+//! ```no_run
+//! use sushline::readline::{Config, Editor, History, Prompt, Terminal};
+//!
+//! let mut editor = Editor::new(Config::default(), Terminal::new(), History::new());
+//! let _ = editor.read_line(Prompt::new("> "), &mut ());
+//! ```
 #![warn(missing_docs)]
 
 /// Thin alias for the history crate.

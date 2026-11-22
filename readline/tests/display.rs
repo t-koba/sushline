@@ -3,6 +3,14 @@ mod common;
 use common::MemoryTerminal;
 use readline::{Config, Editor, History, Prompt, ReadlineResult, TerminalEvent, TerminalSize};
 
+fn output_through_last_newline(out: &str) -> &str {
+    let end = out
+        .rfind("\r\n")
+        .expect("rendered output ends with a newline")
+        + 2;
+    &out[..end]
+}
+
 #[test]
 fn mark_modified_lines_adds_prompt_marker_for_changed_history_line() {
     let mut history = History::new();
@@ -90,8 +98,7 @@ fn horizontal_scroll_mode_matches_bytewise_ascii_prompt_checkpoint() {
         ReadlineResult::Line(vec![b'a'; 90])
     );
     assert!(
-        line.terminal()
-            .out
+        output_through_last_newline(&line.terminal().out)
             .ends_with(&format!("<{}\r\n", "a".repeat(52)))
     );
     assert_eq!(line.terminal().moved_columns.last(), Some(&53));
@@ -174,8 +181,7 @@ fn horizontal_scroll_mode_keeps_long_line_history_below_activation_edge() {
         );
     }
     assert!(
-        line.terminal()
-            .out
+        output_through_last_newline(&line.terminal().out)
             .ends_with(&format!("P>{}>\r\n", &text[..76]))
     );
 }

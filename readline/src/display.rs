@@ -312,16 +312,25 @@ where
         state: &mut EditorState,
         text: &str,
     ) -> io::Result<()> {
+        self.write_diagnostic_bytes_below_rendered_line(state, text.as_bytes())
+    }
+
+    pub(crate) fn write_diagnostic_bytes_below_rendered_line(
+        &mut self,
+        state: &mut EditorState,
+        bytes: &[u8],
+    ) -> io::Result<()> {
         let on_terminal = self.terminal.diagnostics_use_terminal();
         if on_terminal {
             self.move_below_rendered_line(state)?;
         }
-        self.terminal.write_diagnostic(text)?;
-        self.terminal.write_diagnostic("\n")?;
+        self.terminal.write_diagnostic_bytes(bytes)?;
+        self.terminal.write_diagnostic_bytes(b"\n")?;
         if on_terminal {
             // The message reached the terminal's screen, so its rows moved
-            // the cursor the display model tracks.
-            self.note_tracked_output(state, text);
+            // the cursor the display model tracks. Only cursor accounting
+            // needs a text view; the diagnostic itself keeps its exact bytes.
+            self.note_tracked_output(state, &String::from_utf8_lossy(bytes));
             state.display.rendered_cursor_row = state.display.rendered_cursor_row.saturating_add(1);
         }
         Ok(())

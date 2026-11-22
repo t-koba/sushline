@@ -8,6 +8,7 @@ use readline::{TerminalEvent, TerminalIo, TerminalSize};
 pub struct MemoryTerminal {
     events: VecDeque<TerminalEvent>,
     pub out: String,
+    pub diagnostic_bytes: Vec<u8>,
     pub columns: u16,
     pub rows: u16,
     pub tty_special: Vec<(u8, &'static str)>,
@@ -23,6 +24,7 @@ impl MemoryTerminal {
         Self {
             events: events.into(),
             out: String::new(),
+            diagnostic_bytes: Vec::new(),
             columns: 80,
             rows: 24,
             tty_special: Vec::new(),
@@ -56,6 +58,11 @@ impl TerminalIo for MemoryTerminal {
     fn write_bytes(&mut self, bytes: &[u8]) -> io::Result<()> {
         self.out.push_str(&String::from_utf8_lossy(bytes));
         Ok(())
+    }
+
+    fn write_diagnostic_bytes(&mut self, bytes: &[u8]) -> io::Result<()> {
+        self.diagnostic_bytes.extend_from_slice(bytes);
+        self.write_diagnostic(&String::from_utf8_lossy(bytes))
     }
 
     fn flush(&mut self) -> io::Result<()> {

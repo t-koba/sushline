@@ -828,8 +828,7 @@ where
             Ok(expanded) if expanded.status == HistoryExpansionStatus::PrintOnly => {
                 // The print-only result is not error text, but GNU writes it
                 // to standard error as well, so it takes the same sink.
-                let result = String::from_utf8_lossy(&expanded.line);
-                self.report_history_expansion_message(state, &result)?;
+                self.report_history_expansion_bytes(state, &expanded.line)?;
                 state.after_non_kill_command();
                 Ok(None)
             }
@@ -852,7 +851,15 @@ where
         state: &mut EditorState,
         message: &str,
     ) -> Result<(), ReadlineError> {
-        self.write_diagnostic_below_rendered_line(state, message)?;
+        self.report_history_expansion_bytes(state, message.as_bytes())
+    }
+
+    pub(crate) fn report_history_expansion_bytes(
+        &mut self,
+        state: &mut EditorState,
+        bytes: &[u8],
+    ) -> Result<(), ReadlineError> {
+        self.write_diagnostic_bytes_below_rendered_line(state, bytes)?;
         self.terminal.flush()?;
         Ok(())
     }

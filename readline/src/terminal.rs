@@ -138,6 +138,15 @@ pub trait TerminalIo {
     fn write_diagnostic(&mut self, text: &str) -> io::Result<()> {
         self.write(text)
     }
+    /// Writes diagnostic bytes without changing them, even when they are not
+    /// valid UTF-8.
+    ///
+    /// The default delegates to [`Self::write_diagnostic`] with a lossy UTF-8
+    /// view, so custom backends may keep their text-only behavior. The
+    /// built-in [`Terminal`] writes the bytes unchanged to the same sink.
+    fn write_diagnostic_bytes(&mut self, bytes: &[u8]) -> io::Result<()> {
+        self.write_diagnostic(&String::from_utf8_lossy(bytes))
+    }
     /// Reports whether the diagnostic sink writes to the terminal's own
     /// screen.
     ///
@@ -523,12 +532,21 @@ impl TerminalIo for Terminal {
     }
 
     fn write_diagnostic(&mut self, text: &str) -> io::Result<()> {
+        self.write_diagnostic_bytes(text.as_bytes())
+    }
+
+    fn write_diagnostic_bytes(&mut self, bytes: &[u8]) -> io::Result<()> {
         #[cfg(windows)]
         if windows::is_console(windows::stderr()) {
+            // A console renders UTF-16, so arbitrary bytes cannot be shown.
+            let text = match std::str::from_utf8(bytes) {
+                Ok(text) => text.into(),
+                Err(_) => String::from_utf8_lossy(bytes).into_owned(),
+            };
             return windows::write(windows::stderr(), text.as_bytes());
         }
         let mut stderr = io::stderr().lock();
-        stderr.write_all(text.as_bytes())?;
+        stderr.write_all(bytes)?;
         stderr.flush()
     }
 

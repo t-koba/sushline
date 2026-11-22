@@ -156,6 +156,24 @@ fn history_expansion_print_only_status_is_observable() {
 }
 
 #[test]
+fn print_only_history_expansion_preserves_invalid_utf8_bytes() {
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(b"!!:p".to_vec()),
+        TerminalEvent::Bytes(vec![0x0f]),
+        TerminalEvent::Bytes(b"\r".to_vec()),
+    ]);
+    let mut history = History::new();
+    history.push_bytes(b"echo \xff tail".to_vec());
+    let mut line = Editor::new(Config::default(), terminal, history);
+    line.load_inputrc_str("\"\\C-o\": history-expand-line")
+        .unwrap();
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+
+    assert_eq!(result, ReadlineResult::Line(b"!!:p".to_vec()));
+    assert_eq!(line.terminal().diagnostic_bytes, b"echo \xff tail\n");
+}
+
+#[test]
 fn history_expansion_hook_can_return_print_only_status() {
     struct PrintOnlyHook;
 

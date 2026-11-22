@@ -1567,6 +1567,25 @@ where
                 state.after_non_kill_command();
                 EditorOutcome::Continue
             }
+            // In the incremental prompt GNU applies these kills to the query,
+            // not to the line already selected by the current match. Both
+            // ring once; a word rubout with no match rings again.
+            &[0x15] => {
+                search.query.clear();
+                state.search.reverse_search = Some(search);
+                self.ding()?;
+                EditorOutcome::Continue
+            }
+            &[0x17] => {
+                let no_match = search.match_line.is_none();
+                search.query.clear();
+                state.search.reverse_search = Some(search);
+                self.ding()?;
+                if no_match {
+                    self.ding()?;
+                }
+                EditorOutcome::Continue
+            }
             &[0x12] | &[0x13] => {
                 let direction = if bytes == [0x12] {
                     SearchDirection::Backward

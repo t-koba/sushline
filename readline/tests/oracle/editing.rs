@@ -15577,3 +15577,88 @@ fn bash_readline_and_sushline_keep_byte_oriented_named_query_text() {
         }
     }
 }
+
+/// Ctrl-U and Ctrl-W clear the incremental-search query, not the line already
+/// selected by the current match. The bell counts include the failed query
+/// extensions for a needle that never matches; a word rubout also rings once
+/// more when no match is active.
+#[test]
+fn bash_readline_and_sushline_apply_search_kills_to_query() {
+    if !host_carries_measured_release() {
+        eprintln!(
+            "Search kill keys were measured on Readline 8.3; this case reports nothing on other releases"
+        );
+        return;
+    }
+    for (name, keys, bells, accepted) in [
+        (
+            "ctrl_u_match",
+            b"abc
+
+"
+            .as_slice(),
+            1,
+            Some("abc"),
+        ),
+        (
+            "ctrl_u_no_match",
+            b"zzz
+
+"
+            .as_slice(),
+            4,
+            Some(""),
+        ),
+        (
+            "ctrl_u_empty",
+            b"
+
+"
+            .as_slice(),
+            1,
+            Some(""),
+        ),
+        (
+            "ctrl_w_match",
+            b"abc
+
+"
+            .as_slice(),
+            1,
+            Some("abc"),
+        ),
+        (
+            "ctrl_w_no_match",
+            b"zzz
+
+"
+            .as_slice(),
+            5,
+            Some(""),
+        ),
+        (
+            "ctrl_w_empty",
+            b"
+
+"
+            .as_slice(),
+            2,
+            Some(""),
+        ),
+    ] {
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(keys, "", &["alpha", "abc"]),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, "", &["alpha", "abc"]),
+            ),
+        ] {
+            let context = format!("{editor} {name} keys={keys:?}: {output:?}");
+            assert_eq!(bell_count(&output), bells, "{context}");
+            assert_eq!(accepted_line(&output).as_deref(), accepted, "{context}");
+        }
+    }
+}

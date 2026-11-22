@@ -6,6 +6,22 @@ shell runtime, builtin compatibility, and the C ABI are out of scope. Claims
 below are limited to the cited oracle tests and their asserted fixtures;
 test modules point to evidence, not complete feature coverage.
 
+### Deliberate robustness choices
+
+Where GNU's reaction to unusual input is an artifact of its implementation,
+Sushline chooses the robust behavior instead of cloning the artifact. These
+choices are product decisions, not oracle compatibility claims:
+
+- Full history writes are published by renaming a mode-`0600` temporary file;
+  a failed write leaves the original file intact. GNU's in-place update is not
+  reproduced as a durability or permission guarantee.
+- SIGINT redelivery is configurable before constructing the built-in terminal,
+  including an opt-out of fatal default-disposition redelivery.
+- Editor input keeps the bytes it read; multibyte key-sequence targets are
+  decoded as characters, so continuation bytes cannot leak into the line.
+- Oracle fixtures reject lossy U+FFFD substitutions rather than treating them
+  as an acceptable match for GNU output.
+
 ### Oracle identity
 
 The CI oracle host is GNU Bash 5.3 patch level 0, built from the pinned

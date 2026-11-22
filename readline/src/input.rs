@@ -9,6 +9,7 @@ use history::HistoryDirection;
 
 const BRACKETED_PASTE_START_SEQUENCE: &[u8] = b"\x1b[200~";
 const BRACKETED_PASTE_END_SEQUENCE: &[u8] = b"\x1b[201~";
+const NUL_FROZEN_KEY_SEQUENCE_MAX: usize = 8;
 
 // GNU Readline normalizes CR while collecting bracketed-paste input.
 fn normalize_bracketed_paste_carriage_returns(bytes: &mut [u8]) {
@@ -167,6 +168,9 @@ where
         let mut rest = bytes;
         let mut drawn = false;
         while !rest.is_empty() {
+            // The current byte together with everything still queued, for
+            // key sequences that must be dispatched as one binding.
+            let remaining = &bytes[bytes.len() - rest.len()..];
             let (byte, tail) = rest.split_at(1);
             rest = tail;
             if byte[0] == 0x03 && !state.input.quoted_insert && !state.paste.bracketed_paste {
@@ -192,6 +196,29 @@ where
             }
             state.input.applied_command = false;
             state.input.changed_display = false;
+            // A NUL-frozen search ignores further query bytes one at a time,
+            // which would leak the tail of an ESC-prefixed binding into the
+            // line as literal text. Restore the match line and run the whole
+            // bound command instead; lone ESC and other bindings stay on
+            // their existing paths.
+            if let Some((len, binding)) = self.nul_frozen_esc_command_binding(state, remaining) {
+                let search = state
+                    .search
+                    .reverse_search
+                    .take()
+                    .expect("NUL-frozen search state");
+                self.restore_isearch_line_for_editing(state, &search, true);
+                let outcome = self.apply_binding(state, binding, &remaining[..len], hooks)?;
+                rest = &remaining[len..];
+                if state.input.applied_command || state.input.changed_display {
+                    self.render(state)?;
+                    drawn = true;
+                }
+                if !matches!(outcome, EditorOutcome::Continue) {
+                    return Ok((outcome, rest.to_vec(), drawn));
+                }
+                continue;
+            }
             // An ESC that shares an input batch with following bytes starts
             // a key sequence in GNU Readline, so it ends the search as a
             // meta prefix rather than as an isearch terminator. Establish
@@ -240,6 +267,36 @@ where
             }
         }
         Ok((EditorOutcome::Continue, Vec::new(), drawn))
+    }
+
+    /// Longest complete ESC-prefixed command binding in `bytes` while an
+    /// incremental search is frozen by NUL. Only direct editing commands
+    /// qualify: a lone ESC, terminators, macros and named commands keep the
+    /// paths they had before the freeze.
+    fn nul_frozen_esc_command_binding(
+        &self,
+        state: &EditorState,
+        bytes: &[u8],
+    ) -> Option<(usize, KeyBinding)> {
+        if bytes.first() != Some(&0x1b)
+            || !state
+                .search
+                .reverse_search
+                .as_ref()
+                .is_some_and(|search| search.nul_pending)
+        {
+            return None;
+        }
+        let max = bytes.len().min(NUL_FROZEN_KEY_SEQUENCE_MAX);
+        (2..=max).rev().find_map(|len| {
+            let binding = self.keymap.lookup(self.keymap.current(), &bytes[..len])?;
+            if matches!(binding, KeyBinding::Command(command) if *command != EditCommand::SelfInsert)
+            {
+                Some((len, binding.clone()))
+            } else {
+                None
+            }
+        })
     }
 
     /// Dispatch keyboard-macro bytes one at a time.

@@ -11144,6 +11144,17 @@ fn bash_and_sushline_emacs_word_class_excludes_underscores_and_number_symbols() 
         let keys = format!("{line}\x01\x1bfX\r");
         assert_bytewise_editing_bytes(line, keys.as_bytes(), expected, 0, rc, &utf8);
     }
+    // The same word class must govern edits, not just motion: from line
+    // start M-d deletes `aé b` and stops at the underscore.
+    let keys = "a\u{e9}b_cd\x01\x1bdX\r";
+    assert_bytewise_editing_bytes(
+        "M-d at the accented word boundary",
+        keys.as_bytes(),
+        b"X_cd",
+        0,
+        rc,
+        &utf8,
+    );
 
     let c_locale = [("LC_ALL", "C")];
     for (line, expected) in [("a_b", b"aX_b".as_slice()), ("a1b", b"a1bX")] {

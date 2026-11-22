@@ -118,7 +118,15 @@ where
 
     fn horizontal_prompt(&self, state: &EditorState) -> horizontal::DisplayLine {
         if let Some(prompt) = active_search_prompt(state) {
-            return Prompt::new(prompt).horizontal_line();
+            return Prompt::marked_text(prompt).horizontal_line();
+        }
+        if let Some(prompt) = state
+            .search
+            .non_incremental_search
+            .as_ref()
+            .map(|search| search.prompt_text())
+        {
+            return Prompt::marked_text(prompt).horizontal_line();
         }
         if let Some(indicator) = numeric_arg_indicator(state) {
             // The indicator takes the place of the whole prompt.
@@ -379,7 +387,9 @@ fn active_search_prompt(state: &EditorState) -> Option<String> {
         "failed "
     };
     let prefix = format!("({failed}{direction})");
-    let query = crate::state::render_search_query(&search.query, prefix.chars().count());
+    // The backtick separating the prefix from the query occupies one cell,
+    // so the first query byte is drawn one column past the prefix.
+    let query = crate::state::render_search_query(&search.query, prefix.chars().count() + 1);
     Some(format!("{prefix}`{query}': "))
 }
 

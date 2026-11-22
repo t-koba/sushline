@@ -671,9 +671,13 @@ the same caret notation for a quoted ESC in the incremental C-r prompt, and
 `search_prompt_does_not_duplicate_genuine_raw_byte_marker` pins that a typed
 zero-width-space query character is emitted once. The Sushline-only
 `incremental_search_preserves_quoted_invalid_bytes` fixture pins that a quoted
-raw query byte survives redisplay as that byte rather than U+FFFD. Those
-display-byte assertions are not GNU parity claims for their key sequences. No
-general search redisplay or locale folding is claimed.
+raw query byte survives redisplay as that byte rather than U+FFFD. The
+Sushline-only `horizontal_search_prompt_keeps_one_raw_byte_marker` fixture pins
+that horizontal-scroll mode emits the same single marker, and
+`search_query_tab_expands_at_the_drawn_column` pins tab stops from the query's
+actual starting column after its backtick. Those display-byte assertions are
+not GNU parity claims for their key sequences. No general search redisplay or
+locale folding is claimed.
 
 - **C.UTF-8 lowercase:** the single-entry prefix and reverse-incremental
   `älpha`/`ÄLPHA old` cases, and the forward-incremental case with `prior`

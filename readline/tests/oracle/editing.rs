@@ -15036,3 +15036,29 @@ fn incremental_search_preserves_quoted_invalid_bytes() {
         "a replacement character must not stand in for the raw byte: {output:?}"
     );
 }
+
+#[test]
+fn horizontal_search_prompt_keeps_one_raw_byte_marker() {
+    let output = run_sushline_harness_with_inputrc_and_env_raw(
+        b"\x12\xe2\x80\x8b\r\r",
+        "set horizontal-scroll-mode on\n",
+        &[("LC_ALL", "C.UTF-8")],
+    );
+
+    let count = output
+        .windows(3)
+        .filter(|window| *window == [0xe2, 0x80, 0x8b])
+        .count();
+    assert_eq!(count, 1, "one typed marker must render once: {output:?}");
+}
+
+#[test]
+fn search_query_tab_expands_at_the_drawn_column() {
+    let output =
+        run_sushline_harness_with_inputrc_and_env(b"\x12\x16\t\r\r", "", &[("LC_ALL", "C.UTF-8")]);
+
+    assert!(
+        output.contains("(failed reverse-i-search)`      ': \u{1b}[K\u{1b}[36G"),
+        "the query starts after the backtick: {output}"
+    );
+}

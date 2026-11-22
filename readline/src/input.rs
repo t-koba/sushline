@@ -2319,6 +2319,9 @@ fn named_query_control_is_text(ch: char) -> bool {
     )
 }
 
+/// Append query bytes, buffering an incomplete UTF-8 sequence until its
+/// remaining bytes arrive. Editing controls are handled before this path;
+/// only the measured caret-echoed controls stay in the command name.
 fn append_named_query_bytes(pending: &mut PendingNamedCommand, bytes: &[u8]) -> bool {
     fn push_chars(query: &mut String, text: &str) -> bool {
         let before = query.len();

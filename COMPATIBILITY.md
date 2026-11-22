@@ -30,6 +30,13 @@ choices are product decisions, not oracle compatibility claims:
   clears the tail; the paired reprint fixture pins accepted-line parity and
   Sushline's clean screen.
 
+### Long wrapped prompts
+
+A prompt longer than 256 wrapped lines with a leading invisible escape run is
+accepted by both GNU 8.3-p0 and Sushline; the paired fixture pins accepted-line
+parity and the visible prompt tail at a 12-column terminal. This records p0
+behavior only and makes no claim about upstream post-release fixes.
+
 ### Byte-wise redisplay
 
 A byte-wise motion can leave point between the bytes of a UTF-8 character.

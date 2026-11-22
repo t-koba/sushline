@@ -16743,8 +16743,30 @@ fn bash_and_sushline_reprint_prompt_after_unterminated_output() {
     // GNU's p0 reprint decision mishandles.
     let prompt = "SUSHLINE_READY>\u{20ac}\u{1}\u{1b}[0m\u{2} ";
     let keys = b"X\r\r";
-    let bash = run_bash_readline_with_prompt(keys, prompt, "abc", &env);
-    let sushline = run_sushline_harness_with_prompt(keys, prompt, "abc", &env);
+    let bash = run_bash_readline_with_prompt(
+        keys,
+        prompt,
+        "abc",
+        &env,
+        portable_pty::PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        },
+    );
+    let sushline = run_sushline_harness_with_prompt(
+        keys,
+        prompt,
+        "abc",
+        &env,
+        portable_pty::PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        },
+    );
     assert_eq!(
         bash.matches("SUSHLINE_READY>").count(),
         2,
@@ -16762,5 +16784,44 @@ fn bash_and_sushline_reprint_prompt_after_unterminated_output() {
         screen.rows_text()[0].trim_end(),
         "SUSHLINE_READY>\u{20ac} X",
         "Sushline must leave no stale prompt tail: {sushline:?}"
+    );
+}
+
+#[test]
+fn bash_and_sushline_long_wrapped_prompt_with_invisible_prefix_accepts_line() {
+    require_oracle_host();
+    let env = [("LC_ALL", "C.UTF-8")];
+    let size = portable_pty::PtySize {
+        rows: 24,
+        cols: 12,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    // More than 256 physical lines at this width, with an invisible escape run
+    // at the start. GNU's post-release patch 5 addresses a crash in this shape;
+    // p0 itself and Sushline both complete the edit.
+    let prompt = format!(
+        "SUSHLINE_READY>\u{1}\u{1b}[31m\u{2}{}",
+        "P".repeat(260 * 11)
+    );
+    let keys = b"abc\x01X\r\r";
+    let bash = run_bash_readline_with_prompt(keys, &prompt, "", &env, size);
+    let sushline = run_sushline_harness_with_prompt(keys, &prompt, "", &env, size);
+    assert!(
+        bash.contains("SUSHLINE_ACCEPTED:Xabc"),
+        "GNU must complete the long-prompt edit: {bash:?}"
+    );
+    assert!(
+        sushline.contains("SUSHLINE_ACCEPTED:Xabc"),
+        "Sushline must complete the long-prompt edit: {sushline:?}"
+    );
+    let mut bash_screen = Screen::new(24, 12);
+    bash_screen.feed(bash.as_bytes());
+    let mut sushline_screen = Screen::new(24, 12);
+    sushline_screen.feed(sushline.as_bytes());
+    assert_eq!(
+        &bash_screen.rows_text()[21..23],
+        &sushline_screen.rows_text()[21..23],
+        "the visible tail of the long prompt must match"
     );
 }

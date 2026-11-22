@@ -2688,6 +2688,7 @@ pub(super) fn run_bash_readline_with_prompt(
     prompt: &str,
     prelude: &str,
     env: &[(&str, &str)],
+    size: PtySize,
 ) -> String {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("inputrc");
@@ -2706,7 +2707,7 @@ pub(super) fn run_bash_readline_with_prompt(
         "-c",
         r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; printf '%s' "$PROBE_PRELUDE"; IFS= read -r -e -p "$PROBE_PROMPT" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#,
     ]);
-    run_pty(command, keys)
+    run_pty_with_size(command, keys, size)
 }
 
 pub(super) fn run_sushline_harness_with_prompt(
@@ -2714,6 +2715,7 @@ pub(super) fn run_sushline_harness_with_prompt(
     prompt: &str,
     prelude: &str,
     env: &[(&str, &str)],
+    size: PtySize,
 ) -> String {
     let mut command = sushline_harness_command();
     command.env("SUSHLINE_INPUTRC", "");
@@ -2723,5 +2725,5 @@ pub(super) fn run_sushline_harness_with_prompt(
     for (name, value) in env {
         command.env(name, value);
     }
-    run_pty(command, keys)
+    run_pty_with_size(command, keys, size)
 }

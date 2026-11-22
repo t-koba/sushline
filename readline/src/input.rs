@@ -2329,7 +2329,8 @@ where
             // GNU treats an unquoted NUL inside the query like Enter: the
             // name is submitted and the remaining bytes edit the main line.
             b"\x00" | b"\r" | b"\n" => {
-                let pending = state.input.named_command.take().unwrap_or_default();
+                let mut pending = state.input.named_command.take().unwrap_or_default();
+                flush_named_query(&mut pending);
                 let command = pending.query.trim();
                 if command.is_empty() {
                     // GNU treats an empty name as a silent no-op that restores
@@ -2730,7 +2731,13 @@ fn append_named_query_bytes(
                     consumed += valid;
                 }
                 match error.error_len() {
-                    Some(len) => consumed += len,
+                    Some(len) => {
+                        consumed += len;
+                        // Keep the byte in the name as a replacement scalar:
+                        // GNU does not silently drop it and dispatch a name
+                        // that would have been valid without it.
+                        changed |= push_chars(&mut pending.query, "\u{fffd}", keep_controls);
+                    }
                     None => break,
                 }
             }
@@ -2740,9 +2747,17 @@ fn append_named_query_bytes(
     changed
 }
 
+/// Complete a query ending in an unfinished UTF-8 sequence before dispatch.
+fn flush_named_query(pending: &mut PendingNamedCommand) {
+    if !pending.pending_bytes.is_empty() {
+        pending.pending_bytes.clear();
+        pending.query.push('\u{fffd}');
+    }
+}
+
 #[cfg(test)]
 mod named_query_tests {
-    use super::append_named_query_bytes;
+    use super::{append_named_query_bytes, flush_named_query};
     use crate::state::PendingNamedCommand;
 
     #[test]
@@ -2762,6 +2777,21 @@ mod named_query_tests {
             pending.query,
             "\u{1b}\u{1}\u{6}\u{f}\u{12}\u{19}\u{1d}\u{1e}\u{1f}abc"
         );
+    }
+
+    #[test]
+    fn invalid_query_bytes_survive_as_replacement_scalars() {
+        let mut pending = PendingNamedCommand::default();
+        assert!(append_named_query_bytes(
+            &mut pending,
+            b"\xffaccept-line",
+            false
+        ));
+        assert_eq!(pending.query, "\u{fffd}accept-line");
+        assert!(!append_named_query_bytes(&mut pending, &[0xe2], false));
+        flush_named_query(&mut pending);
+        assert_eq!(pending.query, "\u{fffd}accept-line\u{fffd}");
+        assert!(pending.pending_bytes.is_empty());
     }
 
     #[test]

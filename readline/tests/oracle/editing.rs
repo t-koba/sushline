@@ -15645,9 +15645,11 @@ fn bash_readline_and_sushline_submit_named_command_on_nul() {
 }
 
 /// In byte-oriented mode, high bytes typed into the query stay query text:
-/// GNU does not turn them into Meta-prefixed editing commands. The invalid
-/// byte cases keep the exact submitted bytes and compare only the observable
-/// bell and accepted-line outcome, never a lossy decode of the echoed name.
+/// GNU does not turn them into Meta-prefixed editing commands. Prepending an
+/// invalid byte to `accept-line` makes the distinction observable: stripping
+/// the byte would dispatch the known command silently, while retaining it
+/// leaves an unknown name that rings and restores the original line. The
+/// valid multibyte case additionally pins the echoed name.
 #[test]
 fn bash_readline_and_sushline_keep_byte_oriented_named_query_text() {
     if !host_carries_measured_release() {
@@ -15665,9 +15667,9 @@ fn bash_readline_and_sushline_keep_byte_oriented_named_query_text() {
         ("truncated", &b"\xe2\x80"[..]),
         ("multibyte", &b"\xc3\xa9"[..]),
     ] {
-        let mut keys = vec![0x0f];
+        let mut keys = vec![b'X', 0x0f];
         keys.extend_from_slice(bytes);
-        keys.extend_from_slice(b"abc\r");
+        keys.extend_from_slice(b"accept-line\r\r");
         for (editor, output) in [
             (
                 "Bash",
@@ -15680,13 +15682,50 @@ fn bash_readline_and_sushline_keep_byte_oriented_named_query_text() {
         ] {
             let context = format!("{editor} {name} keys={keys:?}: {output:?}");
             assert_eq!(bell_count(&output), 1, "{context}");
-            assert_eq!(accepted_line(&output), None, "{context}");
+            assert_eq!(accepted_line(&output).as_deref(), Some("X"), "{context}");
             if name == "multibyte" {
                 assert!(
-                    output.contains(">!éabc"),
+                    output.contains("!éaccept-line"),
                     "the raw multibyte query must be echoed: {context}"
                 );
             }
+        }
+    }
+}
+
+/// The same discriminating check under C.UTF-8: invalid bytes are not
+/// silently dropped from a named-command query in either editor.
+#[test]
+fn bash_readline_and_sushline_keep_utf8_locale_named_query_bytes() {
+    if !host_carries_measured_release() {
+        eprintln!(
+            "UTF-8 locale named-command text was measured on Readline 8.3; this case reports nothing on other releases"
+        );
+        return;
+    }
+    let inputrc = r#""\C-o": execute-named-command"#;
+    let env = [("LC_ALL", "C.UTF-8")];
+    for (name, bytes) in [
+        ("invalid_ff", &b"\xff"[..]),
+        ("lone_continuation", &b"\x80"[..]),
+        ("truncated", &b"\xe2\x80"[..]),
+    ] {
+        let mut keys = vec![b'X', 0x0f];
+        keys.extend_from_slice(bytes);
+        keys.extend_from_slice(b"accept-line\r\r");
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_env(&keys, inputrc, &env),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_env(&keys, inputrc, &env),
+            ),
+        ] {
+            let context = format!("{editor} {name} keys={keys:?}: {output:?}");
+            assert_eq!(bell_count(&output), 1, "{context}");
+            assert_eq!(accepted_line(&output).as_deref(), Some("X"), "{context}");
         }
     }
 }

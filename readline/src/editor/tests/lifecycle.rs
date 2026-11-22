@@ -1021,10 +1021,10 @@ fn batched_vi_char_search_invalid_chunk_matches_fragmented_reads() {
 
 #[test]
 fn batched_named_command_invalid_chunk_matches_fragmented_reads() {
-    // Named-command query drops invalid bytes; trailing ASCII plus Enter
-    // in one chunk must execute like split reads. Batched [0xFF,
-    // "beginning-of-line", CR] must agree with split [0xFF],
-    // ["beginning-of-line"], [CR] reads (both accept "Xabc").
+    // An invalid byte stays in the query as a replacement scalar, so the
+    // following name is unknown and the original line is restored before X
+    // is appended. Batched [0xFF, "beginning-of-line", CR] must agree with
+    // split [0xFF], ["beginning-of-line"], [CR] reads (both accept "abcX").
     fn run(events: Vec<TerminalEvent>) -> ReadlineResult {
         let terminal = super::MemoryTerminal::with_events(events);
         let mut line = Editor::new(Config::default(), terminal, History::new());
@@ -1050,7 +1050,7 @@ fn batched_named_command_invalid_chunk_matches_fragmented_reads() {
         TerminalEvent::Bytes(b"X".to_vec()),
         TerminalEvent::Bytes(b"\r".to_vec()),
     ]);
-    assert_eq!(fragmented, ReadlineResult::Line(b"Xabc".to_vec()));
+    assert_eq!(fragmented, ReadlineResult::Line(b"abcX".to_vec()));
     assert_eq!(
         batched, fragmented,
         "batched and fragmented named-command invalid chunks must agree"

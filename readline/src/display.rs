@@ -124,14 +124,6 @@ where
         if let Some(prompt) = active_search_prompt(state) {
             return Prompt::marked_text(prompt).horizontal_line();
         }
-        if let Some(prompt) = state
-            .search
-            .non_incremental_search
-            .as_ref()
-            .map(|search| search.prompt_text())
-        {
-            return Prompt::marked_text(prompt).horizontal_line();
-        }
         if let Some(prompt) = named_command_prompt(state) {
             return Prompt::marked_text(prompt).horizontal_line();
         }

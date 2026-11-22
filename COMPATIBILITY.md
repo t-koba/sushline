@@ -667,9 +667,15 @@ both editors instead of injecting a raw terminal escape; the Sushline-only
 `vi_search_query_caret_width_advances_the_sushline_cursor` fixture pins that the
 two printed cells advance the cursor column. The Sushline-only
 `incremental_search_quoted_escape_uses_printable_caret_notation` fixture pins
-the same caret notation for a quoted ESC in the incremental C-r prompt, and
-`search_prompt_does_not_duplicate_genuine_raw_byte_marker` pins that a typed
-zero-width-space query character is emitted once. The Sushline-only
+the same caret notation for a quoted ESC in the incremental C-r prompt. The
+paired `bash_and_sushline_emit_different_bytes_for_quoted_escape_in_incremental_search`
+fixture records the intentional difference: GNU emits the raw ESC followed by
+cursor positioning, while Sushline keeps the printable `^[` so a query cannot
+inject a terminal escape. The paired
+`bash_and_sushline_emit_one_zero_width_space_in_incremental_query` fixture pins
+a single U+200B in both incremental queries; the Sushline-only
+`search_prompt_does_not_duplicate_genuine_raw_byte_marker` covers the vi-mode
+query. The Sushline-only
 `incremental_search_preserves_quoted_invalid_bytes` fixture pins that a quoted
 raw query byte survives redisplay as that byte rather than U+FFFD. The
 Sushline-only `horizontal_search_prompt_keeps_one_raw_byte_marker` fixture pins

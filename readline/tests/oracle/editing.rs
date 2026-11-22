@@ -15289,3 +15289,61 @@ fn bash_readline_and_sushline_keep_multibyte_named_command_query() {
         );
     }
 }
+
+#[test]
+fn bash_and_sushline_emit_different_bytes_for_quoted_escape_in_incremental_search() {
+    let keys = b"\x12\x16\x1b";
+    let env = [("LC_ALL", "C.UTF-8")];
+    let bash = run_bash_readline_with_bindings_and_env(keys, "", &env);
+    let sushline = run_sushline_harness_with_inputrc_and_env(keys, "", &env);
+    let contains = |output: &str, needle: &[u8]| {
+        output
+            .as_bytes()
+            .windows(needle.len())
+            .any(|window| window == needle)
+    };
+
+    // Readline echoes the quoted ESC as raw bytes followed by cursor motion;
+    // printing that into Sushline's prompt would inject a terminal escape.
+    assert!(
+        contains(&bash, b"reverse-i-search)`\x1b\x1b[C"),
+        "GNU query bytes: {bash:?}"
+    );
+    assert!(
+        contains(&sushline, b"reverse-i-search)`^[': "),
+        "Sushline query bytes: {sushline:?}"
+    );
+    assert!(
+        !contains(&sushline, b"reverse-i-search)`\x1b"),
+        "Sushline must not inject a raw escape: {sushline:?}"
+    );
+}
+
+#[test]
+fn bash_and_sushline_emit_one_zero_width_space_in_incremental_query() {
+    let keys = b"\x12\xe2\x80\x8b";
+    let env = [("LC_ALL", "C.UTF-8")];
+    let bash = run_bash_readline_with_bindings_and_env(keys, "", &env);
+    let sushline = run_sushline_harness_with_inputrc_and_env(keys, "", &env);
+    let contains = |output: &str, needle: &[u8]| {
+        output
+            .as_bytes()
+            .windows(needle.len())
+            .any(|window| window == needle)
+    };
+    let marker = [b"reverse-i-search)`".as_slice(), &[0xe2, 0x80, 0x8b]].concat();
+
+    assert!(contains(&bash, &marker), "GNU query bytes: {bash:?}");
+    assert!(
+        contains(&sushline, &[marker.as_slice(), b"': ".as_slice()].concat()),
+        "Sushline query bytes: {sushline:?}"
+    );
+    for (editor, output) in [("GNU", &bash), ("Sushline", &sushline)] {
+        let start = output.rfind("reverse-i-search)`").unwrap();
+        let count = output.as_bytes()[start..]
+            .windows(marker.len())
+            .filter(|window| *window == marker)
+            .count();
+        assert_eq!(count, 1, "{editor} query must emit one marker: {output:?}");
+    }
+}

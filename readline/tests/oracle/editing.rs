@@ -15233,6 +15233,40 @@ fn incremental_search_preserves_quoted_invalid_bytes() {
     );
 }
 
+/// A plain query must not gain the physical-column bias that a literal TAB
+/// query needs; GNU expands the matched line's TAB from the ordinary prompt
+/// width in that case.
+#[test]
+fn bash_and_sushline_plain_search_query_keeps_prompt_column() {
+    require_oracle_host();
+    let keys = b"\x12a\r\r";
+    let history = ["a\there"];
+    let env = [("LC_ALL", "C.UTF-8")];
+    let bash = run_bash_readline_with_inputrc_file_and_history_and_env(keys, "", &history, &env);
+    let sushline = run_sushline_harness_with_inputrc_and_history_and_env(keys, "", &history, &env);
+    for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+        let marker = "a': ";
+        let start = output
+            .find(marker)
+            .unwrap_or_else(|| panic!("{editor} has no search match: {output:?}"))
+            + marker.len();
+        let end = output[start..]
+            .find("here")
+            .unwrap_or_else(|| panic!("{editor} has no match suffix: {output:?}"))
+            + start;
+        let spaces = output[start..end]
+            .bytes()
+            .filter(|byte| *byte == b' ')
+            .count();
+        assert_eq!(spaces, 8, "{editor}: {output:?}");
+        assert_eq!(
+            accepted_line(output).as_deref(),
+            Some("a\there"),
+            "{editor}: {output:?}"
+        );
+    }
+}
+
 /// Bash 5.3 PTY evidence: a literal TAB in a reverse-search query advances
 /// the physical prompt column by one beyond the query terminator it leaves
 /// drawn. A TAB in the matched history line then expands from that physical

@@ -38,7 +38,8 @@ partial-byte update, so redisplay bytes are not asserted for this case.
 A literal TAB in a reverse-search query advances the physical prompt column
 by one beyond the query terminator GNU leaves drawn. A TAB in the matched
 history line expands from that physical column; the paired search-match
-fixture pins the expansion for prefixes of one to four bytes.
+fixture pins the expansion for prefixes of one to four bytes. A plain query
+without a TAB uses the query's rendered width unchanged.
 
 ### Terminal wrap margins
 

@@ -354,6 +354,11 @@ impl TerminalIo for MemoryTerminal {
 }
 
 #[test]
+fn custom_backend_defaults_to_deferred_wrap() {
+    assert!(MemoryTerminal::default().auto_wrap());
+}
+
+#[test]
 fn keyseq_timeout_uses_configuration_and_inputrc_values() {
     let mut line = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
     assert_eq!(

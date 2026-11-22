@@ -33,7 +33,9 @@ choices are product decisions, not oracle compatibility claims:
   CR/LF/CR at the logical right margin. Paired Bash 5.3 and Sushline PTY
   fixtures at 20 columns cover both classes; full redisplay-byte parity is
   not claimed. Without a usable terminfo entry Sushline keeps deferred
-  wrapping rather than guessing a narrower width.
+  wrapping rather than guessing a narrower width. The wrap capability belongs
+  to the terminal backend: custom `TerminalIo` implementations keep deferred
+  wrapping regardless of the process's ambient `TERM`.
 
 ### Oracle identity
 

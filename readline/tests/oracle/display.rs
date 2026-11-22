@@ -1086,3 +1086,21 @@ fn bash_readline_and_sushline_keep_deferred_wrap_with_xenl() {
     }
     assert!(sushline.contains("\u{1b}[20G"), "{sushline}");
 }
+
+#[test]
+fn sushline_uses_explicit_wrap_with_short_terminfo_boolean_section() {
+    let size = PtySize {
+        rows: 8,
+        cols: 20,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let keys = b"xxxxx\x7f\r";
+    let output = run_sushline_harness_with_term_and_size(keys, "", Some("dumb"), size);
+
+    assert_eq!(accepted_line(&output), Some("xxxx".to_string()), "{output}");
+    // `dumb` declares fewer booleans than the `xenl` index; its wrap bits
+    // must come from the boolean section, not following string-table bytes.
+    assert!(output.contains("\r\n\r"), "{output}");
+    assert!(output.contains("\u{1b}[2G"), "{output}");
+}

@@ -6,7 +6,7 @@ use crate::inputrc::{InputrcDiagnostic, InputrcParser, discover_inputrc_path};
 use crate::keymap::{EditCommand, KeyBinding, KeyMap, KeyMapName};
 use crate::prompt::Prompt;
 use crate::state::*;
-use crate::terminal::{SigintPolicy, TerminalEvent, TerminalIo, default_capabilities, escape};
+use crate::terminal::{SigintPolicy, TerminalEvent, TerminalIo, escape};
 use crate::variables::{BellKind, BoolVariable, Variables};
 use history::History;
 use history::expansion::{
@@ -175,7 +175,7 @@ where
         Self {
             config,
             sigint_policy: terminal.sigint_policy(),
-            auto_wrap: default_capabilities().auto_wrap,
+            auto_wrap: terminal.auto_wrap(),
             terminal,
             history,
             keymap,

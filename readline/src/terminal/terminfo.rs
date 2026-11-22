@@ -180,7 +180,12 @@ fn parse_terminfo(bytes: &[u8]) -> Option<TerminfoCapabilities> {
     let header = parse_terminfo_header(bytes)?;
     // ncurses boolean capability indices: `am` is 1 and `xenl` is 4.
     let bools_start = 12 + header.names_size;
-    let flag = |index: usize| bytes.get(bools_start + index).copied().unwrap_or_default() != 0;
+    // Boolean capability indices are only meaningful inside the boolean
+    // section; short entries must not borrow bytes from the numeric table.
+    let flag = |index: usize| {
+        index < header.bool_count
+            && bytes.get(bools_start + index).copied().unwrap_or_default() != 0
+    };
     let mut offset = 12usize
         .checked_add(header.names_size)?
         .checked_add(header.bool_count)?;
@@ -605,6 +610,26 @@ mod tests {
             );
         }
         assert!(DefaultCapabilities::default().auto_wrap);
+    }
+
+    #[test]
+    fn short_boolean_section_does_not_borrow_later_table_bytes() {
+        let mut bytes = 0x011au16.to_le_bytes().to_vec();
+        // Two declared booleans, followed by bytes from the numeric table.
+        for field in [2u16, 2, 0, 0, 0] {
+            bytes.extend(field.to_le_bytes());
+        }
+        bytes.extend(b"x\0");
+        bytes.extend([0, 1, 0, 0, 1]);
+        let parsed = super::parse_terminfo(&bytes).unwrap();
+        assert!(parsed.am);
+        assert!(!parsed.xenl);
+        assert!(!default_capabilities_from_terminfo(Some(&parsed)).auto_wrap);
+
+        let fixture = include_bytes!("../../tests/fixtures/terminfo-e3.bin");
+        let parsed = super::parse_terminfo(fixture).unwrap();
+        assert!(!parsed.am);
+        assert!(!parsed.xenl);
     }
 
     #[test]

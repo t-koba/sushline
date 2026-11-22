@@ -104,6 +104,15 @@ pub trait TerminalIo {
         false
     }
 
+    /// Whether the backend defers wrapping until the next printable cell.
+    ///
+    /// Custom backends default to deferred wrapping: their geometry must not
+    /// depend on the process's ambient `TERM`. The built-in [`Terminal`] uses
+    /// its terminfo `am`/`xenl` capabilities.
+    fn auto_wrap(&self) -> bool {
+        true
+    }
+
     /// Enters raw terminal mode.
     fn enter_raw_mode(&mut self) -> io::Result<()>;
     /// Restores the previous terminal mode.
@@ -402,6 +411,10 @@ impl TerminalIo for Terminal {
 
     fn uses_utf8_io(&self) -> bool {
         cfg!(windows)
+    }
+
+    fn auto_wrap(&self) -> bool {
+        default_capabilities().auto_wrap
     }
 
     fn set_input_meta_enabled(&mut self, enabled: bool) -> io::Result<()> {

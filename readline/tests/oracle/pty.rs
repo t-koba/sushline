@@ -2727,3 +2727,43 @@ pub(super) fn run_sushline_harness_with_prompt(
     }
     run_pty_with_size(command, keys, size)
 }
+
+/// Runs the GNU prompt-length probe without waiting for an accepted line, so
+/// an abort can be observed instead of timing out.
+pub(super) fn run_bash_prompt_length_probe(
+    prompt: &str,
+    size: PtySize,
+) -> (Option<ExitStatus>, String) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    fs::write(&path, "").expect("write inputrc");
+    let mut command = CommandBuilder::new("bash");
+    command.env("INPUTRC", path.to_string_lossy().as_ref());
+    command.env("PROBE_PROMPT", prompt);
+    command.env("LC_ALL", "C.UTF-8");
+    command.env("TERM", "xterm-256color");
+    command.cwd("/");
+    command.args([
+        "--noprofile",
+        "--norc",
+        "-i",
+        "-c",
+        r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "$PROBE_PROMPT" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#,
+    ]);
+    let mut session = PtySession::spawn(command, size);
+    let mut out = Vec::new();
+    let deadline = Instant::now() + PTY_HANG_BOUND;
+    while Instant::now() < deadline {
+        match session.read(Duration::from_millis(20)) {
+            PtyOutput::Chunk(chunk) => out.extend_from_slice(&chunk),
+            PtyOutput::Timeout => {}
+            PtyOutput::Closed => break,
+        }
+        if session.exited() {
+            break;
+        }
+    }
+    let status = session.child_exit_status();
+    session.finish();
+    (status, lossy_output(&out))
+}

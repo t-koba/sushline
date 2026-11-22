@@ -16797,9 +16797,9 @@ fn bash_and_sushline_long_wrapped_prompt_with_invisible_prefix_accepts_line() {
         pixel_width: 0,
         pixel_height: 0,
     };
-    // More than 256 physical lines at this width, with an invisible escape run
-    // at the start. GNU's post-release patch 5 addresses a crash in this shape;
-    // p0 itself and Sushline both complete the edit.
+    // About 240 wrapped rows at this width, with a leading invisible escape
+    // run. Both p0 editors complete an edit at this length; the separate
+    // abort-threshold fixture pins the shape that GNU alone cannot handle.
     let prompt = format!(
         "SUSHLINE_READY>\u{1}\u{1b}[31m\u{2}{}",
         "P".repeat(260 * 11)
@@ -16823,5 +16823,30 @@ fn bash_and_sushline_long_wrapped_prompt_with_invisible_prefix_accepts_line() {
         &bash_screen.rows_text()[21..23],
         &sushline_screen.rows_text()[21..23],
         "the visible tail of the long prompt must match"
+    );
+}
+
+#[test]
+fn gnu_prompt_above_wrap_limit_aborts_while_sushline_accepts() {
+    require_oracle_host();
+    let size = portable_pty::PtySize {
+        rows: 24,
+        cols: 12,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    // 268 wrapped rows at 12 columns. The pinned p0 oracle aborts while
+    // rendering this prompt; Sushline completes the same edit.
+    let prompt = format!("SUSHLINE_READY>\u{1}\u{1b}[31m\u{2}{}", "P".repeat(3200));
+    let (status, bash) = run_bash_prompt_length_probe(&prompt, size);
+    assert!(
+        status.as_ref().is_some_and(|status| !status.success()),
+        "GNU must abort on this prompt, not wait for input: status={status:?} output={bash:?}"
+    );
+    let sushline =
+        run_sushline_harness_with_prompt(b"X\r\r", &prompt, "", &[("LC_ALL", "C.UTF-8")], size);
+    assert!(
+        sushline.contains("SUSHLINE_ACCEPTED:X"),
+        "Sushline must complete the long-prompt edit: {sushline:?}"
     );
 }

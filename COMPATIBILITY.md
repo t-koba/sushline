@@ -32,10 +32,13 @@ choices are product decisions, not oracle compatibility claims:
 
 ### Long wrapped prompts
 
-A prompt longer than 256 wrapped lines with a leading invisible escape run is
-accepted by both GNU 8.3-p0 and Sushline; the paired fixture pins accepted-line
-parity and the visible prompt tail at a 12-column terminal. This records p0
-behavior only and makes no claim about upstream post-release fixes.
+At roughly 240 wrapped rows on a 12-column terminal, GNU 8.3-p0 and Sushline
+both accept the same line with a leading invisible prompt escape; the paired
+fixture pins accepted-line parity and the visible prompt tail. At roughly 268
+rows the pinned GNU oracle aborts while rendering the prompt, and Sushline
+still accepts the line. Sushline does not reproduce that p0 failure; the
+fixtures record p0 behavior only and make no claim about upstream
+post-release fixes.
 
 ### Byte-wise redisplay
 

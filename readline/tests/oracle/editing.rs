@@ -16179,9 +16179,10 @@ fn bash_readline_and_sushline_apply_cursor_commands_after_nul_freeze() {
     }
 }
 
-/// Ending an incremental search with Ctrl-U dispatches the key's actual
-/// binding on the established line. With Ctrl-U rebound to a literal `Q`,
-/// the inserted text lands at the match point in both editors.
+/// Ending an incremental search with Ctrl-U dispatches a macro/string
+/// rebinding on the established line. With Ctrl-U rebound to a literal `Q`,
+/// the inserted text lands at the match point; command and named-command
+/// rebindings still perform unix-line-discard in both editors.
 #[test]
 fn bash_readline_and_sushline_honor_ctrl_u_binding_in_isearch() {
     let keys = b"\x12cd\x15X\r".as_slice();

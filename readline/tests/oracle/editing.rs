@@ -16332,6 +16332,40 @@ fn bash_readline_and_sushline_dispatch_esc_key_after_isearch() {
 /// the match point: left (CSI and SS3) rings at column zero, while right, Home
 /// and End move or keep point without a bell. Only these five measured keys
 /// are claimed.
+/// The same frozen-search path applies other complete ESC-prefixed bindings.
+/// Each case pins GNU's accepted line and bell count against Sushline.
+#[test]
+fn bash_readline_and_sushline_apply_more_key_sequences_after_search_nul_freeze() {
+    require_oracle_host();
+    let history = &["abc", "abd"][..];
+    for (name, seq, bells, accepted) in [
+        ("up", b"\x1b[A".as_slice(), 1, Some("Xabc")),
+        ("down", b"\x1b[B".as_slice(), 0, Some("abdX")),
+        ("delete", b"\x1b[3~".as_slice(), 0, Some("Xbc")),
+        ("page_up", b"\x1b[5~".as_slice(), 1, Some("Xabc")),
+        ("ctrl_left", b"\x1b[1;5D".as_slice(), 0, Some("Xabc")),
+        ("meta_b", b"\x1bb".as_slice(), 0, Some("Xabc")),
+    ] {
+        let mut keys = b"\x12abc\x00".to_vec();
+        keys.extend_from_slice(seq);
+        keys.extend_from_slice(b"X\r\r");
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(&keys, "", history),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(&keys, "", history),
+            ),
+        ] {
+            let context = format!("{name} {editor} keys={keys:?}: {output:?}");
+            assert_eq!(bell_count(&output), bells, "{context}");
+            assert_eq!(accepted_line(&output).as_deref(), accepted, "{context}");
+        }
+    }
+}
+
 #[test]
 fn bash_readline_and_sushline_apply_arrow_keys_after_search_nul_freeze() {
     require_oracle_host();

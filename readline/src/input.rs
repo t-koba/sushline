@@ -1446,12 +1446,14 @@ where
     ) -> Result<EditorOutcome, ReadlineError> {
         // An unquoted NUL freezes the query: after the freeze, all following
         // query-editing input is ignored, whether printable, quoted or
-        // control. Accept, abort and Ctrl-C keep their normal paths. C-r
-        // rings once; control bytes and repeated NUL are silent; printable
-        // and quoted literal bytes ring once only for a failed freeze.
+        // control. Accept, abort, Ctrl-C and configured isearch terminators
+        // keep their normal paths. C-r rings once; control bytes and
+        // repeated NUL are silent; printable and quoted literal bytes ring
+        // once only for a failed freeze.
         if let Some(search) = state.search.reverse_search.as_ref()
             && search.nul_pending
             && !matches!(bytes, [0x0d] | [0x0a] | [0x07] | [0x03])
+            && !self.is_isearch_terminator(bytes)
         {
             if bytes == [0x12] || (search.nul_failed && !bytes.iter().all(u8::is_ascii_control)) {
                 self.ding()?;

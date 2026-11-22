@@ -15910,9 +15910,11 @@ fn bash_readline_and_sushline_freeze_search_query_on_nul() {
 /// An unquoted NUL freezes the incremental-search query on the measured
 /// Readline 8.3 host: after the freeze, further query-editing input is
 /// frozen; the fixture lists the measured printable, quoted and control
-/// bytes. Accept, abort and Ctrl-C still take their normal paths. The
+/// bytes. Accept, abort, Ctrl-C and configured isearch terminators still
+/// take their normal paths. The
 /// unfrozen quoted case is a control: on this host GNU keeps the last match
-/// while Sushline restores the original line.
+/// while Sushline restores the original line. The ESC case pins the accepted
+/// line; its bell count differs before the freeze as well.
 #[test]
 fn bash_readline_and_sushline_freeze_all_following_search_input() {
     require_oracle_host();
@@ -15964,6 +15966,14 @@ fn bash_readline_and_sushline_freeze_all_following_search_input() {
             Some("abc"),
         ),
         (
+            "esc_terminator_then_edit",
+            b"\x12\x61\x00\x1b\x01\x58\r\r".as_slice(),
+            &["alpha", "abc"][..],
+            2,
+            Some("Xabc"),
+            Some("Xabc"),
+        ),
+        (
             "quoted_insert_then_x",
             b"\x12\x61\x62\x00\x16\x78\x0d\x0d".as_slice(),
             &["alpha", "abc", "abd"][..],
@@ -15988,20 +15998,29 @@ fn bash_readline_and_sushline_freeze_all_following_search_input() {
             Some("abd"),
         ),
     ] {
-        for (editor, output, accepted) in [
+        for (editor, output, accepted, expected_bells) in [
             (
                 "Bash",
                 run_bash_readline_with_bindings_and_history(keys, "", history),
                 bash_accepted,
+                bells,
             ),
             (
                 "Sushline",
                 run_sushline_harness_with_inputrc_and_history(keys, "", history),
                 sushline_accepted,
+                // The ESC terminate-without-execute path already rings once
+                // in Sushline and twice in GNU before the NUL freeze; this
+                // fixture pins the accepted-line fix and records that count.
+                if name == "esc_terminator_then_edit" {
+                    1
+                } else {
+                    bells
+                },
             ),
         ] {
             let context = format!("{editor} {name} keys={keys:?}: {output:?}");
-            assert_eq!(bell_count(&output), bells, "{context}");
+            assert_eq!(bell_count(&output), expected_bells, "{context}");
             assert_eq!(accepted_line(&output).as_deref(), accepted, "{context}");
         }
     }

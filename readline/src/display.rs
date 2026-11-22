@@ -80,7 +80,9 @@ where
             let width = last_line_width(&prompt);
             return (prompt, width);
         }
-        if let Some(prompt) = named_command_prompt(state) {
+        if let Some(prompt) =
+            named_command_prompt(state, self.flag(BoolVariable::MarkModifiedLines))
+        {
             let width = last_line_width(&prompt);
             return (prompt, width);
         }
@@ -122,9 +124,6 @@ where
 
     fn horizontal_prompt(&self, state: &EditorState) -> horizontal::DisplayLine {
         if let Some(prompt) = active_search_prompt(state) {
-            return Prompt::marked_text(prompt).horizontal_line();
-        }
-        if let Some(prompt) = named_command_prompt(state) {
             return Prompt::marked_text(prompt).horizontal_line();
         }
         if let Some(indicator) = numeric_arg_indicator(state) {
@@ -175,9 +174,10 @@ where
         // GNU non-incremental search (emacs `:` and vi `/`/`?`, patch 0
         // Bash 5.3 PTY oracle) replaces the line with the search prompt
         // while the query is entered; the match appears only after Enter
-        // executes. Render prompt-only here so the original line stays
-        // hidden until execute/abort.
-        if state.search.non_incremental_search.is_some() {
+        // executes. GNU's named-command query likewise hides the line.
+        // Render prompt-only here so the original line stays hidden until
+        // execute/abort.
+        if state.search.non_incremental_search.is_some() || state.input.named_command.is_some() {
             self.terminal
                 .write_bytes(&rendered_string_to_bytes(&prompt))?;
             self.terminal.clear_after_cursor()?;
@@ -355,13 +355,19 @@ where
     }
 }
 
-/// The prompt GNU Readline draws while an `execute-named-command` name is
-/// being typed. The query is already text; escape a genuine raw-byte marker
-/// once so the display and horizontal paths read it identically.
-fn named_command_prompt(state: &EditorState) -> Option<String> {
+/// Build the GNU named-command prompt: the application prompt stays and
+/// `!query` is appended to it. Mode indicators are suppressed while the
+/// query is active, like GNU's show-mode-in-prompt redraw.
+fn named_command_prompt(state: &EditorState, mark_modified: bool) -> Option<String> {
     let pending = state.input.named_command.as_ref()?;
+    let mut decorations = String::new();
+    if mark_modified && state.history_entry_index.is_some() && state.history_modified {
+        decorations.push('*');
+    }
     Some(format!(
-        "!{}",
+        "{}{}!{}",
+        decorations,
+        crate::buffer::escape_raw_marker(state.prompt.visible()),
         crate::buffer::escape_raw_marker(&pending.query)
     ))
 }

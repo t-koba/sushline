@@ -13,6 +13,15 @@ use super::screen::Screen;
 use std::fs;
 use std::time::Duration;
 
+fn assert_screen_row(editor: &str, output: &str, expected: &str) {
+    let mut screen = Screen::new(24, 80);
+    screen.feed(output.as_bytes());
+    assert!(
+        screen.rows_text().iter().any(|row| row == expected),
+        "{editor} must render {expected:?}: {output:?}"
+    );
+}
+
 /// Run one byte-oriented vi case on both editors and require each ASCII-hex
 /// acceptance marker to equal the exact hex of `expected`, plus the pinned
 /// bell count. Comparing lossy strings would hide invalid raw bytes behind
@@ -15066,12 +15075,17 @@ fn search_query_tab_expands_at_the_drawn_column() {
 #[test]
 fn bash_readline_and_sushline_show_named_command_query_in_prompt() {
     let inputrc = r#""\C-o": execute-named-command"#;
-    for keys in [b"\x0fabc".as_slice(), b"\x1b5\x0fabc".as_slice()] {
+    for keys in [
+        b"\x0fabc".as_slice(),
+        b"\x1b5\x0fabc".as_slice(),
+        b"xyz\x0fabc".as_slice(),
+    ] {
         let bash = run_bash_readline_with_bindings(keys, inputrc);
         let sushline = run_sushline_harness_with_inputrc(keys, inputrc);
 
-        assert!(bash.contains("!abc"), "Bash: {bash}");
-        assert!(sushline.contains("!abc"), "Sushline: {sushline}");
+        for (editor, output) in [("Bash", &bash), ("Sushline", &sushline)] {
+            assert_screen_row(editor, output, "SUSHLINE_READY>!abc");
+        }
     }
 }
 
@@ -15084,10 +15098,11 @@ fn horizontal_named_command_prompt_shows_query() {
         &[("LC_ALL", "C.UTF-8")],
     );
 
+    let expected = b"SUSHLINE_READY>!abc\x1b[K";
     assert!(
         output
-            .windows(7)
-            .any(|window| window == [b'!', b'a', b'b', b'c', 0x1b, b'[', b'K']),
+            .windows(expected.len())
+            .any(|window| window == expected),
         "prompt query missing: {output:?}"
     );
 }

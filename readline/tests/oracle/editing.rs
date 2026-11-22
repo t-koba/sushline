@@ -15664,10 +15664,13 @@ fn bash_readline_and_sushline_apply_search_kills_to_query() {
     }
 }
 
-/// On the measured Readline 8.3 host, Ctrl-W retains a query containing
-/// whitespace instead of clearing it: each Ctrl-W rings once, except when
-/// the query ends in whitespace, and a later non-matching key still rings
-/// and shows the failed prompt while the selected match is accepted.
+/// On the measured Readline 8.3 host, Ctrl-W retains a query containing one
+/// of the measured separators (ASCII whitespace, `-`, `,`, `_`, `.`) instead
+/// of clearing it. The four traces here cover whitespace alone: a retained
+/// query rings once, except when trailing whitespace follows a query with no
+/// other separator and a match is active, and a later failing key shows the
+/// failed prompt while the selected match is accepted. These are measured
+/// cases, not a general GNU word-rubout model.
 #[test]
 fn bash_readline_and_sushline_retain_multiword_search_query_on_ctrl_w() {
     if !host_carries_measured_release() {
@@ -15717,6 +15720,109 @@ fn bash_readline_and_sushline_retain_multiword_search_query_on_ctrl_w() {
             ),
         ] {
             let context = format!("{editor} {name} keys={keys:?}: {output:?}");
+            assert_eq!(bell_count(&output), bells, "{context}");
+            assert_eq!(accepted_line(&output).as_deref(), accepted, "{context}");
+            assert_eq!(
+                output.contains("failed reverse-i-search"),
+                failed_prompt,
+                "{context}"
+            );
+        }
+    }
+}
+
+/// Paired measurements for the retained-query bell and acceptance rules on
+/// the Readline 8.3 host: a query with a measured separator keeps the
+/// displayed line even when no key ever matched, a no-match Ctrl-W rings
+/// twice, and the measured punctuation separators (`-`, `,`, `_`, `.`) retain
+/// the query just as whitespace does. These traces only pin the listed keys
+/// and histories; they do not claim a general GNU word-rubout model.
+#[test]
+fn bash_readline_and_sushline_ctrl_w_measured_separators_and_no_match() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!(
+            "Search Ctrl-W separators and no-match cases were measured on Readline 8.3; this case reports nothing on other releases"
+        );
+        return;
+    }
+    for (name, keys, history, bells, accepted, failed_prompt) in [
+        (
+            "no_match_after_match",
+            b"\x12zzz www\x17\r\r".as_slice(),
+            &["abc xyz"][..],
+            8,
+            Some("abc xyz"),
+            true,
+        ),
+        (
+            "no_match_empty_history",
+            b"\x12abc xyz\x17\r\r".as_slice(),
+            &[][..],
+            9,
+            Some(""),
+            true,
+        ),
+        (
+            "no_match_trailing_space",
+            b"\x12zzz \x17\r\r".as_slice(),
+            &["abc xyz"][..],
+            5,
+            Some("abc xyz"),
+            true,
+        ),
+        (
+            "match_trailing_space_two_words",
+            b"\x12abc xyz \x17\r\r".as_slice(),
+            &["abc xyz "][..],
+            1,
+            Some("abc xyz "),
+            false,
+        ),
+        (
+            "hyphen_then_q",
+            b"\x12foo-bar\x17Q\r\r".as_slice(),
+            &["foo-bar", "foo bar"][..],
+            2,
+            Some("foo-bar"),
+            true,
+        ),
+        (
+            "comma_then_q",
+            b"\x12abc,xyz\x17Q\r\r".as_slice(),
+            &["abc,xyz", "foo bar"][..],
+            2,
+            Some("abc,xyz"),
+            true,
+        ),
+        (
+            "underscore_then_q",
+            b"\x12abc_xyz\x17Q\r\r".as_slice(),
+            &["abc_xyz", "foo bar"][..],
+            2,
+            Some("abc_xyz"),
+            true,
+        ),
+        (
+            "dot_then_q",
+            b"\x12abc.xyz\x17Q\r\r".as_slice(),
+            &["abc.xyz", "foo bar"][..],
+            2,
+            Some("abc.xyz"),
+            true,
+        ),
+    ] {
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(keys, "", history),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, "", history),
+            ),
+        ] {
+            let context = format!("{editor} {name} keys={keys:?} history={history:?}: {output:?}");
             assert_eq!(bell_count(&output), bells, "{context}");
             assert_eq!(accepted_line(&output).as_deref(), accepted, "{context}");
             assert_eq!(

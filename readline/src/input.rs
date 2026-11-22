@@ -1431,6 +1431,13 @@ where
         )
     }
 
+    /// Separators that make GNU retain an incremental-search query on Ctrl-W
+    /// on the measured Readline 8.3 host: ASCII whitespace, `-`, `,`, `_`
+    /// and `.`. These are the measured bytes, not a general word-rubout model.
+    fn isearch_ctrl_w_separator(byte: u8) -> bool {
+        byte.is_ascii_whitespace() || matches!(byte, b'-' | b',' | b'_' | b'.')
+    }
+
     fn handle_reverse_search_single(
         &mut self,
         state: &mut EditorState,
@@ -1607,10 +1614,11 @@ where
             }
             // In the incremental prompt these kills apply to the query, not
             // to the line already selected by the current match. Ctrl-U
-            // clears the query and rings once. Ctrl-W clears only a
-            // single-word query (ringing once, and again with no match);
-            // with internal whitespace it retains the query and rings once
-            // unless the query ends in whitespace.
+            // clears the query and rings once. Ctrl-W clears a query without
+            // a measured separator (ringing once, and again with no match);
+            // with one of those separators it retains the query, keeping the
+            // selected line when a later extension fails. The bell counts
+            // below follow the measured cases, not a general rubout model.
             &[0x15] => {
                 search.query.clear();
                 state.search.reverse_search = Some(search);
@@ -1618,12 +1626,12 @@ where
                 EditorOutcome::Continue
             }
             &[0x17] => {
-                let has_whitespace = search.query.iter().any(u8::is_ascii_whitespace);
-                let trailing_whitespace = search
+                let has_separator = search
                     .query
-                    .last()
-                    .is_some_and(|byte| byte.is_ascii_whitespace());
-                if !has_whitespace {
+                    .iter()
+                    .copied()
+                    .any(Self::isearch_ctrl_w_separator);
+                if !has_separator {
                     let no_match = search.match_line.is_none();
                     search.query.clear();
                     self.ding()?;
@@ -1631,10 +1639,23 @@ where
                         self.ding()?;
                     }
                 } else {
-                    if search.match_line.is_some() {
-                        search.retain_match_on_failure = true;
-                    }
-                    if !trailing_whitespace {
+                    // Even a retained query that never matched keeps the
+                    // displayed line when a later query extension fails.
+                    search.retain_match_on_failure = true;
+                    let no_match = search.match_line.is_none();
+                    let without_trailing_whitespace = search.query.trim_ascii_end();
+                    let silent = !no_match
+                        && without_trailing_whitespace.len() != search.query.len()
+                        && !without_trailing_whitespace
+                            .iter()
+                            .copied()
+                            .any(Self::isearch_ctrl_w_separator);
+                    if no_match {
+                        // A failed retained query rings twice, the extra bell
+                        // matching the single-word no-match case.
+                        self.ding()?;
+                        self.ding()?;
+                    } else if !silent {
                         self.ding()?;
                     }
                 }

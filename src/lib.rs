@@ -8,6 +8,9 @@
 //!
 //! let mut editor = Editor::new(Config::default(), Terminal::new(), History::new());
 //! let _ = editor.read_line(Prompt::new("> "), &mut ());
+//!
+//! let mut terminal = Terminal::new();
+//! terminal.set_reraise_sigint_default(false);
 //! ```
 #![warn(missing_docs)]
 

@@ -15419,3 +15419,60 @@ fn bash_and_sushline_emit_one_zero_width_space_in_incremental_query() {
         assert_eq!(count, 1, "{editor} query must emit one marker: {output:?}");
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_fail_non_ascii_named_completion_once() {
+    if !host_carries_measured_release() {
+        eprintln!("Non-ASCII named completion was measured on Readline 8.3");
+        return;
+    }
+    let keys = b"\x0f\xe2\x80\x8b\tX\r";
+    let inputrc = r#""\C-o": execute-named-command"#;
+    let marker = [b"SUSHLINE_READY>!".as_slice(), &[0xe2, 0x80, 0x8b]].concat();
+    for (editor, output) in [
+        ("Bash", run_bash_readline_with_bindings(keys, inputrc)),
+        ("Sushline", run_sushline_harness_with_inputrc(keys, inputrc)),
+    ] {
+        assert_eq!(bell_count(&output), 2, "{editor} keys={keys:?}: {output:?}");
+        assert!(
+            output.as_bytes().windows(marker.len()).any(|w| w == marker),
+            "{editor} must echo the zero-width-space query: {output:?}"
+        );
+        assert_eq!(accepted_line(&output), None, "{editor}: {output:?}");
+    }
+}
+
+#[test]
+fn bash_readline_and_sushline_page_named_command_completions() {
+    if !host_carries_measured_release() {
+        eprintln!("Named completion paging was measured on Readline 8.3");
+        return;
+    }
+    let steps = [
+        ("SUSHLINE_READY>", b"\x0f\t".as_slice()),
+        ("--More--", b"q\rX\r".as_slice()),
+    ];
+    let inputrc = r#""\C-o": execute-named-command"#;
+    for (editor, output) in [
+        (
+            "Bash",
+            run_bash_readline_steps_with_inputrc(&steps, inputrc),
+        ),
+        (
+            "Sushline",
+            run_sushline_harness_steps_with_inputrc(&steps, inputrc),
+        ),
+    ] {
+        assert_eq!(
+            output.matches("--More--").count(),
+            1,
+            "{editor}: {output:?}"
+        );
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some("X"),
+            "{editor}: {output:?}"
+        );
+        assert_eq!(bell_count(&output), 0, "{editor}: {output:?}");
+    }
+}

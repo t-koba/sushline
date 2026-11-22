@@ -82,11 +82,15 @@ where
         if state.input.quoted_insert {
             return self.handle_quoted_insert(state, bytes, hooks);
         }
-        if let Some(translated) = self.translate_meta_input(bytes) {
-            return self.handle_bytes(state, &translated, hooks);
-        }
+        // Once the named-command prompt is open, every byte belongs to the
+        // query until a query control ends it. Translating high bytes to Meta
+        // here would let byte-oriented mode dispatch them as editing commands
+        // instead of showing the raw query text GNU shows.
         if state.input.named_command.is_some() {
             return self.handle_named_command(state, bytes, hooks);
+        }
+        if let Some(translated) = self.translate_meta_input(bytes) {
+            return self.handle_bytes(state, &translated, hooks);
         }
         if state.paste.bracketed_paste {
             return self.handle_bracketed_paste_input(state, bytes, hooks);

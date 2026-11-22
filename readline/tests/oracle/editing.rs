@@ -15530,3 +15530,50 @@ fn bash_readline_and_sushline_submit_named_command_on_nul() {
         }
     }
 }
+
+/// In byte-oriented mode, high bytes typed into the query stay query text:
+/// GNU does not turn them into Meta-prefixed editing commands. The invalid
+/// byte cases keep the exact submitted bytes and compare only the observable
+/// bell and accepted-line outcome, never a lossy decode of the echoed name.
+#[test]
+fn bash_readline_and_sushline_keep_byte_oriented_named_query_text() {
+    if !host_carries_measured_release() {
+        eprintln!(
+            "Byte-oriented named-command text was measured on Readline 8.3; this case reports nothing on other releases"
+        );
+        return;
+    }
+    let inputrc = r#""\C-o": execute-named-command"#;
+    let env = [("LC_ALL", "C")];
+    for (name, bytes) in [
+        ("invalid_ff", &b"\xff"[..]),
+        ("overlong", &b"\xc0\x80"[..]),
+        ("lone_continuation", &b"\x80"[..]),
+        ("truncated", &b"\xe2\x80"[..]),
+        ("multibyte", &b"\xc3\xa9"[..]),
+    ] {
+        let mut keys = vec![0x0f];
+        keys.extend_from_slice(bytes);
+        keys.extend_from_slice(b"abc\r");
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_env(&keys, inputrc, &env),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_env(&keys, inputrc, &env),
+            ),
+        ] {
+            let context = format!("{editor} {name} keys={keys:?}: {output:?}");
+            assert_eq!(bell_count(&output), 1, "{context}");
+            assert_eq!(accepted_line(&output), None, "{context}");
+            if name == "multibyte" {
+                assert!(
+                    output.contains(">!éabc"),
+                    "the raw multibyte query must be echoed: {context}"
+                );
+            }
+        }
+    }
+}

@@ -10925,6 +10925,26 @@ fn bash_and_sushline_vi_non_ascii_word_motion_bells() {
     }
 }
 
+/// Paired GNU 5.3 / Readline 8.3 pin for byte-wise insertion inside UTF-8.
+///
+/// `forward-byte` can leave point between the bytes of a multibyte character.
+/// Both editors accept the same raw bytes; a lossy string comparison would
+/// hide the difference between those bytes and U+FFFD. Sushline redraws the
+/// whole line where GNU emits an incremental partial-byte update, so this
+/// fixture asserts accepted bytes rather than redisplay bytes.
+#[test]
+fn bash_and_sushline_bytewise_insertion_inside_utf8_keeps_raw_bytes() {
+    let inputrc = "\"\\C-xf\": forward-byte\n\"\\C-xb\": backward-byte\n";
+    assert_bytewise_editing_bytes(
+        "insert_ascii_inside_utf8",
+        b"\xc3\xa4b\x01\x18f\x18b\x18fZ\r",
+        &[0xc3, 0x5a, 0xa4, 0x62],
+        0,
+        inputrc,
+        &[("LC_ALL", "C.UTF-8")],
+    );
+}
+
 /// Paired GNU 5.3 / Readline 8.3 pin for byte-oriented vi word-motion point.
 ///
 /// In byte-oriented mode GNU leaves a stalled `w`/`W` on the final byte of a

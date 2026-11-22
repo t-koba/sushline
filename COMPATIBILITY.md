@@ -25,6 +25,14 @@ choices are product decisions, not oracle compatibility claims:
 - Oracle fixtures reject lossy U+FFFD substitutions rather than treating them
   as an acceptable match for GNU output.
 
+### Byte-wise redisplay
+
+A byte-wise motion can leave point between the bytes of a UTF-8 character.
+Both editors accept the resulting raw bytes unchanged; the paired byte-wise
+insertion fixture pins those bytes with ASCII-hex markers instead of lossy
+strings. Sushline redraws the full visible line where GNU emits an incremental
+partial-byte update, so redisplay bytes are not asserted for this case.
+
 ### Terminal wrap margins
 
 - With both `am` and `xenl` (xterm-style deferred wrapping), redisplay uses

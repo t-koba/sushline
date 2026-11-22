@@ -15488,6 +15488,7 @@ fn bash_readline_and_sushline_ring_on_named_command_abort() {
         ("query", b"abc\x0fdef\x07X\r".as_slice(), Some("abcX")),
         ("empty", b"abc\x0f\x07X\r".as_slice(), Some("abcX")),
         ("submit", b"abc\x0fdef\x07\r".as_slice(), Some("abc")),
+        ("count", b"\x1b3\x0fdef\x07X\r".as_slice(), Some("X")),
     ] {
         for (editor, output) in [
             ("Bash", run_bash_readline_with_bindings(keys, inputrc)),

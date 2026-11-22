@@ -15205,6 +15205,7 @@ fn bash_readline_and_sushline_echo_named_command_control_bytes() {
     for (controls, caret) in [
         (&b"\x01\x02\x04\x05"[..], "^A^B^D^E"),
         (&b"\x0b\x0c\x0e\x10\x14\x18"[..], "^K^L^N^P^T^X"),
+        (&b"\x06\x12\x19\x1d\x1e\x1f"[..], "^F^R^Y^]^^^_"),
     ] {
         let mut keys = vec![0x0f];
         keys.extend_from_slice(controls);

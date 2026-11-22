@@ -2307,15 +2307,28 @@ fn save_incremental_search(state: &mut EditorState, search: &ReverseSearchState)
     state.search.last_incremental_search_direction = Some(search.direction);
 }
 
-/// Append query bytes, holding an incomplete UTF-8 sequence until its
-/// remaining bytes arrive. Control characters are never query text.
 /// ASCII control bytes GNU echoes into an execute-named-command query as
 /// caret notation. Command and editing controls are handled before the query
 /// text path; the measured set here is echoed rather than interpreted.
 fn named_query_control_is_text(ch: char) -> bool {
     matches!(
         ch as u32,
-        0x01 | 0x02 | 0x04 | 0x05 | 0x0b | 0x0c | 0x0e | 0x10 | 0x14 | 0x18 | 0x1b
+        0x01 | 0x02
+            | 0x04
+            | 0x05
+            | 0x06
+            | 0x0b
+            | 0x0c
+            | 0x0e
+            | 0x10
+            | 0x12
+            | 0x14
+            | 0x18
+            | 0x19
+            | 0x1b
+            | 0x1d
+            | 0x1e
+            | 0x1f
     )
 }
 
@@ -2369,10 +2382,19 @@ mod named_query_tests {
     #[test]
     fn echoed_controls_stay_in_query_and_command_controls_are_dropped() {
         let mut pending = PendingNamedCommand::default();
-        assert!(append_named_query_bytes(&mut pending, b"\x1b\x01a"));
-        assert_eq!(pending.query, "\u{1b}\u{1}a");
+        assert!(append_named_query_bytes(
+            &mut pending,
+            b"\x1b\x01\x06\x12\x19\x1d\x1e\x1fa"
+        ));
+        assert_eq!(
+            pending.query,
+            "\u{1b}\u{1}\u{6}\u{12}\u{19}\u{1d}\u{1e}\u{1f}a"
+        );
         assert!(append_named_query_bytes(&mut pending, b"\x07b\x7fc"));
-        assert_eq!(pending.query, "\u{1b}\u{1}abc");
+        assert_eq!(
+            pending.query,
+            "\u{1b}\u{1}\u{6}\u{12}\u{19}\u{1d}\u{1e}\u{1f}abc"
+        );
     }
 
     #[test]

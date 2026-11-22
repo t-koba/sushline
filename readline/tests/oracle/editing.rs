@@ -16116,3 +16116,53 @@ fn bash_readline_and_sushline_commit_search_line_on_ctrl_u() {
         }
     }
 }
+
+/// After an unquoted NUL freeze on the measured GNU Readline 8.3 host, the
+/// bound cursor commands leave the search and act on the established line
+/// from the match start. A typed key exposes the resulting point; backward
+/// movement at the start rings. Only these measured keys are claimed.
+#[test]
+fn bash_readline_and_sushline_apply_cursor_commands_after_nul_freeze() {
+    for (name, keys, bells, accepted) in [
+        (
+            "beginning_of_line",
+            b"\x12abc xyz\x00\x01Q\r".as_slice(),
+            0,
+            Some("Qabc xyz"),
+        ),
+        (
+            "end_of_line",
+            b"\x12abc xyz\x00\x05Q\r".as_slice(),
+            0,
+            Some("abc xyzQ"),
+        ),
+        (
+            "backward_char_at_start",
+            b"\x12abc xyz\x00\x02Q\r".as_slice(),
+            1,
+            Some("Qabc xyz"),
+        ),
+        (
+            "forward_char",
+            b"\x12abc xyz\x00\x06Q\r".as_slice(),
+            0,
+            Some("aQbc xyz"),
+        ),
+    ] {
+        let history = &["abcQ", "abc xyz"][..];
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(keys, "", history),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, "", history),
+            ),
+        ] {
+            let context = format!("{editor} {name} keys={keys:?}: {output:?}");
+            assert_eq!(bell_count(&output), bells, "{context}");
+            assert_eq!(accepted_line(&output).as_deref(), accepted, "{context}");
+        }
+    }
+}

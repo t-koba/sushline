@@ -1496,18 +1496,42 @@ where
         bytes: &[u8],
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
-        // An unquoted NUL freezes the query: after the freeze, all following
+        // An unquoted NUL freezes the query: after the freeze, following
         // query-editing input is ignored, whether printable, quoted or
         // control. Accept, abort, Ctrl-C, Ctrl-U and configured isearch
-        // terminators keep their normal paths. C-r rings once; control bytes and
-        // repeated NUL are silent; printable and quoted literal bytes ring
-        // once only for a failed freeze.
-        if let Some(search) = state.search.reverse_search.as_ref()
-            && search.nul_pending
+        // terminators keep their normal paths. The measured cursor commands
+        // instead leave the search and run on the established line. C-r
+        // rings once; control bytes and repeated NUL are silent; printable
+        // and quoted literal bytes ring once only for a failed freeze.
+        let nul_frozen = state
+            .search
+            .reverse_search
+            .as_ref()
+            .is_some_and(|search| search.nul_pending);
+        if nul_frozen
             && !matches!(bytes, [0x0d] | [0x0a] | [0x07] | [0x03] | [0x15])
             && !self.is_isearch_terminator(bytes)
         {
-            if bytes == [0x12] || (search.nul_failed && !bytes.iter().all(u8::is_ascii_control)) {
+            // GNU applies the bound cursor commands after the freeze, with
+            // point where the search left it. Only the measured keys are
+            // routed here; unmeasured controls keep the frozen behavior.
+            if matches!(bytes, [0x01] | [0x02] | [0x05] | [0x06])
+                && let Some(binding) = self.keymap.lookup(self.keymap.current(), bytes).cloned()
+            {
+                let search = state
+                    .search
+                    .reverse_search
+                    .take()
+                    .expect("NUL-frozen search state");
+                self.restore_isearch_line_for_editing(state, &search, true);
+                return self.apply_binding(state, binding, bytes, hooks);
+            }
+            let failed = state
+                .search
+                .reverse_search
+                .as_ref()
+                .is_some_and(|search| search.nul_failed);
+            if bytes == [0x12] || (failed && !bytes.iter().all(u8::is_ascii_control)) {
                 self.ding()?;
             }
             return Ok(EditorOutcome::Continue);

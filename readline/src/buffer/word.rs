@@ -1315,10 +1315,10 @@ impl LineBuffer {
 
     /// Vi end word (lowercase `e`).
     ///
-    /// Like [`vi_word_motion_by`](LineBuffer::vi_word_motion_by), a
-    /// contiguous punctuation run is its own word class. From inside a run
-    /// `e` stops at its end; from the end of a run it advances to the end of
-    /// the following run, skipping whitespace on the way.
+    /// As in the underlying vi word motion, a contiguous punctuation run is
+    /// its own word class. From inside a run `e` stops at its end; from the
+    /// end of a run it advances to the end of the following run, skipping
+    /// whitespace on the way.
     pub fn vi_end_word(&mut self, break_chars: Option<&str>) -> bool {
         self.vi_end_word_by(vi_word_matcher(break_chars))
     }

@@ -56,6 +56,16 @@ history line expands from that physical column; the paired search-match
 fixture pins the expansion for prefixes of one to four bytes. A plain query
 without a TAB uses the query's rendered width unchanged.
 
+For a failed reverse search whose query is a bare quoted TAB, the settled
+24-column-by-80 frame differs: GNU places the closing quote at column 27 and
+the cursor at column 35, while Sushline places them at columns 35 and 39.
+GNU emits `CSI 8@` and leaves the earlier terminator cells in place;
+Sushline's full redraw writes a new `': ` after the physical TAB advance.
+`bash_readline_and_sushline_keep_a_literal_tab_in_the_search_query` pins both
+settled frames and the shared raw-byte fragment. This does not establish the
+geometry of a successful match, horizontal mode, or full redisplay-byte
+parity.
+
 ### Terminal wrap margins
 
 - With both `am` and `xenl` (xterm-style deferred wrapping), redisplay uses

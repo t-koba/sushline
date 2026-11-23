@@ -15351,6 +15351,34 @@ fn horizontal_search_prompt_keeps_one_raw_byte_marker() {
     assert_eq!(count, 1, "one typed marker must render once: {output:?}");
 }
 
+/// The settled failed-search frame, measured at 24 columns by 80 with
+/// standard tab stops. The search prompt is drawn and then erased, so the
+/// last prefix with the cursor still on its row is the frame a user sees.
+fn settled_failed_search_frame(output: &str) -> (String, usize, usize) {
+    let mut settled: Option<(String, usize, usize)> = None;
+    for end in 1..=output.len() {
+        let mut screen = super::screen::Screen::new(24, 80);
+        screen.feed(&output.as_bytes()[..end]);
+        let (row, column) = screen.cursor();
+        let rows = screen.rows_text();
+        if row != 0
+            || column == 0
+            || !rows[0].starts_with("(failed reverse-i-search)")
+            || !rows[0].contains('\'')
+        {
+            continue;
+        }
+        let quote = rows[0].rfind('\'').expect("search terminator quote");
+        if settled
+            .as_ref()
+            .is_none_or(|(_, _, previous)| column > *previous)
+        {
+            settled = Some((rows[0].clone(), quote, column));
+        }
+    }
+    settled.expect("a settled failed-search frame")
+}
+
 /// Bash 5.3 PTY evidence (Readline 8.3): for `\x12\x16\t\r\r` under
 /// C.UTF-8, the failed reverse-i-search redraw writes the quoted TAB as a
 /// raw byte followed by three CSI-C moves, not as spaces at the tab stop.
@@ -15360,14 +15388,18 @@ fn bash_readline_and_sushline_keep_a_literal_tab_in_the_search_query() {
     let keys = b"\x12\x16\t\r\r";
     let env = [("LC_ALL", "C.UTF-8")];
     let fragment: &[u8] = b"failed reverse-i-search)`\t\x1b[C\x1b[C\x1b[C";
-    for (editor, output) in [
+    for (editor, output, quote_column, cursor_column) in [
         (
             "Bash",
             run_bash_readline_with_inputrc_file_and_env(keys, "", &env),
+            27,
+            35,
         ),
         (
             "Sushline",
             run_sushline_harness_with_inputrc_and_env(keys, "", &env),
+            35,
+            39,
         ),
     ] {
         assert!(
@@ -15381,6 +15413,15 @@ fn bash_readline_and_sushline_keep_a_literal_tab_in_the_search_query() {
             accepted_line(&output).as_deref(),
             Some(""),
             "{editor} must accept the empty line, not a completion: {output:?}"
+        );
+        let (row, quote, cursor) = settled_failed_search_frame(&output);
+        assert_eq!(
+            quote, quote_column,
+            "{editor} must settle the terminator quote at column {quote_column}: {row:?}"
+        );
+        assert_eq!(
+            cursor, cursor_column,
+            "{editor} must settle the cursor at column {cursor_column}: {row:?}"
         );
     }
 }

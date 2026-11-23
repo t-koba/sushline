@@ -16897,9 +16897,10 @@ fn gnu_prompt_above_wrap_limit_aborts_while_sushline_accepts() {
     // rendering this prompt; Sushline completes the same edit.
     let prompt = format!("SUSHLINE_READY>\u{1}\u{1b}[31m\u{2}{}", "P".repeat(3200));
     let (status, bash) = run_bash_prompt_length_probe(&prompt, size);
-    assert!(
-        status.as_ref().is_some_and(|status| !status.success()),
-        "GNU must abort on this prompt, not wait for input: status={status:?} output={bash:?}"
+    assert_eq!(
+        status.as_ref().map(ToString::to_string).as_deref(),
+        Some("Terminated by Aborted"),
+        "GNU must abort on this prompt, not wait for input or exit otherwise: status={status:?} output={bash:?}"
     );
     let sushline =
         run_sushline_harness_with_prompt(b"X\r\r", &prompt, "", &[("LC_ALL", "C.UTF-8")], size);

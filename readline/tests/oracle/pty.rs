@@ -2849,18 +2849,28 @@ pub(super) fn run_bash_prompt_length_probe(
     ]);
     let mut session = PtySession::spawn(command, size);
     let mut out = Vec::new();
+    let mut closed = false;
     let deadline = Instant::now() + PTY_HANG_BOUND;
     while Instant::now() < deadline {
         match session.read(Duration::from_millis(20)) {
             PtyOutput::Chunk(chunk) => out.extend_from_slice(&chunk),
             PtyOutput::Timeout => {}
-            PtyOutput::Closed => break,
+            PtyOutput::Closed => {
+                closed = true;
+                break;
+            }
         }
         if session.exited() {
             break;
         }
     }
-    let status = session.child_exit_status();
+    // A PTY close can be observed before try_wait sees the child exit. Once
+    // every slave descriptor is gone the child has terminated, so reap it.
+    let status = match session.child_exit_status() {
+        Some(status) => Some(status),
+        None if closed => session.child.wait().ok(),
+        None => None,
+    };
     session.finish();
     (status, lossy_output(&out))
 }

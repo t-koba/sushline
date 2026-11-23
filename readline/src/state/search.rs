@@ -179,13 +179,45 @@ pub(crate) fn update_reverse_search_match(
                 } else {
                     search.original_history_pos.min(history.entries().len())
                 };
-                search_history_forward_from(
+                let mut first = start;
+                if !search.exclude_cursor && !repeat {
+                    // Readline 8.3's first forward search ignores occurrences
+                    // behind the start point in the cursor entry. With none at
+                    // or after that point it takes the first newer matching
+                    // entry, falling back to the cursor entry only when no
+                    // newer entry matches. Vi `?` and repeats keep their start.
+                    let point = search.original_point.min(search.original_line.len());
+                    if search.original_line.get(point..).is_some_and(|line| {
+                        search_bytes_offset(
+                            line,
+                            &search.query,
+                            ignore_case,
+                            locale_lowercase,
+                            false,
+                        )
+                        .is_none()
+                    }) {
+                        first = start.saturating_add(1);
+                    }
+                }
+                let found = search_history_forward_from(
                     history,
                     &search.query,
-                    start,
+                    first,
                     ignore_case,
                     locale_lowercase,
-                )
+                );
+                if found.is_none() && first != start {
+                    search_history_forward_from(
+                        history,
+                        &search.query,
+                        start,
+                        ignore_case,
+                        locale_lowercase,
+                    )
+                } else {
+                    found
+                }
             }
         }
     };
@@ -808,6 +840,83 @@ mod tests {
             retain_match_on_failure: false,
             retain_failed_query_line: false,
         }
+    }
+
+    fn initial_forward_state(
+        line: &str,
+        query: &str,
+        point: usize,
+        exclude_cursor: bool,
+    ) -> ReverseSearchState {
+        ReverseSearchState {
+            query: query.as_bytes().to_vec(),
+            match_line: None,
+            match_index: None,
+            match_offset: None,
+            direction: SearchDirection::Forward,
+            original_line: line.as_bytes().to_vec(),
+            original_point: point,
+            original_history_pos: 0,
+            original_history_entry_index: None,
+            original_undo: UndoState::default(),
+            exclude_cursor,
+            nul_pending: false,
+            nul_failed: false,
+            retain_match_on_failure: false,
+            retain_failed_query_line: false,
+        }
+    }
+
+    #[test]
+    fn initial_forward_search_skips_the_point_entry_without_a_later_occurrence() {
+        let mut history = History::new();
+        history.push("abcabc");
+        history.push("mid");
+        history.push("xxxabc");
+        for (point, expected_index, expected_line) in [
+            (3, Some(0), "abcabc"),
+            (4, Some(2), "xxxabc"),
+            (6, Some(2), "xxxabc"),
+        ] {
+            let mut search = initial_forward_state("abcabc", "abc", point, false);
+            assert!(
+                update_reverse_search_match(&mut search, &history, false, false, None),
+                "point {point}"
+            );
+            assert_eq!(search.match_index, expected_index, "point {point}");
+            assert_eq!(
+                search.match_line.as_deref(),
+                Some(expected_line.as_bytes()),
+                "point {point}"
+            );
+        }
+
+        // With no newer match the cursor entry is still searched from its
+        // start, as GNU does when the point has no occurrence ahead of it.
+        let mut shorter = History::new();
+        shorter.push("abcabc");
+        shorter.push("mid");
+        let mut search = initial_forward_state("abcabc", "abc", 6, false);
+        assert!(update_reverse_search_match(
+            &mut search,
+            &shorter,
+            false,
+            false,
+            None
+        ));
+        assert_eq!(search.match_index, Some(0));
+        assert_eq!(search.match_line.as_deref(), Some("abcabc".as_bytes()));
+
+        // Vi `?` keeps its cursor-exclusive start regardless of the point.
+        let mut search = initial_forward_state("abcabc", "abc", 3, true);
+        assert!(update_reverse_search_match(
+            &mut search,
+            &history,
+            false,
+            false,
+            None
+        ));
+        assert_eq!(search.match_index, Some(2));
     }
 
     #[test]

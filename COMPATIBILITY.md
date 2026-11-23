@@ -75,10 +75,17 @@ point where the search began: a point before the second occurrence accepts
 the point is at the end so no occurrence lies ahead, both editors accept
 `!xabcabc` and ring once per failing query byte; a `zzz` query from the line
 start rings three times on both hosts, and a successful query rings nothing.
-When the match resolves in a newer history entry than the one holding the
-start point, that point does not apply and a successful query stays silent.
-These cases do not establish general forward-search behavior beyond the pinned
-keys and history.
+`bash_readline_and_sushline_forward_isearch_skips_the_point_entry_without_a_later_match`
+pins the measured entry choice: when the cursor entry has no occurrence at or
+after the start point, both editors select the first newer matching entry and
+ring nothing (`xxx!abc`, `yyy!abc`, or `x!aa` from point 3 of `aaa` with `aa`).
+When no newer entry matches, both fall back to the cursor entry (`!abcabc`
+with one bell per failing query byte). A point with an occurrence at or after
+it still selects the cursor entry (`abc!abc`). Occurrences selected in a newer
+entry keep that entry's own rank rather than being filtered by the foreign
+start point. These cases pin accepted lines and bell counts only; they do not
+establish redisplay-byte parity or general forward-search behavior beyond the
+pinned keys and histories.
 
 ### Reverse incremental search point
 

@@ -1719,9 +1719,15 @@ where
             let mut offsets =
                 match_offsets_from_end(line, &search.query, ignore_case, locale_lowercase.as_ref());
             offsets.reverse();
+            // The start point belongs to the entry where the search began.
+            // Readline 8.3 does not apply it to a match in a newer entry:
+            // that occurrence keeps its stored rank (measured with `xaa`).
             return offsets
                 .into_iter()
-                .filter(|&offset| offset >= search.original_point)
+                .filter(|&offset| {
+                    search.match_index != Some(search.original_history_pos)
+                        || offset >= search.original_point
+                })
                 .nth(rank)
                 .unwrap_or(0);
         }

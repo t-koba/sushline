@@ -16892,6 +16892,125 @@ fn bash_readline_and_sushline_forward_search_bells_in_a_newer_entry() {
     }
 }
 
+/// GNU's first forward search ignores occurrences behind the start point in
+/// the cursor entry: when none lie at or after the point it selects the first
+/// newer matching entry, falling back to the cursor entry only when no newer
+/// entry matches. A match in a newer entry keeps its own occurrence rank; the
+/// cursor's point does not filter it or ring the bell. Ctrl-T stands in for
+/// Ctrl-S because the PTY's XOFF flow control swallows that byte.
+#[test]
+fn bash_readline_and_sushline_forward_isearch_skips_the_point_entry_without_a_later_match() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!("Forward search entry skip was measured on Readline 8.3");
+        return;
+    }
+    let bindings = r#""\C-t": forward-search-history"#;
+    let end = b"\x1b[F".as_slice();
+    let after_three = b"\x01\x1b[C\x1b[C\x1b[C".as_slice();
+    let after_four = b"\x01\x1b[C\x1b[C\x1b[C\x1b[C".as_slice();
+    let after_five = b"\x01\x1b[C\x1b[C\x1b[C\x1b[C\x1b[C".as_slice();
+    struct Case<'a> {
+        name: &'a str,
+        history: &'a [&'a str],
+        backs: usize,
+        point: &'a [u8],
+        query: &'a [u8],
+        accepted: &'a str,
+        bells: usize,
+    }
+    let cases = [
+        Case {
+            name: "newer entry from the end",
+            history: &["abcabc", "mid", "xxxabc"],
+            backs: 3,
+            point: end,
+            query: b"abc",
+            accepted: "xxx!abc",
+            bells: 0,
+        },
+        Case {
+            name: "matching occurrence at the point",
+            history: &["abcabc", "mid", "xxxabc"],
+            backs: 3,
+            point: after_three,
+            query: b"abc",
+            accepted: "abc!abc",
+            bells: 0,
+        },
+        Case {
+            name: "point past both cursor occurrences",
+            history: &["abcabc", "mid", "xxxabc"],
+            backs: 3,
+            point: after_four,
+            query: b"abc",
+            accepted: "xxx!abc",
+            bells: 0,
+        },
+        Case {
+            name: "point inside the last cursor occurrence",
+            history: &["abcabc", "mid", "xxxabc"],
+            backs: 3,
+            point: after_five,
+            query: b"abc",
+            accepted: "xxx!abc",
+            bells: 0,
+        },
+        Case {
+            name: "no newer match falls back to the cursor entry",
+            history: &["abcabc", "mid"],
+            backs: 2,
+            point: end,
+            query: b"abc",
+            accepted: "!abcabc",
+            bells: 3,
+        },
+        Case {
+            name: "first newer matching entry wins",
+            history: &["abcabc", "mid", "yyyabc", "zzzabc"],
+            backs: 4,
+            point: end,
+            query: b"abc",
+            accepted: "yyy!abc",
+            bells: 0,
+        },
+        Case {
+            name: "shorter query in a newer entry",
+            history: &["aaa", "mid", "xaa"],
+            backs: 3,
+            point: end,
+            query: b"aa",
+            accepted: "x!aa",
+            bells: 0,
+        },
+    ];
+    for case in &cases {
+        let mut keys = vec![0x10; case.backs];
+        keys.extend_from_slice(case.point);
+        keys.extend_from_slice(b"\x14");
+        keys.extend_from_slice(case.query);
+        keys.extend_from_slice(b"\n!\r");
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(&keys, bindings, case.history),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(&keys, bindings, case.history),
+            ),
+        ] {
+            let context = format!("{} {editor} keys={keys:?}: {output:?}", case.name);
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(case.accepted),
+                "{context}"
+            );
+            assert_eq!(bell_count(&output), case.bells, "{context}");
+        }
+    }
+}
+
 /// GNU's forward incremental search starts at the point where the search
 /// began and advances one occurrence per repeat. Ctrl-T stands in for Ctrl-S
 /// because the PTY's XOFF flow control otherwise swallows that byte. The

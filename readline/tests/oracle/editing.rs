@@ -16188,9 +16188,9 @@ fn bash_readline_and_sushline_freeze_search_query_on_nul() {
 /// frozen; the fixture lists the measured printable, quoted and control
 /// bytes. Accept, abort, Ctrl-C and configured isearch terminators still
 /// take their normal paths. The
-/// unfrozen quoted case is a control: on this host GNU keeps the last match
-/// while Sushline restores the original line. The ESC case pins the accepted
-/// line; its bell count differs before the freeze as well.
+/// unfrozen quoted case is a control: both editors keep the displayed match
+/// when the quoted extension fails. The ESC case pins the accepted line; its
+/// bell count differs before the freeze as well.
 #[test]
 fn bash_readline_and_sushline_freeze_all_following_search_input() {
     require_oracle_host();
@@ -16263,7 +16263,7 @@ fn bash_readline_and_sushline_freeze_all_following_search_input() {
             &["alpha", "abc", "abd"][..],
             1,
             Some("abd"),
-            Some(""),
+            Some("abd"),
         ),
         (
             "x_after_freeze",
@@ -16299,6 +16299,40 @@ fn bash_readline_and_sushline_freeze_all_following_search_input() {
             assert_eq!(bell_count(&output), expected_bells, "{context}");
             assert_eq!(accepted_line(&output).as_deref(), accepted, "{context}");
         }
+    }
+}
+
+/// A query extension that fails after a match was displayed keeps that
+/// match on the measured Readline 8.3 host: Enter accepts the line the search
+/// showed and rings once for the failed extension.
+#[test]
+fn bash_readline_and_sushline_accept_last_match_after_failed_query() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!(
+            "Failed-query acceptance was measured on Readline 8.3; this case reports nothing on other releases"
+        );
+        return;
+    }
+    let keys = b"\x12ab\r";
+    let history = ["alpha one", "beta two", "alpha three"];
+    for (editor, output) in [
+        (
+            "Bash",
+            run_bash_readline_with_bindings_and_history(keys, "", &history),
+        ),
+        (
+            "Sushline",
+            run_sushline_harness_with_inputrc_and_history(keys, "", &history),
+        ),
+    ] {
+        let context = format!("{editor} keys={keys:?}: {output:?}");
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some("alpha three"),
+            "{context}"
+        );
+        assert_eq!(bell_count(&output), 1, "{context}");
     }
 }
 

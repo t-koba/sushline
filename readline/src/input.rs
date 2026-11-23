@@ -1527,13 +1527,21 @@ where
     fn refresh_reverse_search_match(&self, search: &mut ReverseSearchState, repeat: bool) -> bool {
         let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
         let locale_lowercase = self.search_locale_lowercase(ignore_case);
-        update_reverse_search_match(
+        let displayed = search.match_line.is_some() || search.retain_match_on_failure;
+        let found = update_reverse_search_match(
             search,
             &self.history,
             repeat,
             ignore_case,
             locale_lowercase.as_ref(),
-        )
+        );
+        // A failed query edit leaves the last displayed match in the buffer;
+        // only the accept path uses it. The query prompt still reports the
+        // failure, and Ctrl-G restores the original line independently.
+        if !found && !repeat && displayed && std::str::from_utf8(&search.query).is_ok() {
+            search.retain_failed_query_line = true;
+        }
+        found
     }
 
     /// Separators that make GNU retain an incremental-search query on Ctrl-W
@@ -1558,7 +1566,7 @@ where
                 // terminate-without-execute which restores the original line.
                 state.buffer.as_bytes().to_vec()
             } else {
-                accept_search_line(state, search)
+                accept_search_line(state, search, false)
             };
         let mut buffer = LineBuffer::from_bytes(accepted);
         if search.query.is_empty() {
@@ -1776,7 +1784,7 @@ where
             }
             b"\r" | b"\n" => {
                 state.search.quoted_pending = false;
-                let accepted = accept_search_line(state, &search);
+                let accepted = accept_search_line(state, &search, true);
                 state.buffer = LineBuffer::from_bytes(accepted.clone());
                 state.history_entry_index = if search.match_line.is_some() {
                     search.match_index
@@ -1948,7 +1956,9 @@ where
             || command_binding.is_some()
             || self.keymap.has_prefix(self.keymap.current(), bytes)
         {
-            let accepted = accept_search_line(state, &search);
+            // Leaving search with a command key still restores the original
+            // line after a failed query; only Enter keeps the displayed line.
+            let accepted = accept_search_line(state, &search, false);
             state.buffer = LineBuffer::from_bytes(accepted);
             if raw_meta && search.match_line.is_some() {
                 // Like explicit termination, raw-meta exit leaves point at
@@ -2651,12 +2661,19 @@ fn isearch_terminate_point(
     byte_offset
 }
 
-fn accept_search_line(state: &EditorState, search: &ReverseSearchState) -> Vec<u8> {
-    if search.match_line.is_some() || search.retain_match_on_failure {
+fn accept_search_line(
+    state: &EditorState,
+    search: &ReverseSearchState,
+    keep_failed_query: bool,
+) -> Vec<u8> {
+    if search.match_line.is_some()
+        || search.retain_match_on_failure
+        || (keep_failed_query && search.retain_failed_query_line)
+    {
         // A match on the buffer's own entry preserves its live edit, which
-        // may be newer than the line stored in the search result. A retained
-        // multi-word query likewise keeps its selected line when a later
-        // query extension fails; Ctrl-G still restores the original line.
+        // may be newer than the line stored in the search result. A failed
+        // query extension likewise keeps the displayed line on accept;
+        // Ctrl-G still restores the original line.
         state.buffer.as_bytes().to_vec()
     } else {
         search.original_line.clone()

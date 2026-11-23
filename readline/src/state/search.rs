@@ -49,6 +49,9 @@ pub(crate) struct ReverseSearchState {
     /// later failing query keeps the displayed line instead of restoring the
     /// pre-search line.
     pub(crate) retain_match_on_failure: bool,
+    /// A query extension failed after a match was displayed. Enter then
+    /// accepts that displayed line; Ctrl-G still restores the original line.
+    pub(crate) retain_failed_query_line: bool,
 }
 
 #[derive(Debug, Clone)]

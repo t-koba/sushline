@@ -1907,3 +1907,26 @@ fn named_digit_argument_with_an_empty_key_does_not_panic() {
         ReadlineResult::Line(line) if line == b"X"
     ));
 }
+
+#[test]
+fn fragmented_utf8_search_prefix_keeps_the_following_byte() {
+    let mut line = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
+    line.variables.use_utf8_io_defaults();
+    let mut state = EditorState::new(Prompt::new("> "), None);
+
+    for chunk in [&b"\x12"[..], &b"\xc3"[..], &b"a"[..]] {
+        let (outcome, remainder, _) = line
+            .dispatch_input_bytes(&mut state, chunk, &mut ())
+            .unwrap();
+        assert!(matches!(outcome, EditorOutcome::Continue));
+        assert!(remainder.is_empty());
+    }
+
+    let search = state
+        .search
+        .reverse_search
+        .as_ref()
+        .expect("the query is still active");
+    assert_eq!(search.query, b"\xc3a");
+    assert!(state.input.pending_char_bytes.is_empty());
+}

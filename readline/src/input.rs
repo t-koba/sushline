@@ -1472,10 +1472,17 @@ where
         // In a UTF-8 locale the query extends one whole character at a time.
         // Dispatching an incomplete prefix would search with invalid bytes
         // and ring before the character arrives; buffer it like a vi key.
-        let Some((first, _)) = take_pending_character(state, bytes, false) else {
+        let Some((first, rest)) = take_pending_character(state, bytes, false) else {
             return Ok(EditorOutcome::Continue);
         };
-        self.handle_reverse_search_single(state, &first, hooks)
+        let outcome = self.handle_reverse_search_single(state, &first, hooks)?;
+        if !matches!(outcome, EditorOutcome::Continue) || rest.is_empty() {
+            return Ok(outcome);
+        }
+        // An invalid prefix can end on a fresh byte that is not its
+        // continuation. `first` is the stale prefix; dispatch `rest` too so
+        // the following key is not lost.
+        self.handle_reverse_search(state, &rest, hooks)
     }
 
     fn handle_reverse_search_batched(

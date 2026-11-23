@@ -16712,6 +16712,38 @@ fn bash_readline_and_sushline_isearch_termination_after_shortened_live_edit_one_
     }
 }
 
+/// A prefix with the point moved to the end starts the reverse search at the
+/// last occurrence in the edited line; GNU and Sushline both accept
+/// `xabc!abc` with no bell.
+#[test]
+fn bash_readline_and_sushline_isearch_termination_after_prepend_and_end() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!("Prepend with end point was measured on Readline 8.3");
+        return;
+    }
+    let history = ["abcabc"];
+    let keys = b"\x10\x01x\x1b[F\x12abc\n!\r";
+    for (editor, output) in [
+        (
+            "Bash",
+            run_bash_readline_with_bindings_and_history(keys, "", &history),
+        ),
+        (
+            "Sushline",
+            run_sushline_harness_with_inputrc_and_history(keys, "", &history),
+        ),
+    ] {
+        let context = format!("{editor} keys={keys:?}: {output:?}");
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some("xabc!abc"),
+            "{context}"
+        );
+        assert_eq!(bell_count(&output), 0, "{context}");
+    }
+}
+
 /// Appending the query itself makes the live line end with the stored entry.
 /// The selected last occurrence stays last, so `!` lands before the appended
 /// copy on both hosts with no bell.

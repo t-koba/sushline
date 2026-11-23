@@ -1694,12 +1694,20 @@ where
         }
         let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
         let locale_lowercase = self.search_locale_lowercase(ignore_case);
+        // A search that began at or inside the first live occurrence selects
+        // that occurrence; later ones were not searchable from that point.
+        if let Some(first) = search_bytes_offset(
+            line,
+            &search.query,
+            ignore_case,
+            locale_lowercase.as_ref(),
+            false,
+        ) && search.original_point < first.saturating_add(search.query.len())
+        {
+            return first;
+        }
         if let (Some(match_offset), Some(match_line)) =
             (search.match_offset, search.match_line.as_deref())
-            // GNU restarts at the first occurrence when bytes were prepended
-            // to the stored line. A suffix equal to the stored line is still
-            // an append when the line also starts with it.
-            && !(line.ends_with(match_line) && !line.starts_with(match_line))
             && let Some(rank) = match_rank_from_end(
                 match_line,
                 &search.query,

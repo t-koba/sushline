@@ -2421,6 +2421,30 @@ fn isearch_termination_after_a_shortened_live_edit_and_one_repeat_with_prefix() 
     assert_eq!(state.buffer.as_bytes(), b"x!abcabc");
 }
 
+/// A reverse search that starts at the end of a prefixed line selects that
+/// line's last occurrence, not its first.
+#[test]
+fn isearch_termination_after_a_prepend_and_end() {
+    let mut history = History::new();
+    history.push("abcabc");
+    let mut line =
+        Editor::new_without_inputrc(Config::default(), MemoryTerminal::default(), history);
+    let mut state = EditorState::new(Prompt::new("> "), None);
+    let keys = b"\x10\x01x\x1b[F\x12abc\n";
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, keys, &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.point(), 4);
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, b"!", &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.as_bytes(), b"xabc!abc");
+}
+
 /// An appended query copy must not be mistaken for a prepended prefix when
 /// translating the selected occurrence into the accepted buffer.
 #[test]

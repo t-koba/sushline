@@ -16572,6 +16572,93 @@ fn bash_readline_and_sushline_accept_last_match_after_failed_query() {
     }
 }
 
+/// Deleting a query byte after a reverse-search repeat keeps the reached
+/// entry: GNU does not jump back to the newer history line when the shortened
+/// query still matches the displayed one. A failed extension keeps that entry
+/// too, so its recovery deletion and the next extension both stay there; a
+/// deletion that makes the query empty keeps the repeated line. The paired
+/// rows pin accepted lines and bell counts, not redisplay bytes.
+#[test]
+fn bash_readline_and_sushline_delete_query_after_repeat_keeps_reached_match() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!(
+            "Query deletion after repeat was measured on Readline 8.3; this case reports nothing on other releases"
+        );
+        return;
+    }
+    for (name, keys, history, accepted, bells) in [
+        (
+            "initial_match_control",
+            &b"\x12abc\x7f\r\r"[..],
+            &["alpha", "abc"][..],
+            "abc",
+            0,
+        ),
+        (
+            "failed_extension_recovery",
+            &b"\x12a\x12b\x7f\r\r"[..],
+            &["alpha", "abc"][..],
+            "alpha",
+            1,
+        ),
+        (
+            "failed_extension_then_del",
+            &b"\x12a\x12bx\x7f\r\r"[..],
+            &["alpha", "abc"][..],
+            "alpha",
+            3,
+        ),
+        (
+            "failed_abc_extension_then_del",
+            &b"\x12a\x12bc\x7f\r\r"[..],
+            &["alpha", "abc"][..],
+            "alpha",
+            3,
+        ),
+        (
+            "repeat_then_empty_query",
+            &b"\x12a\x12\x7f\r\r"[..],
+            &["alpha", "abc"][..],
+            "alpha",
+            2,
+        ),
+        (
+            "two_repeats_successful_extension_then_del",
+            &b"\x12a\x12\x12l\x7f\r\r"[..],
+            &["alpha", "abeta", "abc"][..],
+            "alpha",
+            0,
+        ),
+        (
+            "two_repeats_failed_extension_then_del",
+            &b"\x12a\x12\x12z\x7f\r\r"[..],
+            &["alpha", "abeta", "abc"][..],
+            "abeta",
+            1,
+        ),
+    ] {
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(keys, "", history),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, "", history),
+            ),
+        ] {
+            let context = format!("{name}: {editor} keys={keys:?} history={history:?}: {output:?}");
+            assert_eq!(bell_count(&output), bells, "{context}");
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(accepted),
+                "{context}"
+            );
+        }
+    }
+}
+
 /// Paired Bash 5.3 / Readline 8.3 PTY measurements (empty INPUTRC, 80x24): a
 /// repeated reverse search first walks earlier occurrences inside the
 /// displayed entry, then moves to the previous matching entry and starts at

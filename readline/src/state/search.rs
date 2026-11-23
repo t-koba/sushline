@@ -220,8 +220,9 @@ pub(crate) fn update_reverse_search_match(
                 // An ordinary query edit continues from the displayed match
                 // instead of restarting at the cursor: after a repeat reached
                 // an older entry, a longer query must not jump to a newer one.
-                // A fresh search and query deletion have no match index and
-                // keep the cursor-based bound.
+                // Only a fresh search without a prior match uses the
+                // cursor-based bound; query edits, including deletion after
+                // a match, continue from the reached index.
                 let end = if search.exclude_cursor {
                     search.original_history_pos.min(history.entries().len())
                 } else {

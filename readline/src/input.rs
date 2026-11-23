@@ -2187,7 +2187,9 @@ where
                     .and_then(|query| query.char_indices().next_back().map(|(index, _)| index))
                     .unwrap_or_else(|| search.query.len().saturating_sub(1));
                 search.query.truncate(cut);
-                search.match_index = None;
+                // A deletion keeps the reached search position, like an
+                // ordinary query extension: a shortened query that matches
+                // the displayed entry must not jump back to the cursor entry.
                 let found = self.refresh_reverse_search_match(&mut search, false);
                 self.apply_search_match(state, &search);
                 if !found {

@@ -152,6 +152,17 @@ accepts `alpha` with two bells in both editors instead of jumping back to
 bells. `bash_readline_and_sushline_freeze_all_following_search_input` pins the
 frozen control and this unfrozen case for those keys and that history only.
 
+Deleting a query byte keeps that reached position too. With history `alpha`,
+`abc`, C-r, `a`, C-r, `b`, DEL, Enter accepts `alpha` with one bell in both
+editors; without the repeat, DEL after `abc` keeps `abc` silently. A failed
+extension followed by DEL remains on the reached entry and rings for the
+failed extension and the failed shortened query: `a`, C-r, `bx`, DEL accepts
+`alpha` with three bells. After two repeats on `alpha`, `abeta`, `abc`, a
+successful `l` extension or a failed `z` extension followed by DEL accepts
+`alpha` (no bell) or `abeta` (one bell) respectively.
+`bash_readline_and_sushline_delete_query_after_repeat_keeps_reached_match`
+pins these accepted lines and bell counts; it claims no redisplay-byte parity.
+
 ### Terminal wrap margins
 
 - With both `am` and `xenl` (xterm-style deferred wrapping), redisplay uses

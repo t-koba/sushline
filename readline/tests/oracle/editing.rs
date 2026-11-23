@@ -17206,9 +17206,9 @@ fn bash_and_sushline_end_search_on_stale_prefix_escape_with_match() {
 }
 
 /// After an incomplete UTF-8 prefix, Ctrl-W and Ctrl-Y discard the stale
-/// byte and keep the prior query on the measured Readline 8.3 host: an
-/// empty query stays empty and rings twice, while a matching `a` stays `a`
-/// and rings once. Enter then accepts the original line or the matched line.
+/// byte and keep the prior query. GNU rings twice for a failed query, once
+/// when the selected match ends at the line's end, and not at all for an
+/// interior match. Enter then accepts the original or matched line.
 #[test]
 fn bash_readline_and_sushline_discard_stale_prefix_on_ctrl_w_and_ctrl_y() {
     require_oracle_host();
@@ -17221,16 +17221,52 @@ fn bash_readline_and_sushline_discard_stale_prefix_on_ctrl_w_and_ctrl_y() {
         );
         return;
     }
-    // A single-entry history keeps the matching `a` bell at one for both
-    // editors; with two entries the host stays silent on the matching case
-    // while Sushline would ring once, so that shape stays in the unit test.
-    let history = &["alpha"][..];
+    let single = &["alpha"][..];
+    let interior = &["alpha", "alphabet"][..];
     let env = [("LC_ALL", "C.UTF-8")];
-    for (name, keys, bells, accepted) in [
-        ("ctrl_w_empty", b"\x12\xc3\x17\n\n".as_slice(), 2, ""),
-        ("ctrl_w_match", b"\x12a\xc3\x17\n\n".as_slice(), 1, "alpha"),
-        ("ctrl_y_empty", b"\x12\xc3\x19\n\n".as_slice(), 2, ""),
-        ("ctrl_y_match", b"\x12a\xc3\x19\n\n".as_slice(), 1, "alpha"),
+    for (name, keys, history, bells, accepted) in [
+        (
+            "ctrl_w_empty",
+            b"\x12\xc3\x17\n\n".as_slice(),
+            single,
+            2,
+            "",
+        ),
+        (
+            "ctrl_w_terminal",
+            b"\x12a\xc3\x17\n\n".as_slice(),
+            single,
+            1,
+            "alpha",
+        ),
+        (
+            "ctrl_y_empty",
+            b"\x12\xc3\x19\n\n".as_slice(),
+            single,
+            2,
+            "",
+        ),
+        (
+            "ctrl_y_terminal",
+            b"\x12a\xc3\x19\n\n".as_slice(),
+            single,
+            1,
+            "alpha",
+        ),
+        (
+            "ctrl_w_interior",
+            b"\x12a\xc3\x17\n\n".as_slice(),
+            interior,
+            0,
+            "alphabet",
+        ),
+        (
+            "ctrl_y_interior",
+            b"\x12a\xc3\x19\n\n".as_slice(),
+            interior,
+            0,
+            "alphabet",
+        ),
     ] {
         for (editor, output) in [
             (

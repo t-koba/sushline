@@ -1733,16 +1733,24 @@ where
             return self.append_search_query_bytes(state, pending);
         }
         if matches!(byte, 0x17 | 0x19) {
-            let no_match = state
-                .search
-                .reverse_search
-                .as_ref()
-                .is_some_and(|search| search.match_line.is_none());
-            if state.search.reverse_search.is_some() {
-                self.ding()?;
-                if no_match {
-                    self.ding()?;
+            // GNU rings twice for a failed query, once when the selected
+            // match ends at the line's end, and not at all for an interior
+            // match. The last case is the one a two-entry history exposes.
+            let bells = state.search.reverse_search.as_ref().map_or(0, |search| {
+                match search.match_line.as_deref() {
+                    None => 2,
+                    Some(line)
+                        if search.match_offset.unwrap_or(0) + search.query.len() == line.len() =>
+                    {
+                        1
+                    }
+                    Some(_) => 0,
                 }
+            });
+            for _ in 0..bells {
+                self.ding()?;
+            }
+            if bells > 0 {
                 state.input.changed_display = true;
             }
             return Ok(EditorOutcome::Continue);

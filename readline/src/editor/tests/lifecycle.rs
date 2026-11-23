@@ -2035,8 +2035,8 @@ fn invalid_utf8_search_prefix_preserves_query_editing_commands() {
             .count()
     }
     // An empty prior query stays active: Ctrl-A keeps the stale byte while
-    // Ctrl-W and Ctrl-Y discard it. Bell counts follow the measured host:
-    // the matching-query Ctrl-W/Ctrl-Y ring once, the empty case twice.
+    // Ctrl-W and Ctrl-Y discard it. With no match they ring twice on the
+    // measured Readline 8.3 host.
     for (byte, expected_query, expected_bells) in [
         (0x01, vec![0xc3], None),
         (0x17, Vec::new(), Some(2)),
@@ -2077,11 +2077,12 @@ fn invalid_utf8_search_prefix_preserves_query_editing_commands() {
         }
     }
     // A prior matching query keeps its text: Ctrl-A appends the stale byte
-    // while Ctrl-W and Ctrl-Y drop it and keep `a`.
+    // while Ctrl-W and Ctrl-Y drop it and keep `a`. The selected `a` in
+    // `alphabet` is interior, so GNU stays silent for Ctrl-W/Ctrl-Y.
     for (byte, expected_query, expected_bells) in [
         (0x01, b"a\xc3".to_vec(), None),
-        (0x17, b"a".to_vec(), Some(1)),
-        (0x19, b"a".to_vec(), Some(1)),
+        (0x17, b"a".to_vec(), Some(0)),
+        (0x19, b"a".to_vec(), Some(0)),
     ] {
         let mut line = Editor::new(
             Config::default(),
@@ -2116,6 +2117,36 @@ fn invalid_utf8_search_prefix_preserves_query_editing_commands() {
                 "byte 0x{byte:02x} with prior query `a` must ring {expected} time(s)"
             );
         }
+    }
+    // A selected match ending at the line's end rings once on the measured
+    // host, unlike the interior match above.
+    for byte in [0x17, 0x19] {
+        let mut history = History::new();
+        history.push("alpha");
+        history.reset_cursor();
+        let mut line = Editor::new(Config::default(), MemoryTerminal::default(), history);
+        line.variables.use_utf8_io_defaults();
+        let mut state = EditorState::new(Prompt::new("> "), None);
+
+        for chunk in [&b"\x12"[..], &b"a"[..], &b"\xc3"[..], &[byte][..]] {
+            let (outcome, remainder, _) = line
+                .dispatch_input_bytes(&mut state, chunk, &mut ())
+                .unwrap();
+            assert!(matches!(outcome, EditorOutcome::Continue));
+            assert!(remainder.is_empty());
+        }
+
+        let search = state
+            .search
+            .reverse_search
+            .as_ref()
+            .expect("query editing keeps the search active");
+        assert_eq!(search.query, b"a".to_vec(), "byte 0x{byte:02x}");
+        assert_eq!(
+            bell_count(&line),
+            1,
+            "byte 0x{byte:02x} with a terminal match must ring once"
+        );
     }
 }
 

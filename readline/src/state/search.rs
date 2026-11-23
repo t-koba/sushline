@@ -671,7 +671,12 @@ pub(crate) fn search_bytes_offset(
     if needle.is_empty() {
         return Some(0);
     }
-    if needle.len() > haystack.len() {
+    // GNU passes `line_len - query_len + 1` as the first `mbrtowc` byte
+    // budget. A budget of exactly zero compares the first query character
+    // with NUL and fails; a negative budget wraps to a large `size_t` and
+    // still lets later folded characters compare at their byte positions.
+    // This only encodes that measured boundary, not a general fold rule.
+    if needle.len() > haystack.len() && needle.len() - haystack.len() == 1 {
         return None;
     }
     if let Some(locale_lowercase) = locale_lowercase

@@ -17563,9 +17563,9 @@ fn bash_readline_and_sushline_repeat_folded_multibyte_search_occurrences() {
     }
 }
 
-/// Paired C.UTF-8 measurements pin the `İİ` query's accepted line and bell
-/// sequence on ASCII histories `iii` and `iiii`; these cases do not establish
-/// a general Unicode-folding rule.
+/// Paired C.UTF-8 measurements pin accepted lines and bell sequences for
+/// cross-width folds whose raw query is longer than the match line. These
+/// cases do not establish a general Unicode-folding rule.
 #[test]
 fn bash_readline_and_sushline_shrinking_fold_search_repeats() {
     require_oracle_host();
@@ -17575,7 +17575,11 @@ fn bash_readline_and_sushline_shrinking_fold_search_repeats() {
     }
     let inputrc = "set search-ignore-case on";
     let locale_env = [("LC_ALL", "C.UTF-8")];
-    for (query, history, bells) in [("İİ", "iii", [1, 2, 3, 4]), ("İİ", "iiii", [0, 0, 1, 2])] {
+    for (query, history, bells) in [
+        ("İİ", "iii", [1, 2, 3, 4]),
+        ("İİ", "iiii", [0, 0, 1, 2]),
+        ("KK", "kkkk", [0, 1, 2, 3]),
+    ] {
         for (repeats, bells) in bells.into_iter().enumerate() {
             let mut keys = b"\x12".to_vec();
             keys.extend_from_slice(query.as_bytes());

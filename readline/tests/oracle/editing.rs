@@ -16859,6 +16859,39 @@ fn bash_readline_and_sushline_isearch_termination_inside_an_overlap() {
     }
 }
 
+/// A forward query can resolve in a newer history entry than the one whose
+/// point started the search. That point says nothing about the newer entry,
+/// so GNU rings nothing there; the accepted line already agrees.
+#[test]
+fn bash_readline_and_sushline_forward_search_bells_in_a_newer_entry() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!("Forward search bells were measured on Readline 8.3");
+        return;
+    }
+    let history = ["abcabc", "mid", "xxxabc"];
+    let bindings = r#""\C-t": forward-search-history"#;
+    let keys = b"\x10\x10\x10\x1b[F\x14x\n!\r";
+    for (editor, output) in [
+        (
+            "Bash",
+            run_bash_readline_with_bindings_and_history(keys, bindings, &history),
+        ),
+        (
+            "Sushline",
+            run_sushline_harness_with_inputrc_and_history(keys, bindings, &history),
+        ),
+    ] {
+        let context = format!("{editor} keys={keys:?}: {output:?}");
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some("!xxxabc"),
+            "{context}"
+        );
+        assert_eq!(bell_count(&output), 0, "{context}");
+    }
+}
+
 /// GNU's forward incremental search starts at the point where the search
 /// began and advances one occurrence per repeat. Ctrl-T stands in for Ctrl-S
 /// because the PTY's XOFF flow control otherwise swallows that byte. The

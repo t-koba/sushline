@@ -75,6 +75,8 @@ point where the search began: a point before the second occurrence accepts
 the point is at the end so no occurrence lies ahead, both editors accept
 `!xabcabc` and ring once per failing query byte; a `zzz` query from the line
 start rings three times on both hosts, and a successful query rings nothing.
+When the match resolves in a newer history entry than the one holding the
+start point, that point does not apply and a successful query stays silent.
 These cases do not establish general forward-search behavior beyond the pinned
 keys and history.
 

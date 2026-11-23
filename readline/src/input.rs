@@ -1800,6 +1800,12 @@ where
         if !matches!(search.direction, SearchDirection::Forward) {
             return false;
         }
+        // The start point belongs to the entry the search began in. A
+        // successful match in a different history entry has no relation to
+        // that point, so it must stay silent.
+        if search.match_index != Some(search.original_history_pos) {
+            return false;
+        }
         let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
         let locale_lowercase = self.search_locale_lowercase(ignore_case);
         !match_offsets_from_end(

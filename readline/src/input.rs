@@ -1463,7 +1463,19 @@ where
         if bytes.len() > 1 {
             return self.handle_reverse_search_batched(state, bytes, hooks);
         }
-        self.handle_reverse_search_single(state, bytes, hooks)
+        if state.search.quoted_pending
+            || self.variables.is_on("byte-oriented")
+            || !self.variables.utf8_locale()
+        {
+            return self.handle_reverse_search_single(state, bytes, hooks);
+        }
+        // In a UTF-8 locale the query extends one whole character at a time.
+        // Dispatching an incomplete prefix would search with invalid bytes
+        // and ring before the character arrives; buffer it like a vi key.
+        let Some((first, _)) = take_pending_character(state, bytes, false) else {
+            return Ok(EditorOutcome::Continue);
+        };
+        self.handle_reverse_search_single(state, &first, hooks)
     }
 
     fn handle_reverse_search_batched(
@@ -1491,6 +1503,23 @@ where
                 continue;
             }
             let suffix = &bytes[pos..];
+            if !self.variables.is_on("byte-oriented")
+                && self.variables.utf8_locale()
+                && first_unit_len(suffix) > 1
+            {
+                // Match split reads: a UTF-8 query byte group is one
+                // extension, not several failing invalid-byte queries.
+                let Some((first, _)) = take_pending_character(state, suffix, false) else {
+                    return Ok(EditorOutcome::Continue);
+                };
+                let len = first.len();
+                let outcome = self.handle_reverse_search_single(state, &first, hooks)?;
+                if !matches!(outcome, EditorOutcome::Continue) {
+                    return Ok(outcome);
+                }
+                pos += len;
+                continue;
+            }
             if let Some((len, binding)) = self
                 .keymap
                 .longest_matching_prefix(self.keymap.current(), suffix)

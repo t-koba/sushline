@@ -2017,3 +2017,32 @@ fn three_byte_utf8_search_prefix_keeps_the_invalidating_byte() {
     assert_eq!(search.query, b"\xe2\x82a");
     assert!(state.input.pending_char_bytes.is_empty());
 }
+
+#[test]
+fn invalid_utf8_search_prefix_preserves_query_editing_commands() {
+    for (byte, stays_in_search) in [(0x17, true), (0x19, false), (0x01, false)] {
+        let mut line = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
+        line.variables.use_utf8_io_defaults();
+        let mut state = EditorState::new(Prompt::new("> "), None);
+
+        for chunk in [&b"\x12"[..], &b"\xc3"[..], &[byte][..]] {
+            let (outcome, remainder, _) = line
+                .dispatch_input_bytes(&mut state, chunk, &mut ())
+                .unwrap();
+            assert!(matches!(outcome, EditorOutcome::Continue));
+            assert!(remainder.is_empty());
+        }
+
+        if stays_in_search {
+            let search = state
+                .search
+                .reverse_search
+                .as_ref()
+                .expect("query editing keeps the search active");
+            assert!(search.query.is_empty());
+        } else {
+            assert!(state.search.reverse_search.is_none());
+        }
+        assert!(state.input.pending_char_bytes.is_empty());
+    }
+}

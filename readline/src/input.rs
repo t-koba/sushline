@@ -18,6 +18,10 @@ const NUL_FROZEN_LINE_COMMAND_KEYS: &[u8] = &[
 /// Query-editing keys measured to ring once after a successful NUL freeze
 /// while the query stays frozen.
 const NUL_FROZEN_RING_KEYS: &[u8] = &[0x08, 0x17, 0x18, 0x19, 0x1d, 0x7f];
+/// Keys that GNU dispatches as commands when they follow an incomplete
+/// UTF-8 query prefix. Other controls join the query as raw bytes; this
+/// split is measured against Readline 8.3's incremental-search PTY output.
+const INVALID_PREFIX_SEARCH_COMMAND_KEYS: &[u8] = &[0x01, 0x17, 0x19];
 
 // GNU Readline normalizes CR while collecting bracketed-paste input.
 fn normalize_bracketed_paste_carriage_returns(bytes: &mut [u8]) {
@@ -1714,6 +1718,10 @@ where
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
         if matches!(byte, 0x07 | 0x03) {
+            return self.handle_reverse_search_single(state, &[byte], hooks);
+        }
+        if INVALID_PREFIX_SEARCH_COMMAND_KEYS.contains(&byte) {
+            self.append_search_query_bytes(state, pending)?;
             return self.handle_reverse_search_single(state, &[byte], hooks);
         }
         if byte == 0x00 {

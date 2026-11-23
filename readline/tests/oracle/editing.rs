@@ -16183,6 +16183,82 @@ fn bash_readline_and_sushline_freeze_search_query_on_nul() {
     }
 }
 
+/// Paired Bash 5.3 / Readline 8.3 PTY measurements (empty INPUTRC, 80x24) for
+/// the NUL freeze rule: a selected match ending at end-of-line freezes
+/// silently, while a match with trailing text or no match rings at NUL and
+/// again for an ignored printable byte, with the `failed ` prompt. An empty
+/// query keeps the pre-search point when a cursor command leaves the search.
+#[test]
+fn bash_readline_and_sushline_nul_freeze_uses_match_end_and_empty_query_point() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!("NUL freeze was measured on Readline 8.3");
+        return;
+    }
+    for (name, history, keys, bells, accepted, failed_prompt) in [
+        (
+            "match_reaches_eol",
+            &["zzabc xyz"][..],
+            b"\x12xyz\x00x\r\r".as_slice(),
+            0,
+            Some("zzabc xyz"),
+            false,
+        ),
+        (
+            "match_has_trailing_text",
+            &["abc xyz"][..],
+            b"\x12abc\x00x\r\r".as_slice(),
+            2,
+            Some("abc xyz"),
+            true,
+        ),
+        (
+            "other_occurrence_earlier_in_line",
+            &["alpha"][..],
+            b"\x12a\x00x\r\r".as_slice(),
+            0,
+            Some("alpha"),
+            false,
+        ),
+        (
+            "overlapping_match_has_trailing_text",
+            &["ababX"][..],
+            b"\x12ab\x00x\r\r".as_slice(),
+            2,
+            Some("ababX"),
+            true,
+        ),
+        (
+            "empty_query_keeps_point",
+            &["nomatch"][..],
+            b"XY\x12\x00\x02Q\r".as_slice(),
+            0,
+            Some("XQY"),
+            false,
+        ),
+    ] {
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(keys, "", history),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, "", history),
+            ),
+        ] {
+            let context = format!("{editor} {name} keys={keys:?} history={history:?}: {output:?}");
+            assert_eq!(bell_count(&output), bells, "{context}");
+            assert_eq!(accepted_line(&output).as_deref(), accepted, "{context}");
+            assert_eq!(
+                output.contains("failed reverse-i-search"),
+                failed_prompt,
+                "{context}"
+            );
+        }
+    }
+}
+
 /// An unquoted NUL freezes the incremental-search query on the measured
 /// Readline 8.3 host: after the freeze, further query-editing input is
 /// frozen; the fixture lists the measured printable, quoted and control
@@ -16340,8 +16416,9 @@ fn bash_readline_and_sushline_accept_last_match_after_failed_query() {
 /// repeated reverse search first walks earlier occurrences inside the
 /// displayed entry, then moves to the previous matching entry and starts at
 /// its last occurrence. A repeat that exhausts both keeps the line and rings;
-/// the next repeat rings again. Each row lists the accepted line and exact
-/// bell count after zero or more repeats of the one-byte query `a`.
+/// the next repeat rings again. In-line occurrences may overlap by one byte.
+/// Each row lists the query and the accepted line with the exact bell count
+/// after zero or more repeats.
 #[test]
 fn bash_readline_and_sushline_repeat_reverse_search_occurrences() {
     require_oracle_host();
@@ -16351,14 +16428,16 @@ fn bash_readline_and_sushline_repeat_reverse_search_occurrences() {
         );
         return;
     }
-    type RepeatCase<'a> = (&'a [&'a str], &'a [(&'a str, usize)]);
+    type RepeatCase<'a> = (&'a [&'a str], &'a str, &'a [(&'a str, usize)]);
     let cases: &[RepeatCase<'_>] = &[
         (
             &["aaa"],
+            "a",
             &[("aaa", 0), ("aaa", 0), ("aaa", 0), ("aaa", 1), ("aaa", 2)],
         ),
         (
             &["beta", "alpha"],
+            "a",
             &[
                 ("alpha", 0),
                 ("alpha", 0),
@@ -16369,6 +16448,7 @@ fn bash_readline_and_sushline_repeat_reverse_search_occurrences() {
         ),
         (
             &["alpha one", "beta two", "alpha three"],
+            "a",
             &[
                 ("alpha three", 0),
                 ("alpha three", 0),
@@ -16379,16 +16459,35 @@ fn bash_readline_and_sushline_repeat_reverse_search_occurrences() {
         ),
         (
             &["xalpha", "beta"],
+            "a",
             &[("beta", 0), ("xalpha", 0), ("xalpha", 0), ("xalpha", 1)],
         ),
         (
             &["a1", "x2", "a3", "x4", "a5"],
+            "a",
             &[("a5", 0), ("a3", 0), ("a1", 0), ("a1", 1)],
         ),
+        (
+            &["aaaa"],
+            "aa",
+            &[
+                ("aaaa", 0),
+                ("aaaa", 0),
+                ("aaaa", 0),
+                ("aaaa", 1),
+                ("aaaa", 2),
+            ],
+        ),
+        (
+            &["aXaXa"],
+            "aXa",
+            &[("aXaXa", 0), ("aXaXa", 0), ("aXaXa", 1), ("aXaXa", 2)],
+        ),
     ];
-    for (history, steps) in cases {
+    for (history, query, steps) in cases {
         for (repeats, (expected, bells)) in steps.iter().enumerate() {
-            let mut keys = b"\x12a".to_vec();
+            let mut keys = b"\x12".to_vec();
+            keys.extend_from_slice(query.as_bytes());
             keys.extend(std::iter::repeat_n(0x12, repeats));
             keys.push(b'\r');
             for (editor, output) in [
@@ -16401,7 +16500,9 @@ fn bash_readline_and_sushline_repeat_reverse_search_occurrences() {
                     run_sushline_harness_with_inputrc_and_history(&keys, "", history),
                 ),
             ] {
-                let context = format!("{editor} history={history:?} repeats={repeats}: {output:?}");
+                let context = format!(
+                    "{editor} history={history:?} query={query:?} repeats={repeats}: {output:?}"
+                );
                 assert_eq!(
                     accepted_line(&output).as_deref(),
                     Some(*expected),

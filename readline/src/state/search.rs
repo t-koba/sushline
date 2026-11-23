@@ -213,10 +213,11 @@ pub(crate) fn update_reverse_search_match(
     false
 }
 
-/// Find the next occurrence inside the currently displayed entry. Backward
-/// repeats search the bytes before the current match; forward repeats search
-/// after it. A failed query keeps the displayed line and its offset so the
-/// next repeat tries again before moving on.
+/// Find the next occurrence inside the currently displayed entry. A repeat
+/// advances one byte from the current match, so occurrences may overlap: GNU
+/// steps by one byte rather than by the query length. A failed query keeps
+/// the displayed line and its offset so the next repeat tries again before
+/// moving on.
 fn repeated_match_offset(
     search: &ReverseSearchState,
     ignore_case: bool,
@@ -228,21 +229,28 @@ fn repeated_match_offset(
     let line = search.match_line.as_deref()?;
     let offset = search.match_offset?;
     if matches!(search.direction, SearchDirection::Backward) {
-        search_bytes_offset(
-            &line[..offset.min(line.len())],
-            &search.query,
-            ignore_case,
-            locale_lowercase,
-            true,
-        )
-    } else {
-        let mut after = offset.saturating_add(search.query.len()).min(line.len());
-        let text = std::str::from_utf8(line).ok();
-        while after < line.len() && text.is_some_and(|text| !text.is_char_boundary(after)) {
-            after += 1;
+        // Include the query's last byte before `offset`: an occurrence ending
+        // at `offset` may start before it and still be selectable. The last
+        // candidate found must strictly precede the current match.
+        let mut end = char_boundary_after(line, offset.saturating_add(search.query.len() - 1));
+        while end > 0 {
+            if let Some(found) = search_bytes_offset(
+                &line[..end],
+                &search.query,
+                ignore_case,
+                locale_lowercase,
+                true,
+            ) && found < offset
+            {
+                return Some(found);
+            }
+            end -= 1;
         }
+        None
+    } else {
+        let after = char_boundary_after(line, offset.saturating_add(1));
         search_bytes_offset(
-            &line[after..],
+            &line[after.min(line.len())..],
             &search.query,
             ignore_case,
             locale_lowercase,
@@ -250,6 +258,19 @@ fn repeated_match_offset(
         )
         .map(|delta| after + delta)
     }
+}
+
+/// Lift a byte index to a UTF-8 character boundary, so locale-aware matching
+/// still sees whole characters when a one-byte step lands inside one.
+fn char_boundary_after(line: &[u8], index: usize) -> usize {
+    let Some(text) = std::str::from_utf8(line).ok() else {
+        return index.min(line.len());
+    };
+    let mut boundary = index.min(line.len());
+    while boundary < line.len() && !text.is_char_boundary(boundary) {
+        boundary += 1;
+    }
+    boundary
 }
 
 pub(crate) fn search_history_backward(

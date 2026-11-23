@@ -1579,9 +1579,9 @@ where
                 accept_search_line(state, search, false)
             };
         let mut buffer = LineBuffer::from_bytes(accepted);
-        if nul_frozen {
-            // A frozen search leaves point at the start of the established
-            // line, even when the query matched at an interior column.
+        if nul_frozen && !search.query.is_empty() {
+            // A frozen nonempty search leaves point at the start of the
+            // established line; an empty query keeps the pre-search point.
             buffer.set_point(0);
         } else if search.query.is_empty() {
             buffer.set_point(search.original_point.min(buffer.len_chars()));
@@ -1744,30 +1744,18 @@ where
         }
         // NUL is set-mark in the default keymap. Inside a search GNU leaves
         // the query and the selected match in place and freezes the query.
-        // The measured freeze is failed when the query has no match or a
-        // repeat in the same direction would move off the current match;
-        // a selected match with no further match is a successful freeze,
-        // and an empty query never fails.
+        // The measured freeze is failed when a nonempty query has no match or
+        // its selected match ends before the line does; a match reaching the
+        // end of the line succeeds even if it starts at an interior column or
+        // other occurrences exist. An empty query never fails.
         if bytes == [0x00] {
             let Some(mut search) = state.search.reverse_search.take() else {
                 return Ok(EditorOutcome::Continue);
             };
-            let repeat_moves = !search.query.is_empty() && {
-                let mut repeated = search.clone();
-                self.refresh_reverse_search_match(&mut repeated, true)
-            };
-            let interior_match = search.match_line.is_some() && !search.query.is_empty() && {
-                let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
-                let locale_lowercase = self.search_locale_lowercase(ignore_case);
-                isearch_terminate_point(
-                    search.match_line.as_deref().unwrap_or_default(),
-                    &search.query,
-                    ignore_case,
-                    locale_lowercase.as_ref(),
-                ) > 0
-            };
             let failed = !search.query.is_empty()
-                && (search.match_line.is_none() || repeat_moves || interior_match);
+                && search.match_line.as_deref().is_none_or(|line| {
+                    search.match_offset.unwrap_or(0) + search.query.len() != line.len()
+                });
             search.nul_pending = true;
             search.nul_failed = failed;
             state.search.reverse_search = Some(search);

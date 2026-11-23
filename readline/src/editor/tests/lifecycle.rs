@@ -2420,3 +2420,100 @@ fn isearch_termination_after_a_shortened_live_edit_and_one_repeat_with_prefix() 
     assert!(remainder.is_empty());
     assert_eq!(state.buffer.as_bytes(), b"x!abcabc");
 }
+
+/// Partial tail removals keep the last occurrence of the query in the edited
+/// buffer, whether or not the entry has a prefix.
+#[test]
+fn isearch_termination_after_partial_tail_edits() {
+    for (entry, keys, expected, point) in [
+        (
+            "abcabcabc",
+            b"\x10\x7f\x12abc\n".as_slice(),
+            &b"abc!abcab"[..],
+            3,
+        ),
+        (
+            "abcabcabc",
+            b"\x10\x7f\x7f\x12abc\n".as_slice(),
+            b"abc!abca",
+            3,
+        ),
+        (
+            "xabcabcabc",
+            b"\x10\x7f\x7f\x7f\x12abc\n".as_slice(),
+            b"xabc!abc",
+            4,
+        ),
+    ] {
+        let mut history = History::new();
+        history.push(entry);
+        let mut line =
+            Editor::new_without_inputrc(Config::default(), MemoryTerminal::default(), history);
+        let mut state = EditorState::new(Prompt::new("> "), None);
+        let (outcome, remainder, _) = line
+            .dispatch_input_bytes(&mut state, keys, &mut ())
+            .unwrap();
+        assert!(matches!(outcome, EditorOutcome::Continue));
+        assert!(remainder.is_empty());
+        assert_eq!(state.buffer.point(), point, "{keys:?}");
+        let (outcome, remainder, _) = line
+            .dispatch_input_bytes(&mut state, b"!", &mut ())
+            .unwrap();
+        assert!(matches!(outcome, EditorOutcome::Continue));
+        assert!(remainder.is_empty());
+        assert_eq!(state.buffer.as_bytes(), expected, "{keys:?}");
+    }
+}
+
+/// A suffix appended after the recalled entry leaves the stored last `abc`
+/// last in the accepted buffer too, so termination resumes at byte 6 of
+/// `abcabcabcX`.
+#[test]
+fn isearch_termination_after_an_appended_live_edit() {
+    let mut history = History::new();
+    history.push("abcabcabc");
+    let mut line =
+        Editor::new_without_inputrc(Config::default(), MemoryTerminal::default(), history);
+    let mut state = EditorState::new(Prompt::new("> "), None);
+    let keys = b"\x10\x1b[FX\x12abc\n";
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, keys, &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.as_bytes(), b"abcabcabcX");
+    assert_eq!(state.buffer.point(), 6);
+
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, b"!", &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.as_bytes(), b"abcabc!abcX");
+}
+
+/// A repeat steps to the middle `abc` of both the stored entry and the
+/// accepted buffer with its appended suffix.
+#[test]
+fn isearch_termination_after_an_appended_live_edit_and_one_repeat() {
+    let mut history = History::new();
+    history.push("abcabcabc");
+    let mut line =
+        Editor::new_without_inputrc(Config::default(), MemoryTerminal::default(), history);
+    let mut state = EditorState::new(Prompt::new("> "), None);
+    let keys = b"\x10\x1b[FX\x12abc\x12\n";
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, keys, &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.as_bytes(), b"abcabcabcX");
+    assert_eq!(state.buffer.point(), 3);
+
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, b"!", &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.as_bytes(), b"abc!abcabcX");
+}

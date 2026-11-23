@@ -398,25 +398,63 @@ pub(crate) fn search_history_forward_from(
         .map(|(offset, entry)| (start + offset, entry.line_bytes.clone()))
 }
 
-/// Whether `needle` occurs exactly at `offset` in `haystack`, using the same
-/// locale-aware matching as a fresh search from that byte. A character-boundary
-/// guard keeps a byte offset inside a UTF-8 sequence from becoming a match.
-pub(crate) fn match_at_offset(
+/// Match starts in `haystack`, last occurrence first. Each step searches a
+/// shorter prefix through the shared case/locale-aware matcher; stopping one
+/// byte before the current match's end keeps overlapping occurrences.
+pub(crate) fn match_offsets_from_end(
+    haystack: &[u8],
+    needle: &[u8],
+    ignore_case: bool,
+    locale_lowercase: Option<&LocaleLowercase>,
+) -> Vec<usize> {
+    let mut offsets = Vec::new();
+    if needle.is_empty() {
+        return offsets;
+    }
+    let mut end = haystack.len();
+    while let Some(found) = search_bytes_offset(
+        &haystack[..end],
+        needle,
+        ignore_case,
+        locale_lowercase,
+        true,
+    ) {
+        offsets.push(found);
+        let next = char_boundary_after(
+            haystack,
+            found.saturating_add(needle.len().saturating_sub(1)),
+        );
+        if next >= end {
+            break;
+        }
+        end = next;
+    }
+    offsets
+}
+
+/// Zero for the last occurrence, one for the one before it, and so on.
+pub(crate) fn match_rank_from_end(
     haystack: &[u8],
     needle: &[u8],
     offset: usize,
     ignore_case: bool,
     locale_lowercase: Option<&LocaleLowercase>,
-) -> bool {
-    offset <= haystack.len()
-        && std::str::from_utf8(haystack).map_or(true, |text| text.is_char_boundary(offset))
-        && search_bytes_offset(
-            &haystack[offset..],
-            needle,
-            ignore_case,
-            locale_lowercase,
-            false,
-        ) == Some(0)
+) -> Option<usize> {
+    match_offsets_from_end(haystack, needle, ignore_case, locale_lowercase)
+        .iter()
+        .position(|&candidate| candidate == offset)
+}
+
+pub(crate) fn match_offset_at_rank_from_end(
+    haystack: &[u8],
+    needle: &[u8],
+    rank: usize,
+    ignore_case: bool,
+    locale_lowercase: Option<&LocaleLowercase>,
+) -> Option<usize> {
+    match_offsets_from_end(haystack, needle, ignore_case, locale_lowercase)
+        .into_iter()
+        .nth(rank)
 }
 
 pub(crate) fn search_bytes_offset(

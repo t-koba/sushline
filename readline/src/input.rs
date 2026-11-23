@@ -1678,8 +1678,8 @@ where
     /// Where an accepted search line resumes editing. The recorded offset
     /// names the selected occurrence in the stored match line, so it applies
     /// only when accept established that exact line. A match on the buffer's
-    /// own entry keeps its live edit instead; rebase the offset when the tail
-    /// was shortened, falling back to the first occurrence in that text.
+    /// own entry keeps its live edit instead; carry the selected occurrence's
+    /// rank from the end into that text, falling back to its first occurrence.
     fn isearch_terminate_point(
         &self,
         line: &[u8],
@@ -1696,17 +1696,26 @@ where
         let locale_lowercase = self.search_locale_lowercase(ignore_case);
         if let (Some(match_offset), Some(match_line)) =
             (search.match_offset, search.match_line.as_deref())
-            && match_line.ends_with(line)
-            && let Some(candidate) = match_offset.checked_sub(match_line.len() - line.len())
-            && match_at_offset(
+            // GNU restarts at the first occurrence when bytes were prepended
+            // to the stored line; only a shortened tail or an appended suffix
+            // carries the selected occurrence into the accepted line.
+            && !(line.len() > match_line.len() && line.ends_with(match_line))
+            && let Some(rank) = match_rank_from_end(
+                match_line,
+                &search.query,
+                match_offset,
+                ignore_case,
+                locale_lowercase.as_ref(),
+            )
+            && let Some(rebased) = match_offset_at_rank_from_end(
                 line,
                 &search.query,
-                candidate,
+                rank,
                 ignore_case,
                 locale_lowercase.as_ref(),
             )
         {
-            return candidate;
+            return rebased;
         }
         search_bytes_offset(
             line,

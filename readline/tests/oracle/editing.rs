@@ -16712,6 +16712,155 @@ fn bash_readline_and_sushline_isearch_termination_after_shortened_live_edit_one_
     }
 }
 
+/// Single reverse searches after one- and two-byte tail removals, and after a
+/// prefixed tail removal, keep the last occurrence in the edited buffer. These
+/// shapes are where a first-occurrence fallback or a suffix guard diverge from
+/// GNU; all three accept with no bell on both hosts.
+#[test]
+fn bash_readline_and_sushline_isearch_termination_after_partial_tail_edits() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!("Partial tail edits were measured on Readline 8.3");
+        return;
+    }
+    for (shape, entry, keys, expected) in [
+        (
+            "one byte removed",
+            "abcabcabc",
+            b"\x10\x7f\x12abc\n!\r".as_slice(),
+            "abc!abcab",
+        ),
+        (
+            "two bytes removed",
+            "abcabcabc",
+            b"\x10\x7f\x7f\x12abc\n!\r".as_slice(),
+            "abc!abca",
+        ),
+        (
+            "three bytes removed with a prefix",
+            "xabcabcabc",
+            b"\x10\x7f\x7f\x7f\x12abc\n!\r".as_slice(),
+            "xabc!abc",
+        ),
+    ] {
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(keys, "", &[entry]),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, "", &[entry]),
+            ),
+        ] {
+            let context = format!("{shape} {editor} keys={keys:?}: {output:?}");
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(expected),
+                "{context}"
+            );
+            assert_eq!(bell_count(&output), 0, "{context}");
+        }
+    }
+}
+
+/// A suffix appended to the recalled history line leaves the stored last
+/// `abc` as the last occurrence of the accepted `abcabcabcX` buffer too, so
+/// termination resumes at byte 6 and `!` lands before the final group.
+#[test]
+fn bash_readline_and_sushline_isearch_termination_after_appended_live_edit_last_occurrence() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!("Search termination after an appended suffix was measured on Readline 8.3");
+        return;
+    }
+    let history = ["abcabcabc"];
+    let keys = b"\x10\x1b[FX\x12abc\n!\r";
+    for (editor, output) in [
+        (
+            "Bash",
+            run_bash_readline_with_bindings_and_history(keys, "", &history),
+        ),
+        (
+            "Sushline",
+            run_sushline_harness_with_inputrc_and_history(keys, "", &history),
+        ),
+    ] {
+        let context = format!("{editor} keys={keys:?}: {output:?}");
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some("abcabc!abcX"),
+            "{context}"
+        );
+        assert_eq!(bell_count(&output), 0, "{context}");
+    }
+}
+
+/// One repeat steps to the middle `abc` of the stored entry and of the
+/// accepted line with its appended suffix: both hosts accept `abc!abcabcX`
+/// with no bell.
+#[test]
+fn bash_readline_and_sushline_isearch_termination_after_appended_live_edit_one_repeat() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!(
+            "Search termination after an appended suffix and a repeat was measured on Readline 8.3"
+        );
+        return;
+    }
+    let history = ["abcabcabc"];
+    let keys = b"\x10\x1b[FX\x12abc\x12\n!\r";
+    for (editor, output) in [
+        (
+            "Bash",
+            run_bash_readline_with_bindings_and_history(keys, "", &history),
+        ),
+        (
+            "Sushline",
+            run_sushline_harness_with_inputrc_and_history(keys, "", &history),
+        ),
+    ] {
+        let context = format!("{editor} keys={keys:?}: {output:?}");
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some("abc!abcabcX"),
+            "{context}"
+        );
+        assert_eq!(bell_count(&output), 0, "{context}");
+    }
+}
+
+/// Prepending a byte keeps the first `abc` of the accepted line selected on
+/// both hosts; the stored last occurrence is not rebased across the prefix.
+#[test]
+fn bash_readline_and_sushline_isearch_termination_after_prepended_live_edit() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!("Search termination after a prepended prefix was measured on Readline 8.3");
+        return;
+    }
+    let history = ["abcabcabc"];
+    let keys = b"\x10\x01X\x12abc\n!\r";
+    for (editor, output) in [
+        (
+            "Bash",
+            run_bash_readline_with_bindings_and_history(keys, "", &history),
+        ),
+        (
+            "Sushline",
+            run_sushline_harness_with_inputrc_and_history(keys, "", &history),
+        ),
+    ] {
+        let context = format!("{editor} keys={keys:?}: {output:?}");
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some("X!abcabcabc"),
+            "{context}"
+        );
+        assert_eq!(bell_count(&output), 0, "{context}");
+    }
+}
+
 /// Folded multibyte query characters arrive one at a time through a PTY. The
 /// paired C.UTF-8 measurements cover equal-length folding (each Ä lowers to
 /// ä) and overlapping matches inside one history entry; no general Unicode

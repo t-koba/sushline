@@ -32,6 +32,9 @@ pub(crate) struct ReverseSearchState {
     pub(crate) query: Vec<u8>,
     pub(crate) match_line: Option<Vec<u8>>,
     pub(crate) match_index: Option<usize>,
+    /// Byte offset of the match inside `match_line`, so a repeat can look for
+    /// another occurrence in the same entry before moving to another entry.
+    pub(crate) match_offset: Option<usize>,
     pub(crate) direction: SearchDirection,
     pub(crate) original_line: Vec<u8>,
     pub(crate) original_point: usize,
@@ -115,68 +118,138 @@ pub(crate) fn update_reverse_search_match(
     // cursor entry: backward covers entries[..original_pos], forward covers
     // entries[original_pos + 1..] (patch 0 Bash 5.3 PTY oracle: from a
     // matching cursor `/alpha` finds the older match and `?alpha` finds the
-    // newer match). Repeats step exclusively past the current match. A
+    // newer match). Repeats first look for another occurrence of the query
+    // in the displayed entry and only then step to an adjacent entry. A
     // repeat with no current match restarts from the cursor.
-    let found = match (search.direction, repeat, search.match_index) {
-        (SearchDirection::Backward, true, Some(idx)) => search_history_backward(
-            history,
-            &search.query,
-            Some(idx),
-            ignore_case,
-            locale_lowercase,
-        ),
-        (SearchDirection::Forward, true, Some(idx)) => search_history_forward(
-            history,
-            &search.query,
-            Some(idx),
-            ignore_case,
-            locale_lowercase,
-        ),
-        (SearchDirection::Backward, _, _) => {
-            let end = if search.exclude_cursor {
-                search.original_history_pos.min(history.entries().len())
-            } else {
-                search
-                    .original_history_pos
-                    .saturating_add(1)
-                    .min(history.entries().len())
-            };
-            search_history_backward(
+    let from_end = matches!(search.direction, SearchDirection::Backward);
+    let repeated = if repeat && search.match_index.is_some() {
+        repeated_match_offset(search, ignore_case, locale_lowercase).map(|offset| {
+            (
+                search.match_index.unwrap(),
+                search.match_line.clone().unwrap(),
+                offset,
+            )
+        })
+    } else {
+        None
+    };
+    let mut in_line = None;
+    let found = if let Some((idx, line, offset)) = repeated {
+        in_line = Some(offset);
+        Some((idx, line))
+    } else {
+        match (search.direction, repeat, search.match_index) {
+            (SearchDirection::Backward, true, Some(idx)) => search_history_backward(
                 history,
                 &search.query,
-                Some(end),
+                Some(idx),
                 ignore_case,
                 locale_lowercase,
-            )
-        }
-        (SearchDirection::Forward, _, _) => {
-            let start = if search.exclude_cursor {
-                search
-                    .original_history_pos
-                    .saturating_add(1)
-                    .min(history.entries().len())
-            } else {
-                search.original_history_pos.min(history.entries().len())
-            };
-            search_history_forward_from(
+            ),
+            (SearchDirection::Forward, true, Some(idx)) => search_history_forward(
                 history,
                 &search.query,
-                start,
+                Some(idx),
                 ignore_case,
                 locale_lowercase,
-            )
+            ),
+            (SearchDirection::Backward, _, _) => {
+                let end = if search.exclude_cursor {
+                    search.original_history_pos.min(history.entries().len())
+                } else {
+                    search
+                        .original_history_pos
+                        .saturating_add(1)
+                        .min(history.entries().len())
+                };
+                search_history_backward(
+                    history,
+                    &search.query,
+                    Some(end),
+                    ignore_case,
+                    locale_lowercase,
+                )
+            }
+            (SearchDirection::Forward, _, _) => {
+                let start = if search.exclude_cursor {
+                    search
+                        .original_history_pos
+                        .saturating_add(1)
+                        .min(history.entries().len())
+                } else {
+                    search.original_history_pos.min(history.entries().len())
+                };
+                search_history_forward_from(
+                    history,
+                    &search.query,
+                    start,
+                    ignore_case,
+                    locale_lowercase,
+                )
+            }
         }
     };
     if let Some((idx, line)) = found {
+        let offset = in_line.unwrap_or_else(|| {
+            search_bytes_offset(
+                &line,
+                &search.query,
+                ignore_case,
+                locale_lowercase,
+                from_end,
+            )
+            .unwrap_or(0)
+        });
         search.match_index = Some(idx);
         search.match_line = Some(line);
+        search.match_offset = Some(offset);
         return true;
     }
     if !(repeat && search.match_index.is_some()) {
         search.match_index = None;
         search.match_line = None;
+        search.match_offset = None;
     }
     false
+}
+
+/// Find the next occurrence inside the currently displayed entry. Backward
+/// repeats search the bytes before the current match; forward repeats search
+/// after it. A failed query keeps the displayed line and its offset so the
+/// next repeat tries again before moving on.
+fn repeated_match_offset(
+    search: &ReverseSearchState,
+    ignore_case: bool,
+    locale_lowercase: Option<&LocaleLowercase>,
+) -> Option<usize> {
+    if search.query.is_empty() {
+        return None;
+    }
+    let line = search.match_line.as_deref()?;
+    let offset = search.match_offset?;
+    if matches!(search.direction, SearchDirection::Backward) {
+        search_bytes_offset(
+            &line[..offset.min(line.len())],
+            &search.query,
+            ignore_case,
+            locale_lowercase,
+            true,
+        )
+    } else {
+        let mut after = offset.saturating_add(search.query.len()).min(line.len());
+        let text = std::str::from_utf8(line).ok();
+        while after < line.len() && text.is_some_and(|text| !text.is_char_boundary(after)) {
+            after += 1;
+        }
+        search_bytes_offset(
+            &line[after..],
+            &search.query,
+            ignore_case,
+            locale_lowercase,
+            false,
+        )
+        .map(|delta| after + delta)
+    }
 }
 
 pub(crate) fn search_history_backward(

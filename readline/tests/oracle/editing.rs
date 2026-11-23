@@ -16336,6 +16336,83 @@ fn bash_readline_and_sushline_accept_last_match_after_failed_query() {
     }
 }
 
+/// Paired Bash 5.3 / Readline 8.3 PTY measurements (empty INPUTRC, 80x24): a
+/// repeated reverse search first walks earlier occurrences inside the
+/// displayed entry, then moves to the previous matching entry and starts at
+/// its last occurrence. A repeat that exhausts both keeps the line and rings;
+/// the next repeat rings again. Each row lists the accepted line and exact
+/// bell count after zero or more repeats of the one-byte query `a`.
+#[test]
+fn bash_readline_and_sushline_repeat_reverse_search_occurrences() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!(
+            "Within-entry search repeats were measured on Readline 8.3; this case reports nothing on other releases"
+        );
+        return;
+    }
+    type RepeatCase<'a> = (&'a [&'a str], &'a [(&'a str, usize)]);
+    let cases: &[RepeatCase<'_>] = &[
+        (
+            &["aaa"],
+            &[("aaa", 0), ("aaa", 0), ("aaa", 0), ("aaa", 1), ("aaa", 2)],
+        ),
+        (
+            &["beta", "alpha"],
+            &[
+                ("alpha", 0),
+                ("alpha", 0),
+                ("beta", 0),
+                ("beta", 1),
+                ("beta", 2),
+            ],
+        ),
+        (
+            &["alpha one", "beta two", "alpha three"],
+            &[
+                ("alpha three", 0),
+                ("alpha three", 0),
+                ("beta two", 0),
+                ("alpha one", 0),
+                ("alpha one", 0),
+            ],
+        ),
+        (
+            &["xalpha", "beta"],
+            &[("beta", 0), ("xalpha", 0), ("xalpha", 0), ("xalpha", 1)],
+        ),
+        (
+            &["a1", "x2", "a3", "x4", "a5"],
+            &[("a5", 0), ("a3", 0), ("a1", 0), ("a1", 1)],
+        ),
+    ];
+    for (history, steps) in cases {
+        for (repeats, (expected, bells)) in steps.iter().enumerate() {
+            let mut keys = b"\x12a".to_vec();
+            keys.extend(std::iter::repeat_n(0x12, repeats));
+            keys.push(b'\r');
+            for (editor, output) in [
+                (
+                    "Bash",
+                    run_bash_readline_with_bindings_and_history(&keys, "", history),
+                ),
+                (
+                    "Sushline",
+                    run_sushline_harness_with_inputrc_and_history(&keys, "", history),
+                ),
+            ] {
+                let context = format!("{editor} history={history:?} repeats={repeats}: {output:?}");
+                assert_eq!(
+                    accepted_line(&output).as_deref(),
+                    Some(*expected),
+                    "{context}"
+                );
+                assert_eq!(bell_count(&output), *bells, "{context}");
+            }
+        }
+    }
+}
+
 /// Quoting a raw byte into a query after a displayed match still leaves the
 /// match on the accepted line. The match line is valid UTF-8 even though the
 /// query is not; the byte validity of the query must not decide retention.

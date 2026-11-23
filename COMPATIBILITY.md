@@ -720,6 +720,13 @@ both editors. It makes no assertion about post-resize prompt visibility, redraw
 style, or byte-identical redisplay.
 Test: [`oracle/history.rs`](readline/tests/oracle/history.rs).
 
+Paired Bash 5.3/Readline 8.3 PTY traces with empty INPUTRC at 80x24 pin
+one-byte reverse-search repeats: a repeat first finds an earlier occurrence in
+the displayed entry, then moves to the previous matching entry at its last
+occurrence; an exhausted repeat keeps the line and rings once more each time.
+The five seeded histories, accepted lines and exact bell counts are those in
+[`bash_readline_and_sushline_repeat_reverse_search_occurrences`](readline/tests/oracle/editing.rs).
+
 A paired non-incremental-search fixture,
 [`bash_and_sushline_pin_quoted_control_in_nonincremental_search`](readline/tests/oracle/history.rs),
 binds Ctrl-O to `non-incremental-reverse-search-history`: Readline 8.3-style

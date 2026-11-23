@@ -1165,13 +1165,100 @@ fn bash_and_sushline_wrapped_prompt_settles_after_explicit_redraw_following_wide
         screen.feed(&frame);
         // The checkpoint helper follows the automatic resize redisplay with
         // Ctrl-L. On automatic widening GNU keeps the old wrapped rows while
-        // Sushline reflows them; this pins agreement after a full redraw only.
+        // Sushline reflows them, as `bash_and_sushline_automatic_widening_redisplay_differs`
+        // records; this pins agreement after a full redraw only.
         assert_eq!(
             &screen.rows_text()[..2],
             &["LONGPROMPT012", "3456789>abcdefghijklmnop"],
             "bash={bash}: {output:?}"
         );
         assert_eq!(screen.cursor(), (1, 24), "bash={bash}: {output:?}");
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some("abcdefghijklmnop"),
+            "bash={bash}: {output:?}"
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn bash_and_sushline_automatic_widening_redisplay_differs() {
+    use super::screen::Screen;
+    use portable_pty::{CommandBuilder, PtySize};
+
+    let root = tempfile::tempdir().expect("automatic wrapped-prompt resize root");
+    let inputrc = "set editing-mode emacs\nset horizontal-scroll-mode off\nset enable-bracketed-paste off\nset bell-style audible\n";
+    let path = root.path().join("inputrc");
+    std::fs::write(&path, inputrc).expect("write resize inputrc");
+    let prompt = "LONGPROMPT012\n3456789>";
+    let initial = PtySize {
+        rows: 8,
+        cols: 12,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let widened = PtySize {
+        cols: 40,
+        ..initial
+    };
+    for bash in [true, false] {
+        let mut command = if bash {
+            let mut command = CommandBuilder::new("bash");
+            command.args([
+                "--noprofile",
+                "--norc",
+                "-i",
+                "-c",
+                "IFS= read -r -e -p \"$PROBE_PROMPT\" line; printf 'SUSHLINE_ACCEPTED:%s\\n' \"$line\"",
+            ]);
+            command.env("PROBE_PROMPT", prompt);
+            command
+        } else {
+            let mut command = sushline_harness_command();
+            command.env("SUSHLINE_INPUTRC", inputrc);
+            command.env("SUSHLINE_PROMPT", prompt);
+            command.env("SUSHLINE_HISTORY", "");
+            command
+        };
+        command.env("INPUTRC", path.to_str().expect("inputrc path"));
+        command.env("HOME", root.path());
+        command.env("HISTFILE", root.path().join("history"));
+        command.env("LC_ALL", "C");
+        command.env_remove("COLUMNS");
+        command.env_remove("LINES");
+        let (initial_frame, automatic_frame, output) = run_pty_automatic_resize_frames(
+            command,
+            "3456789>",
+            b"abcdefghijklmnop",
+            initial,
+            widened,
+        );
+        let mut screen = Screen::new(8, 12);
+        screen.feed(&initial_frame);
+        screen.resize(40);
+        screen.feed(&automatic_frame);
+        let rows = screen.rows_text();
+        // GNU erases and rewrites only the input rows; Sushline reprints the
+        // whole prompt, so the two settled screens are deliberately different.
+        let (expected_rows, expected_cursor) = if bash {
+            (
+                &["LONGPROMPT01", "2", "3456789>abcdefghijklmnop"][..],
+                (2, 24),
+            )
+        } else {
+            (&["LONGPROMPT012", "3456789>abcdefghijklmnop"][..], (1, 24))
+        };
+        assert_eq!(
+            &rows[..expected_rows.len()],
+            expected_rows,
+            "bash={bash}: {output:?}"
+        );
+        assert!(
+            rows[expected_rows.len()..].iter().all(String::is_empty),
+            "bash={bash}: {rows:?}"
+        );
+        assert_eq!(screen.cursor(), expected_cursor, "bash={bash}: {output:?}");
         assert_eq!(
             accepted_line(&output).as_deref(),
             Some("abcdefghijklmnop"),

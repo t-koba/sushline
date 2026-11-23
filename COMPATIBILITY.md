@@ -69,9 +69,12 @@ without a TAB uses the query's rendered width unchanged.
   wrapping regardless of the process's ambient `TERM`.
 - When a prompt that wraps at 12 columns is widened to 40 columns past its
   visible length, GNU 8.3-p0's automatic redisplay keeps the old wrapped rows
-  while Sushline reflows them. Both agree only after an explicit full redraw;
-  the paired fixture pins that post-redraw state. No automatic-widening parity
-  is claimed.
+  while Sushline reflows them. The paired
+  `bash_and_sushline_automatic_widening_redisplay_differs` fixture records that
+  screen-level divergence before any redraw. Both agree only after an explicit
+  full redraw, pinned by
+  `bash_and_sushline_wrapped_prompt_settles_after_explicit_redraw_following_widening`.
+  No automatic-widening parity is claimed.
 
 ### Oracle identity
 

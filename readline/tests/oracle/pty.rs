@@ -2489,6 +2489,103 @@ pub(super) fn run_pty_resize_checkpoint(
     )
 }
 
+/// Captures the initial and the automatic resize redisplay frames, without
+/// forcing a full redraw.
+///
+/// The BEL barrier follows the typed input suffix reappearing after the resize,
+/// so the automatic frame contains only the renderer's own response. The caller
+/// renders the initial frame at the old width, widens the screen model without
+/// reflowing it, and then renders the automatic frame. The accepted-line marker
+/// confirms that Enter reached the editor after the barrier.
+#[cfg(target_os = "linux")]
+pub(super) fn run_pty_automatic_resize_frames(
+    mut command: CommandBuilder,
+    prompt: &str,
+    partial: &[u8],
+    initial: PtySize,
+    resized: PtySize,
+) -> (Vec<u8>, Vec<u8>, String) {
+    require_oracle_host();
+    command.env("TERM", "xterm-256color");
+    command.cwd("/");
+    let mut session = PtySession::spawn(command, initial);
+    let deadline = Instant::now() + PTY_HANG_BOUND;
+    let input_suffix = unique_suffix(partial);
+    assert!(
+        find_bytes(prompt.as_bytes(), input_suffix).is_none()
+            && find_bytes(prompt.as_bytes(), b"SUSHLINE_ACCEPTED:").is_none()
+            && find_bytes(partial, b"SUSHLINE_ACCEPTED:").is_none(),
+        "resize prompt/input must not synchronize on the input suffix or accepted marker"
+    );
+    let mut output = Vec::new();
+    let mut input_start = 0;
+    let mut resize_start = 0;
+    let mut barrier_start = 0;
+    let mut automatic_frame = None;
+    #[derive(Debug)]
+    enum Stage {
+        Prompt,
+        InitialInput,
+        Automatic,
+        Barrier,
+        Accepted,
+    }
+    let mut stage = Stage::Prompt;
+    while Instant::now() < deadline {
+        match session.read(deadline.saturating_duration_since(Instant::now())) {
+            PtyOutput::Chunk(chunk) => output.extend_from_slice(&chunk),
+            PtyOutput::Timeout | PtyOutput::Closed => break,
+        }
+        match stage {
+            Stage::Prompt if find_bytes(&output, prompt.as_bytes()).is_some() => {
+                input_start = output.len();
+                session.write(partial);
+                stage = Stage::InitialInput;
+            }
+            Stage::InitialInput
+                if contains_bytes_ignoring_carriage_returns(
+                    &output[input_start..],
+                    input_suffix,
+                ) =>
+            {
+                resize_start = output.len();
+                session.master.resize(resized).expect("resize active PTY");
+                stage = Stage::Automatic;
+            }
+            Stage::Automatic
+                if contains_bytes_ignoring_carriage_returns(
+                    &output[resize_start..],
+                    input_suffix,
+                ) =>
+            {
+                barrier_start = output.len();
+                session.write(b"\x07");
+                stage = Stage::Barrier;
+            }
+            Stage::Barrier => {
+                if let Some(frame) = checkpoint_before_bell_raw(&mut output, barrier_start) {
+                    automatic_frame = Some(frame[resize_start..].to_vec());
+                    session.write(b"\r");
+                    stage = Stage::Accepted;
+                }
+            }
+            Stage::Accepted if stop_marker_line_complete(&output, "SUSHLINE_ACCEPTED:") => break,
+            _ => {}
+        }
+    }
+    session.finish();
+    assert!(
+        stop_marker_line_complete(&output, "SUSHLINE_ACCEPTED:"),
+        "automatic resize PTY stopped at {stage:?}: {:?}",
+        lossy_output(&output)
+    );
+    (
+        output[..resize_start].to_vec(),
+        automatic_frame.expect("automatic resize accepted-line barrier"),
+        lossy_output(&output),
+    )
+}
+
 #[cfg(target_os = "linux")]
 fn resize_screen_contains_input_suffix(frame: &[u8], size: PtySize, suffix: &[u8]) -> bool {
     let suffix = std::str::from_utf8(suffix).expect("resize suffix is ASCII");

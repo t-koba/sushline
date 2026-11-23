@@ -34,6 +34,19 @@ impl Screen {
         }
     }
 
+    /// Widens the grid without reflowing rows already rendered at the old
+    /// width, as an xterm-style terminal leaves deferred wraps until the next
+    /// write. The cursor keeps its row and clamps to the new width.
+    pub(super) fn resize(&mut self, columns: usize) {
+        assert!(columns >= self.columns, "screen fixture only widens");
+        for row in &mut self.cells {
+            row.resize(columns, Some(" ".to_string()));
+        }
+        self.columns = columns;
+        self.column = self.column.min(columns - 1);
+        self.saved.1 = self.saved.1.min(columns - 1);
+    }
+
     /// Renders the bytes a program wrote to the terminal.
     pub(super) fn feed(&mut self, bytes: &[u8]) {
         let text = String::from_utf8_lossy(bytes);
@@ -332,6 +345,19 @@ mod tests {
         screen.feed(b"obsolete text");
         screen.feed(b"\x1b[H\x1b[2J1234\r\n56");
         assert_eq!(screen.rows_text(), ["1234", "56", ""]);
+        assert_eq!(screen.cursor(), (1, 2));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn widening_keeps_wrapped_rows_in_place() {
+        let mut screen = Screen::new(3, 4);
+        screen.feed(b"abcdef");
+        assert_eq!(screen.rows_text(), ["abcd", "ef", ""]);
+        assert_eq!(screen.cursor(), (1, 2));
+
+        screen.resize(8);
+        assert_eq!(screen.rows_text(), ["abcd", "ef", ""]);
         assert_eq!(screen.cursor(), (1, 2));
     }
 

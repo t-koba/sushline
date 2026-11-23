@@ -15617,7 +15617,7 @@ fn bash_and_sushline_emit_different_bytes_for_quoted_escape_in_incremental_searc
 
 #[test]
 fn bash_and_sushline_emit_one_zero_width_space_in_incremental_query() {
-    let keys = b"\x12\xe2\x80\x8b";
+    let keys = b"\x12\xe2\x80\x8b\r\r";
     let env = [("LC_ALL", "C.UTF-8")];
     let bash = run_bash_readline_with_bindings_and_env(keys, "", &env);
     let sushline = run_sushline_harness_with_inputrc_and_env(keys, "", &env);

@@ -59,8 +59,8 @@ not change caller handlers, `SIG_IGN`, hook-only reports, or literal Ctrl-C byte
 
 ## Documentation
 
-- [`COMPATIBILITY.md`](COMPATIBILITY.md): baseline and scope.
-- [`DESIGN.md`](DESIGN.md): structure and embedding API.
+- [`COMPATIBILITY.md`](https://github.com/t-koba/sushline/blob/main/COMPATIBILITY.md): baseline and scope.
+- [`DESIGN.md`](https://github.com/t-koba/sushline/blob/main/DESIGN.md): structure and embedding API.
 
 ## Testing
 
@@ -69,7 +69,7 @@ oracle suite compares Sushline against GNU Bash 5.3 observed at runtime and
 requires GNU Bash 5.3 on `PATH`. If Bash is missing, is not GNU Bash, or has
 another version, the suite reports the mismatch once and stops. On GNU Bash
 5.3, a readable Readline release outside the scope documented in
-[`COMPATIBILITY.md`](COMPATIBILITY.md) also causes the suite to stop. If the
+[`COMPATIBILITY.md`](https://github.com/t-koba/sushline/blob/main/COMPATIBILITY.md) also causes the suite to stop. If the
 Readline release cannot be read (for example, because the host executable is
 not an ELF image), the suite reports that limitation and continues without a
 Readline release scope.

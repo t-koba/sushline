@@ -1700,7 +1700,7 @@ where
             &search.query,
             ignore_case,
             locale_lowercase.as_ref(),
-            false,
+            matches!(search.direction, SearchDirection::Backward),
         )
         .unwrap_or(0)
     }

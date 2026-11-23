@@ -2313,3 +2313,30 @@ fn isearch_termination_after_a_shortened_live_edit_rescans_the_query() {
     assert!(remainder.is_empty());
     assert_eq!(state.buffer.as_bytes(), b"!abc");
 }
+
+/// A shortened live edit can contain the query more than once. The stored
+/// match selects the last occurrence in `abcabcabc` (byte 6), so the rescan
+/// in `abcabc` must resume at its last occurrence (byte 3).
+#[test]
+fn isearch_termination_after_a_shortened_live_edit_rescans_the_last_occurrence() {
+    let mut history = History::new();
+    history.push("abcabcabc");
+    let mut line =
+        Editor::new_without_inputrc(Config::default(), MemoryTerminal::default(), history);
+    let mut state = EditorState::new(Prompt::new("> "), None);
+    let keys = b"\x10\x7f\x7f\x7f\x12abc\n";
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, keys, &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.as_bytes(), b"abcabc");
+    assert_eq!(state.buffer.point(), 3);
+
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, b"!", &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.as_bytes(), b"abc!abc");
+}

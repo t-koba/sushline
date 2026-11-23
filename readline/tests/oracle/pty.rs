@@ -2864,13 +2864,19 @@ pub(super) fn run_bash_prompt_length_probe(
             break;
         }
     }
-    // A PTY close can be observed before try_wait sees the child exit. Once
-    // every slave descriptor is gone the child has terminated, so reap it.
-    let status = match session.child_exit_status() {
-        Some(status) => Some(status),
-        None if closed => session.child.wait().ok(),
-        None => None,
-    };
+    // A PTY close can be observed before try_wait sees the child exit, and it
+    // does not prove the child has terminated. Poll within the same hang
+    // bound; finish() kills and reaps anything still alive.
+    let mut status = session.child_exit_status();
+    if status.is_none() && closed {
+        while Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+            status = session.child_exit_status();
+            if status.is_some() {
+                break;
+            }
+        }
+    }
     session.finish();
     (status, lossy_output(&out))
 }

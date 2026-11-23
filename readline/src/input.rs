@@ -1697,9 +1697,9 @@ where
         if let (Some(match_offset), Some(match_line)) =
             (search.match_offset, search.match_line.as_deref())
             // GNU restarts at the first occurrence when bytes were prepended
-            // to the stored line; only a shortened tail or an appended suffix
-            // carries the selected occurrence into the accepted line.
-            && !(line.len() > match_line.len() && line.ends_with(match_line))
+            // to the stored line. A suffix equal to the stored line is still
+            // an append when the line also starts with it.
+            && !(line.ends_with(match_line) && !line.starts_with(match_line))
             && let Some(rank) = match_rank_from_end(
                 match_line,
                 &search.query,

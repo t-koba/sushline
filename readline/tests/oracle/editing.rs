@@ -16712,6 +16712,69 @@ fn bash_readline_and_sushline_isearch_termination_after_shortened_live_edit_one_
     }
 }
 
+/// Appending the query itself makes the live line end with the stored entry.
+/// The selected last occurrence stays last, so `!` lands before the appended
+/// copy on both hosts with no bell.
+#[test]
+fn bash_readline_and_sushline_isearch_termination_after_appended_query_copy() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!("Appended query copy was measured on Readline 8.3");
+        return;
+    }
+    let history = ["abcabc"];
+    let keys = b"\x10\x1b[Fabc\x12abc\n!\r";
+    for (editor, output) in [
+        (
+            "Bash",
+            run_bash_readline_with_bindings_and_history(keys, "", &history),
+        ),
+        (
+            "Sushline",
+            run_sushline_harness_with_inputrc_and_history(keys, "", &history),
+        ),
+    ] {
+        let context = format!("{editor} keys={keys:?}: {output:?}");
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some("abcabc!abc"),
+            "{context}"
+        );
+        assert_eq!(bell_count(&output), 0, "{context}");
+    }
+}
+
+/// A repeated reverse search on an edited multibyte line steps to the middle
+/// occurrence in the stored entry and in the accepted buffer.
+#[test]
+fn bash_readline_and_sushline_isearch_termination_after_multibyte_appended_suffix() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!("Multibyte appended suffix was measured on Readline 8.3");
+        return;
+    }
+    let history = ["äxäxäx"];
+    let keys = b"\x10\x1b[FZ\x12\xc3\xa4\x12\n!\r";
+    for (editor, output) in [
+        (
+            "Bash",
+            run_bash_readline_with_bindings_and_history(keys, "", &history),
+        ),
+        (
+            "Sushline",
+            run_sushline_harness_with_inputrc_and_history(keys, "", &history),
+        ),
+    ] {
+        let context = format!("{editor} keys={keys:?}: {output:?}");
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some("äx!äxäxZ"),
+            "{context}"
+        );
+        assert_eq!(bell_count(&output), 0, "{context}");
+    }
+}
+
 /// Single reverse searches after one- and two-byte tail removals, and after a
 /// prefixed tail removal, keep the last occurrence in the edited buffer. These
 /// shapes are where a first-occurrence fallback or a suffix guard diverge from

@@ -327,6 +327,19 @@ fn char_boundary_after(line: &[u8], index: usize) -> usize {
     boundary
 }
 
+/// Drop a byte index to a UTF-8 character boundary, so a prefix never ends
+/// inside the last matched character.
+fn char_boundary_before(line: &[u8], index: usize) -> usize {
+    let Ok(text) = std::str::from_utf8(line) else {
+        return index.min(line.len());
+    };
+    let mut boundary = index.min(line.len());
+    while boundary > 0 && !text.is_char_boundary(boundary) {
+        boundary -= 1;
+    }
+    boundary
+}
+
 pub(crate) fn search_history_backward(
     history: &History,
     needle: &[u8],
@@ -399,8 +412,9 @@ pub(crate) fn search_history_forward_from(
 }
 
 /// Match starts in `haystack`, last occurrence first. Each step searches a
-/// shorter prefix through the shared case/locale-aware matcher; stopping one
-/// byte before the current match's end keeps overlapping occurrences.
+/// shorter prefix through the shared case/locale-aware matcher; the prefix
+/// ends on the character boundary at or before the current match's last byte,
+/// which keeps overlapping occurrences without cutting a multibyte character.
 pub(crate) fn match_offsets_from_end(
     haystack: &[u8],
     needle: &[u8],
@@ -420,7 +434,7 @@ pub(crate) fn match_offsets_from_end(
         true,
     ) {
         offsets.push(found);
-        let next = char_boundary_after(
+        let next = char_boundary_before(
             haystack,
             found.saturating_add(needle.len().saturating_sub(1)),
         );
@@ -1154,5 +1168,22 @@ mod tests {
                 None
             );
         }
+    }
+
+    #[test]
+    fn match_offsets_from_end_keeps_overlapping_and_multibyte_occurrences() {
+        let no_locale = None;
+        assert_eq!(
+            match_offsets_from_end(b"aaaa", b"aa", false, no_locale),
+            vec![2, 1, 0]
+        );
+        assert_eq!(
+            match_offsets_from_end("äää".as_bytes(), "ä".as_bytes(), false, no_locale),
+            vec![4, 2, 0]
+        );
+        assert_eq!(
+            match_offsets_from_end("äxäxäxZ".as_bytes(), "ä".as_bytes(), false, no_locale),
+            vec![6, 3, 0]
+        );
     }
 }

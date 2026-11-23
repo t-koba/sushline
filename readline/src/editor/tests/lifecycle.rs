@@ -2421,6 +2421,53 @@ fn isearch_termination_after_a_shortened_live_edit_and_one_repeat_with_prefix() 
     assert_eq!(state.buffer.as_bytes(), b"x!abcabc");
 }
 
+/// An appended query copy must not be mistaken for a prepended prefix when
+/// translating the selected occurrence into the accepted buffer.
+#[test]
+fn isearch_termination_after_an_appended_query_copy() {
+    let mut history = History::new();
+    history.push("abcabc");
+    let mut line =
+        Editor::new_without_inputrc(Config::default(), MemoryTerminal::default(), history);
+    let mut state = EditorState::new(Prompt::new("> "), None);
+    let keys = b"\x10\x1b[Fabc\x12abc\n";
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, keys, &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.point(), 6);
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, b"!", &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.as_bytes(), b"abcabc!abc");
+}
+
+/// A repeated search on an edited multibyte line keeps the middle occurrence.
+#[test]
+fn isearch_termination_after_a_multibyte_appended_suffix() {
+    let mut history = History::new();
+    history.push("äxäxäx");
+    let mut line =
+        Editor::new_without_inputrc(Config::default(), MemoryTerminal::default(), history);
+    let mut state = EditorState::new(Prompt::new("> "), None);
+    let keys = b"\x10\x1b[FZ\x12\xc3\xa4\x12\n";
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, keys, &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.point(), 3);
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, b"!", &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.as_bytes(), "äx!äxäxZ".as_bytes());
+}
+
 /// Partial tail removals keep the last occurrence of the query in the edited
 /// buffer, whether or not the entry has a prefix.
 #[test]

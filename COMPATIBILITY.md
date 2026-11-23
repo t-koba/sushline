@@ -77,6 +77,14 @@ the point is at the end so no occurrence lies ahead, both editors accept
 difference is measured, not a claim of parity. These cases do not establish
 general forward-search behavior beyond the pinned keys and history.
 
+### Reverse incremental search point
+
+Paired Bash 5.3 and Sushline fixtures pin that a reverse search starting at
+byte 1 of `aaaX` selects the overlapping `aa` beginning at that point and
+accepts `a!aaX`. The same point-aware rule preserves `xabc!abc` when a prefix
+is added and the point is moved to the end of `xabcabc`. These cases do not
+claim general reverse-search parity beyond the pinned keys and histories.
+
 ### Terminal wrap margins
 
 - With both `am` and `xenl` (xterm-style deferred wrapping), redisplay uses

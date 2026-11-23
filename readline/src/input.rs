@@ -1738,7 +1738,21 @@ where
             false,
         ) && search.original_point < first.saturating_add(search.query.len())
         {
-            return first;
+            // GNU starts its byte scan at the stored point, so an overlapping
+            // occurrence beginning there is the match even when the point is
+            // inside the first occurrence. Do not look past that first extent.
+            let point = search.original_point.min(line.len());
+            let from_point = search_bytes_offset(
+                &line[point..],
+                &search.query,
+                ignore_case,
+                locale_lowercase.as_ref(),
+                false,
+            );
+            return from_point
+                .map(|offset| point.saturating_add(offset))
+                .filter(|&offset| offset < first.saturating_add(search.query.len()))
+                .unwrap_or(first);
         }
         if let (Some(match_offset), Some(match_line)) =
             (search.match_offset, search.match_line.as_deref())

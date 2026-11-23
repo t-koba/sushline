@@ -16785,6 +16785,38 @@ fn bash_readline_and_sushline_isearch_termination_after_prepend_and_end() {
     }
 }
 
+/// GNU's reverse byte scan starts at the search point and finds the
+/// overlapping `aa` beginning at byte 1, while a first-occurrence shortcut
+/// would select byte 0. Both hosts accept `a!aaX` with no bell.
+#[test]
+fn bash_readline_and_sushline_isearch_termination_keeps_an_overlapping_occurrence() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!("Overlapping search point was measured on Readline 8.3");
+        return;
+    }
+    let history = ["aaa"];
+    let keys = b"\x10X\x01\x06\x12aa\n!\r";
+    for (editor, output) in [
+        (
+            "Bash",
+            run_bash_readline_with_bindings_and_history(keys, "", &history),
+        ),
+        (
+            "Sushline",
+            run_sushline_harness_with_inputrc_and_history(keys, "", &history),
+        ),
+    ] {
+        let context = format!("{editor} keys={keys:?}: {output:?}");
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some("a!aaX"),
+            "{context}"
+        );
+        assert_eq!(bell_count(&output), 0, "{context}");
+    }
+}
+
 /// GNU's forward incremental search starts at the point where the search
 /// began and advances one occurrence per repeat. Ctrl-T stands in for Ctrl-S
 /// because the PTY's XOFF flow control otherwise swallows that byte. The

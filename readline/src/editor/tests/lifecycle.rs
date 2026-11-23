@@ -2445,6 +2445,30 @@ fn isearch_termination_after_a_prepend_and_end() {
     assert_eq!(state.buffer.as_bytes(), b"xabc!abc");
 }
 
+/// A reverse search starting inside an overlapping occurrence selects the
+/// occurrence beginning at the point, as GNU's byte-step scan does.
+#[test]
+fn isearch_termination_keeps_an_overlapping_occurrence_at_the_point() {
+    let mut history = History::new();
+    history.push("aaa");
+    let mut line =
+        Editor::new_without_inputrc(Config::default(), MemoryTerminal::default(), history);
+    let mut state = EditorState::new(Prompt::new("> "), None);
+    let keys = b"\x10X\x01\x06\x12aa\n";
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, keys, &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.point(), 1);
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, b"!", &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.as_bytes(), b"a!aaX");
+}
+
 /// A forward search selects the first occurrence at or after its starting
 /// point, not the line's first occurrence.
 #[test]

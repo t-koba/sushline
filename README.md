@@ -27,7 +27,7 @@ The root crate exposes two public modules:
 - `sushline::history`: history storage, search, stifle/state APIs, file
   persistence, timestamped history records, and history expansion.
 
-```rust
+```rust,no_run
 use sushline::readline::{Config, Editor, History, Prompt, Terminal};
 
 let mut editor = Editor::new(

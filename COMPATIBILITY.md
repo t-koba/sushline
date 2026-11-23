@@ -102,6 +102,34 @@ point-aware rule preserves `xabc!abc` when a prefix is added and the point is
 moved to the end of `xabcabc`. These cases do not claim general reverse-search
 parity beyond the pinned keys and histories.
 
+A backward incremental search started on an unsaved current line sees that line
+before stored history as a virtual entry with no history index (`match_index`
+stays `None`, so `history.set_pos` never leaves the history range). With
+history `abcabc`, `mid`, `xabc`, typing `abcabc`, C-a, C-r and `abc` accepts
+`abcabc` (also with `!` before Enter, ringing once); one more C-r accepts
+`xabc` instead. A search from an empty buffer still accepts `xabc` first.
+`bash_readline_and_sushline_reverse_search_typed_unsaved_line_first` pins
+these accepted lines and bell counts for the measured keys only; it claims
+nothing about forward-search bells or searches begun on edited recalled entries.
+
+The initial unsaved-line match is point-aware like the reverse termination
+placement: the last occurrence starting at or before the search point wins,
+and no occurrence is selected when every match starts after that point. With
+the same history, typing `abcabc`, C-a, moving with C-f, C-r, `abc`, C-j, `!`,
+Enter accepts `!abcabc` from points 0/1/2 and `abc!abc` from points 3/6, with
+no bell. Typing `xabc`, C-a, C-r, `abc`, Enter instead accepts `zzabczz` from
+history `abcabc`, `mid`, `zzabczz` and keeps `xabc` with three bells when no
+history entry matches. A repeat from an unsaved-line match first looks for another occurrence
+in that same line with the existing repeated-match machinery and only steps to
+history when no earlier in-line occurrence remains: typing `abcabc`, C-r,
+`abc`, C-r, C-j, `!`, Enter accepts `!abcabc` with histories `mid` and
+`xabc`/`mid`, while a repeat from C-a point 0 with history `abcabc`, `mid`,
+`xabc` still steps to `xabc` (`x!abc` via C-j plus `!`), with no bell.
+`bash_readline_and_sushline_reverse_search_typed_unsaved_line_point_and_repeat`
+pins these C-j plus `!` accepted lines and bell counts for the measured keys
+and histories only; it claims nothing about forward search, recalled-entry
+search, bells beyond the pinned cases, or redisplay bytes.
+
 ### Terminal wrap margins
 
 - With both `am` and `xenl` (xterm-style deferred wrapping), redisplay uses

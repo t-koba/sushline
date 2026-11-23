@@ -5146,3 +5146,155 @@ fn bash_and_sushline_pin_history_size_reload_trim_during_navigation() {
         }
     }
 }
+
+#[test]
+fn bash_readline_and_sushline_reverse_search_typed_unsaved_line_first() {
+    let history = ["abcabc", "mid", "xabc"];
+    for (desc, keys, expected, bells) in [
+        ("first_bang", &b"abcabc\x01\x12abc!\r"[..], "abcabc", 1),
+        ("first_enter", &b"abcabc\x01\x12abc\r"[..], "abcabc", 0),
+        ("repeat_bang", &b"abcabc\x01\x12abc\x12!\r"[..], "xabc", 1),
+        ("repeat_enter", &b"abcabc\x01\x12abc\x12\r"[..], "xabc", 0),
+        // The recalled path from an empty buffer stays with history.
+        ("empty_buffer", &b"\x12abc\r"[..], "xabc", 0),
+    ] {
+        let bash = run_bash_readline_with_bindings_and_history(keys, "", &history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, "", &history);
+        for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+            let context = format!("{desc}: {editor}: {output}");
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{context}"
+            );
+            assert_eq!(bell_count(output), bells, "{context}");
+        }
+    }
+}
+
+/// The unsaved-line match is point-aware and a repeat stays in that line
+/// when an earlier occurrence remains. C-j terminates without executing so
+/// a following `!` observes the point; only accepted lines and bells are
+/// pinned, not redisplay bytes.
+#[test]
+fn bash_readline_and_sushline_reverse_search_typed_unsaved_line_point_and_repeat() {
+    // Deficiency 1: the initial unsaved offset is the last occurrence
+    // starting at or before the search point (GNU probe a647c344).
+    let history = ["abcabc", "mid", "xabc"];
+    for (desc, keys, expected, bells) in [
+        ("point0", &b"abcabc\x01\x12abc\x0a!\r"[..], "!abcabc", 0),
+        ("point1", &b"abcabc\x01\x06\x12abc\x0a!\r"[..], "!abcabc", 0),
+        (
+            "point2",
+            &b"abcabc\x01\x06\x06\x12abc\x0a!\r"[..],
+            "!abcabc",
+            0,
+        ),
+        (
+            "point3",
+            &b"abcabc\x01\x06\x06\x06\x12abc\x0a!\r"[..],
+            "abc!abc",
+            0,
+        ),
+        (
+            "point6",
+            &b"abcabc\x01\x06\x06\x06\x06\x06\x06\x12abc\x0a!\r"[..],
+            "abc!abc",
+            0,
+        ),
+        // A repeat from point 0 has no earlier in-line occurrence, so it
+        // steps to history (the measured C-a point-0 repeat still holds).
+        (
+            "repeat_from_point0_to_history",
+            &b"abcabc\x01\x12abc\x12\x0a!\r"[..],
+            "x!abc",
+            0,
+        ),
+    ] {
+        let bash = run_bash_readline_with_bindings_and_history(keys, "", &history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, "", &history);
+        for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+            let context = format!("{desc}: {editor}: {output}");
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{context}"
+            );
+            assert_eq!(bell_count(output), bells, "{context}");
+        }
+    }
+
+    // Deficiency 2: a repeat from an unsaved-line match first looks for
+    // another occurrence in that same line (GNU probe f33b34c3).
+    for (history, desc, keys, expected, bells) in [
+        (
+            &["mid"][..],
+            "repeat_stays_single",
+            &b"abcabc\x12abc\x12\x0a!\r"[..],
+            "!abcabc",
+            0,
+        ),
+        (
+            &["xabc", "mid"][..],
+            "repeat_stays_over_history",
+            &b"abcabc\x12abc\x12\x0a!\r"[..],
+            "!abcabc",
+            0,
+        ),
+    ] {
+        let bash = run_bash_readline_with_bindings_and_history(keys, "", history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, "", history);
+        for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+            let context = format!("{desc}: {editor}: {output}");
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{context}"
+            );
+            assert_eq!(bell_count(output), bells, "{context}");
+        }
+    }
+}
+
+/// A reverse scan cannot start before point 0 of `xabc`, so the only match in
+/// the unsaved line is not searchable. GNU then accepts a matching history
+/// entry, or keeps the typed line and rings once per failing query byte when
+/// no entry matches. C-j plus `!` observes the accepted point without a bell.
+#[test]
+fn bash_readline_and_sushline_reverse_search_skips_unsaved_line_when_match_follows_point() {
+    for (history, desc, keys, expected, bells) in [
+        (
+            &["abcabc", "mid", "zzabczz"][..],
+            "history_match",
+            &b"xabc\x01\x12abc\r"[..],
+            "zzabczz",
+            0,
+        ),
+        (
+            &["abcabc", "mid", "zzabczz"][..],
+            "history_match_point",
+            &b"xabc\x01\x12abc\x0a!\r"[..],
+            "zz!abczz",
+            0,
+        ),
+        (
+            &["mid"][..],
+            "no_history_match",
+            &b"xabc\x01\x12abc\r"[..],
+            "xabc",
+            3,
+        ),
+    ] {
+        let bash = run_bash_readline_with_bindings_and_history(keys, "", history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, "", history);
+        for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+            let context = format!("{desc}: {editor}: {output}");
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{context}"
+            );
+            assert_eq!(bell_count(output), bells, "{context}");
+        }
+    }
+}

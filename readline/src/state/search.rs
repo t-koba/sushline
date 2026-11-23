@@ -35,6 +35,9 @@ pub(crate) struct ReverseSearchState {
     /// Byte offset of the match inside `match_line`, so a repeat can look for
     /// another occurrence in the same entry before moving to another entry.
     pub(crate) match_offset: Option<usize>,
+    /// The displayed match is the unsaved line the search started on, which
+    /// is a virtual entry ahead of history and has no history index.
+    pub(crate) unsaved_line_match: bool,
     pub(crate) direction: SearchDirection,
     pub(crate) original_line: Vec<u8>,
     pub(crate) original_point: usize,
@@ -120,39 +123,82 @@ pub(crate) fn update_reverse_search_match(
     // matching cursor `/alpha` finds the older match and `?alpha` finds the
     // newer match). Repeats first look for another occurrence of the query
     // in the displayed entry and only then step to an adjacent entry. A
-    // repeat with no current match restarts from the cursor.
+    // repeat with no current match restarts from the cursor. A backward
+    // search begun on an unsaved line sees that line ahead of history.
     let from_end = matches!(search.direction, SearchDirection::Backward);
-    let repeated = if repeat && search.match_index.is_some() {
-        repeated_match_offset(search, ignore_case, locale_lowercase).map(|offset| {
-            (
-                search.match_index.unwrap(),
-                search.match_line.clone().unwrap(),
-                offset,
-            )
-        })
+    if !repeat || !from_end {
+        search.unsaved_line_match = false;
+    }
+    let unsaved_candidate = from_end
+        && search.original_history_entry_index.is_none()
+        && !search.exclude_cursor
+        && !search.query.is_empty();
+    let repeated = if repeat && (search.match_index.is_some() || search.unsaved_line_match) {
+        // An unsaved match keeps match_index None so history.set_pos never
+        // sees an out-of-range index; the in-line helper only needs its
+        // line and offset.
+        if search.match_line.is_some() {
+            repeated_match_offset(search, ignore_case, locale_lowercase).map(|offset| {
+                (
+                    search.match_index,
+                    search.match_line.clone().unwrap(),
+                    offset,
+                )
+            })
+        } else {
+            None
+        }
     } else {
         None
     };
+    // An unsaved line is a virtual entry ahead of history: the first search
+    // (or an edited query) sees it before any stored entry when a match starts
+    // at or before original_point, and no history index is assigned to it.
+    if unsaved_candidate
+        && !repeat
+        && let Some(offset) = unsaved_initial_match_offset(
+            &search.original_line,
+            &search.query,
+            search.original_point,
+            ignore_case,
+            locale_lowercase,
+        )
+    {
+        search.match_index = None;
+        search.match_line = Some(search.original_line.clone());
+        search.match_offset = Some(offset);
+        search.unsaved_line_match = true;
+        return true;
+    }
     let mut in_line = None;
-    let found = if let Some((idx, line, offset)) = repeated {
+    let found: Option<(Option<usize>, Vec<u8>)> = if let Some((idx, line, offset)) = repeated {
         in_line = Some(offset);
         Some((idx, line))
     } else {
         match (search.direction, repeat, search.match_index) {
+            (SearchDirection::Backward, true, _) if search.unsaved_line_match => {
+                // No earlier in-line occurrence remains; a bounded `None`
+                // steps from the newest history entry without leaving the
+                // history range.
+                search_history_backward(history, &search.query, None, ignore_case, locale_lowercase)
+                    .map(|(idx, line)| (Some(idx), line))
+            }
             (SearchDirection::Backward, true, Some(idx)) => search_history_backward(
                 history,
                 &search.query,
                 Some(idx),
                 ignore_case,
                 locale_lowercase,
-            ),
+            )
+            .map(|(idx, line)| (Some(idx), line)),
             (SearchDirection::Forward, true, Some(idx)) => search_history_forward(
                 history,
                 &search.query,
                 Some(idx),
                 ignore_case,
                 locale_lowercase,
-            ),
+            )
+            .map(|(idx, line)| (Some(idx), line)),
             (SearchDirection::Backward, _, _) => {
                 let end = if search.exclude_cursor {
                     search.original_history_pos.min(history.entries().len())
@@ -169,6 +215,7 @@ pub(crate) fn update_reverse_search_match(
                     ignore_case,
                     locale_lowercase,
                 )
+                .map(|(idx, line)| (Some(idx), line))
             }
             (SearchDirection::Forward, _, _) => {
                 let start = if search.exclude_cursor {
@@ -206,7 +253,8 @@ pub(crate) fn update_reverse_search_match(
                     first,
                     ignore_case,
                     locale_lowercase,
-                );
+                )
+                .map(|(idx, line)| (Some(idx), line));
                 if found.is_none() && first != start {
                     search_history_forward_from(
                         history,
@@ -215,6 +263,7 @@ pub(crate) fn update_reverse_search_match(
                         ignore_case,
                         locale_lowercase,
                     )
+                    .map(|(idx, line)| (Some(idx), line))
                 } else {
                     found
                 }
@@ -232,17 +281,40 @@ pub(crate) fn update_reverse_search_match(
             )
             .unwrap_or(0)
         });
-        search.match_index = Some(idx);
+        // A repeat that stays inside the unsaved line keeps match_index None
+        // so history.set_pos never sees an out-of-range index.
+        search.match_index = idx;
         search.match_line = Some(line);
         search.match_offset = Some(offset);
+        search.unsaved_line_match = idx.is_none();
         return true;
     }
-    if !(repeat && search.match_index.is_some()) {
+    if !(repeat && (search.match_index.is_some() || search.unsaved_line_match)) {
         search.match_index = None;
         search.match_line = None;
         search.match_offset = None;
+        search.unsaved_line_match = false;
     }
     false
+}
+
+/// Initial offset for an unsaved line: the last occurrence starting at or
+/// before the search point wins. When no occurrence starts there, the unsaved
+/// line has no reverse match and the caller searches stored history instead.
+fn unsaved_initial_match_offset(
+    line: &[u8],
+    query: &[u8],
+    original_point: usize,
+    ignore_case: bool,
+    locale_lowercase: Option<&LocaleLowercase>,
+) -> Option<usize> {
+    if query.is_empty() {
+        return None;
+    }
+    let point = original_point.min(line.len());
+    match_offsets_from_end(line, query, ignore_case, locale_lowercase)
+        .into_iter()
+        .find(|offset| *offset <= point)
 }
 
 /// Find the next occurrence inside the currently displayed entry. A repeat
@@ -828,6 +900,7 @@ mod tests {
             match_line: Some(line.as_bytes().to_vec()),
             match_index: Some(0),
             match_offset: Some(offset),
+            unsaved_line_match: false,
             direction: SearchDirection::Backward,
             original_line: Vec::new(),
             original_point: 0,
@@ -853,6 +926,7 @@ mod tests {
             match_line: None,
             match_index: None,
             match_offset: None,
+            unsaved_line_match: false,
             direction: SearchDirection::Forward,
             original_line: line.as_bytes().to_vec(),
             original_point: point,
@@ -865,6 +939,58 @@ mod tests {
             retain_match_on_failure: false,
             retain_failed_query_line: false,
         }
+    }
+
+    #[test]
+    fn initial_backward_search_matches_unsaved_line_before_history() {
+        let mut history = History::new();
+        history.push("abcabc");
+        history.push("mid");
+        history.push("xabc");
+        let mut unsaved = ReverseSearchState {
+            query: b"abc".to_vec(),
+            original_line: b"abcabc".to_vec(),
+            original_history_pos: history.entries().len(),
+            ..Default::default()
+        };
+        assert!(update_reverse_search_match(
+            &mut unsaved,
+            &history,
+            false,
+            false,
+            None
+        ));
+        assert_eq!(unsaved.match_index, None);
+        assert_eq!(unsaved.match_line.as_deref(), Some(&b"abcabc"[..]));
+        assert!(unsaved.unsaved_line_match);
+        assert!(update_reverse_search_match(
+            &mut unsaved,
+            &history,
+            true,
+            false,
+            None
+        ));
+        assert_eq!(unsaved.match_index, Some(2));
+        assert_eq!(unsaved.match_line.as_deref(), Some(&b"xabc"[..]));
+        assert!(!unsaved.unsaved_line_match);
+
+        // An entry-owned line keeps the recalled history ordering.
+        let mut recalled = ReverseSearchState {
+            original_history_entry_index: Some(2),
+            unsaved_line_match: false,
+            ..unsaved
+        };
+        recalled.match_index = None;
+        recalled.match_line = None;
+        recalled.match_offset = None;
+        assert!(update_reverse_search_match(
+            &mut recalled,
+            &history,
+            false,
+            false,
+            None
+        ));
+        assert_eq!(recalled.match_index, Some(2));
     }
 
     #[test]

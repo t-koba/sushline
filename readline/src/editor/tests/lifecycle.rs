@@ -2469,6 +2469,35 @@ fn isearch_termination_keeps_an_overlapping_occurrence_at_the_point() {
     assert_eq!(state.buffer.as_bytes(), b"a!aaX");
 }
 
+/// A reverse search inside an overlapping occurrence selects the last start
+/// at or before the point, not the first occurrence or a later start.
+#[test]
+fn isearch_termination_selects_the_last_overlap_at_or_before_the_point() {
+    let cases: &[(&str, &[u8], &[u8])] = &[
+        ("ababab", b"\x10X\x01\x06\x12abab\n", b"!abababX"),
+        ("abababa", b"\x10X\x01\x06\x12aba\n", b"!abababaX"),
+        ("ababab", b"\x10X\x01\x06\x06\x06\x12abab\n", b"ab!ababX"),
+    ];
+    for (entry, keys, expected) in cases {
+        let mut history = History::new();
+        history.push(*entry);
+        let mut line =
+            Editor::new_without_inputrc(Config::default(), MemoryTerminal::default(), history);
+        let mut state = EditorState::new(Prompt::new("> "), None);
+        let (outcome, remainder, _) = line
+            .dispatch_input_bytes(&mut state, keys, &mut ())
+            .unwrap();
+        assert!(matches!(outcome, EditorOutcome::Continue));
+        assert!(remainder.is_empty());
+        let (outcome, remainder, _) = line
+            .dispatch_input_bytes(&mut state, b"!", &mut ())
+            .unwrap();
+        assert!(matches!(outcome, EditorOutcome::Continue));
+        assert!(remainder.is_empty());
+        assert_eq!(state.buffer.as_bytes(), *expected);
+    }
+}
+
 /// A forward search selects the first occurrence at or after its starting
 /// point, not the line's first occurrence.
 #[test]

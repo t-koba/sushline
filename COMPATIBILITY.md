@@ -82,9 +82,12 @@ keys and history.
 
 Paired Bash 5.3 and Sushline fixtures pin that a reverse search starting at
 byte 1 of `aaaX` selects the overlapping `aa` beginning at that point and
-accepts `a!aaX`. The same point-aware rule preserves `xabc!abc` when a prefix
-is added and the point is moved to the end of `xabcabc`. These cases do not
-claim general reverse-search parity beyond the pinned keys and histories.
+accepts `a!aaX`. When the point lies inside an overlapping occurrence instead,
+the last occurrence starting at or before the point wins: `abab` from byte 1
+of `abababX` accepts `!abababX`, and from byte 3 accepts `ab!ababX`. The same
+point-aware rule preserves `xabc!abc` when a prefix is added and the point is
+moved to the end of `xabcabc`. These cases do not claim general reverse-search
+parity beyond the pinned keys and histories.
 
 ### Terminal wrap margins
 

@@ -16817,6 +16817,48 @@ fn bash_readline_and_sushline_isearch_termination_keeps_an_overlapping_occurrenc
     }
 }
 
+/// GNU's reverse byte scan steps backwards from the search point. When the
+/// point lies strictly inside an overlapping occurrence, the occurrence that
+/// starts before the point wins; a point inside a later extent selects that
+/// later start. Both hosts accept the same lines with no bell.
+#[test]
+fn bash_readline_and_sushline_isearch_termination_inside_an_overlap() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!("Overlapping search point was measured on Readline 8.3");
+        return;
+    }
+    let cases: &[(&[&str], &[u8], &str)] = &[
+        (&["ababab"], b"\x10X\x01\x06\x12abab\n!\r", "!abababX"),
+        (&["abababa"], b"\x10X\x01\x06\x12aba\n!\r", "!abababaX"),
+        (
+            &["ababab"],
+            b"\x10X\x01\x06\x06\x06\x12abab\n!\r",
+            "ab!ababX",
+        ),
+    ];
+    for (history, keys, expected) in cases {
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(keys, "", history),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, "", history),
+            ),
+        ] {
+            let context = format!("{editor} keys={keys:?}: {output:?}");
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(*expected),
+                "{context}"
+            );
+            assert_eq!(bell_count(&output), 0, "{context}");
+        }
+    }
+}
+
 /// GNU's forward incremental search starts at the point where the search
 /// began and advances one occurrence per repeat. Ctrl-T stands in for Ctrl-S
 /// because the PTY's XOFF flow control otherwise swallows that byte. The

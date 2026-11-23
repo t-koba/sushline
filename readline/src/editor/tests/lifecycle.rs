@@ -2212,3 +2212,77 @@ fn invalid_utf8_search_prefix_ends_on_configured_escape_terminator() {
         line.terminal.out
     );
 }
+
+/// Terminating a search must keep the occurrence the user selected, not the
+/// first one in the line. With one repeat, `a` in `xayazaw` moves from byte 5
+/// to byte 3; inserting after the terminator shows where the point landed.
+#[test]
+fn isearch_termination_keeps_the_repeated_occurrence_point() {
+    for (repeats, point, accepted) in [(0, 5, "xayaz!aw"), (1, 3, "xay!azaw")] {
+        let terminal = MemoryTerminal::default();
+        let mut history = History::new();
+        history.push("xayazaw");
+        let mut line = Editor::new_without_inputrc(Config::default(), terminal, history);
+        let mut state = EditorState::new(Prompt::new("> "), None);
+        let mut keys = b"\x12a".to_vec();
+        keys.extend(std::iter::repeat_n(b'\x12', repeats));
+        keys.push(b'\n');
+        let (outcome, remainder, _) = line
+            .dispatch_input_bytes(&mut state, &keys, &mut ())
+            .unwrap();
+        assert!(
+            matches!(outcome, EditorOutcome::Continue),
+            "repeats={repeats}"
+        );
+        assert!(remainder.is_empty(), "repeats={repeats}");
+        assert_eq!(state.buffer.point(), point, "repeats={repeats}");
+        let (outcome, remainder, _) = line
+            .dispatch_input_bytes(&mut state, b"!", &mut ())
+            .unwrap();
+        assert!(
+            matches!(outcome, EditorOutcome::Continue),
+            "repeats={repeats}"
+        );
+        assert!(remainder.is_empty(), "repeats={repeats}");
+        assert_eq!(
+            state.buffer.as_bytes(),
+            accepted.as_bytes(),
+            "repeats={repeats}"
+        );
+    }
+}
+
+/// C.UTF-8 case folding maps `Ä` and `ä` one-to-one. The selected match in
+/// `Ä x ÄLPHA` starts at byte 5; termination must use that byte offset, as
+/// the earlier rescan-based helper's unit test required.
+#[test]
+fn isearch_termination_uses_the_selected_folded_byte_offset() {
+    if crate::locale::LocaleLowercase::new("C.UTF-8").is_none() {
+        return;
+    }
+    let mut history = History::new();
+    history.push("Ä x ÄLPHA");
+    let mut line =
+        Editor::new_without_inputrc(Config::default(), MemoryTerminal::default(), history);
+    line.load_inputrc_str("set search-ignore-case on").unwrap();
+    line.variables.use_utf8_io_defaults();
+    if line.variables.lc_ctype() != Some("C.UTF-8") {
+        return;
+    }
+    let mut state = EditorState::new(Prompt::new("> "), None);
+    let keys = [b"\x12".as_slice(), "älp".as_bytes(), b"\n".as_slice()].concat();
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, &keys, &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.as_bytes(), "Ä x ÄLPHA".as_bytes());
+    assert_eq!(state.buffer.point(), 5);
+
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, b"!", &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.as_bytes(), "Ä x !ÄLPHA".as_bytes());
+}

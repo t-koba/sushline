@@ -16514,6 +16514,44 @@ fn bash_readline_and_sushline_repeat_reverse_search_occurrences() {
     }
 }
 
+/// Bash 5.3 / Readline 8.3 PTY finding: Ctrl-R selects the last `a` in
+/// `xayazaw`, and one repeat steps to the previous occurrence. LF terminates
+/// the search without executing it, so the following `!` lands at that
+/// selected byte offset. Both cases were measured with zero bells on the
+/// oracle host.
+#[test]
+fn bash_readline_and_sushline_isearch_termination_keeps_selected_occurrence() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!("Search termination was measured on Readline 8.3");
+        return;
+    }
+    let history = ["xayazaw"];
+    for (repeats, expected) in [(0, "xayaz!aw"), (1, "xay!azaw")] {
+        let mut keys = b"\x12a".to_vec();
+        keys.extend(std::iter::repeat_n(b'\x12', repeats));
+        keys.extend_from_slice(b"\n!\r");
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(&keys, "", &history),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(&keys, "", &history),
+            ),
+        ] {
+            let context = format!("{editor} repeats={repeats} keys={keys:?}: {output:?}");
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(expected),
+                "{context}"
+            );
+            assert_eq!(bell_count(&output), 0, "{context}");
+        }
+    }
+}
+
 /// Folded multibyte query characters arrive one at a time through a PTY. The
 /// paired C.UTF-8 measurements cover equal-length folding (each Ä lowers to
 /// ä) and overlapping matches inside one history entry; no general Unicode

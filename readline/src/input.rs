@@ -1650,14 +1650,10 @@ where
         } else if search.query.is_empty() {
             buffer.set_point(search.original_point.min(buffer.len_chars()));
         } else if search.match_line.is_some() {
-            let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
-            let locale_lowercase = self.search_locale_lowercase(ignore_case);
-            buffer.set_point(isearch_terminate_point(
-                buffer.as_bytes(),
-                &search.query,
-                ignore_case,
-                locale_lowercase.as_ref(),
-            ));
+            // The selected occurrence's byte offset was recorded when the
+            // match was found; rescanning the line would pick its first
+            // occurrence and lose a repeat's selection.
+            buffer.set_point(search.match_offset.unwrap_or(0));
         } else if matches!(search.direction, SearchDirection::Forward)
             && search.original_history_pos >= self.history.entries().len()
         {
@@ -2122,15 +2118,9 @@ where
             state.buffer = LineBuffer::from_bytes(accepted);
             if raw_meta && search.match_line.is_some() {
                 // Like explicit termination, raw-meta exit leaves point at
-                // the match start before dispatching the ordinary input.
-                let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
-                let locale_lowercase = self.search_locale_lowercase(ignore_case);
-                state.buffer.set_point(isearch_terminate_point(
-                    state.buffer.as_bytes(),
-                    &search.query,
-                    ignore_case,
-                    locale_lowercase.as_ref(),
-                ));
+                // the selected match start before dispatching the ordinary
+                // input.
+                state.buffer.set_point(search.match_offset.unwrap_or(0));
             }
             if search.match_line.is_none() {
                 state.history_entry_index = search.original_history_entry_index;
@@ -2805,22 +2795,6 @@ fn char_search_key(bytes: &[u8]) -> Option<char> {
     }
 }
 
-fn isearch_terminate_point(
-    line: &[u8],
-    query: &[u8],
-    ignore_case: bool,
-    locale_lowercase: Option<&crate::locale::LocaleLowercase>,
-) -> usize {
-    if query.is_empty() {
-        return 0;
-    }
-    let Some(byte_offset) = search_bytes_offset(line, query, ignore_case, locale_lowercase, false)
-    else {
-        return 0;
-    };
-    byte_offset
-}
-
 fn accept_search_line(
     state: &EditorState,
     search: &ReverseSearchState,
@@ -2999,27 +2973,5 @@ mod named_query_tests {
 
         assert!(append_named_query_bytes(&mut pending, b"ab", false));
         assert_eq!(pending.query, "\u{200b}ab");
-    }
-}
-
-#[cfg(test)]
-mod search_tests {
-    use super::isearch_terminate_point;
-    use crate::locale::LocaleLowercase;
-
-    #[test]
-    fn incremental_search_cursor_uses_original_byte_match_start() {
-        let Some(locale) = LocaleLowercase::new("C.UTF-8") else {
-            return;
-        };
-        assert_eq!(
-            isearch_terminate_point(
-                "Ä x ÄLPHA".as_bytes(),
-                "älp".as_bytes(),
-                true,
-                Some(&locale),
-            ),
-            5
-        );
     }
 }

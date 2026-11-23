@@ -1464,6 +1464,11 @@ where
             return self.handle_reverse_search_batched(state, bytes, hooks);
         }
         if state.search.quoted_pending
+            || state
+                .search
+                .reverse_search
+                .as_ref()
+                .is_some_and(|search| search.nul_pending)
             || self.variables.is_on("byte-oriented")
             || !self.variables.utf8_locale()
         {
@@ -1472,9 +1477,13 @@ where
         // In a UTF-8 locale the query extends one whole character at a time.
         // Dispatching an incomplete prefix would search with invalid bytes
         // and ring before the character arrives; buffer it like a vi key.
+        let pending = state.input.pending_char_bytes.clone();
         let Some((first, rest)) = take_pending_character(state, bytes, false) else {
             return Ok(EditorOutcome::Continue);
         };
+        if !pending.is_empty() && !rest.is_empty() {
+            return self.append_invalid_search_prefix(state, &pending, bytes[0], hooks);
+        }
         let outcome = self.handle_reverse_search_single(state, &first, hooks)?;
         if !matches!(outcome, EditorOutcome::Continue) || rest.is_empty() {
             return Ok(outcome);
@@ -1500,7 +1509,13 @@ where
             if state.search.reverse_search.is_none() {
                 return self.handle_bytes(state, &bytes[pos..], hooks);
             }
-            if state.search.quoted_pending {
+            if state.search.quoted_pending
+                || state
+                    .search
+                    .reverse_search
+                    .as_ref()
+                    .is_some_and(|search| search.nul_pending)
+            {
                 let single = [bytes[pos]];
                 let outcome = self.handle_reverse_search_single(state, &single, hooks)?;
                 if !matches!(outcome, EditorOutcome::Continue) {
@@ -1516,10 +1531,23 @@ where
             {
                 // Match split reads: a UTF-8 query byte group is one
                 // extension, not several failing invalid-byte queries.
+                let pending = state.input.pending_char_bytes.clone();
                 let Some((first, _)) = take_pending_character(state, suffix, false) else {
                     return Ok(EditorOutcome::Continue);
                 };
-                let len = first.len();
+                if !pending.is_empty() && std::str::from_utf8(&first).is_err() {
+                    // The buffered prefix cannot be completed by this byte;
+                    // consume only that byte from the batch. The rest of the
+                    // batch remains a fresh sequence of search keys.
+                    let outcome =
+                        self.append_invalid_search_prefix(state, &pending, suffix[0], hooks)?;
+                    if !matches!(outcome, EditorOutcome::Continue) {
+                        return Ok(outcome);
+                    }
+                    pos += 1;
+                    continue;
+                }
+                let len = first.len() - pending.len();
                 let outcome = self.handle_reverse_search_single(state, &first, hooks)?;
                 if !matches!(outcome, EditorOutcome::Continue) {
                     return Ok(outcome);
@@ -1653,6 +1681,50 @@ where
         state.after_non_kill_command();
     }
 
+    /// Extend the active query with raw bytes, recomputing the match and
+    /// bell just like a search-scoped quoted insert.
+    fn append_search_query_bytes(
+        &mut self,
+        state: &mut EditorState,
+        bytes: &[u8],
+    ) -> Result<EditorOutcome, ReadlineError> {
+        let Some(mut search) = state.search.reverse_search.take() else {
+            return Ok(EditorOutcome::Continue);
+        };
+        search.query.extend_from_slice(bytes);
+        search.match_index = None;
+        let found = self.refresh_reverse_search_match(&mut search, false);
+        self.apply_search_match(state, &search);
+        if !found && !search.query.is_empty() && !search.exclude_cursor {
+            self.ding()?;
+        }
+        state.search.reverse_search = Some(search);
+        state.input.changed_display = true;
+        Ok(EditorOutcome::Continue)
+    }
+
+    /// Keep a buffered UTF-8 prefix and the byte that cannot complete it in
+    /// the query as raw bytes. Abort keys stay on their own paths, and NUL
+    /// still freezes the query through the existing single-byte handler.
+    fn append_invalid_search_prefix(
+        &mut self,
+        state: &mut EditorState,
+        pending: &[u8],
+        byte: u8,
+        hooks: &mut impl Hooks,
+    ) -> Result<EditorOutcome, ReadlineError> {
+        if matches!(byte, 0x07 | 0x03) {
+            return self.handle_reverse_search_single(state, &[byte], hooks);
+        }
+        if byte == 0x00 {
+            self.append_search_query_bytes(state, pending)?;
+            return self.handle_reverse_search_single(state, &[byte], hooks);
+        }
+        let mut raw = pending.to_vec();
+        raw.push(byte);
+        self.append_search_query_bytes(state, &raw)
+    }
+
     fn handle_reverse_search_single(
         &mut self,
         state: &mut EditorState,
@@ -1745,23 +1817,11 @@ where
         // byte literally into the query, even controls/terminators.
         if state.search.quoted_pending {
             state.search.quoted_pending = false;
-            let Some(mut search) = state.search.reverse_search.take() else {
-                return Ok(EditorOutcome::Continue);
-            };
-            search.query.extend_from_slice(bytes);
-            search.match_index = None;
-            let found = self.refresh_reverse_search_match(&mut search, false);
-            self.apply_search_match(state, &search);
             // GNU per-keystroke bell (patch 0 Bash 5.3 PTY oracle): each
             // failing emacs incremental query extension rings once.
             // Vi `/`/`?` are non-incremental (separate state) and bell
             // once at execute instead.
-            if !found && !search.query.is_empty() && !search.exclude_cursor {
-                self.ding()?;
-            }
-            state.search.reverse_search = Some(search);
-            state.input.changed_display = true;
-            return Ok(EditorOutcome::Continue);
+            return self.append_search_query_bytes(state, bytes);
         }
         if let Some(translated) = self.translate_meta_input(bytes) {
             // Keep the Meta sequence atomic for terminator and binding lookup;

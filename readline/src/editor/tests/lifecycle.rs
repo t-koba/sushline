@@ -1930,3 +1930,67 @@ fn fragmented_utf8_search_prefix_keeps_the_following_byte() {
     assert_eq!(search.query, b"\xc3a");
     assert!(state.input.pending_char_bytes.is_empty());
 }
+
+#[test]
+fn fragmented_utf8_search_prefix_keeps_a_following_control_byte() {
+    let mut line = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
+    line.variables.use_utf8_io_defaults();
+    let mut state = EditorState::new(Prompt::new("> "), None);
+
+    for chunk in [&b"\x12"[..], &b"\xc3"[..], &b"\x0d"[..]] {
+        let (outcome, remainder, _) = line
+            .dispatch_input_bytes(&mut state, chunk, &mut ())
+            .unwrap();
+        assert!(matches!(outcome, EditorOutcome::Continue));
+        assert!(remainder.is_empty());
+    }
+
+    let search = state
+        .search
+        .reverse_search
+        .as_ref()
+        .expect("the query is still active");
+    assert_eq!(search.query, b"\xc3\r");
+    assert!(state.input.pending_char_bytes.is_empty());
+}
+
+#[test]
+fn fragmented_utf8_search_prefix_does_not_swallow_abort() {
+    let mut line = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
+    line.variables.use_utf8_io_defaults();
+    let mut state = EditorState::new(Prompt::new("> "), None);
+
+    for chunk in [&b"\x12"[..], &b"\xc3"[..], &b"\x07"[..]] {
+        let (outcome, remainder, _) = line
+            .dispatch_input_bytes(&mut state, chunk, &mut ())
+            .unwrap();
+        assert!(matches!(outcome, EditorOutcome::Continue));
+        assert!(remainder.is_empty());
+    }
+
+    assert!(state.search.reverse_search.is_none());
+    assert!(state.input.pending_char_bytes.is_empty());
+}
+
+#[test]
+fn batched_utf8_search_prefix_keeps_the_invalidating_byte() {
+    let mut line = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
+    line.variables.use_utf8_io_defaults();
+    let mut state = EditorState::new(Prompt::new("> "), None);
+
+    for chunk in [&b"\x12"[..], &b"\xc3"[..], &b"\xc3a"[..]] {
+        let (outcome, remainder, _) = line
+            .dispatch_input_bytes(&mut state, chunk, &mut ())
+            .unwrap();
+        assert!(matches!(outcome, EditorOutcome::Continue));
+        assert!(remainder.is_empty());
+    }
+
+    let search = state
+        .search
+        .reverse_search
+        .as_ref()
+        .expect("the query is still active");
+    assert_eq!(search.query, b"\xc3\xc3a");
+    assert!(state.input.pending_char_bytes.is_empty());
+}

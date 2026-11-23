@@ -2020,8 +2020,33 @@ fn three_byte_utf8_search_prefix_keeps_the_invalidating_byte() {
 
 #[test]
 fn invalid_utf8_search_prefix_preserves_query_editing_commands() {
-    for (byte, stays_in_search) in [(0x17, true), (0x19, false), (0x01, false)] {
-        let mut line = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
+    fn stale_history() -> History {
+        let mut history = History::new();
+        history.push("alpha");
+        history.push("alphabet");
+        history.reset_cursor();
+        history
+    }
+    fn bell_count(line: &Editor<MemoryTerminal>) -> usize {
+        line.terminal
+            .out
+            .bytes()
+            .filter(|byte| *byte == b'\x07')
+            .count()
+    }
+    // An empty prior query stays active: Ctrl-A keeps the stale byte while
+    // Ctrl-W and Ctrl-Y discard it. Bell counts follow the measured host:
+    // the matching-query Ctrl-W/Ctrl-Y ring once, the empty case twice.
+    for (byte, expected_query, expected_bells) in [
+        (0x01, vec![0xc3], None),
+        (0x17, Vec::new(), Some(2)),
+        (0x19, Vec::new(), Some(2)),
+    ] {
+        let mut line = Editor::new(
+            Config::default(),
+            MemoryTerminal::default(),
+            stale_history(),
+        );
         line.variables.use_utf8_io_defaults();
         let mut state = EditorState::new(Prompt::new("> "), None);
 
@@ -2033,22 +2058,77 @@ fn invalid_utf8_search_prefix_preserves_query_editing_commands() {
             assert!(remainder.is_empty());
         }
 
-        if stays_in_search {
-            let search = state
-                .search
-                .reverse_search
-                .as_ref()
-                .expect("query editing keeps the search active");
-            assert!(search.query.is_empty());
-        } else {
-            assert!(state.search.reverse_search.is_none());
-        }
+        let search = state
+            .search
+            .reverse_search
+            .as_ref()
+            .expect("query editing keeps the search active");
+        assert_eq!(
+            search.query, expected_query,
+            "byte 0x{byte:02x} with an empty prior query"
+        );
         assert!(state.input.pending_char_bytes.is_empty());
+        if let Some(expected) = expected_bells {
+            assert_eq!(
+                bell_count(&line),
+                expected,
+                "byte 0x{byte:02x} with an empty prior query must ring {expected} time(s)"
+            );
+        }
+    }
+    // A prior matching query keeps its text: Ctrl-A appends the stale byte
+    // while Ctrl-W and Ctrl-Y drop it and keep `a`.
+    for (byte, expected_query, expected_bells) in [
+        (0x01, b"a\xc3".to_vec(), None),
+        (0x17, b"a".to_vec(), Some(1)),
+        (0x19, b"a".to_vec(), Some(1)),
+    ] {
+        let mut line = Editor::new(
+            Config::default(),
+            MemoryTerminal::default(),
+            stale_history(),
+        );
+        line.variables.use_utf8_io_defaults();
+        let mut state = EditorState::new(Prompt::new("> "), None);
+
+        for chunk in [&b"\x12"[..], &b"a"[..], &b"\xc3"[..], &[byte][..]] {
+            let (outcome, remainder, _) = line
+                .dispatch_input_bytes(&mut state, chunk, &mut ())
+                .unwrap();
+            assert!(matches!(outcome, EditorOutcome::Continue));
+            assert!(remainder.is_empty());
+        }
+
+        let search = state
+            .search
+            .reverse_search
+            .as_ref()
+            .expect("query editing keeps the search active");
+        assert_eq!(
+            search.query, expected_query,
+            "byte 0x{byte:02x} with prior query `a`"
+        );
+        assert!(state.input.pending_char_bytes.is_empty());
+        if let Some(expected) = expected_bells {
+            assert_eq!(
+                bell_count(&line),
+                expected,
+                "byte 0x{byte:02x} with prior query `a` must ring {expected} time(s)"
+            );
+        }
     }
 }
 
 #[test]
 fn invalid_utf8_search_prefix_ends_on_configured_escape_terminator() {
+    fn bell_count(line: &Editor<MemoryTerminal>) -> usize {
+        line.terminal
+            .out
+            .bytes()
+            .filter(|byte| *byte == b'\x07')
+            .count()
+    }
+    // An empty prior query ends the search without adding the stale byte.
     let mut line = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
     line.variables.use_utf8_io_defaults();
     let mut state = EditorState::new(Prompt::new("> "), None);
@@ -2064,4 +2144,40 @@ fn invalid_utf8_search_prefix_ends_on_configured_escape_terminator() {
     assert!(state.search.reverse_search.is_none());
     assert!(state.buffer.as_bytes().is_empty());
     assert!(state.input.pending_char_bytes.is_empty());
+    assert_eq!(
+        bell_count(&line),
+        0,
+        "stale-byte ESC must not add a bell, got {:?}",
+        line.terminal.out
+    );
+    // A prior successful match is preserved without the stale byte.
+    let mut history = History::new();
+    history.push("alpha");
+    history.push("alphabet");
+    history.reset_cursor();
+    let mut line = Editor::new(Config::default(), MemoryTerminal::default(), history);
+    line.variables.use_utf8_io_defaults();
+    let mut state = EditorState::new(Prompt::new("> "), None);
+
+    for chunk in [&b"\x12"[..], &b"a"[..], &b"\xc3"[..], &b"\x1b"[..]] {
+        let (outcome, remainder, _) = line
+            .dispatch_input_bytes(&mut state, chunk, &mut ())
+            .unwrap();
+        assert!(matches!(outcome, EditorOutcome::Continue));
+        assert!(remainder.is_empty());
+    }
+
+    assert!(state.search.reverse_search.is_none());
+    assert_eq!(
+        state.buffer.as_bytes(),
+        b"alphabet",
+        "ESC after a stale prefix must keep the matched line"
+    );
+    assert!(state.input.pending_char_bytes.is_empty());
+    assert_eq!(
+        bell_count(&line),
+        0,
+        "stale-byte ESC on a match must not add a bell, got {:?}",
+        line.terminal.out
+    );
 }

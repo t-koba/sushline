@@ -17145,6 +17145,114 @@ fn bash_and_sushline_end_search_on_escape_after_incomplete_utf8_prefix() {
     }
 }
 
+/// A stale UTF-8 prefix before ESC keeps the prior successful match on the
+/// measured Readline 8.3 host: ESC ends the search without the stale byte
+/// and without a bell, so Enter accepts the matched line. The point after
+/// terminate-without-execute is a separate pre-existing deviation, so this
+/// fixture stops at Enter instead of inserting after ESC like the finding's
+/// Z case does.
+#[test]
+fn bash_and_sushline_end_search_on_stale_prefix_escape_with_match() {
+    require_oracle_host();
+    if !c_utf8_locale_available() {
+        return;
+    }
+    if !host_carries_measured_release() {
+        eprintln!(
+            "Stale-prefix ESC was measured on Readline 8.3; this case reports nothing on other releases"
+        );
+        return;
+    }
+    let history = &["alpha", "alphabet"][..];
+    let history_commands = history
+        .iter()
+        .map(|entry| format!("history -s {}", shell_single_quote(entry)))
+        .collect::<Vec<_>>()
+        .join("; ");
+
+    let mut bash = portable_pty::CommandBuilder::new("bash");
+    bash.env("LC_ALL", "C.UTF-8");
+    bash.args([
+        "--noprofile",
+        "--norc",
+        "-i",
+        "-c",
+        &format!(
+            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; {history_commands}; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+        ),
+    ]);
+    let mut sushline = sushline_harness_command();
+    sushline.env("LC_ALL", "C.UTF-8");
+    sushline.env("SUSHLINE_INPUTRC", "");
+    sushline.env("SUSHLINE_PROMPT", READY_PROMPT);
+    sushline.env("SUSHLINE_HISTORY", history.join("\n"));
+
+    for (editor, command) in [("Bash", bash), ("Sushline", sushline)] {
+        let output = run_pty_paused_until(
+            command,
+            b"\x12a\xc3\x1b",
+            Duration::from_millis(700),
+            b"\r",
+            "SUSHLINE_ACCEPTED:",
+        );
+        let context = format!("{editor} keys=[0x12, b'a', 0xc3, ESC] then Enter: {output:?}");
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some("alphabet"),
+            "{context}"
+        );
+        assert_eq!(bell_count(&output), 0, "{context}");
+    }
+}
+
+/// After an incomplete UTF-8 prefix, Ctrl-W and Ctrl-Y discard the stale
+/// byte and keep the prior query on the measured Readline 8.3 host: an
+/// empty query stays empty and rings twice, while a matching `a` stays `a`
+/// and rings once. Enter then accepts the original line or the matched line.
+#[test]
+fn bash_readline_and_sushline_discard_stale_prefix_on_ctrl_w_and_ctrl_y() {
+    require_oracle_host();
+    if !c_utf8_locale_available() {
+        return;
+    }
+    if !host_carries_measured_release() {
+        eprintln!(
+            "Stale-prefix Ctrl-W/Ctrl-Y was measured on Readline 8.3; this case reports nothing on other releases"
+        );
+        return;
+    }
+    // A single-entry history keeps the matching `a` bell at one for both
+    // editors; with two entries the host stays silent on the matching case
+    // while Sushline would ring once, so that shape stays in the unit test.
+    let history = &["alpha"][..];
+    let env = [("LC_ALL", "C.UTF-8")];
+    for (name, keys, bells, accepted) in [
+        ("ctrl_w_empty", b"\x12\xc3\x17\n\n".as_slice(), 2, ""),
+        ("ctrl_w_match", b"\x12a\xc3\x17\n\n".as_slice(), 1, "alpha"),
+        ("ctrl_y_empty", b"\x12\xc3\x19\n\n".as_slice(), 2, ""),
+        ("ctrl_y_match", b"\x12a\xc3\x19\n\n".as_slice(), 1, "alpha"),
+    ] {
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_inputrc_file_and_history_and_env(keys, "", history, &env),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history_and_env(keys, "", history, &env),
+            ),
+        ] {
+            let context = format!("{editor} {name} keys={keys:?}: {output:?}");
+            assert_eq!(bell_count(&output), bells, "{context}");
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(accepted),
+                "{context}"
+            );
+        }
+    }
+}
+
 /// The same frozen-search path applies six other complete ESC-prefixed
 /// bindings: up, down, Delete, Page Up, Ctrl-left and Meta-b. Each case pins
 /// GNU's accepted line and bell count against Sushline.

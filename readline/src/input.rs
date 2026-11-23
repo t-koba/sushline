@@ -18,10 +18,6 @@ const NUL_FROZEN_LINE_COMMAND_KEYS: &[u8] = &[
 /// Query-editing keys measured to ring once after a successful NUL freeze
 /// while the query stays frozen.
 const NUL_FROZEN_RING_KEYS: &[u8] = &[0x08, 0x17, 0x18, 0x19, 0x1d, 0x7f];
-/// Keys that GNU dispatches as commands when they follow an incomplete
-/// UTF-8 query prefix. Other controls join the query as raw bytes; this
-/// split is measured against Readline 8.3's incremental-search PTY output.
-const INVALID_PREFIX_SEARCH_COMMAND_KEYS: &[u8] = &[0x01, 0x17, 0x19];
 
 // GNU Readline normalizes CR while collecting bracketed-paste input.
 fn normalize_bracketed_paste_carriage_returns(bytes: &mut [u8]) {
@@ -1708,9 +1704,12 @@ where
     }
 
     /// Keep a buffered UTF-8 prefix and the byte that cannot complete it in
-    /// the query as raw bytes. Abort keys stay on their own paths, NUL still
-    /// freezes the query, and a configured ESC terminator ends the search
-    /// through the existing single-byte handler.
+    /// the query as raw bytes. Abort keys and ESC stay on their own paths
+    /// without the stale byte, NUL still freezes the query, Ctrl-A keeps the
+    /// stale bytes query-local, and Ctrl-W/Ctrl-Y discard the stale prefix
+    /// while staying in the search; other controls join the query as raw
+    /// bytes. This split is measured against Readline 8.3's
+    /// incremental-search PTY output.
     fn append_invalid_search_prefix(
         &mut self,
         state: &mut EditorState,
@@ -1722,16 +1721,31 @@ where
             return self.handle_reverse_search_single(state, &[byte], hooks);
         }
         if byte == 0x1b && self.is_isearch_terminator(&[byte]) {
-            self.append_search_query_bytes(state, pending)?;
-            return self.handle_reverse_search_single(state, &[byte], hooks);
-        }
-        if INVALID_PREFIX_SEARCH_COMMAND_KEYS.contains(&byte) {
-            self.append_search_query_bytes(state, pending)?;
+            // ESC ends the search; the stale prefix is not query text.
+            // Appending it would poison a matched query and lose the match.
             return self.handle_reverse_search_single(state, &[byte], hooks);
         }
         if byte == 0x00 {
             self.append_search_query_bytes(state, pending)?;
             return self.handle_reverse_search_single(state, &[byte], hooks);
+        }
+        if byte == 0x01 {
+            return self.append_search_query_bytes(state, pending);
+        }
+        if matches!(byte, 0x17 | 0x19) {
+            let no_match = state
+                .search
+                .reverse_search
+                .as_ref()
+                .is_some_and(|search| search.match_line.is_none());
+            if state.search.reverse_search.is_some() {
+                self.ding()?;
+                if no_match {
+                    self.ding()?;
+                }
+                state.input.changed_display = true;
+            }
+            return Ok(EditorOutcome::Continue);
         }
         let mut raw = pending.to_vec();
         raw.push(byte);

@@ -16379,6 +16379,14 @@ fn bash_readline_and_sushline_nul_freeze_uses_match_end_and_empty_query_point() 
             Some("XQY"),
             false,
         ),
+        (
+            "empty_query_ctrl_a_moves_point",
+            &["zzabc zz"][..],
+            b"XY\x12\x00\x01Q\r".as_slice(),
+            0,
+            Some("QXY"),
+            false,
+        ),
     ] {
         for (editor, output) in [
             (

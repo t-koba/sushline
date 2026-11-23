@@ -230,26 +230,16 @@ fn repeated_match_offset(
     let offset = search.match_offset?;
     if matches!(search.direction, SearchDirection::Backward) {
         // Include the query's last byte before `offset`, so an overlapping
-        // occurrence ending at `offset` can still be selected. If that scan
-        // finds only the current match or nothing, one scan ending at `offset`
-        // covers every earlier occurrence. Two scans keep a miss linear.
+        // occurrence ending at `offset` can still be selected. One pass over
+        // candidate starts keeps a miss linear in the line length.
         let end = char_boundary_after(line, offset.saturating_add(search.query.len() - 1));
-        if let Some(found) = search_bytes_offset(
-            &line[..end.min(line.len())],
+        last_match_start_before(
+            line,
             &search.query,
+            offset,
+            end,
             ignore_case,
             locale_lowercase,
-            true,
-        ) && found < offset
-        {
-            return Some(found);
-        }
-        search_bytes_offset(
-            &line[..offset.min(line.len())],
-            &search.query,
-            ignore_case,
-            locale_lowercase,
-            true,
         )
     } else {
         let after = char_boundary_after(line, offset.saturating_add(1));
@@ -262,6 +252,66 @@ fn repeated_match_offset(
         )
         .map(|delta| after + delta)
     }
+}
+
+/// Find the nearest earlier match whose whole extent lies inside `line[..end]`.
+/// Scanning candidate starts once preserves overlapping matches even when
+/// locale lowercase folds a multibyte query into fewer bytes.
+fn last_match_start_before(
+    line: &[u8],
+    query: &[u8],
+    before: usize,
+    end: usize,
+    ignore_case: bool,
+    locale_lowercase: Option<&LocaleLowercase>,
+) -> Option<usize> {
+    if query.is_empty() || before == 0 || end == 0 {
+        return None;
+    }
+    let end = end.min(line.len());
+    if let Some(locale) = locale_lowercase
+        && ignore_case
+        && let (Ok(haystack_text), Ok(needle_text)) = (
+            std::str::from_utf8(&line[..end]),
+            std::str::from_utf8(query),
+        )
+    {
+        let lowered_needle: Vec<char> = needle_text.chars().map(|c| locale.lowercase(c)).collect();
+        let lowered_haystack: Vec<(char, usize)> = haystack_text
+            .char_indices()
+            .map(|(index, character)| (locale.lowercase(character), index))
+            .collect();
+        if lowered_needle.len() > lowered_haystack.len() {
+            return None;
+        }
+        let mut last = None;
+        for window in lowered_haystack.windows(lowered_needle.len()) {
+            let start = window[0].1;
+            if start < before
+                && window
+                    .iter()
+                    .map(|(character, _)| *character)
+                    .eq(lowered_needle.iter().copied())
+            {
+                last = Some(start);
+            }
+        }
+        return last;
+    }
+    if query.len() > end {
+        return None;
+    }
+    (0..before.min(end - query.len() + 1)).rev().find(|&start| {
+        let window = &line[start..start + query.len()];
+        if ignore_case {
+            window
+                .iter()
+                .zip(query)
+                .all(|(left, right)| left.eq_ignore_ascii_case(right))
+        } else {
+            window == query
+        }
+    })
 }
 
 /// Lift a byte index to a UTF-8 character boundary, so locale-aware matching
@@ -700,6 +750,14 @@ mod tests {
         ] {
             let state = repeated_state(line, query, offset);
             assert_eq!(repeated_match_offset(&state, false, None), expected);
+        }
+
+        let locale = utf8_locale().expect("C.UTF-8 locale");
+        for (line, query, offset, expected) in
+            [("iii", "İİ", 1, Some(0)), ("iiii", "İİ", 2, Some(1))]
+        {
+            let state = repeated_state(line, query, offset);
+            assert_eq!(repeated_match_offset(&state, true, Some(&locale)), expected);
         }
     }
 

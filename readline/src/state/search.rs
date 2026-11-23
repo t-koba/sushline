@@ -415,27 +415,10 @@ fn last_match_start_before(
             std::str::from_utf8(query),
         )
     {
-        let lowered_needle: Vec<char> = needle_text.chars().map(|c| locale.lowercase(c)).collect();
-        let lowered_haystack: Vec<(char, usize)> = haystack_text
-            .char_indices()
-            .map(|(index, character)| (locale.lowercase(character), index))
-            .collect();
-        if lowered_needle.len() > lowered_haystack.len() {
-            return None;
-        }
-        let mut last = None;
-        for window in lowered_haystack.windows(lowered_needle.len()) {
-            let start = window[0].1;
-            if start < before
-                && window
-                    .iter()
-                    .map(|(character, _)| *character)
-                    .eq(lowered_needle.iter().copied())
-            {
-                last = Some(start);
-            }
-        }
-        return last;
+        return locale_match_offsets(haystack_text, needle_text, locale)
+            .into_iter()
+            .rev()
+            .find(|&start| start < before);
     }
     if query.len() > end {
         return None;
@@ -451,6 +434,74 @@ fn last_match_start_before(
             window == query
         }
     })
+}
+
+/// Compare a query with byte stepping that matches the paired U+0130 search
+/// observations: its two-byte query character can match `i` at alternating
+/// ASCII byte offsets. This is a narrow measured case, not general Unicode
+/// case-fold compatibility.
+fn locale_match_offsets(
+    haystack: &str,
+    needle: &str,
+    locale_lowercase: &LocaleLowercase,
+) -> Vec<usize> {
+    if needle.is_empty() {
+        return vec![];
+    }
+    haystack
+        .char_indices()
+        .filter_map(|(start, _)| {
+            locale_streqn_at(
+                &haystack.as_bytes()[start..],
+                needle.as_bytes(),
+                locale_lowercase,
+            )
+            .then_some(start)
+        })
+        .collect()
+}
+
+fn locale_streqn_at(
+    mut haystack: &[u8],
+    mut needle: &[u8],
+    locale_lowercase: &LocaleLowercase,
+) -> bool {
+    let mut remaining = needle.len();
+    while remaining > 0 {
+        let needle_char = first_utf8_character(needle);
+        let haystack_char = first_utf8_character(haystack);
+        let (Some(needle_char), Some(haystack_char)) = (needle_char, haystack_char) else {
+            if haystack.first().map(u8::to_ascii_lowercase)
+                != needle.first().map(u8::to_ascii_lowercase)
+            {
+                return false;
+            }
+            needle = &needle[1..];
+            haystack = &haystack[1..];
+            remaining -= 1;
+            continue;
+        };
+        let width = needle_char.len_utf8();
+        if locale_lowercase.lowercase(needle_char) != locale_lowercase.lowercase(haystack_char) {
+            return false;
+        }
+        needle = &needle[width..];
+        haystack = haystack.get(width..).unwrap_or(&[]);
+        remaining -= width;
+    }
+    true
+}
+
+fn first_utf8_character(bytes: &[u8]) -> Option<char> {
+    let prefix = &bytes[..bytes.len().min(4)];
+    let valid_prefix = match std::str::from_utf8(prefix) {
+        Ok(text) => text,
+        Err(error) if error.valid_up_to() > 0 => {
+            std::str::from_utf8(&prefix[..error.valid_up_to()]).ok()?
+        }
+        Err(_) => return None,
+    };
+    valid_prefix.chars().next()
 }
 
 /// Lift a byte index to a UTF-8 character boundary, so locale-aware matching
@@ -620,40 +671,20 @@ pub(crate) fn search_bytes_offset(
     if needle.is_empty() {
         return Some(0);
     }
+    if needle.len() > haystack.len() {
+        return None;
+    }
     if let Some(locale_lowercase) = locale_lowercase
         && ignore_case
         && let (Ok(haystack_text), Ok(needle_text)) =
             (std::str::from_utf8(haystack), std::str::from_utf8(needle))
     {
-        let lowered_needle = needle_text
-            .chars()
-            .map(|character| locale_lowercase.lowercase(character))
-            .collect::<Vec<_>>();
-        if lowered_needle.is_empty() {
-            return Some(0);
-        }
-        let lowered_haystack = haystack_text
-            .char_indices()
-            .map(|(offset, character)| (locale_lowercase.lowercase(character), offset))
-            .collect::<Vec<_>>();
-        let mut starts = lowered_haystack
-            .windows(lowered_needle.len())
-            .enumerate()
-            .filter_map(|(index, window)| {
-                window
-                    .iter()
-                    .map(|(character, _)| *character)
-                    .eq(lowered_needle.iter().copied())
-                    .then_some(lowered_haystack[index].1)
-            });
+        let offsets = locale_match_offsets(haystack_text, needle_text, locale_lowercase);
         return if from_end {
-            starts.next_back()
+            offsets.last().copied()
         } else {
-            starts.next()
+            offsets.first().copied()
         };
-    }
-    if needle.len() > haystack.len() {
-        return None;
     }
     let mut matches = haystack
         .windows(needle.len())

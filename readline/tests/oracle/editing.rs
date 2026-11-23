@@ -17563,6 +17563,59 @@ fn bash_readline_and_sushline_repeat_folded_multibyte_search_occurrences() {
     }
 }
 
+/// Paired C.UTF-8 measurements pin the `İİ` query's accepted line and bell
+/// sequence on ASCII histories `iii` and `iiii`; these cases do not establish
+/// a general Unicode-folding rule.
+#[test]
+fn bash_readline_and_sushline_shrinking_fold_search_repeats() {
+    require_oracle_host();
+    if !c_utf8_locale_available() || !host_carries_measured_release() {
+        eprintln!("Shrinking-fold repeats were measured on Readline 8.3 in C.UTF-8");
+        return;
+    }
+    let inputrc = "set search-ignore-case on";
+    let locale_env = [("LC_ALL", "C.UTF-8")];
+    for (query, history, bells) in [("İİ", "iii", [1, 2, 3, 4]), ("İİ", "iiii", [0, 0, 1, 2])] {
+        for (repeats, bells) in bells.into_iter().enumerate() {
+            let mut keys = b"\x12".to_vec();
+            keys.extend_from_slice(query.as_bytes());
+            keys.extend(std::iter::repeat_n(0x12, repeats));
+            keys.push(b'\r');
+            let history = [history];
+            for (editor, output) in [
+                (
+                    "Bash",
+                    run_bash_readline_with_inputrc_file_and_history_and_env(
+                        &keys,
+                        inputrc,
+                        &history,
+                        &locale_env,
+                    ),
+                ),
+                (
+                    "Sushline",
+                    run_sushline_harness_with_inputrc_and_history_and_env(
+                        &keys,
+                        inputrc,
+                        &history,
+                        &locale_env,
+                    ),
+                ),
+            ] {
+                let context = format!(
+                    "{editor} query={query:?} history={history:?} repeats={repeats}: {output:?}"
+                );
+                assert_eq!(
+                    accepted_line(&output).as_deref(),
+                    Some(history[0]),
+                    "{context}"
+                );
+                assert_eq!(bell_count(&output), bells, "{context}");
+            }
+        }
+    }
+}
+
 /// Quoting a raw byte into a query after a displayed match still leaves the
 /// match on the accepted line. The match line is valid UTF-8 even though the
 /// query is not; the byte validity of the query must not decide retention.

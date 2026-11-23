@@ -2329,7 +2329,29 @@ where
         mut search: ReverseSearchState,
         direction: SearchDirection,
     ) -> Result<EditorOutcome, ReadlineError> {
+        // A repeat that switches direction from the unsaved line keeps the
+        // current occurrence: GNU does not advance in-line nor step into
+        // history, staying silent (Bash 5.3 PTY oracle).
+        let switched = !matches!(
+            (&search.direction, &direction),
+            (SearchDirection::Forward, SearchDirection::Forward)
+                | (SearchDirection::Backward, SearchDirection::Backward)
+        );
+        let was_unsaved = search.unsaved_line_match;
         search.direction = direction;
+        if switched && was_unsaved {
+            if search.query.is_empty()
+                && let Some(previous) = state.search.last_incremental_search.clone()
+            {
+                search.query = previous;
+            }
+            self.apply_search_match(state, &search);
+            state.search.reverse_search = Some(search);
+            return Ok(EditorOutcome::Continue);
+        }
+        if switched {
+            search.unsaved_line_match = false;
+        }
         if search.query.is_empty()
             && let Some(previous) = state.search.last_incremental_search.clone()
         {
@@ -2339,6 +2361,16 @@ where
         self.apply_search_match(state, &search);
         if !found && !search.query.is_empty() {
             self.ding()?;
+            // A failed forward repeat from an unsaved current line rings
+            // twice, unless the previous match was in that line and ran out
+            // of in-line occurrences (Bash 5.3 PTY oracle).
+            if matches!(search.direction, SearchDirection::Forward)
+                && search.original_history_entry_index.is_none()
+                && search.original_history_pos >= self.history.entries().len()
+                && !search.unsaved_line_match
+            {
+                self.ding()?;
+            }
         }
         state.search.reverse_search = Some(search);
         Ok(EditorOutcome::Continue)

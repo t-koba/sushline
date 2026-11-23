@@ -124,15 +124,17 @@ pub(crate) fn update_reverse_search_match(
     // newer match). Repeats first look for another occurrence of the query
     // in the displayed entry and only then step to an adjacent entry. A
     // repeat with no current match restarts from the cursor. A backward
-    // search begun on an unsaved line sees that line ahead of history.
+    // search begun on an unsaved line sees that line ahead of history; a
+    // forward search from the end of history also sees that virtual entry
+    // (Bash 5.3 PTY oracle).
     let from_end = matches!(search.direction, SearchDirection::Backward);
-    if !repeat || !from_end {
+    if !repeat {
         search.unsaved_line_match = false;
     }
-    let unsaved_candidate = from_end
-        && search.original_history_entry_index.is_none()
+    let unsaved_candidate = search.original_history_entry_index.is_none()
         && !search.exclude_cursor
-        && !search.query.is_empty();
+        && !search.query.is_empty()
+        && (from_end || search.original_history_pos >= history.entries().len());
     let repeated = if repeat && (search.match_index.is_some() || search.unsaved_line_match) {
         // An unsaved match keeps match_index None so history.set_pos never
         // sees an out-of-range index; the in-line helper only needs its
@@ -151,24 +153,35 @@ pub(crate) fn update_reverse_search_match(
     } else {
         None
     };
-    // An unsaved line is a virtual entry ahead of history: the first search
-    // (or an edited query) sees it before any stored entry when a match starts
-    // at or before original_point, and no history index is assigned to it.
-    if unsaved_candidate
-        && !repeat
-        && let Some(offset) = unsaved_initial_match_offset(
-            &search.original_line,
-            &search.query,
-            search.original_point,
-            ignore_case,
-            locale_lowercase,
-        )
-    {
-        search.match_index = None;
-        search.match_line = Some(search.original_line.clone());
-        search.match_offset = Some(offset);
-        search.unsaved_line_match = true;
-        return true;
+    // An unsaved line is a virtual entry: backward sees it ahead of history
+    // with the last occurrence at or before the point; forward sees its first
+    // occurrence at or after the point. Neither assigns a history index.
+    if unsaved_candidate && !repeat {
+        let point = search.original_point.min(search.original_line.len());
+        let offset = if from_end {
+            unsaved_initial_match_offset(
+                &search.original_line,
+                &search.query,
+                search.original_point,
+                ignore_case,
+                locale_lowercase,
+            )
+        } else {
+            search
+                .original_line
+                .get(point..)
+                .and_then(|line| {
+                    search_bytes_offset(line, &search.query, ignore_case, locale_lowercase, false)
+                })
+                .map(|delta| point + delta)
+        };
+        if let Some(offset) = offset {
+            search.match_index = None;
+            search.match_line = Some(search.original_line.clone());
+            search.match_offset = Some(offset);
+            search.unsaved_line_match = true;
+            return true;
+        }
     }
     let mut in_line = None;
     let found: Option<(Option<usize>, Vec<u8>)> = if let Some((idx, line, offset)) = repeated {

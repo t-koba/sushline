@@ -5298,3 +5298,155 @@ fn bash_readline_and_sushline_reverse_search_skips_unsaved_line_when_match_follo
         }
     }
 }
+
+/// GNU falls back to an unsaved current line when forward search starts at the
+/// end of history: the first occurrence at or after the point wins. C-a plus
+/// C-f sets the point, C-t starts the search, and `!` extends the query and
+/// rings once when that query had a match. C-j instead terminates before `!`,
+/// so the accepted line observes the match point.
+#[test]
+fn bash_readline_and_sushline_forward_search_typed_unsaved_line_first() {
+    let history = ["abcabc", "mid", "xabc"];
+    let inputrc = r#""\C-t": forward-search-history"#;
+    for (desc, keys, expected, bells) in [
+        ("point0", &b"abcabc\x01\x14abc!\r"[..], "abcabc", 1),
+        ("point1", &b"abcabc\x01\x06\x14abc!\r"[..], "abcabc", 1),
+        (
+            "point3",
+            &b"abcabc\x01\x06\x06\x06\x14abc!\r"[..],
+            "abcabc",
+            1,
+        ),
+        (
+            "point4_no_match",
+            &b"abcabc\x01\x06\x06\x06\x06\x14abc!\r"[..],
+            "abcabc",
+            4,
+        ),
+        ("query_a_point0", &b"abcabc\x01\x14a!\r"[..], "abcabc", 1),
+        ("point0_cj", &b"abcabc\x01\x14abc\x0a!\r"[..], "!abcabc", 0),
+        (
+            "point1_cj",
+            &b"abcabc\x01\x06\x14abc\x0a!\r"[..],
+            "abc!abc",
+            0,
+        ),
+        (
+            "point3_cj",
+            &b"abcabc\x01\x06\x06\x06\x14abc\x0a!\r"[..],
+            "abc!abc",
+            0,
+        ),
+    ] {
+        let bash = run_bash_readline_with_bindings_and_history(keys, inputrc, &history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+        for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+            let context = format!("{desc}: {editor}: {output}");
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{context}"
+            );
+            assert_eq!(bell_count(output), bells, "{context}");
+        }
+    }
+}
+
+/// A repeat first takes the next occurrence in the unsaved line; exhausting
+/// those occurrences rings once. When the first search found no occurrence at
+/// or after the point, each failed forward repeat rings twice. The measured
+/// start points 4/5/6 have no later `abc`, so their first search rings four
+/// times (once per query byte) and one repeat rings six times.
+#[test]
+fn bash_readline_and_sushline_forward_search_typed_unsaved_line_repeat() {
+    let history = ["abcabc", "mid", "xabc"];
+    let inputrc = r#""\C-t": forward-search-history"#;
+    for (desc, keys, bells) in [
+        ("next_occurrence", &b"abcabc\x01\x14abc\x14!\r"[..], 1),
+        ("in_line_exhausted", &b"abcabc\x01\x14abc\x14\x14!\r"[..], 2),
+        ("a_next_occurrence", &b"abcabc\x01\x14a\x14!\r"[..], 1),
+        (
+            "no_match_point4",
+            &b"abcabc\x01\x06\x06\x06\x06\x14abc\x14!\r"[..],
+            6,
+        ),
+        (
+            "no_match_point5",
+            &b"abcabc\x01\x06\x06\x06\x06\x06\x14abc\x14!\r"[..],
+            6,
+        ),
+        (
+            "no_match_point6",
+            &b"abcabc\x01\x06\x06\x06\x06\x06\x06\x14abc\x14!\r"[..],
+            6,
+        ),
+        (
+            "no_match_query_a_point4",
+            &b"abcabc\x01\x06\x06\x06\x06\x14a\x14!\r"[..],
+            4,
+        ),
+    ] {
+        let bash = run_bash_readline_with_bindings_and_history(keys, inputrc, &history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+        for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+            let context = format!("{desc}: {editor}: {output}");
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some("abcabc"),
+                "{context}"
+            );
+            assert_eq!(bell_count(output), bells, "{context}");
+        }
+    }
+}
+
+/// A direction switch from an unsaved-line match keeps that occurrence: GNU
+/// does not advance in-line nor step into history, staying silent. With
+/// history `ZZZabcZZZ`, `mid`, `abcabcabc` and `C-t` bound to
+/// forward-search-history, typing `abcabcabc` then `C-a`, `C-r`, `abc`,
+/// `C-t` stays at the reverse match (0 from point 0, 3 from point 3). `C-j`
+/// plus `!` observes the point without a bell; extending the query with `!`
+/// instead fails once. Points and bells are the measured Bash 5.3 values.
+#[test]
+fn bash_readline_and_sushline_search_direction_switch_keeps_unsaved_match() {
+    let history = ["ZZZabcZZZ", "mid", "abcabcabc"];
+    let inputrc = r#""\C-t": forward-search-history"#;
+    for (desc, keys, expected, bells) in [
+        (
+            "point0",
+            &b"abcabcabc\x01\x12abc\x14\x0a!\r"[..],
+            "!abcabcabc",
+            0,
+        ),
+        (
+            "point3",
+            &b"abcabcabc\x01\x06\x06\x06\x12abc\x14\x0a!\r"[..],
+            "abc!abcabc",
+            0,
+        ),
+        (
+            "point0_query_bang",
+            &b"abcabcabc\x01\x12abc\x14!\r"[..],
+            "abcabcabc",
+            1,
+        ),
+        (
+            "point3_query_bang",
+            &b"abcabcabc\x01\x06\x06\x06\x12abc\x14!\r"[..],
+            "abcabcabc",
+            1,
+        ),
+    ] {
+        let bash = run_bash_readline_with_bindings_and_history(keys, inputrc, &history);
+        let sushline = run_sushline_harness_with_inputrc_and_history(keys, inputrc, &history);
+        for (editor, output) in [("bash", &bash), ("sushline", &sushline)] {
+            let context = format!("{desc}: {editor}: {output}");
+            assert_eq!(
+                accepted_line(output).as_deref(),
+                Some(expected),
+                "{context}"
+            );
+            assert_eq!(bell_count(output), bells, "{context}");
+        }
+    }
+}

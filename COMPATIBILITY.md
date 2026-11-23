@@ -91,6 +91,21 @@ start point. These cases pin accepted lines and bell counts only; they do not
 establish redisplay-byte parity or general forward-search behavior beyond the
 pinned keys and histories.
 
+At the end of history, forward search also falls back to an unsaved current
+line, taking the first occurrence at or after the search point. With history
+`abcabc`, `mid`, `xabc` and typed `abcabc`, points 0-3 accept the unsaved line
+with one bell from a failing `!` query extension; point 4 rings four times
+because no `abc` starts at or after it. A repeat advances to the next in-line
+occurrence, or rings once when that line is exhausted; a repeat after a first
+search that found nothing rings twice. Points 4/5/6 thus ring six times after
+one repeat. Switching direction from an unsaved-line match keeps that
+occurrence instead of advancing; `bash_readline_and_sushline_search_direction_switch_keeps_unsaved_match`
+pins the measured C-r to C-t points and bells. The
+`bash_readline_and_sushline_forward_search_typed_unsaved_line_first` and
+`bash_readline_and_sushline_forward_search_typed_unsaved_line_repeat` fixtures
+pin the accepted lines, point placements and bells for the measured keys only;
+searches from a mid-history cursor and redisplay bytes are not claimed.
+
 ### Reverse incremental search point
 
 Paired Bash 5.3 and Sushline fixtures pin that a reverse search starting at

@@ -73,9 +73,10 @@ fixtures on history `abcabc` pin that the selected occurrence starts at the
 point where the search began: a point before the second occurrence accepts
 `abc!abc`, and one repeat after inserting a prefix accepts `xabc!abc`. When
 the point is at the end so no occurrence lies ahead, both editors accept
-`!xabcabc`, but GNU rings three times where Sushline rings none; that bell
-difference is measured, not a claim of parity. These cases do not establish
-general forward-search behavior beyond the pinned keys and history.
+`!xabcabc` and ring once per failing query byte; a `zzz` query from the line
+start rings three times on both hosts, and a successful query rings nothing.
+These cases do not establish general forward-search behavior beyond the pinned
+keys and history.
 
 ### Reverse incremental search point
 

@@ -1783,6 +1783,39 @@ where
         .unwrap_or(0)
     }
 
+    /// GNU rings for a failing query extension. A forward search also scans
+    /// the live line from its start point, so a history match alone is not
+    /// enough to consider the extension successful.
+    fn search_query_failed(
+        &self,
+        state: &EditorState,
+        search: &ReverseSearchState,
+        found: bool,
+    ) -> bool {
+        if search.query.is_empty() || search.exclude_cursor {
+            return false;
+        }
+        if !found {
+            return true;
+        }
+        if !matches!(search.direction, SearchDirection::Forward) {
+            return false;
+        }
+        let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
+        let locale_lowercase = self.search_locale_lowercase(ignore_case);
+        !match_offsets_from_end(
+            search
+                .match_line
+                .as_deref()
+                .unwrap_or_else(|| state.buffer.as_bytes()),
+            &search.query,
+            ignore_case,
+            locale_lowercase.as_ref(),
+        )
+        .into_iter()
+        .any(|offset| offset >= search.original_point)
+    }
+
     /// Extend the active query with raw bytes, recomputing the match and
     /// bell just like a search-scoped quoted insert.
     fn append_search_query_bytes(
@@ -1797,7 +1830,7 @@ where
         search.match_index = None;
         let found = self.refresh_reverse_search_match(&mut search, false);
         self.apply_search_match(state, &search);
-        if !found && !search.query.is_empty() && !search.exclude_cursor {
+        if self.search_query_failed(state, &search, found) {
             self.ding()?;
         }
         state.search.reverse_search = Some(search);
@@ -2189,7 +2222,7 @@ where
             search.match_index = None;
             let found = self.refresh_reverse_search_match(&mut search, false);
             self.apply_search_match(state, &search);
-            if !found && !search.query.is_empty() && !search.exclude_cursor {
+            if self.search_query_failed(state, &search, found) {
                 self.ding()?;
             }
             state.search.reverse_search = Some(search);
@@ -2257,7 +2290,7 @@ where
             search.match_index = None;
             let found = self.refresh_reverse_search_match(&mut search, false);
             self.apply_search_match(state, &search);
-            if !found && !search.query.is_empty() && !search.exclude_cursor {
+            if self.search_query_failed(state, &search, found) {
                 self.ding()?;
             }
         }

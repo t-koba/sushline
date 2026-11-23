@@ -16820,9 +16820,8 @@ fn bash_readline_and_sushline_isearch_termination_keeps_an_overlapping_occurrenc
 /// GNU's forward incremental search starts at the point where the search
 /// began and advances one occurrence per repeat. Ctrl-T stands in for Ctrl-S
 /// because the PTY's XOFF flow control otherwise swallows that byte. The
-/// last case also pins a measured bell-count deviation: both editors accept
-/// the same line, but GNU rings three times on the failed query and
-/// Sushline rings none.
+/// last cases also pin that each failed forward query byte rings once on
+/// both hosts, while a successful query rings nothing.
 #[test]
 fn bash_readline_and_sushline_forward_isearch_termination_uses_the_start_point() {
     require_oracle_host();
@@ -16848,11 +16847,32 @@ fn bash_readline_and_sushline_forward_isearch_termination_uses_the_start_point()
             0,
         ),
         (
-            "failed search after end",
+            "one failing byte after end",
+            b"\x10\x01x\x1b[F\x14a\n!\r",
+            "!xabcabc",
+            1,
+            1,
+        ),
+        (
+            "two failing bytes after end",
+            b"\x10\x01x\x1b[F\x14ab\n!\r",
+            "!xabcabc",
+            2,
+            2,
+        ),
+        (
+            "three failing bytes after end",
             b"\x10\x01x\x1b[F\x14abc\n!\r",
             "!xabcabc",
             3,
-            0,
+            3,
+        ),
+        (
+            "failing query from line start",
+            b"\x10\x01\x14zzz\n!\r",
+            "!abcabc",
+            3,
+            3,
         ),
     ];
     for (name, keys, expected, bash_bells, sushline_bells) in cases {

@@ -1686,14 +1686,48 @@ where
         search: &ReverseSearchState,
         current_point: usize,
     ) -> usize {
-        if search.match_line.as_deref() == Some(line) {
-            return search.match_offset.unwrap_or(0);
-        }
         if search.query.is_empty() {
-            return current_point;
+            return if search.match_line.as_deref() == Some(line) {
+                search.match_offset.unwrap_or(0)
+            } else {
+                current_point
+            };
         }
         let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
         let locale_lowercase = self.search_locale_lowercase(ignore_case);
+        if matches!(search.direction, SearchDirection::Forward) {
+            // GNU's forward scan starts at the search's point and advances
+            // one occurrence per repeat. Rebase the stored occurrence rank
+            // into the live line, then keep only starts the search could
+            // actually reach from that point. A failed search has no stored
+            // rank and falls back to the line's beginning, as GNU does.
+            let rank = search
+                .match_line
+                .as_deref()
+                .zip(search.match_offset)
+                .and_then(|(match_line, match_offset)| {
+                    let mut offsets = match_offsets_from_end(
+                        match_line,
+                        &search.query,
+                        ignore_case,
+                        locale_lowercase.as_ref(),
+                    );
+                    offsets.reverse();
+                    offsets.iter().position(|&offset| offset == match_offset)
+                })
+                .unwrap_or(0);
+            let mut offsets =
+                match_offsets_from_end(line, &search.query, ignore_case, locale_lowercase.as_ref());
+            offsets.reverse();
+            return offsets
+                .into_iter()
+                .filter(|&offset| offset >= search.original_point)
+                .nth(rank)
+                .unwrap_or(0);
+        }
+        if search.match_line.as_deref() == Some(line) {
+            return search.match_offset.unwrap_or(0);
+        }
         // A search that began at or inside the first live occurrence selects
         // that occurrence; later ones were not searchable from that point.
         if let Some(first) = search_bytes_offset(

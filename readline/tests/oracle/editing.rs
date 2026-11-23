@@ -16785,6 +16785,68 @@ fn bash_readline_and_sushline_isearch_termination_after_prepend_and_end() {
     }
 }
 
+/// GNU's forward incremental search starts at the point where the search
+/// began and advances one occurrence per repeat. Ctrl-T stands in for Ctrl-S
+/// because the PTY's XOFF flow control otherwise swallows that byte. The
+/// last case also pins a measured bell-count deviation: both editors accept
+/// the same line, but GNU rings three times on the failed query and
+/// Sushline rings none.
+#[test]
+fn bash_readline_and_sushline_forward_isearch_termination_uses_the_start_point() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!("Forward search termination was measured on Readline 8.3");
+        return;
+    }
+    let history = ["abcabc"];
+    let bindings = r#""\C-t": forward-search-history"#;
+    let cases: &[(&str, &[u8], &str, usize, usize)] = &[
+        (
+            "point before the second occurrence",
+            b"\x10\x01\x1b[C\x1b[C\x1b[C\x14abc\n!\r",
+            "abc!abc",
+            0,
+            0,
+        ),
+        (
+            "one repeat after a prefix",
+            b"\x10\x01x\x14abc\x14\n!\r",
+            "xabc!abc",
+            0,
+            0,
+        ),
+        (
+            "failed search after end",
+            b"\x10\x01x\x1b[F\x14abc\n!\r",
+            "!xabcabc",
+            3,
+            0,
+        ),
+    ];
+    for (name, keys, expected, bash_bells, sushline_bells) in cases {
+        for (editor, output, bells) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(keys, bindings, &history),
+                *bash_bells,
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, bindings, &history),
+                *sushline_bells,
+            ),
+        ] {
+            let context = format!("{name} {editor} keys={keys:?}: {output:?}");
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(*expected),
+                "{context}"
+            );
+            assert_eq!(bell_count(&output), bells, "{context}");
+        }
+    }
+}
+
 /// Appending the query itself makes the live line end with the stored entry.
 /// The selected last occurrence stays last, so `!` lands before the appended
 /// copy on both hosts with no bell.

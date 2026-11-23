@@ -66,6 +66,17 @@ settled frames and the shared raw-byte fragment. This does not establish the
 geometry of a successful match, horizontal mode, or full redisplay-byte
 parity.
 
+### Forward incremental search point
+
+With `C-t` bound to `forward-search-history`, paired Bash 5.3 and Sushline
+fixtures on history `abcabc` pin that the selected occurrence starts at the
+point where the search began: a point before the second occurrence accepts
+`abc!abc`, and one repeat after inserting a prefix accepts `xabc!abc`. When
+the point is at the end so no occurrence lies ahead, both editors accept
+`!xabcabc`, but GNU rings three times where Sushline rings none; that bell
+difference is measured, not a claim of parity. These cases do not establish
+general forward-search behavior beyond the pinned keys and history.
+
 ### Terminal wrap margins
 
 - With both `am` and `xenl` (xterm-style deferred wrapping), redisplay uses

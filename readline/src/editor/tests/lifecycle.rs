@@ -2445,6 +2445,57 @@ fn isearch_termination_after_a_prepend_and_end() {
     assert_eq!(state.buffer.as_bytes(), b"xabc!abc");
 }
 
+/// A forward search selects the first occurrence at or after its starting
+/// point, not the line's first occurrence.
+#[test]
+fn forward_isearch_termination_uses_the_start_point() {
+    let mut history = History::new();
+    history.push("abcabc");
+    let mut line =
+        Editor::new_without_inputrc(Config::default(), MemoryTerminal::default(), history);
+    line.load_inputrc_str(r#""\C-t": forward-search-history"#)
+        .unwrap();
+    let mut state = EditorState::new(Prompt::new("> "), None);
+    let keys = b"\x10\x01\x1b[C\x1b[C\x1b[C\x14abc\n";
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, keys, &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.point(), 3);
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, b"!", &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.as_bytes(), b"abc!abc");
+}
+
+/// A forward repeat advances to the next occurrence after the search point.
+#[test]
+fn forward_isearch_termination_advances_on_repeat() {
+    let mut history = History::new();
+    history.push("abcabc");
+    let mut line =
+        Editor::new_without_inputrc(Config::default(), MemoryTerminal::default(), history);
+    line.load_inputrc_str(r#""\C-t": forward-search-history"#)
+        .unwrap();
+    let mut state = EditorState::new(Prompt::new("> "), None);
+    let keys = b"\x10\x01x\x14abc\x14\n";
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, keys, &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.point(), 4);
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, b"!", &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.as_bytes(), b"xabc!abc");
+}
+
 /// An appended query copy must not be mistaken for a prepended prefix when
 /// translating the selected occurrence into the accepted buffer.
 #[test]

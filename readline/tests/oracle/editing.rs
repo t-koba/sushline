@@ -16336,6 +16336,46 @@ fn bash_readline_and_sushline_accept_last_match_after_failed_query() {
     }
 }
 
+/// Quoting a raw byte into a query after a displayed match still leaves the
+/// match on the accepted line. The match line is valid UTF-8 even though the
+/// query is not; the byte validity of the query must not decide retention.
+#[test]
+fn bash_readline_and_sushline_retain_match_after_invalid_query_bytes() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!("Invalid-byte retention was measured on Readline 8.3");
+        return;
+    }
+    let history = ["alpha one", "beta two", "alpha three"];
+    for (name, keys, bells) in [
+        ("one_quoted_byte", b"\x12a\x16\xffb\r".as_slice(), 2),
+        (
+            "two_quoted_bytes",
+            b"\x12a\x16\xff\x16\xfeb\r".as_slice(),
+            3,
+        ),
+    ] {
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(keys, "", &history),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, "", &history),
+            ),
+        ] {
+            let context = format!("{editor} {name} keys={keys:?}: {output:?}");
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some("alpha three"),
+                "{context}"
+            );
+            assert_eq!(bell_count(&output), bells, "{context}");
+        }
+    }
+}
+
 /// On the measured GNU Readline 8.3 host, Ctrl-U in an incremental search
 /// ends the search, establishes the selected line and then applies
 /// unix-line-discard from the match start. A typed key after Ctrl-U exposes

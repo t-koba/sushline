@@ -1528,6 +1528,15 @@ where
         let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
         let locale_lowercase = self.search_locale_lowercase(ignore_case);
         let displayed = search.match_line.is_some() || search.retain_match_on_failure;
+        // GNU's search is byte-oriented: a valid match survives an invalid
+        // query extension, and a raw-byte match survives a valid query
+        // extension. Only a query and displayed line that are both invalid
+        // keep the older raw-byte behavior.
+        let query_or_displayed_line_is_valid = std::str::from_utf8(&search.query).is_ok()
+            || search
+                .match_line
+                .as_ref()
+                .is_some_and(|line| std::str::from_utf8(line).is_ok());
         let found = update_reverse_search_match(
             search,
             &self.history,
@@ -1538,7 +1547,7 @@ where
         // A failed query edit leaves the last displayed match in the buffer;
         // only the accept path uses it. The query prompt still reports the
         // failure, and Ctrl-G restores the original line independently.
-        if !found && !repeat && displayed && std::str::from_utf8(&search.query).is_ok() {
+        if !found && !repeat && displayed && query_or_displayed_line_is_valid {
             search.retain_failed_query_line = true;
         }
         found

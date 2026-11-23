@@ -414,6 +414,23 @@ fn batched_invalid_search_chunk_preserves_ascii_like_fragmented_reads() {
 }
 
 #[test]
+fn valid_query_after_raw_history_match_keeps_the_match_on_accept() {
+    let mut history = History::new();
+    history.push_bytes(vec![0xff, b'a']);
+    let terminal = MemoryTerminal::with_events(vec![
+        TerminalEvent::Bytes(vec![0x12]),
+        TerminalEvent::Bytes(b"ab\r".to_vec()),
+    ]);
+    let mut line = Editor::new(Config::default(), terminal, history);
+    let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+    assert_eq!(
+        result,
+        ReadlineResult::Line(vec![0xff, b'a']),
+        "an ASCII query that matched a raw-byte entry must keep that entry after a failed extension"
+    );
+}
+
+#[test]
 fn batched_invalid_non_incremental_search_chunk_matches_fragmented_reads() {
     // Same ASCII-preservation rule for non-incremental search accumulation.
     fn history_with_invalid_entry() -> History {

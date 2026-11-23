@@ -1708,8 +1708,9 @@ where
     }
 
     /// Keep a buffered UTF-8 prefix and the byte that cannot complete it in
-    /// the query as raw bytes. Abort keys stay on their own paths, and NUL
-    /// still freezes the query through the existing single-byte handler.
+    /// the query as raw bytes. Abort keys stay on their own paths, NUL still
+    /// freezes the query, and a configured ESC terminator ends the search
+    /// through the existing single-byte handler.
     fn append_invalid_search_prefix(
         &mut self,
         state: &mut EditorState,
@@ -1718,6 +1719,10 @@ where
         hooks: &mut impl Hooks,
     ) -> Result<EditorOutcome, ReadlineError> {
         if matches!(byte, 0x07 | 0x03) {
+            return self.handle_reverse_search_single(state, &[byte], hooks);
+        }
+        if byte == 0x1b && self.is_isearch_terminator(&[byte]) {
+            self.append_search_query_bytes(state, pending)?;
             return self.handle_reverse_search_single(state, &[byte], hooks);
         }
         if INVALID_PREFIX_SEARCH_COMMAND_KEYS.contains(&byte) {

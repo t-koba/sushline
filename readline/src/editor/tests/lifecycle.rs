@@ -2046,3 +2046,22 @@ fn invalid_utf8_search_prefix_preserves_query_editing_commands() {
         assert!(state.input.pending_char_bytes.is_empty());
     }
 }
+
+#[test]
+fn invalid_utf8_search_prefix_ends_on_configured_escape_terminator() {
+    let mut line = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
+    line.variables.use_utf8_io_defaults();
+    let mut state = EditorState::new(Prompt::new("> "), None);
+
+    for chunk in [&b"\x12"[..], &b"\xc3"[..], &b"\x1b"[..]] {
+        let (outcome, remainder, _) = line
+            .dispatch_input_bytes(&mut state, chunk, &mut ())
+            .unwrap();
+        assert!(matches!(outcome, EditorOutcome::Continue));
+        assert!(remainder.is_empty());
+    }
+
+    assert!(state.search.reverse_search.is_none());
+    assert!(state.buffer.as_bytes().is_empty());
+    assert!(state.input.pending_char_bytes.is_empty());
+}

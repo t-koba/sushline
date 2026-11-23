@@ -17102,6 +17102,49 @@ fn bash_readline_and_sushline_dispatch_esc_key_after_isearch() {
     }
 }
 
+/// A lone UTF-8 lead byte followed by ESC ends an incremental search in a
+/// UTF-8 locale; after the key-sequence timeout the next key edits the
+/// established line.
+#[test]
+fn bash_and_sushline_end_search_on_escape_after_incomplete_utf8_prefix() {
+    require_oracle_host();
+    if !c_utf8_locale_available() {
+        return;
+    }
+
+    let mut bash = portable_pty::CommandBuilder::new("bash");
+    bash.env("LC_ALL", "C.UTF-8");
+    bash.args([
+        "--noprofile",
+        "--norc",
+        "-i",
+        "-c",
+        &format!(
+            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+        ),
+    ]);
+    let mut sushline = sushline_harness_command();
+    sushline.env("LC_ALL", "C.UTF-8");
+    sushline.env("SUSHLINE_INPUTRC", "");
+    sushline.env("SUSHLINE_PROMPT", READY_PROMPT);
+    sushline.env("SUSHLINE_HISTORY", "");
+
+    for (editor, command) in [("Bash", bash), ("Sushline", sushline)] {
+        let output = run_pty_paused_until(
+            command,
+            b"\x12\xc3\x1b",
+            Duration::from_millis(700),
+            b"X\r",
+            "SUSHLINE_ACCEPTED:",
+        );
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some("X"),
+            "{editor} keys=[0x12, 0xc3, ESC] then X: {output:?}"
+        );
+    }
+}
+
 /// The same frozen-search path applies six other complete ESC-prefixed
 /// bindings: up, down, Delete, Page Up, Ctrl-left and Meta-b. Each case pins
 /// GNU's accepted line and bell count against Sushline.

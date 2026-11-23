@@ -1892,14 +1892,30 @@ where
                 };
                 return self.repeat_reverse_search(state, search, direction);
             }
-            &[0x7f] => {
-                search.query.pop();
+            // GNU treats Ctrl-H and DEL alike inside a search: both remove
+            // the last query character and recompute the match. Neither
+            // restores the original line when the shortened query has no
+            // match; Enter keeps the displayed line. A failed deletion rings
+            // once, with another bell when the shortened query is empty and
+            // a third when the query was already empty.
+            &[0x08] | &[0x7f] => {
+                let was_empty = search.query.is_empty();
+                let cut = std::str::from_utf8(&search.query)
+                    .ok()
+                    .and_then(|query| query.char_indices().next_back().map(|(index, _)| index))
+                    .unwrap_or_else(|| search.query.len().saturating_sub(1));
+                search.query.truncate(cut);
                 search.match_index = None;
-                self.refresh_reverse_search_match(&mut search, false);
-                if !self.apply_search_match(state, &search) {
-                    state.buffer = LineBuffer::from_bytes(search.original_line.clone());
-                    state.history_entry_index = search.original_history_entry_index;
-                    state.undo = search.original_undo.clone();
+                let found = self.refresh_reverse_search_match(&mut search, false);
+                self.apply_search_match(state, &search);
+                if !found {
+                    self.ding()?;
+                    if search.query.is_empty() {
+                        self.ding()?;
+                    }
+                    if was_empty {
+                        self.ding()?;
+                    }
                 }
                 state.search.reverse_search = Some(search);
                 EditorOutcome::Continue

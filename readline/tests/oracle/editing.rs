@@ -16376,6 +16376,243 @@ fn bash_readline_and_sushline_retain_match_after_invalid_query_bytes() {
     }
 }
 
+/// Ctrl-H and DEL inside an incremental search delete the last query
+/// character on the measured Readline 8.3 host and recompute the match. A
+/// failed deletion rings once, with another bell when the shortened query is
+/// empty and a third when the original query was empty; the displayed line
+/// stays on the accepted line even when the shortened query has no match.
+#[test]
+fn bash_readline_and_sushline_keep_search_line_on_ctrl_h() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!("Ctrl-H search behavior was measured on Readline 8.3");
+        return;
+    }
+    let history = ["alpha one", "beta two", "alpha three"];
+    for (name, keys, accepted, bells) in [
+        ("match", b"\x12a\x08\r".as_slice(), Some("alpha three"), 2),
+        ("empty", b"\x12\x08\r".as_slice(), Some(""), 3),
+        (
+            "match_twice",
+            b"\x12a\x08\x08\r".as_slice(),
+            Some("alpha three"),
+            5,
+        ),
+        ("empty_twice", b"\x12\x08\x08\r".as_slice(), Some(""), 6),
+        ("empty_then_d", b"\x12\x08d\r".as_slice(), Some(""), 4),
+        ("failed_then_ctrl_h", b"\x12d\x08\r".as_slice(), Some(""), 3),
+        (
+            "match_then_d",
+            b"\x12a\x08d\r".as_slice(),
+            Some("alpha three"),
+            3,
+        ),
+        (
+            "failed_query_then_ctrl_h",
+            b"\x12ab\x08\r".as_slice(),
+            Some("alpha three"),
+            1,
+        ),
+        (
+            "ctrl_h_then_new_query",
+            b"\x12a\x08b\r".as_slice(),
+            Some("beta two"),
+            2,
+        ),
+        (
+            "ctrl_h_then_del",
+            b"\x12a\x08\x7f\r".as_slice(),
+            Some("alpha three"),
+            5,
+        ),
+        ("empty_del", b"\x12\x7f\r".as_slice(), Some(""), 3),
+        (
+            "match_del",
+            b"\x12a\x7f\r".as_slice(),
+            Some("alpha three"),
+            2,
+        ),
+        ("failed_del", b"\x12d\x7f\r".as_slice(), Some(""), 3),
+    ] {
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(keys, "", &history),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, "", &history),
+            ),
+        ] {
+            let context = format!("{editor} {name} keys={keys:?}: {output:?}");
+            assert_eq!(accepted_line(&output).as_deref(), accepted, "{context}");
+            assert_eq!(bell_count(&output), bells, "{context}");
+        }
+    }
+}
+
+/// Deleting a still-unmatched query byte or character keeps GNU's single
+/// bell when the shortened query remains non-empty, and a multibyte query
+/// character is removed as a whole.
+#[test]
+fn bash_readline_and_sushline_delete_unmatched_search_query() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!("Search query deletion was measured on Readline 8.3");
+        return;
+    }
+    let ascii: &[&str] = &["alpha one", "beta two", "alpha three"];
+    let multibyte: &[&str] = &["ab", "aéb"];
+    for (name, history, keys, accepted, bells) in [
+        (
+            "ctrl_h_unmatched",
+            &ascii,
+            b"\x12abc\x08\r".as_slice(),
+            "alpha three",
+            3,
+        ),
+        (
+            "del_unmatched",
+            &ascii,
+            b"\x12abc\x7f\r".as_slice(),
+            "alpha three",
+            3,
+        ),
+        (
+            "ctrl_h_twice_unmatched",
+            &ascii,
+            b"\x12abc\x08\x08\r".as_slice(),
+            "alpha three",
+            3,
+        ),
+        (
+            "ctrl_h_thrice_unmatched",
+            &ascii,
+            b"\x12abc\x08\x08\x08\r".as_slice(),
+            "alpha three",
+            5,
+        ),
+        (
+            "ctrl_h_then_failed",
+            &ascii,
+            b"\x12abd\x08\x08\r".as_slice(),
+            "alpha three",
+            3,
+        ),
+        (
+            "ctrl_h_multibyte",
+            &multibyte,
+            b"\x12a\xc3\xa9\x08b\r".as_slice(),
+            "ab",
+            0,
+        ),
+        (
+            "del_multibyte",
+            &multibyte,
+            b"\x12a\xc3\xa9\x7fb\r".as_slice(),
+            "ab",
+            0,
+        ),
+    ] {
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(keys, "", history),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, "", history),
+            ),
+        ] {
+            let context = format!("{editor} {name} keys={keys:?}: {output:?}");
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(accepted),
+                "{context}"
+            );
+            assert_eq!(bell_count(&output), bells, "{context}");
+        }
+    }
+}
+
+/// One measured bell deviation remains: after a failed extension, deleting
+/// back to a match whose entry sits behind the displayed one leaves Sushline
+/// one bell short. The accepted line and deletion granularity are the same.
+#[test]
+fn bash_readline_and_sushline_bell_deviation_on_search_delete_to_earlier_match() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!("Search delete bell behavior was measured on Readline 8.3");
+        return;
+    }
+    let first: &[&str] = &["alpha one", "beta two", "alpha three"];
+    let reordered: &[&str] = &["beta two", "alpha one", "alpha three"];
+    let fourth: &[&str] = &["alpha one", "beta two", "gamma three", "beta four"];
+    for (name, history, keys, accepted, bash_bells, sushline_bells) in [
+        (
+            "ctrl_h_earlier_match",
+            first,
+            b"\x12ba\x08\r".as_slice(),
+            "beta two",
+            2,
+            1,
+        ),
+        (
+            "del_earlier_match",
+            first,
+            b"\x12ba\x7f\r".as_slice(),
+            "beta two",
+            2,
+            1,
+        ),
+        (
+            "ctrl_h_first_entry",
+            reordered,
+            b"\x12ba\x08\r".as_slice(),
+            "beta two",
+            1,
+            1,
+        ),
+        (
+            "ctrl_h_unmatched_shorter",
+            fourth,
+            b"\x12gax\x08\r".as_slice(),
+            "gamma three",
+            2,
+            1,
+        ),
+        (
+            "two_deletes_to_last_match",
+            fourth,
+            b"\x12baxx\x08\x08\r".as_slice(),
+            "beta four",
+            5,
+            5,
+        ),
+    ] {
+        for (editor, output, bells) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(keys, "", history),
+                bash_bells,
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, "", history),
+                sushline_bells,
+            ),
+        ] {
+            let context = format!("{editor} {name} keys={keys:?}: {output:?}");
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(accepted),
+                "{context}"
+            );
+            assert_eq!(bell_count(&output), bells, "{context}");
+        }
+    }
+}
+
 /// On the measured GNU Readline 8.3 host, Ctrl-U in an incremental search
 /// ends the search, establishes the selected line and then applies
 /// unix-line-discard from the match start. A typed key after Ctrl-U exposes

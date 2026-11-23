@@ -1104,3 +1104,75 @@ fn sushline_uses_explicit_wrap_with_short_terminfo_boolean_section() {
     assert!(output.contains("\r\n\r"), "{output}");
     assert!(output.contains("\u{1b}[2G"), "{output}");
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn bash_and_sushline_redisplay_wrapped_prompt_after_widening_past_its_length() {
+    use super::host::require_oracle_host;
+    use super::screen::Screen;
+    use portable_pty::{CommandBuilder, PtySize};
+
+    require_oracle_host();
+    let root = tempfile::tempdir().expect("wrapped-prompt resize root");
+    let inputrc = "set editing-mode emacs\nset horizontal-scroll-mode off\nset enable-bracketed-paste off\nset bell-style audible\n";
+    let path = root.path().join("inputrc");
+    std::fs::write(&path, inputrc).expect("write resize inputrc");
+    let prompt = "LONGPROMPT012\n3456789>";
+    let initial = PtySize {
+        rows: 8,
+        cols: 12,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let widened = PtySize {
+        cols: 40,
+        ..initial
+    };
+    for bash in [true, false] {
+        let mut command = if bash {
+            let mut command = CommandBuilder::new("bash");
+            command.args([
+                "--noprofile",
+                "--norc",
+                "-i",
+                "-c",
+                "IFS= read -r -e -p \"$PROBE_PROMPT\" line; printf 'SUSHLINE_ACCEPTED:%s\\n' \"$line\"",
+            ]);
+            command.env("PROBE_PROMPT", prompt);
+            command
+        } else {
+            let mut command = sushline_harness_command();
+            command.env("SUSHLINE_INPUTRC", inputrc);
+            command.env("SUSHLINE_PROMPT", prompt);
+            command.env("SUSHLINE_HISTORY", "");
+            command
+        };
+        command.env("INPUTRC", path.to_str().expect("inputrc path"));
+        command.env("HOME", root.path());
+        command.env("HISTFILE", root.path().join("history"));
+        command.env("LC_ALL", "C");
+        command.env_remove("COLUMNS");
+        command.env_remove("LINES");
+        let (frame, output) = run_pty_resize_checkpoint(
+            command,
+            "3456789>",
+            b"abcdefghijklmnop",
+            initial,
+            &[widened],
+            b"",
+        );
+        let mut screen = Screen::new(8, 40);
+        screen.feed(&frame);
+        assert_eq!(
+            &screen.rows_text()[..2],
+            &["LONGPROMPT012", "3456789>abcdefghijklmnop"],
+            "bash={bash}: {output:?}"
+        );
+        assert_eq!(screen.cursor(), (1, 24), "bash={bash}: {output:?}");
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some("abcdefghijklmnop"),
+            "bash={bash}: {output:?}"
+        );
+    }
+}

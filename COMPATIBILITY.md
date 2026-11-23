@@ -67,6 +67,10 @@ without a TAB uses the query's rendered width unchanged.
   wrapping rather than guessing a narrower width. The wrap capability belongs
   to the terminal backend: custom `TerminalIo` implementations keep deferred
   wrapping regardless of the process's ambient `TERM`.
+- A prompt that wraps at 12 columns and is widened to 40 columns past its
+  visible length settles on the same rows and cursor in GNU 8.3-p0 and
+  Sushline; the paired resize fixture pins that one shape. No broader claim
+  is made about other widening prompts.
 
 ### Oracle identity
 

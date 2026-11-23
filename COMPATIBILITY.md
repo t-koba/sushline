@@ -45,8 +45,12 @@ post-release fixes.
 A byte-wise motion can leave point between the bytes of a UTF-8 character.
 Both editors accept the resulting raw bytes unchanged; the paired byte-wise
 insertion fixture pins those bytes with ASCII-hex markers instead of lossy
-strings. Sushline redraws the full visible line where GNU emits an incremental
-partial-byte update, so redisplay bytes are not asserted for this case.
+strings. In the measured paired run, GNU's last pre-acceptance update is two
+backspaces, the raw `c3` lead byte, and `CSI C`, with no literal `Z` painted;
+Sushline repaints the whole `SUSHLINE_READY>` row as `c3 5a a4 62`. The fixture
+asserts just those distinguishing fragments and no full redisplay-byte parity;
+a paired pre-Enter checkpoint confirms the painted or omitted `Z` before
+`accept-line` runs. Sushline's full redraw is deliberate.
 
 ### Search prompt columns
 

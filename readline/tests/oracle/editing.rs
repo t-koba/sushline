@@ -77,7 +77,7 @@ fn assert_bytewise_editing_bytes(
     bells: usize,
     inputrc: &str,
     env: &[(&str, &str)],
-) {
+) -> (Vec<u8>, Vec<u8>) {
     use portable_pty::PtySize;
 
     require_oracle_host();
@@ -144,6 +144,17 @@ fn assert_bytewise_editing_bytes(
             "{desc}: {editor}, keys={keys:?}"
         );
     }
+    (bash, sush)
+}
+
+/// Raw output before an acceptance marker, without lossy UTF-8 substitution.
+fn pre_acceptance_bytes<'a>(output: &'a [u8], marker: &str) -> &'a [u8] {
+    let marker = marker.as_bytes();
+    let end = output
+        .windows(marker.len())
+        .position(|window| window == marker)
+        .expect("acceptance marker");
+    &output[..end]
 }
 
 #[test]
@@ -10953,19 +10964,110 @@ fn bash_and_sushline_vi_non_ascii_word_motion_bells() {
 ///
 /// `forward-byte` can leave point between the bytes of a multibyte character.
 /// Both editors accept the same raw bytes; a lossy string comparison would
-/// hide the difference between those bytes and U+FFFD. Sushline redraws the
-/// whole line where GNU emits an incremental partial-byte update, so this
-/// fixture asserts accepted bytes rather than redisplay bytes.
+/// hide the difference between those bytes and U+FFFD. This fixture also pins
+/// the distinguishing pre-acceptance redisplay fragments: GNU patches the
+/// partial byte without painting the inserted `Z`, while Sushline repaints
+/// the whole invalid line. No full redisplay-byte parity is claimed.
 #[test]
 fn bash_and_sushline_bytewise_insertion_inside_utf8_keeps_raw_bytes() {
     let inputrc = "\"\\C-xf\": forward-byte\n\"\\C-xb\": backward-byte\n";
-    assert_bytewise_editing_bytes(
+    let (bash, sush) = assert_bytewise_editing_bytes(
         "insert_ascii_inside_utf8",
         b"\xc3\xa4b\x01\x18f\x18b\x18fZ\r",
         &[0xc3, 0x5a, 0xa4, 0x62],
         0,
         inputrc,
         &[("LC_ALL", "C.UTF-8")],
+    );
+    let bash_pre = pre_acceptance_bytes(&bash, "BASH_ACCEPTED_HEX:");
+    let sush_pre = pre_acceptance_bytes(&sush, "SUSHLINE_ACCEPTED_HEX:");
+    // GNU patches the invalid byte in place and never paints the typed Z;
+    // Sushline repaints the whole line, including the inserted Z. These are
+    // the distinguishing fragments, not a claim of full redisplay-byte parity.
+    assert!(
+        bash_pre.windows(6).any(|w| w == b"\x08\x08\xc3\x1b[C"),
+        "bash must include the partial-byte patch: {bash_pre:?}"
+    );
+    assert!(
+        !bash_pre.contains(&b'Z'),
+        "bash must not paint the inserted Z: {bash_pre:?}"
+    );
+    assert!(
+        sush_pre
+            .windows(READY_PROMPT.len() + 4)
+            .any(|w| w == b"SUSHLINE_READY>\xc3\x5a\xa4\x62"),
+        "sushline must repaint the invalid line with Z: {sush_pre:?}"
+    );
+    assert!(
+        !sush_pre.windows(6).any(|w| w == b"\x08\x08\xc3\x1b[C"),
+        "sushline must not use GNU's partial-byte patch: {sush_pre:?}"
+    );
+}
+
+/// Paired pre-Enter checkpoint for the same insertion. Ctrl-G after each
+/// complete key step makes the captured frame causal: the `Z` paint is present
+/// or absent before `accept-line` can affect redisplay.
+#[test]
+fn bash_and_sushline_bytewise_insertion_paint_differs_before_enter() {
+    use portable_pty::PtySize;
+
+    require_oracle_host();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let inputrc = "\"\\C-xf\": forward-byte\n\"\\C-xb\": backward-byte\n";
+    let inputrc_path = dir.path().join("inputrc");
+    fs::write(&inputrc_path, inputrc).expect("write inputrc");
+    let script = r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "SUSHLINE_READY>" line; printf 'BASH_ACCEPTED_HEX:'; printf '%s' "$line" | od -An -v -tx1 | tr -d ' 
+'; printf '
+'"#;
+    let size = PtySize {
+        rows: 24,
+        cols: 80,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let steps: Vec<Vec<u8>> = vec![
+        b"\xc3\xa4b".to_vec(),
+        vec![0x01],
+        b"\x18f".to_vec(),
+        b"\x18b".to_vec(),
+        b"\x18fZ".to_vec(),
+    ];
+
+    let mut bash_command = portable_pty::CommandBuilder::new("bash");
+    bash_command.env("INPUTRC", inputrc_path.to_string_lossy().as_ref());
+    bash_command.env("HOME", dir.path());
+    bash_command.env("LC_ALL", "C.UTF-8");
+    bash_command.args(["--noprofile", "--norc", "-i", "-c", script]);
+    let bash_frames = run_pty_checkpoints_raw(bash_command, READY_PROMPT, &steps, size);
+
+    let mut sush_command = sushline_harness_command();
+    sush_command.env("SUSHLINE_INPUTRC", inputrc);
+    sush_command.env("SUSHLINE_PROMPT", READY_PROMPT);
+    sush_command.env("SUSHLINE_HISTORY", "");
+    sush_command.env("LC_ALL", "C.UTF-8");
+    let sush_frames = run_pty_checkpoints_raw(sush_command, READY_PROMPT, &steps, size);
+
+    assert_eq!(bash_frames.len(), steps.len());
+    assert_eq!(sush_frames.len(), steps.len());
+    let bash = bash_frames.last().expect("bash final frame");
+    let sush = sush_frames.last().expect("sushline final frame");
+    assert!(
+        bash.ends_with(b"\x08\x08\xc3\x1b[C"),
+        "bash must stop at the partial-byte patch before Enter: {bash:?}"
+    );
+    assert!(
+        !bash.contains(&b'Z'),
+        "bash must not paint the inserted Z before Enter: {bash:?}"
+    );
+    assert!(
+        sush.windows(READY_PROMPT.len() + 4)
+            .any(|window| window == b"SUSHLINE_READY>\xc3\x5a\xa4\x62"),
+        "sushline must repaint the inserted Z before Enter: {sush:?}"
+    );
+    assert_eq!(
+        sush.iter().filter(|byte| **byte == b'Z').count(),
+        1,
+        "sushline must paint the inserted Z once before Enter: {sush:?}"
     );
 }
 

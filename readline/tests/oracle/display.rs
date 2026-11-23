@@ -1107,7 +1107,7 @@ fn sushline_uses_explicit_wrap_with_short_terminfo_boolean_section() {
 
 #[cfg(target_os = "linux")]
 #[test]
-fn bash_and_sushline_redisplay_wrapped_prompt_after_widening_past_its_length() {
+fn bash_and_sushline_wrapped_prompt_settles_after_explicit_redraw_following_widening() {
     use super::host::require_oracle_host;
     use super::screen::Screen;
     use portable_pty::{CommandBuilder, PtySize};
@@ -1163,6 +1163,9 @@ fn bash_and_sushline_redisplay_wrapped_prompt_after_widening_past_its_length() {
         );
         let mut screen = Screen::new(8, 40);
         screen.feed(&frame);
+        // The checkpoint helper follows the automatic resize redisplay with
+        // Ctrl-L. On automatic widening GNU keeps the old wrapped rows while
+        // Sushline reflows them; this pins agreement after a full redraw only.
         assert_eq!(
             &screen.rows_text()[..2],
             &["LONGPROMPT012", "3456789>abcdefghijklmnop"],

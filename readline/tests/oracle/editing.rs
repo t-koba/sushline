@@ -1111,6 +1111,30 @@ fn bash_readline_and_sushline_accept_same_transpose_words_edit() {
 }
 
 #[test]
+fn bash_readline_and_sushline_transpose_words_from_inside_word() {
+    // GNU 8.3-p0 paired PTY on `alpha three`: offset 1 keeps the line and
+    // rings, offset 7 swaps whole words without a bell.
+    for (name, forward, expected, bells) in [
+        ("inside_first", 1, "alpha three", 1),
+        ("inside_second", 7, "three alpha", 0),
+    ] {
+        let mut keys = b"alpha three\x01".to_vec();
+        keys.extend(std::iter::repeat_n(0x06, forward));
+        keys.extend_from_slice(b"\x1bt\r");
+        let bash = run_bash_readline(&keys);
+        let sushline = run_sushline_harness(&keys);
+        for (host, output) in [("bash", &bash), ("sushline", &sushline)] {
+            assert_eq!(
+                accepted_line(output),
+                Some(expected.to_string()),
+                "{name}: {host}={output}"
+            );
+            assert_eq!(bell_count(output), bells, "{name}: {host}={output}");
+        }
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_transpose_words_numeric_arguments() {
     // The inserted X exposes accepted-line cursor placement; display and bell
     // behavior are not asserted by these numeric cases.

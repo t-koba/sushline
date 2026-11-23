@@ -120,6 +120,26 @@ fn edits_words_and_horizontal_space() {
 }
 
 #[test]
+fn transpose_words_inside_word_uses_whole_word_boundaries() {
+    // Paired PTY, Readline 8.3-p0: `alpha three` is unchanged at offsets
+    // 1..=4 and becomes `three alpha` at offsets 7..=10.
+    for point in 1..=4 {
+        let mut b = LineBuffer::from("alpha three");
+        b.set_point(point);
+        assert!(!b.transpose_words_by_count(1, None, true));
+        assert_eq!(b.as_string(), "alpha three");
+        assert_eq!(b.point(), point);
+    }
+    for point in 7..=10 {
+        let mut b = LineBuffer::from("alpha three");
+        b.set_point(point);
+        assert!(b.transpose_words_by_count(1, None, true));
+        assert_eq!(b.as_string(), "three alpha");
+        assert_eq!(b.point(), 11);
+    }
+}
+
+#[test]
 fn command_word_motion_treats_command_metacharacters_as_separators() {
     let mut b = LineBuffer::from("echo foo|bar 'baz qux'");
     b.move_beginning();

@@ -661,7 +661,7 @@ impl LineBuffer {
 
     /// Transpose words.
     pub fn transpose_words(&mut self, break_chars: Option<&str>, unicode: bool) -> bool {
-        self.transpose_words_by(word_matcher(break_chars, unicode))
+        self.transpose_words_by_count(1, break_chars, unicode)
     }
 
     pub(crate) fn transpose_words_by_count(
@@ -674,12 +674,9 @@ impl LineBuffer {
             return false;
         }
         let is_word = word_matcher(break_chars, unicode);
-        if count == 1 {
-            return self.transpose_words_by(is_word);
-        }
 
-        // Resolve both endpoints on a copy so an invalid selection leaves
-        // the original text and point unchanged.
+        // Resolve GNU's four word boundaries on a copy so an invalid
+        // selection leaves the original text and point unchanged.
         let mut cursor = self.clone();
         cursor.move_words_by_count(count, true, is_word);
         let right_end = cursor.point;
@@ -722,37 +719,6 @@ impl LineBuffer {
                 break;
             }
         }
-    }
-
-    fn transpose_words_by<F>(&mut self, is_word: F) -> bool
-    where
-        F: Fn(char) -> bool + Copy,
-    {
-        let Some((left_start, left_end)) = self.previous_word_bounds_by(self.point, is_word) else {
-            return false;
-        };
-        let (left_start, left_end, right_start, right_end) =
-            if let Some((right_start, right_end)) = self.next_word_bounds_by(left_end, is_word) {
-                (left_start, left_end, right_start, right_end)
-            } else {
-                let Some((previous_start, previous_end)) =
-                    self.previous_word_bounds_by(left_start, is_word)
-                else {
-                    return false;
-                };
-                (previous_start, previous_end, left_start, left_end)
-            };
-        let left = self.bytes[left_start..left_end].to_vec();
-        let middle = self.bytes[left_end..right_start].to_vec();
-        let right = self.bytes[right_start..right_end].to_vec();
-        let mut replacement = Vec::with_capacity(right.len() + middle.len() + left.len());
-        replacement.extend_from_slice(&right);
-        replacement.extend_from_slice(&middle);
-        replacement.extend_from_slice(&left);
-        let point = left_start + replacement.len();
-        self.bytes.splice(left_start..right_end, replacement);
-        self.point = point;
-        true
     }
 
     pub(crate) fn command_word_spans(&self) -> Vec<(usize, usize)> {

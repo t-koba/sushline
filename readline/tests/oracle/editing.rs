@@ -17293,6 +17293,50 @@ fn bash_readline_and_sushline_decode_multibyte_char_search_after_search_nul_free
     }
 }
 
+/// A multibyte C-] target that lands inside the frozen match moves point there
+/// in both editors and rings only for the failed freeze; a miss with a single
+/// history entry rings twice. The miss-only fixture above selects the second
+/// entry, so it does not exercise the hit path.
+#[test]
+fn bash_readline_and_sushline_multibyte_char_search_hit_after_search_nul_freeze() {
+    require_oracle_host();
+    let env = [("LC_ALL", "C.UTF-8")];
+    for (name, history, target, bells, accepted) in [
+        (
+            "e_acute_hit",
+            &["a\u{e9}b"][..],
+            "\u{e9}".as_bytes(),
+            1,
+            Some("aY\u{e9}b"),
+        ),
+        (
+            "e_acute_miss",
+            &["abd"][..],
+            "\u{e9}".as_bytes(),
+            2,
+            Some("Yabd"),
+        ),
+    ] {
+        let mut keys = b"\x12a\x00\x1d".to_vec();
+        keys.extend_from_slice(target);
+        keys.extend_from_slice(b"Y\r\r");
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_inputrc_file_and_history_and_env(&keys, "", history, &env),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history_and_env(&keys, "", history, &env),
+            ),
+        ] {
+            let context = format!("{name} {editor} keys={keys:?}: {output:?}");
+            assert_eq!(bell_count(&output), bells, "{context}");
+            assert_eq!(accepted_line(&output).as_deref(), accepted, "{context}");
+        }
+    }
+}
+
 /// GNU 8.3-p0 reprints a multibyte prompt from column 0 after unterminated
 /// output leaves the cursor off that column, but does not clear the first
 /// copy's tail; a stray multibyte glyph remains. Sushline clears the tail.

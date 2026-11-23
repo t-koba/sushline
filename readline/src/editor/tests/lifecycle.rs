@@ -2286,3 +2286,30 @@ fn isearch_termination_uses_the_selected_folded_byte_offset() {
     assert!(remainder.is_empty());
     assert_eq!(state.buffer.as_bytes(), "Ä x !ÄLPHA".as_bytes());
 }
+
+/// A search can select an occurrence in a history entry whose live buffer was
+/// shortened. The stored match offset then points past the accepted edit, so
+/// termination must rescan the query in that buffer.
+#[test]
+fn isearch_termination_after_a_shortened_live_edit_rescans_the_query() {
+    let mut history = History::new();
+    history.push("abcabc");
+    let mut line =
+        Editor::new_without_inputrc(Config::default(), MemoryTerminal::default(), history);
+    let mut state = EditorState::new(Prompt::new("> "), None);
+    let keys = b"\x10\x7f\x7f\x7f\x12abc\n";
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, keys, &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.as_bytes(), b"abc");
+    assert_eq!(state.buffer.point(), 0);
+
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, b"!", &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.as_bytes(), b"!abc");
+}

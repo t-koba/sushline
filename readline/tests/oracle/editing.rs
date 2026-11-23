@@ -16552,6 +16552,35 @@ fn bash_readline_and_sushline_isearch_termination_keeps_selected_occurrence() {
     }
 }
 
+/// GNU Readline 8.3 selects the later `abc` in the stored `abcabc`, but the
+/// live buffer was shortened to `abc`; LF terminates at the query in the
+/// accepted buffer, so the following `!` lands before it. Both hosts ring no
+/// bell.
+#[test]
+fn bash_readline_and_sushline_isearch_termination_after_shortened_live_edit() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!("Search termination after a live edit was measured on Readline 8.3");
+        return;
+    }
+    let history = ["abcabc"];
+    let keys = b"\x10\x7f\x7f\x7f\x12abc\n!\r";
+    for (editor, output) in [
+        (
+            "Bash",
+            run_bash_readline_with_bindings_and_history(keys, "", &history),
+        ),
+        (
+            "Sushline",
+            run_sushline_harness_with_inputrc_and_history(keys, "", &history),
+        ),
+    ] {
+        let context = format!("{editor} keys={keys:?}: {output:?}");
+        assert_eq!(accepted_line(&output).as_deref(), Some("!abc"), "{context}");
+        assert_eq!(bell_count(&output), 0, "{context}");
+    }
+}
+
 /// Folded multibyte query characters arrive one at a time through a PTY. The
 /// paired C.UTF-8 measurements cover equal-length folding (each Ä lowers to
 /// ä) and overlapping matches inside one history entry; no general Unicode

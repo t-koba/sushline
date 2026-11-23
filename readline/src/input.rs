@@ -1650,10 +1650,8 @@ where
         } else if search.query.is_empty() {
             buffer.set_point(search.original_point.min(buffer.len_chars()));
         } else if search.match_line.is_some() {
-            // The selected occurrence's byte offset was recorded when the
-            // match was found; rescanning the line would pick its first
-            // occurrence and lose a repeat's selection.
-            buffer.set_point(search.match_offset.unwrap_or(0));
+            let point = self.isearch_terminate_point(buffer.as_bytes(), search, buffer.point());
+            buffer.set_point(point);
         } else if matches!(search.direction, SearchDirection::Forward)
             && search.original_history_pos >= self.history.entries().len()
         {
@@ -1675,6 +1673,36 @@ where
         }
         save_incremental_search(state, search);
         state.after_non_kill_command();
+    }
+
+    /// Where an accepted search line resumes editing. The recorded offset
+    /// names the selected occurrence in the stored match line, so it applies
+    /// only when accept established that exact line. A match on the buffer's
+    /// own entry keeps its live edit instead; locate the query in that text
+    /// with the active search's case rules rather than indexing it with an
+    /// offset into a different line.
+    fn isearch_terminate_point(
+        &self,
+        line: &[u8],
+        search: &ReverseSearchState,
+        current_point: usize,
+    ) -> usize {
+        if search.match_line.as_deref() == Some(line) {
+            return search.match_offset.unwrap_or(0);
+        }
+        if search.query.is_empty() {
+            return current_point;
+        }
+        let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
+        let locale_lowercase = self.search_locale_lowercase(ignore_case);
+        search_bytes_offset(
+            line,
+            &search.query,
+            ignore_case,
+            locale_lowercase.as_ref(),
+            false,
+        )
+        .unwrap_or(0)
     }
 
     /// Extend the active query with raw bytes, recomputing the match and
@@ -2115,12 +2143,15 @@ where
             // Leaving search with a command key still restores the original
             // line after a failed query; only Enter keeps the displayed line.
             let accepted = accept_search_line(state, &search, false);
+            let current_point = state.buffer.point();
             state.buffer = LineBuffer::from_bytes(accepted);
             if raw_meta && search.match_line.is_some() {
                 // Like explicit termination, raw-meta exit leaves point at
                 // the selected match start before dispatching the ordinary
                 // input.
-                state.buffer.set_point(search.match_offset.unwrap_or(0));
+                let point =
+                    self.isearch_terminate_point(state.buffer.as_bytes(), &search, current_point);
+                state.buffer.set_point(point);
             }
             if search.match_line.is_none() {
                 state.history_entry_index = search.original_history_entry_index;

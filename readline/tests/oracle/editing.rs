@@ -16706,37 +16706,86 @@ fn bash_readline_and_sushline_commit_search_line_on_ctrl_u() {
 
 /// After an unquoted NUL freeze on the measured GNU Readline 8.3 host, the
 /// bound cursor commands leave the search and act on the established line
-/// from the match start. A typed key exposes the resulting point; backward
-/// movement at the start rings. Only these measured keys are claimed.
+/// with point at the start, even when the query matched at an interior
+/// column; that interior freeze rings once. A typed key exposes the point;
+/// backward movement at the start rings again. Only these measured keys
+/// are claimed.
 #[test]
 fn bash_readline_and_sushline_apply_cursor_commands_after_nul_freeze() {
-    for (name, keys, bells, accepted) in [
+    let boundary: &[&str] = &["abcQ", "abc xyz"];
+    let interior: &[&str] = &["zzabc zz"];
+    for (name, history, keys, bells, accepted) in [
         (
             "beginning_of_line",
+            &boundary,
             b"\x12abc xyz\x00\x01Q\r".as_slice(),
             0,
             Some("Qabc xyz"),
         ),
         (
             "end_of_line",
+            &boundary,
             b"\x12abc xyz\x00\x05Q\r".as_slice(),
             0,
             Some("abc xyzQ"),
         ),
         (
             "backward_char_at_start",
+            &boundary,
             b"\x12abc xyz\x00\x02Q\r".as_slice(),
             1,
             Some("Qabc xyz"),
         ),
         (
             "forward_char",
+            &boundary,
             b"\x12abc xyz\x00\x06Q\r".as_slice(),
             0,
             Some("aQbc xyz"),
         ),
+        (
+            "interior_beginning_of_line",
+            &interior,
+            b"\x12abc\x00\x01Q\r".as_slice(),
+            1,
+            Some("Qzzabc zz"),
+        ),
+        (
+            "interior_backward_char",
+            &interior,
+            b"\x12abc\x00\x02Q\r".as_slice(),
+            2,
+            Some("Qzzabc zz"),
+        ),
+        (
+            "interior_forward_char",
+            &interior,
+            b"\x12abc\x00\x06Q\r".as_slice(),
+            1,
+            Some("zQzabc zz"),
+        ),
+        (
+            "interior_end_of_line",
+            &interior,
+            b"\x12abc\x00\x05Q\r".as_slice(),
+            1,
+            Some("zzabc zzQ"),
+        ),
+        (
+            "interior_twice_backward",
+            &interior,
+            b"\x12abc\x00\x02\x02Q\r".as_slice(),
+            3,
+            Some("Qzzabc zz"),
+        ),
+        (
+            "interior_beginning_then_forward",
+            &interior,
+            b"\x12abc\x00\x01\x06Q\r".as_slice(),
+            1,
+            Some("zQzabc zz"),
+        ),
     ] {
-        let history = &["abcQ", "abc xyz"][..];
         for (editor, output) in [
             (
                 "Bash",

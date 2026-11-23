@@ -215,7 +215,7 @@ where
                     .reverse_search
                     .take()
                     .expect("NUL-frozen search state");
-                self.restore_isearch_line_for_editing(state, &search, true);
+                self.restore_isearch_line_for_editing(state, &search, true, true);
                 let outcome = self.apply_binding(state, binding, &remaining[..len], hooks)?;
                 rest = &remaining[len..];
                 if state.input.applied_command || state.input.changed_display {
@@ -238,7 +238,7 @@ where
                     .is_some_and(|search| search.nul_pending)
                 && let Some(search) = state.search.reverse_search.take()
             {
-                self.restore_isearch_line_for_editing(state, &search, true);
+                self.restore_isearch_line_for_editing(state, &search, true, true);
                 rest = &remaining[1..];
                 state.vi.pending_char_search = Some(CharSearchMode::Forward);
                 state.vi.pending_char_search_count = Some(1);
@@ -266,7 +266,7 @@ where
             {
                 state.input.changed_display = true;
                 state.search.quoted_pending = false;
-                self.restore_isearch_line_for_editing(state, &search, false);
+                self.restore_isearch_line_for_editing(state, &search, false, false);
             }
             let outcome = if state.search.non_incremental_search.is_some() {
                 self.handle_non_incremental_search(state, byte, hooks)?
@@ -1568,6 +1568,7 @@ where
         state: &mut EditorState,
         search: &ReverseSearchState,
         keep_failed_display: bool,
+        nul_frozen: bool,
     ) {
         let accepted =
             if keep_failed_display && search.match_line.is_none() && !search.query.is_empty() {
@@ -1578,7 +1579,11 @@ where
                 accept_search_line(state, search, false)
             };
         let mut buffer = LineBuffer::from_bytes(accepted);
-        if search.query.is_empty() {
+        if nul_frozen {
+            // A frozen search leaves point at the start of the established
+            // line, even when the query matched at an interior column.
+            buffer.set_point(0);
+        } else if search.query.is_empty() {
             buffer.set_point(search.original_point.min(buffer.len_chars()));
         } else if search.match_line.is_some() {
             let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
@@ -1665,7 +1670,7 @@ where
                     .reverse_search
                     .take()
                     .expect("NUL-frozen search state");
-                self.restore_isearch_line_for_editing(state, &search, true);
+                self.restore_isearch_line_for_editing(state, &search, true, true);
                 return self.apply_binding(state, binding, bytes, hooks);
             }
             let failed = state
@@ -1691,7 +1696,7 @@ where
             if bytes == [0x1e]
                 && let Some(search) = state.search.reverse_search.take()
             {
-                self.restore_isearch_line_for_editing(state, &search, true);
+                self.restore_isearch_line_for_editing(state, &search, true, true);
                 self.ding()?;
                 return Ok(EditorOutcome::Continue);
             }
@@ -1751,7 +1756,18 @@ where
                 let mut repeated = search.clone();
                 self.refresh_reverse_search_match(&mut repeated, true)
             };
-            let failed = !search.query.is_empty() && (search.match_line.is_none() || repeat_moves);
+            let interior_match = search.match_line.is_some() && !search.query.is_empty() && {
+                let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
+                let locale_lowercase = self.search_locale_lowercase(ignore_case);
+                isearch_terminate_point(
+                    search.match_line.as_deref().unwrap_or_default(),
+                    &search.query,
+                    ignore_case,
+                    locale_lowercase.as_ref(),
+                ) > 0
+            };
+            let failed = !search.query.is_empty()
+                && (search.match_line.is_none() || repeat_moves || interior_match);
             search.nul_pending = true;
             search.nul_failed = failed;
             state.search.reverse_search = Some(search);
@@ -1782,7 +1798,7 @@ where
                 // C-J + `!` yields `draft!`, while the same query from a
                 // history line yields `!beta`). The history cursor stays on
                 // the match so a later `n`/`N` steps past it.
-                self.restore_isearch_line_for_editing(state, &search, false);
+                self.restore_isearch_line_for_editing(state, &search, false, false);
                 // No-match terminate keeps the original line (no
                 // query-as-line); emacs already belled per keystroke.
                 if search.match_line.is_none() && !search.query.is_empty() && search.exclude_cursor
@@ -1834,7 +1850,7 @@ where
                 // from the match start; that command rings only when the
                 // range is empty, which is the measured negative control.
                 state.search.quoted_pending = false;
-                self.restore_isearch_line_for_editing(state, &search, true);
+                self.restore_isearch_line_for_editing(state, &search, true, false);
                 return match self.keymap.lookup(self.keymap.current(), bytes).cloned() {
                     Some(binding @ KeyBinding::Macro(_)) => {
                         self.apply_binding(state, binding, bytes, hooks)

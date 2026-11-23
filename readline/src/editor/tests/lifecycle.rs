@@ -1994,3 +1994,26 @@ fn batched_utf8_search_prefix_keeps_the_invalidating_byte() {
     assert_eq!(search.query, b"\xc3\xc3a");
     assert!(state.input.pending_char_bytes.is_empty());
 }
+
+#[test]
+fn three_byte_utf8_search_prefix_keeps_the_invalidating_byte() {
+    let mut line = Editor::new(Config::default(), MemoryTerminal::default(), History::new());
+    line.variables.use_utf8_io_defaults();
+    let mut state = EditorState::new(Prompt::new("> "), None);
+
+    for chunk in [&b"\x12"[..], &b"\xe2\x82"[..], &b"a"[..]] {
+        let (outcome, remainder, _) = line
+            .dispatch_input_bytes(&mut state, chunk, &mut ())
+            .unwrap();
+        assert!(matches!(outcome, EditorOutcome::Continue));
+        assert!(remainder.is_empty());
+    }
+
+    let search = state
+        .search
+        .reverse_search
+        .as_ref()
+        .expect("the query is still active");
+    assert_eq!(search.query, b"\xe2\x82a");
+    assert!(state.input.pending_char_bytes.is_empty());
+}

@@ -17620,6 +17620,65 @@ fn bash_readline_and_sushline_shrinking_fold_search_repeats() {
     }
 }
 
+/// Paired C.UTF-8 measurements for incremental search with a history entry
+/// shorter than the first query character. Moved-to rows pin the skip; cursor
+/// rows start on the short entry and pin that it stays reachable. Only these
+/// measured shapes are pinned; no general Unicode-folding rule follows from them.
+#[test]
+fn bash_readline_and_sushline_short_history_fold_search() {
+    require_oracle_host();
+    if !c_utf8_locale_available() || !host_carries_measured_release() {
+        eprintln!("Short-history folds were measured on Readline 8.3 in C.UTF-8");
+        return;
+    }
+    let inputrc = "set search-ignore-case on";
+    let locale_env = [("LC_ALL", "C.UTF-8")];
+    for (prefix, query, history, accepted, bells) in [
+        (b"" as &[u8], "K", &["k", "zzzzzzzzzz"][..], "", 1),
+        (b"", "KK", &["kkkk", "zzzzzzzzzz"][..], "kkkk", 0),
+        (b"", "İ", &["i", "zzzzzzzzzz"][..], "", 1),
+        (b"\x10\x10", "K", &["k", "zzzzzzzzzz"][..], "k", 0),
+        (b"\x10\x10", "KK", &["k", "zzzzzzzzzz"][..], "k", 1),
+        (b"", "K", &["k"][..], "", 1),
+        (b"", "K", &["k", "k"][..], "", 1),
+    ] {
+        let mut keys = prefix.to_vec();
+        keys.push(0x12);
+        keys.extend_from_slice(query.as_bytes());
+        keys.push(b'\r');
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_inputrc_file_and_history_and_env(
+                    &keys,
+                    inputrc,
+                    history,
+                    &locale_env,
+                ),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history_and_env(
+                    &keys,
+                    inputrc,
+                    history,
+                    &locale_env,
+                ),
+            ),
+        ] {
+            let context = format!(
+                "{editor} prefix={prefix:?} query={query:?} history={history:?}: {output:?}"
+            );
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(accepted),
+                "{context}"
+            );
+            assert_eq!(bell_count(&output), bells, "{context}");
+        }
+    }
+}
+
 /// Quoting a raw byte into a query after a displayed match still leaves the
 /// match on the accepted line. The match line is valid UTF-8 even though the
 /// query is not; the byte validity of the query must not decide retention.

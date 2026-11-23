@@ -232,12 +232,26 @@ pub(crate) fn update_reverse_search_match(
                         .saturating_add(1)
                         .min(history.entries().len())
                 };
-                search_history_backward(
+                // GNU skips a short line only when moving to another entry.
+                // Exempt the entry the search actually starts on: a displayed
+                // match from a query edit, or a selected history entry. From
+                // the unsaved line the newest history entry is moved-to, so
+                // it stays subject to the skip.
+                let history_len = history.entries().len();
+                let start_exempt = search
+                    .match_index
+                    .or_else(|| {
+                        (search.original_history_pos < history_len)
+                            .then_some(search.original_history_pos)
+                    })
+                    .filter(|idx| *idx < history_len);
+                search_history_backward_with_start(
                     history,
                     &search.query,
                     Some(end),
                     ignore_case,
                     locale_lowercase,
+                    start_exempt,
                 )
                 .map(|(idx, line)| (Some(idx), line))
             }
@@ -277,21 +291,26 @@ pub(crate) fn update_reverse_search_match(
                         first = start.saturating_add(1);
                     }
                 }
-                let found = search_history_forward_from(
+                // GNU skips a short line only when moving to another entry:
+                // the starting/cursor entry stays reachable in both the
+                // point-skipped and fallback scans.
+                let found = search_history_forward_from_with_start(
                     history,
                     &search.query,
                     first,
                     ignore_case,
                     locale_lowercase,
+                    Some(start),
                 )
                 .map(|(idx, line)| (Some(idx), line));
                 if found.is_none() && first != start {
-                    search_history_forward_from(
+                    search_history_forward_from_with_start(
                         history,
                         &search.query,
                         start,
                         ignore_case,
                         locale_lowercase,
+                        Some(start),
                     )
                     .map(|(idx, line)| (Some(idx), line))
                 } else {
@@ -530,12 +549,42 @@ fn char_boundary_before(line: &[u8], index: usize) -> usize {
     boundary
 }
 
+/// Fixture-scoped reachability rule for incremental locale-aware search: a
+/// moved-to history line shorter than the first query character's UTF-8 width
+/// is skipped (the Kelvin sign needs three bytes, dotted I needs two). This
+/// does not define a general Unicode-folding algorithm.
+fn incremental_history_line_reachable(
+    line: &[u8],
+    needle: &[u8],
+    ignore_case: bool,
+    locale_lowercase: Option<&LocaleLowercase>,
+) -> bool {
+    if !ignore_case || locale_lowercase.is_none() {
+        return true;
+    }
+    let (Ok(_), Ok(_)) = (std::str::from_utf8(line), std::str::from_utf8(needle)) else {
+        return true;
+    };
+    first_utf8_character(needle).is_none_or(|first| line.len() >= first.len_utf8())
+}
+
 pub(crate) fn search_history_backward(
     history: &History,
     needle: &[u8],
     before: Option<usize>,
     ignore_case: bool,
     locale_lowercase: Option<&LocaleLowercase>,
+) -> Option<(usize, Vec<u8>)> {
+    search_history_backward_with_start(history, needle, before, ignore_case, locale_lowercase, None)
+}
+
+pub(crate) fn search_history_backward_with_start(
+    history: &History,
+    needle: &[u8],
+    before: Option<usize>,
+    ignore_case: bool,
+    locale_lowercase: Option<&LocaleLowercase>,
+    start_index: Option<usize>,
 ) -> Option<(usize, Vec<u8>)> {
     if needle.is_empty() {
         return None;
@@ -547,15 +596,22 @@ pub(crate) fn search_history_backward(
         .iter()
         .enumerate()
         .rev()
-        .find(|(_, entry)| {
-            search_bytes_offset(
-                &entry.line_bytes,
-                needle,
-                ignore_case,
-                locale_lowercase,
-                false,
-            )
-            .is_some()
+        .find(|(idx, entry)| {
+            (Some(*idx) == start_index
+                || incremental_history_line_reachable(
+                    &entry.line_bytes,
+                    needle,
+                    ignore_case,
+                    locale_lowercase,
+                ))
+                && search_bytes_offset(
+                    &entry.line_bytes,
+                    needle,
+                    ignore_case,
+                    locale_lowercase,
+                    false,
+                )
+                .is_some()
         })
         .map(|(idx, entry)| (idx, entry.line_bytes.clone()))
 }
@@ -581,6 +637,24 @@ pub(crate) fn search_history_forward_from(
     ignore_case: bool,
     locale_lowercase: Option<&LocaleLowercase>,
 ) -> Option<(usize, Vec<u8>)> {
+    search_history_forward_from_with_start(
+        history,
+        needle,
+        start,
+        ignore_case,
+        locale_lowercase,
+        None,
+    )
+}
+
+pub(crate) fn search_history_forward_from_with_start(
+    history: &History,
+    needle: &[u8],
+    start: usize,
+    ignore_case: bool,
+    locale_lowercase: Option<&LocaleLowercase>,
+    start_index: Option<usize>,
+) -> Option<(usize, Vec<u8>)> {
     if needle.is_empty() {
         return None;
     }
@@ -588,15 +662,22 @@ pub(crate) fn search_history_forward_from(
     history.entries()[start..]
         .iter()
         .enumerate()
-        .find(|(_, entry)| {
-            search_bytes_offset(
-                &entry.line_bytes,
-                needle,
-                ignore_case,
-                locale_lowercase,
-                false,
-            )
-            .is_some()
+        .find(|(offset, entry)| {
+            (Some(start + *offset) == start_index
+                || incremental_history_line_reachable(
+                    &entry.line_bytes,
+                    needle,
+                    ignore_case,
+                    locale_lowercase,
+                ))
+                && search_bytes_offset(
+                    &entry.line_bytes,
+                    needle,
+                    ignore_case,
+                    locale_lowercase,
+                    false,
+                )
+                .is_some()
         })
         .map(|(offset, entry)| (start + offset, entry.line_bytes.clone()))
 }

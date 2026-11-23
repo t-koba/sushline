@@ -1668,7 +1668,9 @@ where
         if search.match_line.is_none() {
             state.undo = search.original_undo.clone();
         }
-        if let Some(index) = search.match_index {
+        if search.match_line.is_some()
+            && let Some(index) = search.match_index
+        {
             self.history.set_pos(index);
         }
         save_incremental_search(state, search);
@@ -1838,7 +1840,6 @@ where
             return Ok(EditorOutcome::Continue);
         };
         search.query.extend_from_slice(bytes);
-        search.match_index = None;
         let found = self.refresh_reverse_search_match(&mut search, false);
         self.apply_search_match(state, &search);
         if self.search_query_failed(state, &search, found) {
@@ -2230,7 +2231,6 @@ where
         if !raw_meta && !bytes.is_empty() && !bytes.iter().any(|byte| byte.is_ascii_control()) {
             let input = bytes.to_vec();
             search.query.extend(input);
-            search.match_index = None;
             let found = self.refresh_reverse_search_match(&mut search, false);
             self.apply_search_match(state, &search);
             if self.search_query_failed(state, &search, found) {
@@ -2279,7 +2279,9 @@ where
                 state.history_entry_index = search.original_history_entry_index;
                 state.undo = search.original_undo.clone();
             }
-            if let Some(index) = search.match_index {
+            if search.match_line.is_some()
+                && let Some(index) = search.match_index
+            {
                 self.history.set_pos(index);
             }
             save_incremental_search(state, &search);
@@ -2298,7 +2300,6 @@ where
             .collect::<Vec<_>>();
         if !input.is_empty() {
             search.query.extend(input);
-            search.match_index = None;
             let found = self.refresh_reverse_search_match(&mut search, false);
             self.apply_search_match(state, &search);
             if self.search_query_failed(state, &search, found) {

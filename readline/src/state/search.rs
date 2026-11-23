@@ -128,6 +128,10 @@ pub(crate) fn update_reverse_search_match(
     // forward search from the end of history also sees that virtual entry
     // (Bash 5.3 PTY oracle).
     let from_end = matches!(search.direction, SearchDirection::Backward);
+    // A failed query edit keeps the reached index so the next extension
+    // continues from the same match, even though its displayed line is
+    // dropped for accept and point handling.
+    let had_match = search.match_index.is_some() || search.unsaved_line_match;
     if !repeat {
         search.unsaved_line_match = false;
     }
@@ -135,7 +139,7 @@ pub(crate) fn update_reverse_search_match(
         && !search.exclude_cursor
         && !search.query.is_empty()
         && (from_end || search.original_history_pos >= history.entries().len());
-    let repeated = if repeat && (search.match_index.is_some() || search.unsaved_line_match) {
+    let repeated = if repeat && had_match {
         // An unsaved match keeps match_index None so history.set_pos never
         // sees an out-of-range index; the in-line helper only needs its
         // line and offset.
@@ -213,11 +217,17 @@ pub(crate) fn update_reverse_search_match(
             )
             .map(|(idx, line)| (Some(idx), line)),
             (SearchDirection::Backward, _, _) => {
+                // An ordinary query edit continues from the displayed match
+                // instead of restarting at the cursor: after a repeat reached
+                // an older entry, a longer query must not jump to a newer one.
+                // A fresh search and query deletion have no match index and
+                // keep the cursor-based bound.
                 let end = if search.exclude_cursor {
                     search.original_history_pos.min(history.entries().len())
                 } else {
                     search
-                        .original_history_pos
+                        .match_index
+                        .unwrap_or(search.original_history_pos)
                         .saturating_add(1)
                         .min(history.entries().len())
                 };
@@ -237,10 +247,16 @@ pub(crate) fn update_reverse_search_match(
                         .saturating_add(1)
                         .min(history.entries().len())
                 } else {
-                    search.original_history_pos.min(history.entries().len())
+                    search
+                        .match_index
+                        .unwrap_or(search.original_history_pos)
+                        .min(history.entries().len())
                 };
                 let mut first = start;
-                if !search.exclude_cursor && !repeat {
+                // The start-point skip belongs to the entry the search began
+                // in; a query edit already resolved to a newer entry keeps
+                // that entry as its first candidate.
+                if !search.exclude_cursor && !repeat && start == search.original_history_pos {
                     // Readline 8.3's first forward search ignores occurrences
                     // behind the start point in the cursor entry. With none at
                     // or after that point it takes the first newer matching
@@ -302,8 +318,13 @@ pub(crate) fn update_reverse_search_match(
         search.unsaved_line_match = idx.is_none();
         return true;
     }
-    if !(repeat && (search.match_index.is_some() || search.unsaved_line_match)) {
+    if !had_match {
         search.match_index = None;
+    }
+    if !had_match || !repeat {
+        // A failed query edit drops the displayed line (so accept and point
+        // follow the original line) but keeps the match index as the bound
+        // for the next extension.
         search.match_line = None;
         search.match_offset = None;
         search.unsaved_line_match = false;

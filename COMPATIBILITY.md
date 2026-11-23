@@ -145,6 +145,13 @@ pins these C-j plus `!` accepted lines and bell counts for the measured keys
 and histories only; it claims nothing about forward search, recalled-entry
 search, bells beyond the pinned cases, or redisplay bytes.
 
+An unfrozen query edit continues from the reached match rather than restarting
+at the history cursor: with history `alpha`, `abc`, C-r, `a`, C-r, `bc`, Enter
+accepts `alpha` with two bells in both editors instead of jumping back to
+`abc`; the NUL-frozen version of the same keys still accepts `abc` with four
+bells. `bash_readline_and_sushline_freeze_all_following_search_input` pins the
+frozen control and this unfrozen case for those keys and that history only.
+
 ### Terminal wrap margins
 
 - With both `am` and `xenl` (xterm-style deferred wrapping), redisplay uses

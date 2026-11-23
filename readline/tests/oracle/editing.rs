@@ -16408,8 +16408,9 @@ fn bash_readline_and_sushline_nul_freeze_uses_match_end_and_empty_query_point() 
 /// bytes. Accept, abort, Ctrl-C and configured isearch terminators still
 /// take their normal paths. The
 /// unfrozen quoted case is a control: both editors keep the displayed match
-/// when the quoted extension fails. The ESC case pins the accepted line; its
-/// bell count differs before the freeze as well.
+/// when the quoted extension fails; the unfrozen repeat case keeps the older
+/// match when the query grows. The ESC case pins the accepted line; its bell
+/// count differs before the freeze as well.
 #[test]
 fn bash_readline_and_sushline_freeze_all_following_search_input() {
     require_oracle_host();
@@ -16435,6 +16436,14 @@ fn bash_readline_and_sushline_freeze_all_following_search_input() {
             4,
             Some("abc"),
             Some("abc"),
+        ),
+        (
+            "ctrl_r_then_bc_without_freeze",
+            b"\x12\x61\x12\x62\x63\x0d\x0d".as_slice(),
+            &["alpha", "abc"][..],
+            2,
+            Some("alpha"),
+            Some("alpha"),
         ),
         (
             "ctrl_r_then_enter",

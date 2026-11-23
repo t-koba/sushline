@@ -398,6 +398,27 @@ pub(crate) fn search_history_forward_from(
         .map(|(offset, entry)| (start + offset, entry.line_bytes.clone()))
 }
 
+/// Whether `needle` occurs exactly at `offset` in `haystack`, using the same
+/// locale-aware matching as a fresh search from that byte. A character-boundary
+/// guard keeps a byte offset inside a UTF-8 sequence from becoming a match.
+pub(crate) fn match_at_offset(
+    haystack: &[u8],
+    needle: &[u8],
+    offset: usize,
+    ignore_case: bool,
+    locale_lowercase: Option<&LocaleLowercase>,
+) -> bool {
+    offset <= haystack.len()
+        && std::str::from_utf8(haystack).map_or(true, |text| text.is_char_boundary(offset))
+        && search_bytes_offset(
+            &haystack[offset..],
+            needle,
+            ignore_case,
+            locale_lowercase,
+            false,
+        ) == Some(0)
+}
+
 pub(crate) fn search_bytes_offset(
     haystack: &[u8],
     needle: &[u8],

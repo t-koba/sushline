@@ -16614,6 +16614,104 @@ fn bash_readline_and_sushline_isearch_termination_after_shortened_live_edit_last
     }
 }
 
+/// One repeat steps from the stored last `abc` (byte 6) to byte 3 in
+/// `abcabcabc`, while the live buffer was shortened to `abcabc`. GNU rebases
+/// that selection to byte 0 of the accepted buffer, so `!` lands at its start.
+#[test]
+fn bash_readline_and_sushline_isearch_termination_after_shortened_live_edit_one_repeat() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!("Search termination after a repeat was measured on Readline 8.3");
+        return;
+    }
+    let history = ["abcabcabc"];
+    let keys = b"\x10\x7f\x7f\x7f\x12abc\x12\n!\r";
+    for (editor, output) in [
+        (
+            "Bash",
+            run_bash_readline_with_bindings_and_history(keys, "", &history),
+        ),
+        (
+            "Sushline",
+            run_sushline_harness_with_inputrc_and_history(keys, "", &history),
+        ),
+    ] {
+        let context = format!("{editor} keys={keys:?}: {output:?}");
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some("!abcabc"),
+            "{context}"
+        );
+        assert_eq!(bell_count(&output), 0, "{context}");
+    }
+}
+
+/// A second repeat exhausts the three stored occurrences: GNU accepts the
+/// buffer at byte 0 and rings once, while Sushline's older bell model rings
+/// zero times. Only the accepted line and the measured bell counts are pinned.
+#[test]
+fn bash_readline_and_sushline_isearch_termination_after_shortened_live_edit_two_repeats() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!("Search termination after two repeats was measured on Readline 8.3");
+        return;
+    }
+    let history = ["abcabcabc"];
+    let keys = b"\x10\x7f\x7f\x7f\x12abc\x12\x12\n!\r";
+    for (editor, output, bells) in [
+        (
+            "Bash",
+            run_bash_readline_with_bindings_and_history(keys, "", &history),
+            1,
+        ),
+        (
+            "Sushline",
+            run_sushline_harness_with_inputrc_and_history(keys, "", &history),
+            0,
+        ),
+    ] {
+        let context = format!("{editor} keys={keys:?}: {output:?}");
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some("!abcabc"),
+            "{context}"
+        );
+        assert_eq!(bell_count(&output), bells, "{context}");
+    }
+}
+
+/// With a prefix, the selected stored byte 4 shifts to byte 1 of the
+/// shortened live `xabcabc`, and `!` lands after the prefix on both hosts.
+#[test]
+fn bash_readline_and_sushline_isearch_termination_after_shortened_live_edit_one_repeat_with_prefix()
+{
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!("Prefixed search termination after a repeat was measured on Readline 8.3");
+        return;
+    }
+    let history = ["xabcabcabc"];
+    let keys = b"\x10\x7f\x7f\x7f\x12abc\x12\n!\r";
+    for (editor, output) in [
+        (
+            "Bash",
+            run_bash_readline_with_bindings_and_history(keys, "", &history),
+        ),
+        (
+            "Sushline",
+            run_sushline_harness_with_inputrc_and_history(keys, "", &history),
+        ),
+    ] {
+        let context = format!("{editor} keys={keys:?}: {output:?}");
+        assert_eq!(
+            accepted_line(&output).as_deref(),
+            Some("x!abcabc"),
+            "{context}"
+        );
+        assert_eq!(bell_count(&output), 0, "{context}");
+    }
+}
+
 /// Folded multibyte query characters arrive one at a time through a PTY. The
 /// paired C.UTF-8 measurements cover equal-length folding (each Ä lowers to
 /// ä) and overlapping matches inside one history entry; no general Unicode

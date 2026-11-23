@@ -2340,3 +2340,83 @@ fn isearch_termination_after_a_shortened_live_edit_rescans_the_last_occurrence()
     assert!(remainder.is_empty());
     assert_eq!(state.buffer.as_bytes(), b"abc!abc");
 }
+
+/// Another Ctrl-R after the shortened live edit steps from the stored last
+/// `abc` (byte 6) to byte 3; termination must rebase that selection to the
+/// start of the accepted `abcabc` buffer instead of rescanning its last match.
+#[test]
+fn isearch_termination_after_a_shortened_live_edit_and_one_repeat() {
+    let mut history = History::new();
+    history.push("abcabcabc");
+    let mut line =
+        Editor::new_without_inputrc(Config::default(), MemoryTerminal::default(), history);
+    let mut state = EditorState::new(Prompt::new("> "), None);
+    let keys = b"\x10\x7f\x7f\x7f\x12abc\x12\n";
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, keys, &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.as_bytes(), b"abcabc");
+    assert_eq!(state.buffer.point(), 0);
+
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, b"!", &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.as_bytes(), b"!abcabc");
+}
+
+/// A second repeat underflows the live-buffer rebasing (stored byte 0 minus
+/// the three removed bytes), so termination falls back to the first `abc` in
+/// the accepted buffer.
+#[test]
+fn isearch_termination_after_a_shortened_live_edit_and_two_repeats() {
+    let mut history = History::new();
+    history.push("abcabcabc");
+    let mut line =
+        Editor::new_without_inputrc(Config::default(), MemoryTerminal::default(), history);
+    let mut state = EditorState::new(Prompt::new("> "), None);
+    let keys = b"\x10\x7f\x7f\x7f\x12abc\x12\x12\n";
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, keys, &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.as_bytes(), b"abcabc");
+    assert_eq!(state.buffer.point(), 0);
+
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, b"!", &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.as_bytes(), b"!abcabc");
+}
+
+/// With a prefix before the three repeated groups, one repeat selects stored
+/// byte 4; removing the tail shifts it to byte 1 of the accepted `xabcabc`.
+#[test]
+fn isearch_termination_after_a_shortened_live_edit_and_one_repeat_with_prefix() {
+    let mut history = History::new();
+    history.push("xabcabcabc");
+    let mut line =
+        Editor::new_without_inputrc(Config::default(), MemoryTerminal::default(), history);
+    let mut state = EditorState::new(Prompt::new("> "), None);
+    let keys = b"\x10\x7f\x7f\x7f\x12abc\x12\n";
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, keys, &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.as_bytes(), b"xabcabc");
+    assert_eq!(state.buffer.point(), 1);
+
+    let (outcome, remainder, _) = line
+        .dispatch_input_bytes(&mut state, b"!", &mut ())
+        .unwrap();
+    assert!(matches!(outcome, EditorOutcome::Continue));
+    assert!(remainder.is_empty());
+    assert_eq!(state.buffer.as_bytes(), b"x!abcabc");
+}

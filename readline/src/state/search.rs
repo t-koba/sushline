@@ -229,24 +229,28 @@ fn repeated_match_offset(
     let line = search.match_line.as_deref()?;
     let offset = search.match_offset?;
     if matches!(search.direction, SearchDirection::Backward) {
-        // Include the query's last byte before `offset`: an occurrence ending
-        // at `offset` may start before it and still be selectable. The last
-        // candidate found must strictly precede the current match.
-        let mut end = char_boundary_after(line, offset.saturating_add(search.query.len() - 1));
-        while end > 0 {
-            if let Some(found) = search_bytes_offset(
-                &line[..end],
-                &search.query,
-                ignore_case,
-                locale_lowercase,
-                true,
-            ) && found < offset
-            {
-                return Some(found);
-            }
-            end -= 1;
+        // Include the query's last byte before `offset`, so an overlapping
+        // occurrence ending at `offset` can still be selected. If that scan
+        // finds only the current match or nothing, one scan ending at `offset`
+        // covers every earlier occurrence. Two scans keep a miss linear.
+        let end = char_boundary_after(line, offset.saturating_add(search.query.len() - 1));
+        if let Some(found) = search_bytes_offset(
+            &line[..end.min(line.len())],
+            &search.query,
+            ignore_case,
+            locale_lowercase,
+            true,
+        ) && found < offset
+        {
+            return Some(found);
         }
-        None
+        search_bytes_offset(
+            &line[..offset.min(line.len())],
+            &search.query,
+            ignore_case,
+            locale_lowercase,
+            true,
+        )
     } else {
         let after = char_boundary_after(line, offset.saturating_add(1));
         search_bytes_offset(
@@ -661,6 +665,42 @@ mod tests {
 
     fn utf8_locale() -> Option<LocaleLowercase> {
         LocaleLowercase::new("C.UTF-8")
+    }
+
+    fn repeated_state(line: &str, query: &str, offset: usize) -> ReverseSearchState {
+        ReverseSearchState {
+            query: query.as_bytes().to_vec(),
+            match_line: Some(line.as_bytes().to_vec()),
+            match_index: Some(0),
+            match_offset: Some(offset),
+            direction: SearchDirection::Backward,
+            original_line: Vec::new(),
+            original_point: 0,
+            original_history_pos: 0,
+            original_history_entry_index: None,
+            original_undo: UndoState::default(),
+            exclude_cursor: false,
+            nul_pending: false,
+            nul_failed: false,
+            retain_match_on_failure: false,
+            retain_failed_query_line: false,
+        }
+    }
+
+    #[test]
+    fn repeated_match_offset_finds_overlaps_without_rescanning_prefixes() {
+        let line = format!("{}Q", "x".repeat(8_000));
+        let state = repeated_state(&line, "Q", 8_000);
+        assert_eq!(repeated_match_offset(&state, false, None), None);
+
+        for (line, query, offset, expected) in [
+            ("aaaa", "aa", 2, Some(1)),
+            ("aaaa", "aa", 1, Some(0)),
+            ("aXaXa", "aXa", 2, Some(0)),
+        ] {
+            let state = repeated_state(line, query, offset);
+            assert_eq!(repeated_match_offset(&state, false, None), expected);
+        }
     }
 
     // Synthetic valid-UTF-8 matchers deliberately distinguish I from i.

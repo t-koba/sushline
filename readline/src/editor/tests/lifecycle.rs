@@ -2692,3 +2692,49 @@ fn isearch_termination_after_an_appended_live_edit_and_one_repeat() {
     assert!(remainder.is_empty());
     assert_eq!(state.buffer.as_bytes(), b"abc!abcabcX");
 }
+
+/// A frozen-search C-] target that arrives as a split UTF-8 sequence must
+/// decode to one character, matching a batched read. The hit and miss cases
+/// pin the same accepted lines and bells as the paired C.UTF-8 oracle fixture;
+/// this test forces the split rather than relying on PTY scheduling.
+#[test]
+fn frozen_char_search_target_survives_a_split_utf8_read() {
+    fn run(entry: &str, split: bool) -> (Vec<u8>, usize) {
+        let mut history = History::new();
+        history.push(entry);
+        let terminal = if split {
+            MemoryTerminal::with_events(vec![
+                TerminalEvent::Bytes(b"\x12a\x00\x1d".to_vec()),
+                TerminalEvent::Bytes(vec![0xc3]),
+                TerminalEvent::Bytes(vec![0xa9]),
+                TerminalEvent::Bytes(b"Y\r\r".to_vec()),
+            ])
+        } else {
+            let keys = [
+                b"\x12a\x00\x1d".as_slice(),
+                "\u{e9}".as_bytes(),
+                b"Y\r\r".as_slice(),
+            ]
+            .concat();
+            MemoryTerminal::with_events(vec![TerminalEvent::Bytes(keys)])
+        };
+        let mut line = Editor::new_without_inputrc(Config::default(), terminal, history);
+        line.variables.use_utf8_io_defaults();
+        let result = line.read_line(Prompt::new("> "), &mut ()).unwrap();
+        let ReadlineResult::Line(accepted) = result else {
+            panic!("expected an accepted line, got {result:?}");
+        };
+        let bells = line.terminal.out.bytes().filter(|&byte| byte == 7).count();
+        (accepted, bells)
+    }
+
+    for (name, entry, expected, bells) in [
+        ("hit", "a\u{e9}b", "aY\u{e9}b".as_bytes().to_vec(), 1),
+        ("miss", "abd", b"Yabd".to_vec(), 2),
+    ] {
+        let split = run(entry, true);
+        let batched = run(entry, false);
+        assert_eq!(split, (expected, bells), "{name}");
+        assert_eq!(split, batched, "{name}");
+    }
+}

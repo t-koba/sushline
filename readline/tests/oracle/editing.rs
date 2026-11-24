@@ -15454,9 +15454,9 @@ fn horizontal_search_prompt_keeps_one_raw_byte_marker() {
 }
 
 /// The settled failed-search frame, measured at 24 columns by 80 with
-/// standard tab stops. `pre_enter_end` bounds the slice before the first
-/// Enter response; Bash erases the prompt with CSI 15P and Sushline with a
-/// CR/LF pair. Replaying that slice once yields the frame a user sees before
+/// standard tab stops. `pre_enter_end` is the transcript length when the
+/// test driver wrote Enter, so no rendering bytes can move across that input
+/// boundary. Replaying that slice once yields the frame a user sees before
 /// Enter. A final left or home move is part of that frame, including a legal
 /// column-zero cursor; an earlier prompt frame is not a fallback.
 fn settled_failed_search_frame(output: &str, pre_enter_end: usize) -> (String, usize, usize) {
@@ -15501,8 +15501,7 @@ fn settled_failed_search_frame_keeps_a_column_zero_frame() {
 fn settled_failed_search_frame_rejects_an_erased_prompt() {
     let prompt = "(failed reverse-i-search)`':  ";
     let output = format!("\r{prompt}\x1b[C\r\x1b[2K\r\x1b[15P");
-    let pre_enter_end = output.find("\r\x1b[15P").expect("erase marker");
-    settled_failed_search_frame(&output, pre_enter_end);
+    settled_failed_search_frame(&output, output.len());
 }
 
 #[test]
@@ -15521,22 +15520,13 @@ fn settled_failed_search_frame_ignores_a_post_enter_home_move() {
 #[test]
 fn bash_readline_and_sushline_keep_a_literal_tab_in_the_search_query() {
     require_oracle_host();
-    let keys = b"\x12\x16\t\r\r";
     let env = [("LC_ALL", "C.UTF-8")];
     let fragment: &[u8] = b"failed reverse-i-search)`\t\x1b[C\x1b[C\x1b[C";
-    for (editor, output, quote_column, cursor_column) in [
-        (
-            "Bash",
-            run_bash_readline_with_inputrc_file_and_env(keys, "", &env),
-            27,
-            35,
-        ),
-        (
-            "Sushline",
-            run_sushline_harness_with_inputrc_and_env(keys, "", &env),
-            35,
-            39,
-        ),
+    let (bash_output, bash_end) = run_bash_quoted_tab_search("", &env);
+    let (sushline_output, sushline_end) = run_sushline_quoted_tab_search("", &env);
+    for (editor, output, pre_enter_end, quote_column, cursor_column) in [
+        ("Bash", bash_output, bash_end, 27, 35),
+        ("Sushline", sushline_output, sushline_end, 35, 39),
     ] {
         assert!(
             output
@@ -15545,16 +15535,20 @@ fn bash_readline_and_sushline_keep_a_literal_tab_in_the_search_query() {
                 .any(|window| window == fragment),
             "{editor} must write the raw query TAB and three cursor moves: {output:?}"
         );
+        let enter_response = if editor == "Bash" {
+            "\r\u{1b}[15P"
+        } else {
+            "\r\r\n"
+        };
+        assert!(
+            output[pre_enter_end..].starts_with(enter_response),
+            "{editor} Enter response must start at the input boundary: {output:?}"
+        );
         assert_eq!(
             accepted_line(&output).as_deref(),
             Some(""),
             "{editor} must accept the empty line, not a completion: {output:?}"
         );
-        let pre_enter_end = if editor == "Bash" {
-            output.find("\r\u{1b}[15P").expect("bash search erase")
-        } else {
-            output.find("\r\r\n").expect("sushline search erase")
-        };
         let (row, quote, cursor) = settled_failed_search_frame(&output, pre_enter_end);
         assert_eq!(
             quote, quote_column,

@@ -1768,12 +1768,24 @@ pub(super) fn run_pty_steps_in_dir_with_size_raw_until_count(
     run_pty_input_steps_in_dir_with_size_raw_until_count(
         command,
         &byte_steps(steps),
-        cwd,
-        size,
-        stop_marker,
-        stop_count,
-        timeout,
+        PtyStepRun {
+            cwd,
+            size,
+            stop_marker,
+            stop_count,
+            timeout,
+            boundaries: None,
+        },
     )
+}
+
+struct PtyStepRun<'a> {
+    cwd: &'a std::path::Path,
+    size: PtySize,
+    stop_marker: &'a str,
+    stop_count: usize,
+    timeout: Duration,
+    boundaries: Option<&'a mut Vec<usize>>,
 }
 
 #[derive(Clone, Copy)]
@@ -1786,6 +1798,89 @@ enum PtyStepMarker<'a> {
 struct PtyInputStep<'a> {
     marker: PtyStepMarker<'a>,
     keys: &'a [u8],
+}
+
+/// Sends the query after the ready prompt and Enter only after the measured
+/// final pre-Enter byte marker. The returned offset is the transcript length
+/// when Enter was written, so all bytes that preceded that input belong to
+/// the pre-Enter frame without inferring a boundary from the rendering under
+/// test.
+pub(super) fn run_pty_query_then_enter_with_marker(
+    command: CommandBuilder,
+    query_keys: &[u8],
+    final_marker: &str,
+) -> (String, usize) {
+    let steps = [
+        PtyInputStep {
+            marker: PtyStepMarker::Bytes(READY_PROMPT),
+            keys: query_keys,
+        },
+        PtyInputStep {
+            marker: PtyStepMarker::Bytes(final_marker),
+            keys: b"\r".as_slice(),
+        },
+    ];
+    let mut boundaries = Vec::new();
+    let output = lossy_output(&run_pty_input_steps_in_dir_with_size_raw_until_count(
+        command,
+        &steps,
+        PtyStepRun {
+            cwd: std::path::Path::new("/"),
+            size: PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+            stop_marker: "SUSHLINE_ACCEPTED:",
+            stop_count: 1,
+            timeout: PTY_HANG_BOUND,
+            boundaries: Some(&mut boundaries),
+        },
+    ));
+    assert_eq!(
+        boundaries.len(),
+        steps.len(),
+        "each input step has one boundary: {output:?}"
+    );
+    (output, boundaries[1])
+}
+
+/// The quoted-TAB search fixture uses the host's `read -e` prompt and a
+/// separate Enter step so its settled frame has a causal input boundary.
+pub(super) fn run_bash_quoted_tab_search(inputrc: &str, env: &[(&str, &str)]) -> (String, usize) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("inputrc");
+    fs::write(&path, inputrc).expect("write inputrc");
+    let mut command = CommandBuilder::new("bash");
+    command.env("INPUTRC", path.to_string_lossy().as_ref());
+    command.args([
+        "--noprofile",
+        "--norc",
+        "-i",
+        "-c",
+        &format!(
+            r#"stty status undef dsusp undef lnext undef 2>/dev/null || true; IFS= read -r -e -p "{READY_PROMPT}" line; printf 'SUSHLINE_ACCEPTED:%s\n' "$line""#
+        ),
+    ]);
+    for (name, value) in env {
+        command.env(name, value);
+    }
+    run_pty_query_then_enter_with_marker(command, b"\x12\x16\t", "\t\x1b[C\x1b[C\x1b[C")
+}
+
+pub(super) fn run_sushline_quoted_tab_search(
+    inputrc: &str,
+    env: &[(&str, &str)],
+) -> (String, usize) {
+    let mut command = sushline_harness_command();
+    command.env("SUSHLINE_INPUTRC", inputrc);
+    command.env("SUSHLINE_PROMPT", READY_PROMPT);
+    command.env("SUSHLINE_HISTORY", "");
+    for (name, value) in env {
+        command.env(name, value);
+    }
+    run_pty_query_then_enter_with_marker(command, b"\x12\x16\t", "\x1b[40G")
 }
 
 fn byte_steps<'a>(steps: &'a [(&'a str, &'a [u8])]) -> Vec<PtyInputStep<'a>> {
@@ -1818,34 +1913,33 @@ pub(super) fn run_pty_steps_until_screen_row(
     lossy_output(&run_pty_input_steps_in_dir_with_size_raw_until_count(
         command,
         &steps,
-        std::path::Path::new("/"),
-        PtySize {
-            rows: 24,
-            cols: 80,
-            pixel_width: 0,
-            pixel_height: 0,
+        PtyStepRun {
+            cwd: std::path::Path::new("/"),
+            size: PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+            stop_marker,
+            stop_count: 1,
+            timeout: PTY_HANG_BOUND,
+            boundaries: None,
         },
-        stop_marker,
-        1,
-        PTY_HANG_BOUND,
     ))
 }
 
 fn run_pty_input_steps_in_dir_with_size_raw_until_count(
     mut command: CommandBuilder,
     steps: &[PtyInputStep<'_>],
-    cwd: &std::path::Path,
-    size: PtySize,
-    stop_marker: &str,
-    stop_count: usize,
-    timeout: Duration,
+    mut run: PtyStepRun<'_>,
 ) -> Vec<u8> {
-    assert!(stop_count > 0, "stop marker count must be positive");
+    assert!(run.stop_count > 0, "stop marker count must be positive");
     require_oracle_host();
     command.env("TERM", "xterm-256color");
-    command.cwd(cwd);
-    let mut session = PtySession::spawn(command, size);
-    let deadline = Instant::now() + timeout;
+    command.cwd(run.cwd);
+    let mut session = PtySession::spawn(command, run.size);
+    let deadline = Instant::now() + run.timeout;
     let mut out = Vec::new();
     let mut next_step = 0;
     let mut scan_start = 0;
@@ -1855,10 +1949,13 @@ fn run_pty_input_steps_in_dir_with_size_raw_until_count(
             PtyOutput::Chunk(chunk) => {
                 out.extend_from_slice(&chunk);
                 if let Some(keys) = take_pty_step(&out, steps, &mut next_step, &mut scan_start) {
+                    if let Some(boundaries) = run.boundaries.as_deref_mut() {
+                        boundaries.push(out.len());
+                    }
                     session.write(keys);
                 }
                 if next_step == steps.len()
-                    && stop_marker_count_line_complete(&out, stop_marker, stop_count)
+                    && stop_marker_count_line_complete(&out, run.stop_marker, run.stop_count)
                 {
                     break;
                 }

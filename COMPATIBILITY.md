@@ -287,10 +287,6 @@ after Enter. Synchronous Sushline editor tests in
 [`editor/tests/lifecycle.rs`](readline/src/editor/tests/lifecycle.rs) cover
 partial-payload buffering and split or truncated terminators; no intermediate
 Bash-output claim is inferred from timing or silence. Deadlines only bound hangs.
-When a single-step PTY driver stops without its marker, it appends a
-`SUSHLINE_PTY_DIAGNOSTIC` line to the already-failing transcript recording
-whether input was sent, the output closed, and the child had exited; successful
-transcripts are unchanged.
 
 ## Explicitly Out Of Scope
 

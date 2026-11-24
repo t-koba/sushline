@@ -24,6 +24,10 @@ choices are product decisions, not oracle compatibility claims:
   a Unix-style `HOME`.
 - Oracle fixtures reject lossy U+FFFD substitutions rather than treating them
   as an acceptable match for GNU output.
+- Oracle PTY transcripts are exact: some fixtures intentionally finish without
+  the `SUSHLINE_ACCEPTED:` marker and assert their final bytes. A diagnostic for
+  a missing marker is opt-in per fixture; the shared driver never appends text
+  to a transcript.
 - When output without a trailing newline leaves the cursor off column 0 and a
   multibyte prompt ends with an invisible run, GNU 8.3-p0 reprints the prompt
   without clearing the first copy's tail and leaves a stray glyph. Sushline

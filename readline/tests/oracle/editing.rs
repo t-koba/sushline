@@ -15535,14 +15535,17 @@ fn bash_readline_and_sushline_keep_a_literal_tab_in_the_search_query() {
                 .any(|window| window == fragment),
             "{editor} must write the raw query TAB and three cursor moves: {output:?}"
         );
-        let enter_response = if editor == "Bash" {
-            "\r\u{1b}[15P"
+        // The response is measured byte-for-byte, so a redraw emitted after
+        // Enter was queued cannot hide in an ambiguous response prefix.
+        let enter_response: &[u8] = if editor == "Bash" {
+            b"\r\x1b[15PSUSHLINE_READY>\r\n\x1b[?2004l\rSUSHLINE_ACCEPTED:\r\n"
         } else {
-            "\r\r\n"
+            b"\r\r\n\x1b[?2004lSUSHLINE_ACCEPTED:\r\n"
         };
-        assert!(
-            output[pre_enter_end..].starts_with(enter_response),
-            "{editor} Enter response must start at the input boundary: {output:?}"
+        assert_eq!(
+            &output.as_bytes()[pre_enter_end..],
+            enter_response,
+            "{editor} Enter response must match the measured bytes exactly: {output:?}"
         );
         assert_eq!(
             accepted_line(&output).as_deref(),

@@ -15454,21 +15454,20 @@ fn horizontal_search_prompt_keeps_one_raw_byte_marker() {
 }
 
 /// The settled failed-search frame, measured at 24 columns by 80 with
-/// standard tab stops. The search prompt is drawn and then erased, so the
-/// last prefix with the cursor still on its row is the frame a user sees.
-/// A later left move is part of that settled frame; the furthest earlier
-/// cursor excursion is not.
-fn settled_failed_search_frame(output: &str) -> (String, usize, usize) {
+/// standard tab stops. `pre_enter_end` bounds the slice before the first
+/// Enter response; Bash erases the prompt with CSI 15P and Sushline with a
+/// CR/LF pair. The last prompt frame in that slice is the frame a user sees.
+/// A final left or home move is part of that settled frame, including a legal
+/// column-zero cursor; the furthest earlier excursion is not.
+fn settled_failed_search_frame(output: &str, pre_enter_end: usize) -> (String, usize, usize) {
+    assert!(pre_enter_end <= output.len() && output.is_char_boundary(pre_enter_end));
     let mut settled: Option<(String, usize, usize)> = None;
-    for end in 1..=output.len() {
+    for end in 1..=pre_enter_end {
         let mut screen = super::screen::Screen::new(24, 80);
         screen.feed(&output.as_bytes()[..end]);
         let (row, column) = screen.cursor();
         let rows = screen.rows_text();
-        if row != 0
-            || column == 0
-            || !rows[0].starts_with("(failed reverse-i-search)")
-            || !rows[0].contains('\'')
+        if row != 0 || !rows[0].starts_with("(failed reverse-i-search)") || !rows[0].contains('\'')
         {
             continue;
         }
@@ -15482,7 +15481,7 @@ fn settled_failed_search_frame(output: &str) -> (String, usize, usize) {
 fn settled_failed_search_frame_prefers_the_last_prompt_frame() {
     let prompt = "(failed reverse-i-search)`':  ";
     let output = format!("\r{prompt}\x1b[C\x1b[C\x1b[D");
-    let (_, _, cursor) = settled_failed_search_frame(&output);
+    let (_, _, cursor) = settled_failed_search_frame(&output, output.len());
     assert_eq!(
         cursor,
         prompt.len() + 1,
@@ -15493,6 +15492,27 @@ fn settled_failed_search_frame_prefers_the_last_prompt_frame() {
 /// Bash 5.3 PTY evidence (Readline 8.3): for `\x12\x16\t\r\r` under
 /// C.UTF-8, the failed reverse-i-search redraw writes the quoted TAB as a
 /// raw byte followed by three CSI-C moves, not as spaces at the tab stop.
+#[test]
+fn settled_failed_search_frame_keeps_a_column_zero_frame() {
+    let prompt = "(failed reverse-i-search)`':  ";
+    let output = format!("\r{prompt}\x1b[C\x1b[C\x1b[1G");
+    let (_, _, cursor) = settled_failed_search_frame(&output, output.len());
+    assert_eq!(cursor, 0, "a home move is part of the settled frame");
+}
+
+#[test]
+fn settled_failed_search_frame_ignores_a_post_enter_home_move() {
+    let prompt = "(failed reverse-i-search)`':  ";
+    let output = format!("\r{prompt}\x1b[C\r\x1b[15P\x1b[1G");
+    let pre_enter_end = output.find("\r\x1b[15P").expect("erase marker");
+    let (_, _, cursor) = settled_failed_search_frame(&output, pre_enter_end);
+    assert_eq!(
+        cursor,
+        prompt.len() + 1,
+        "Enter response is outside the frame"
+    );
+}
+
 #[test]
 fn bash_readline_and_sushline_keep_a_literal_tab_in_the_search_query() {
     require_oracle_host();
@@ -15525,7 +15545,12 @@ fn bash_readline_and_sushline_keep_a_literal_tab_in_the_search_query() {
             Some(""),
             "{editor} must accept the empty line, not a completion: {output:?}"
         );
-        let (row, quote, cursor) = settled_failed_search_frame(&output);
+        let pre_enter_end = if editor == "Bash" {
+            output.find("\r\u{1b}[15P").expect("bash search erase")
+        } else {
+            output.find("\r\r\n").expect("sushline search erase")
+        };
+        let (row, quote, cursor) = settled_failed_search_frame(&output, pre_enter_end);
         assert_eq!(
             quote, quote_column,
             "{editor} must settle the terminator quote at column {quote_column}: {row:?}"

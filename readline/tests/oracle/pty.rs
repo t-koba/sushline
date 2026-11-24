@@ -2186,7 +2186,8 @@ fn run_pty_with_size_until_after_prompt_inner_raw<F: FnOnce()>(
         }
         out.extend_from_slice(
             format!(
-                "\nSUSHLINE_PTY_DIAGNOSTIC:stop={stop_marker} keys={} closed={} exited={} bytes={}\n",
+                "\nSUSHLINE_PTY_DIAGNOSTIC:stop_len={} keys={} closed={} exited={} bytes={}\n",
+                stop_marker.len(),
                 u8::from(sent_keys),
                 u8::from(closed),
                 u8::from(exited),
@@ -2928,7 +2929,7 @@ mod tests {
         command.args(["-c", "printf 'SUSHLINE_READY>'; printf 'no marker\\n'"]);
         let missing = run_pty_until(command, b"", "SUSHLINE_ACCEPTED:");
         assert!(
-            missing.contains("SUSHLINE_PTY_DIAGNOSTIC:stop=SUSHLINE_ACCEPTED:"),
+            missing.contains("SUSHLINE_PTY_DIAGNOSTIC:stop_len=18 "),
             "{missing:?}"
         );
         assert!(missing.contains("keys=1"), "{missing:?}");

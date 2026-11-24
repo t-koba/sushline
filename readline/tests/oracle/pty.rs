@@ -2141,6 +2141,7 @@ fn run_pty_with_size_until_after_prompt_inner_raw<F: FnOnce()>(
     let deadline = Instant::now() + PTY_HANG_BOUND;
     let mut out = Vec::new();
     let mut sent_keys = false;
+    let mut closed = false;
 
     while Instant::now() < deadline {
         match session.read(Duration::from_millis(20)) {
@@ -2158,8 +2159,41 @@ fn run_pty_with_size_until_after_prompt_inner_raw<F: FnOnce()>(
                 }
             }
             PtyOutput::Timeout => {}
-            PtyOutput::Closed => break,
+            PtyOutput::Closed => {
+                closed = true;
+                break;
+            }
         }
+    }
+
+    // A missing stop marker is a failed fixture. Record why the driver stopped
+    // so the failure message distinguishes a child that exited without the
+    // marker from one that was still alive at the hang bound. This text is
+    // appended only to the already-failing transcript.
+    if !stop_marker_line_complete(&out, stop_marker) {
+        // A PTY close can reach the reader before try_wait sees the child
+        // exit, so give that observation a short settle window.
+        let mut exited = session.exited();
+        if !exited && closed {
+            let settle = Instant::now() + Duration::from_millis(200);
+            while Instant::now() < settle {
+                thread::sleep(Duration::from_millis(10));
+                exited = session.exited();
+                if exited {
+                    break;
+                }
+            }
+        }
+        out.extend_from_slice(
+            format!(
+                "\nSUSHLINE_PTY_DIAGNOSTIC:stop={stop_marker} keys={} closed={} exited={} bytes={}\n",
+                u8::from(sent_keys),
+                u8::from(closed),
+                u8::from(exited),
+                out.len()
+            )
+            .as_bytes(),
+        );
     }
 
     session.finish();
@@ -2879,4 +2913,35 @@ pub(super) fn run_bash_prompt_length_probe(
     }
     session.finish();
     (status, lossy_output(&out))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A failed fixture's transcript records how the PTY driver stopped, while
+    /// a successful one is left unchanged.
+    #[cfg(unix)]
+    #[test]
+    fn missing_stop_marker_records_why_the_driver_stopped() {
+        let mut command = CommandBuilder::new("sh");
+        command.args(["-c", "printf 'SUSHLINE_READY>'; printf 'no marker\\n'"]);
+        let missing = run_pty_until(command, b"", "SUSHLINE_ACCEPTED:");
+        assert!(
+            missing.contains("SUSHLINE_PTY_DIAGNOSTIC:stop=SUSHLINE_ACCEPTED:"),
+            "{missing:?}"
+        );
+        assert!(missing.contains("keys=1"), "{missing:?}");
+        assert!(missing.contains("closed=1"), "{missing:?}");
+        assert!(missing.contains("exited=1"), "{missing:?}");
+
+        let mut command = CommandBuilder::new("sh");
+        command.args([
+            "-c",
+            "printf 'SUSHLINE_READY>'; printf 'SUSHLINE_ACCEPTED:ok\\n'",
+        ]);
+        let found = run_pty_until(command, b"", "SUSHLINE_ACCEPTED:");
+        assert!(!found.contains("SUSHLINE_PTY_DIAGNOSTIC:"), "{found:?}");
+        assert_eq!(accepted_line(&found).as_deref(), Some("ok"), "{found:?}");
+    }
 }

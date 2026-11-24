@@ -15456,25 +15456,21 @@ fn horizontal_search_prompt_keeps_one_raw_byte_marker() {
 /// The settled failed-search frame, measured at 24 columns by 80 with
 /// standard tab stops. `pre_enter_end` bounds the slice before the first
 /// Enter response; Bash erases the prompt with CSI 15P and Sushline with a
-/// CR/LF pair. The last prompt frame in that slice is the frame a user sees.
-/// A final left or home move is part of that settled frame, including a legal
-/// column-zero cursor; the furthest earlier excursion is not.
+/// CR/LF pair. Replaying that slice once yields the frame a user sees before
+/// Enter. A final left or home move is part of that frame, including a legal
+/// column-zero cursor; an earlier prompt frame is not a fallback.
 fn settled_failed_search_frame(output: &str, pre_enter_end: usize) -> (String, usize, usize) {
     assert!(pre_enter_end <= output.len() && output.is_char_boundary(pre_enter_end));
-    let mut settled: Option<(String, usize, usize)> = None;
-    for end in 1..=pre_enter_end {
-        let mut screen = super::screen::Screen::new(24, 80);
-        screen.feed(&output.as_bytes()[..end]);
-        let (row, column) = screen.cursor();
-        let rows = screen.rows_text();
-        if row != 0 || !rows[0].starts_with("(failed reverse-i-search)") || !rows[0].contains('\'')
-        {
-            continue;
-        }
-        let quote = rows[0].rfind('\'').expect("search terminator quote");
-        settled = Some((rows[0].clone(), quote, column));
-    }
-    settled.expect("a settled failed-search frame")
+    let mut screen = super::screen::Screen::new(24, 80);
+    screen.feed(&output.as_bytes()[..pre_enter_end]);
+    let (row, column) = screen.cursor();
+    let rows = screen.rows_text();
+    assert!(
+        row == 0 && rows[0].starts_with("(failed reverse-i-search)") && rows[0].contains('\''),
+        "a settled failed-search frame: {rows:?}, cursor at ({row}, {column})"
+    );
+    let quote = rows[0].rfind('\'').expect("search terminator quote");
+    (rows[0].clone(), quote, column)
 }
 
 #[test]
@@ -15498,6 +15494,15 @@ fn settled_failed_search_frame_keeps_a_column_zero_frame() {
     let output = format!("\r{prompt}\x1b[C\x1b[C\x1b[1G");
     let (_, _, cursor) = settled_failed_search_frame(&output, output.len());
     assert_eq!(cursor, 0, "a home move is part of the settled frame");
+}
+
+#[test]
+#[should_panic(expected = "a settled failed-search frame")]
+fn settled_failed_search_frame_rejects_an_erased_prompt() {
+    let prompt = "(failed reverse-i-search)`':  ";
+    let output = format!("\r{prompt}\x1b[C\r\x1b[2K\r\x1b[15P");
+    let pre_enter_end = output.find("\r\x1b[15P").expect("erase marker");
+    settled_failed_search_frame(&output, pre_enter_end);
 }
 
 #[test]

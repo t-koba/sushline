@@ -15456,6 +15456,8 @@ fn horizontal_search_prompt_keeps_one_raw_byte_marker() {
 /// The settled failed-search frame, measured at 24 columns by 80 with
 /// standard tab stops. The search prompt is drawn and then erased, so the
 /// last prefix with the cursor still on its row is the frame a user sees.
+/// A later left move is part of that settled frame; the furthest earlier
+/// cursor excursion is not.
 fn settled_failed_search_frame(output: &str) -> (String, usize, usize) {
     let mut settled: Option<(String, usize, usize)> = None;
     for end in 1..=output.len() {
@@ -15471,14 +15473,21 @@ fn settled_failed_search_frame(output: &str) -> (String, usize, usize) {
             continue;
         }
         let quote = rows[0].rfind('\'').expect("search terminator quote");
-        if settled
-            .as_ref()
-            .is_none_or(|(_, _, previous)| column > *previous)
-        {
-            settled = Some((rows[0].clone(), quote, column));
-        }
+        settled = Some((rows[0].clone(), quote, column));
     }
     settled.expect("a settled failed-search frame")
+}
+
+#[test]
+fn settled_failed_search_frame_prefers_the_last_prompt_frame() {
+    let prompt = "(failed reverse-i-search)`':  ";
+    let output = format!("\r{prompt}\x1b[C\x1b[C\x1b[D");
+    let (_, _, cursor) = settled_failed_search_frame(&output);
+    assert_eq!(
+        cursor,
+        prompt.len() + 1,
+        "the final left move must settle the cursor, not the furthest excursion"
+    );
 }
 
 /// Bash 5.3 PTY evidence (Readline 8.3): for `\x12\x16\t\r\r` under

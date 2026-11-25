@@ -4319,6 +4319,42 @@ fn history_expansion_inherited_quote_state_matches_pinned_fixture() {
 }
 
 #[test]
+fn bare_history_prefix_terminates_at_active_quote() {
+    // Direct-library counterpart to the paired active-quote prompt fixture.
+    let mut history = History::new();
+    for entry in ["UNIQUEMARKER alpha", "BRACKETMATCH beta"] {
+        history.push(entry);
+    }
+    let policy = HistoryExpansionPolicy::default();
+    assert_eq!(
+        expand_history(
+            b"echo \"!UNIQUEMARKER\"",
+            &history,
+            HistoryChars::parse("!^#"),
+            &policy,
+            |_| false,
+        )
+        .unwrap(),
+        b"echo \"UNIQUEMARKER alpha\"".to_vec()
+    );
+
+    let policy = HistoryExpansionPolicy {
+        quote_state: Some(b'"'),
+        ..HistoryExpansionPolicy::default()
+    };
+    let event = get_history_event(
+        b"!UNIQUEMARKER\"",
+        &history,
+        HistoryChars::parse("!^#"),
+        &policy,
+    )
+    .unwrap()
+    .expect("event");
+    assert_eq!(event.line, b"UNIQUEMARKER alpha");
+    assert_eq!(event.next_index, 13);
+}
+
+#[test]
 fn history_expansion_current_line_event_supports_shared_suffixes() {
     // Paired with the five current_line* rows in CI's history_expand_probe.
     // Local GNU 8.2 measurements are directional; pinned 8.3 CI must confirm.

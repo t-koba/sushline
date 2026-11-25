@@ -348,7 +348,7 @@ pub fn expand_history_with_status_with_state(
             (out.clone(), idx + 2, None)
         } else {
             let Some(parsed_event) =
-                parse_history_event(line, idx + 1, history, histchars, policy, state)?
+                parse_history_event(line, idx + 1, history, histchars, policy, state, quote)?
             else {
                 out.push(byte);
                 idx += 1;
@@ -486,7 +486,15 @@ pub fn get_history_event(
             .is_some_and(|byte| Some(*byte) == ascii_marker(histchars.expansion)),
     );
     let mut scratch = HistoryExpansionState::new();
-    parse_history_event(line, start, history, histchars, policy, &mut scratch)
+    parse_history_event(
+        line,
+        start,
+        history,
+        histchars,
+        policy,
+        &mut scratch,
+        policy.quote_state,
+    )
 }
 
 fn parse_history_event(
@@ -496,6 +504,7 @@ fn parse_history_event(
     histchars: HistoryChars,
     policy: &HistoryExpansionPolicy,
     state: &mut HistoryExpansionState,
+    active_quote: Option<u8>,
 ) -> Result<Option<HistoryEvent>, HistoryExpansionError> {
     state.word_specifier_consumed = false;
     match line.get(idx).copied() {
@@ -707,10 +716,9 @@ fn parse_history_event(
             // starts a numeric relative event, handled above) for the word
             // designator path below.
             let start = idx;
-            while line
-                .get(idx)
-                .is_some_and(|byte| !is_history_event_terminator(*byte, policy))
-            {
+            while line.get(idx).is_some_and(|byte| {
+                Some(*byte) != active_quote && !is_history_event_terminator(*byte, policy)
+            }) {
                 idx += 1;
             }
             if start == idx {
@@ -745,8 +753,8 @@ fn parse_history_event(
 /// GNU scans until whitespace, a colon, an event designator introducer
 /// (`^$*%-`, with `-` terminating unless numeric), a shell metacharacter
 /// (`;`, `&`, `|`, `<`, `>`, `(`, `)`), a configured search delimiter, or a
-/// newline; dots, slashes, quotes, and most other punctuation scan into the
-/// prefix.
+/// newline. Dots, slashes, quotes, and most other punctuation scan into the
+/// prefix, except the currently active quote, which terminates it.
 fn is_history_event_terminator(byte: u8, policy: &HistoryExpansionPolicy) -> bool {
     byte.is_ascii_whitespace()
         || policy.search_delimiters.contains(&byte)

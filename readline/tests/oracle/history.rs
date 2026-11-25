@@ -2467,6 +2467,40 @@ fn bash_readline_and_sushline_expand_quoted_search_designators() {
 }
 
 #[test]
+fn bash_readline_and_sushline_terminate_bare_history_designators_at_active_quote() {
+    // These rows are measured with this fixture's two-entry history; the
+    // search and single-quote rows are controls from the adjacent fixtures.
+    let inputrc = r#""\C-x\C-a": history-expand-line"#;
+    let history = ["UNIQUEMARKER alpha", "BRACKETMATCH beta"];
+    for (typed, expected) in [
+        ("echo \"!UNIQUEMARKER\"", "echo \"UNIQUEMARKER alpha\""),
+        ("echo a\"!UNIQUEMARKER\"b", "echo a\"UNIQUEMARKER alpha\"b"),
+        (
+            "echo [!BRACKETMATCH ] \"!UNIQUEMARKER\"",
+            "echo [BRACKETMATCH beta ] \"UNIQUEMARKER alpha\"",
+        ),
+        ("echo !UNIQUEMARKER", "echo UNIQUEMARKER alpha"),
+        ("echo \"!?UNIQUEMARKER?\"", "echo \"UNIQUEMARKER alpha\""),
+        ("echo '!UNIQUEMARKER'", "echo '!UNIQUEMARKER'"),
+    ] {
+        let keys = format!("{typed}\x18\x01\r");
+        let bash = run_bash_prompt_with_history(keys.as_bytes(), inputrc, &history);
+        let sushline =
+            run_sushline_harness_with_inputrc_and_history(keys.as_bytes(), inputrc, &history);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "{typed}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "{typed}: {sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_inhibit_shell_history_expansion() {
     // Bash's prompt installs a shell-specific inhibit predicate; Sushline's
     // harness installs the same narrow policy in its Hooks implementation.

@@ -326,10 +326,10 @@ fn uppercase_condition_directives_skip_false_branch() {
     InputrcParser::new()
         .parse_str(
             "set completion-ignore-case off\n\
-             $IF version < 0.0\n\
-             set completion-ignore-case on\n\
-             $ELSE\n\
+             $IF completion-ignore-case = off\n\
              set bell-style visible\n\
+             $ELSE\n\
+             set bell-style none\n\
              $ENDIF\n\
              set comment-begin after\n",
             &Config::default(),
@@ -339,6 +339,9 @@ fn uppercase_condition_directives_skip_false_branch() {
         .unwrap();
 
     assert_eq!(variables["completion-ignore-case"], "off");
+    // The ELSE branch is inactive at `$ENDIF`; the sentinel proves that the
+    // uppercase directive popped the conditional instead of hiding a skipped
+    // branch.
     assert_eq!(variables["bell-style"], "visible");
     assert_eq!(variables["comment-begin"], "after");
 }

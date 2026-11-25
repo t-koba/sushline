@@ -712,8 +712,8 @@ fn bash_readline_and_sushline_match_uppercase_inputrc_directives() {
         r#"
 "\C-o": "Q"
 $INCLUDE {}
-$IF version < 0.0
-"\C-o": end-of-line
+$IF term=xterm-256color
+"\C-p": backward-char
 $ELSE
 "\C-p": beginning-of-line
 $ENDIF
@@ -721,17 +721,20 @@ $ENDIF
 "#,
         include.display()
     );
-    for keys in [
-        b"abc\x0fX\r".as_slice(),
-        b"abc\x10X\r".as_slice(),
-        b"abc\x0eX\r".as_slice(),
+    // The true IF branch reaches `$ENDIF` from an inactive ELSE branch: the
+    // sentinel after `$ENDIF` is bound only when the uppercase directive pops
+    // the conditional, so an exact-lowercase-only `$endif` would be visible.
+    for (keys, expected) in [
+        (b"abc\x0fX\r".as_slice(), "Xabc"),
+        (b"abc\x10X\r".as_slice(), "abXc"),
+        (b"abc\x0eX\r".as_slice(), "Xabc"),
     ] {
         let bash = run_bash_readline_with_inputrc_file(keys, &inputrc);
         let sushline = run_sushline_harness_with_inputrc(keys, &inputrc);
-        assert_eq!(accepted_line(&bash).as_deref(), Some("Xabc"), "{bash}");
+        assert_eq!(accepted_line(&bash).as_deref(), Some(expected), "{bash}");
         assert_eq!(
             accepted_line(&sushline).as_deref(),
-            Some("Xabc"),
+            Some(expected),
             "{sushline}"
         );
     }

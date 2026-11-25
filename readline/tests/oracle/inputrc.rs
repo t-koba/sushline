@@ -762,6 +762,40 @@ $endif
 }
 
 #[test]
+fn bash_readline_and_sushline_match_legacy_term_condition_matrix() {
+    // The oracle helpers run the child with TERM=xterm-256color. These are
+    // the measured legacy `term=` outcomes under that exact terminal, not a
+    // general terminal-name matching rule.
+    for (condition, matched) in [
+        ("term=xterm", true),
+        ("term=xterm-256", false),
+        ("term=xterm-256color", true),
+        ("term=XTerm", true),
+        ("term=xterm-256colo", false),
+        ("term=", false),
+        ("term=xterm-256color-extra", false),
+        ("term=dumb", false),
+    ] {
+        let inputrc = format!(
+            "$IF {condition}\n\"\\C-o\": beginning-of-line\n$ELSE\n\"\\C-o\": end-of-line\n$ENDIF\n"
+        );
+        let expected = if matched { "Xabc" } else { "abcX" };
+        let bash = run_bash_readline_with_inputrc_file(b"abc\x0fX\r", &inputrc);
+        let sushline = run_sushline_harness_with_inputrc(b"abc\x0fX\r", &inputrc);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "{condition}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "{condition}: {sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_readline_and_sushline_match_crlf_conditional_directive_placements() {
     assert_eq!(
         super::host_readline::host_readline_identity()

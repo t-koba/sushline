@@ -344,9 +344,14 @@ pub(crate) fn update_reverse_search_match(
     if !had_match || !repeat {
         // A failed query edit drops the displayed line (so accept and point
         // follow the original line) but keeps the match index as the bound
-        // for the next extension.
+        // for the next extension. GNU's Ctrl-Y also still extends the query
+        // from the last successful match offset; every other consumer needs
+        // both the offset and the displayed line, so retaining the offset is
+        // otherwise inert.
         search.match_line = None;
-        search.match_offset = None;
+        if !had_match {
+            search.match_offset = None;
+        }
         search.unsaved_line_match = false;
     }
     false

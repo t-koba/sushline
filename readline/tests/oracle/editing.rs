@@ -18228,6 +18228,117 @@ fn bash_readline_and_sushline_honor_ctrl_u_binding_in_isearch() {
     }
 }
 
+/// A macro rebinding of Ctrl-Y during incremental search is dispatched rather
+/// than extending the query, while the measured command and named-command
+/// rebindings keep the query-extension path and accept the original line
+/// silently. With history `alpha beta`, `xyz` and keys `abc C-r b C-y Enter`,
+/// the fixture pins each editor's own accepted line and bell count for these
+/// INPUTRC forms only. It does not claim macro-text parity: GNU's trailing
+/// quote in the originally measured INPUTRC variant is a separate
+/// macro-parsing difference, and no general binding model is asserted.
+#[test]
+fn bash_readline_and_sushline_honor_ctrl_y_binding_in_isearch() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!(
+            "Ctrl-Y binding in incremental search was measured on Readline 8.3; this case reports nothing on other releases"
+        );
+        return;
+    }
+    let keys = b"abc\x12b\x19\r".as_slice();
+    let history = &["alpha beta", "xyz"][..];
+    for (label, inputrc, bash_accepted, sushline_accepted) in [
+        ("macro", "\"\\C-y\": \"XY\"\n", "aXYbc", "abcXY"),
+        ("forward-char", r#""\C-y": forward-char"#, "abc", "abc"),
+        ("yank-pop", r#""\C-y": yank-pop"#, "abc", "abc"),
+        ("yank", r#""\C-y": yank"#, "abc", "abc"),
+        (
+            "beginning-of-line",
+            r#""\C-y": beginning-of-line"#,
+            "abc",
+            "abc",
+        ),
+    ] {
+        for (editor, bells, accepted, output) in [
+            (
+                "Bash",
+                0,
+                bash_accepted,
+                run_bash_readline_with_inputrc_file_and_history(keys, inputrc, history),
+            ),
+            (
+                "Sushline",
+                0,
+                sushline_accepted,
+                run_sushline_harness_with_inputrc_and_history(keys, inputrc, history),
+            ),
+        ] {
+            let context = format!("{label} {editor} inputrc={inputrc:?} keys={keys:?}: {output:?}");
+            assert_eq!(bell_count(&output), bells, "{context}");
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(accepted),
+                "{context}"
+            );
+        }
+    }
+}
+
+/// Ctrl-Y after a failed cross-width fold query rings once when GNU treats the
+/// skipped short history line as the extension point, and twice for the other
+/// measured failed queries. These C.UTF-8 traces pin bell counts and accepted
+/// lines for the listed queries, histories and Ctrl-Y counts only; they do not
+/// establish a general Unicode-folding or Ctrl-Y bell rule.
+#[test]
+fn bash_readline_and_sushline_ctrl_y_cross_width_fold_bells() {
+    require_oracle_host();
+    if !c_utf8_locale_available() || !host_carries_measured_release() {
+        eprintln!("Cross-width fold Ctrl-Y was measured on Readline 8.3 in C.UTF-8");
+        return;
+    }
+    let inputrc = "set search-ignore-case on";
+    let env = [("LC_ALL", "C.UTF-8")];
+    for (query, history, ctrl_y_count, bells, accepted) in [
+        ("K", &["k", "zzzzzzzzzz"][..], 1, 2, ""),
+        ("K", &["k", "kk"][..], 1, 2, ""),
+        ("K", &["k"][..], 2, 3, ""),
+        // Controls: a one-byte-short line and a failed ASCII query keep the
+        // ordinary two-bell no-match path; a matching fold stays silent.
+        ("K", &["kk"][..], 1, 3, ""),
+        ("i", &["k", "zzzzzzzzzz"][..], 1, 3, ""),
+        ("K", &["kkkk"][..], 1, 1, "kkkk"),
+    ] {
+        let mut keys = b"\x12".to_vec();
+        keys.extend_from_slice(query.as_bytes());
+        keys.extend(std::iter::repeat_n(0x19, ctrl_y_count));
+        keys.push(b'\r');
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_inputrc_file_and_history_and_env(
+                    &keys, inputrc, history, &env,
+                ),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history_and_env(
+                    &keys, inputrc, history, &env,
+                ),
+            ),
+        ] {
+            let context = format!(
+                "{editor} query={query:?} history={history:?} ctrl_y={ctrl_y_count}: {output:?}"
+            );
+            assert_eq!(bell_count(&output), bells, "{context}");
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(accepted),
+                "{context}"
+            );
+        }
+    }
+}
+
 /// An ESC-prefixed key sequence in one input chunk ends incremental search as
 /// a meta command: its binding runs at the match point, and an unbound meta
 /// key rings once instead of inserting its character. The bell count for each
@@ -18430,6 +18541,132 @@ fn bash_readline_and_sushline_discard_stale_prefix_on_ctrl_w_and_ctrl_y() {
             (
                 "Sushline",
                 run_sushline_harness_with_inputrc_and_history_and_env(keys, "", history, &env),
+            ),
+        ] {
+            let context = format!("{editor} {name} keys={keys:?}: {output:?}");
+            assert_eq!(bell_count(&output), bells, "{context}");
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(accepted),
+                "{context}"
+            );
+        }
+    }
+}
+
+/// Ctrl-Y inside an emacs reverse incremental search keeps the query and the
+/// selected match active instead of yanking into the line. These eight traces
+/// pin the accepted line and bell count for both editors with history
+/// `alpha beta`, `xyz`, `alphabet gamma`; they cover a failed query, a match
+/// ending at end-of-line, an interior match, a failed query extension before
+/// Ctrl-Y, a following C-r, and two Ctrl-Y in a row.
+#[test]
+fn bash_readline_and_sushline_keep_ctrl_y_in_incremental_search() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!(
+            "Ctrl-Y in incremental search was measured on Readline 8.3; this case reports nothing on other releases"
+        );
+        return;
+    }
+    let history = &["alpha beta", "xyz", "alphabet gamma"][..];
+    // Keys are literal bytes: 0x15 Ctrl-U, 0x12 Ctrl-R/C-r, 0x19 Ctrl-Y,
+    // 0x0d Enter; `Z` extends the query that Ctrl-Y left active.
+    for (name, keys, bells, accepted) in [
+        (
+            "unsaved_line_empty_query",
+            b"abc\x15\x12\x19\r".as_slice(),
+            2,
+            "",
+        ),
+        (
+            "unsaved_line_query_extended",
+            b"abc\x15\x12\x19Z\r".as_slice(),
+            3,
+            "",
+        ),
+        ("empty_query", b"\x12\x19\r".as_slice(), 2, ""),
+        (
+            "terminal_match",
+            b"\x12a\x19\r".as_slice(),
+            1,
+            "alphabet gamma",
+        ),
+        (
+            "interior_match",
+            b"\x12alph\x19\r".as_slice(),
+            0,
+            "alphabet gamma",
+        ),
+        (
+            "failed_query_extension",
+            b"\x12alphQ\x19\r".as_slice(),
+            2,
+            "alphabet gamma",
+        ),
+        (
+            "ctrl_y_then_ctrl_r",
+            b"\x12alph\x19\x12\r".as_slice(),
+            1,
+            "alphabet gamma",
+        ),
+        (
+            "two_ctrl_y",
+            b"\x12alph\x19\x19\r".as_slice(),
+            1,
+            "alphabet gamma",
+        ),
+        (
+            "failed_query_then_two_ctrl_y",
+            b"\x12alphQ\x19\x19\r".as_slice(),
+            4,
+            "alphabet gamma",
+        ),
+        (
+            "failed_query_then_three_ctrl_y",
+            b"\x12alphQ\x19\x19\x19\r".as_slice(),
+            6,
+            "alphabet gamma",
+        ),
+        (
+            "failed_query_then_two_ctrl_y_then_z",
+            b"\x12alphQ\x19\x19Z\r".as_slice(),
+            5,
+            "alphabet gamma",
+        ),
+        (
+            "failed_short_query_then_two_ctrl_y",
+            b"\x12alpQ\x19\x19\r".as_slice(),
+            4,
+            "alphabet gamma",
+        ),
+        (
+            "failed_query_backspace_then_ctrl_y",
+            b"\x12alphQ\x08\x19\r".as_slice(),
+            2,
+            "alphabet gamma",
+        ),
+        (
+            "failed_query_backspace_then_ctrl_y_then_ctrl_r",
+            b"\x12alphQ\x08\x19\x12\r".as_slice(),
+            3,
+            "alphabet gamma",
+        ),
+        (
+            "failed_query_two_backspaces_then_ctrl_y",
+            b"\x12alphQ\x08\x08\x19\r".as_slice(),
+            2,
+            "alphabet gamma",
+        ),
+    ] {
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(keys, "", history),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, "", history),
             ),
         ] {
             let context = format!("{editor} {name} keys={keys:?}: {output:?}");

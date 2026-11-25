@@ -1793,6 +1793,38 @@ where
     /// GNU rings for a failing query extension. A forward search also scans
     /// the live line from its start point, so a history match alone is not
     /// enough to consider the extension successful.
+    /// A failed query can have skipped a history line shorter than the query's
+    /// first UTF-8 character even though the raw byte matcher folds onto it.
+    /// GNU's Ctrl-Y then rings once from that candidate's end rather than
+    /// taking the ordinary two-bell no-match path. This is limited to the
+    /// measured cross-width fold shape.
+    fn failed_query_has_short_fold_candidate(&self, search: &ReverseSearchState) -> bool {
+        if search.query.is_empty() {
+            return false;
+        }
+        let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
+        let Some(locale_lowercase) = self.search_locale_lowercase(ignore_case) else {
+            return false;
+        };
+        let Ok(query) = std::str::from_utf8(&search.query) else {
+            return false;
+        };
+        let Some(first) = query.chars().next() else {
+            return false;
+        };
+        self.history.entries().iter().any(|entry| {
+            entry.line_bytes.len() < first.len_utf8()
+                && search_bytes_offset(
+                    &entry.line_bytes,
+                    &search.query,
+                    ignore_case,
+                    Some(&locale_lowercase),
+                    false,
+                )
+                .is_some()
+        })
+    }
+
     fn search_query_failed(
         &self,
         state: &EditorState,
@@ -1827,6 +1859,17 @@ where
         )
         .into_iter()
         .any(|offset| offset >= search.original_point)
+    }
+
+    /// Bell count for a search key that leaves the query and selected match
+    /// untouched: two for a failed query, one when the match ends at the
+    /// line's end, and none for an interior match.
+    fn isearch_keep_query_bells(search: &ReverseSearchState) -> usize {
+        match search.match_line.as_deref() {
+            None => 2,
+            Some(line) if search.match_offset.unwrap_or(0) + search.query.len() == line.len() => 1,
+            Some(_) => 0,
+        }
     }
 
     /// Extend the active query with raw bytes, recomputing the match and
@@ -1880,20 +1923,11 @@ where
             return self.append_search_query_bytes(state, pending);
         }
         if matches!(byte, 0x17 | 0x19) {
-            // GNU rings twice for a failed query, once when the selected
-            // match ends at the line's end, and not at all for an interior
-            // match. The last case is the one a two-entry history exposes.
-            let bells = state.search.reverse_search.as_ref().map_or(0, |search| {
-                match search.match_line.as_deref() {
-                    None => 2,
-                    Some(line)
-                        if search.match_offset.unwrap_or(0) + search.query.len() == line.len() =>
-                    {
-                        1
-                    }
-                    Some(_) => 0,
-                }
-            });
+            let bells = state
+                .search
+                .reverse_search
+                .as_ref()
+                .map_or(0, Self::isearch_keep_query_bells);
             for _ in 0..bells {
                 self.ding()?;
             }
@@ -2162,6 +2196,61 @@ where
                     } else if !silent {
                         self.ding()?;
                     }
+                }
+                state.search.reverse_search = Some(search);
+                EditorOutcome::Continue
+            }
+            // GNU dispatches a macro/string rebinding of Ctrl-Y during the
+            // search; command and named-command rebindings keep the measured
+            // query-extension path. Only a macro goes back to ordinary
+            // binding dispatch here.
+            bytes
+                if bytes == [0x19]
+                    && matches!(
+                        self.keymap.lookup(self.keymap.current(), bytes),
+                        Some(KeyBinding::Macro(_))
+                    ) =>
+            {
+                state.search.reverse_search = Some(search.clone());
+                return self.update_search_with_input(state, search, bytes, hooks);
+            }
+            // GNU's Ctrl-Y extends the query with the rest of the displayed
+            // line after the last successful match; it does not yank from the
+            // kill ring. Without a prior match it leaves the query alone and
+            // rings twice. The extension is an ordinary query edit, so a
+            // failed re-search rings once and keeps the displayed line.
+            &[0x19] => {
+                state.search.quoted_pending = false;
+                let Some(offset) = search.match_offset else {
+                    let short_fold_candidate = self.failed_query_has_short_fold_candidate(&search);
+                    state.search.reverse_search = Some(search);
+                    self.ding()?;
+                    if !short_fold_candidate {
+                        self.ding()?;
+                    }
+                    state.input.changed_display = true;
+                    return Ok(EditorOutcome::Continue);
+                };
+                let line = state.buffer.as_bytes();
+                let wstart = offset.saturating_add(search.query.len());
+                // A failed query edit that was followed by a restored match
+                // still rings for the retained failed line on Ctrl-Y.
+                if search.retain_failed_query_line && search.match_line.is_some() {
+                    self.ding()?;
+                }
+                if wstart >= line.len() {
+                    self.ding()?;
+                    if search.query.is_empty() {
+                        self.ding()?;
+                    }
+                } else {
+                    let suffix = line[wstart..].to_vec();
+                    search.query.extend_from_slice(&suffix);
+                }
+                let found = self.refresh_reverse_search_match(&mut search, false);
+                self.apply_search_match(state, &search);
+                if self.search_query_failed(state, &search, found) {
+                    self.ding()?;
                 }
                 state.search.reverse_search = Some(search);
                 EditorOutcome::Continue

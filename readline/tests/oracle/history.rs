@@ -2424,6 +2424,49 @@ fn bash_readline_and_sushline_apply_same_history_quote_inhibit_policy() {
 }
 
 #[test]
+fn bash_readline_and_sushline_expand_quoted_search_designators() {
+    // The Bash prompt harness appends its own command to history, so a bare
+    // `!!` would name different events in the two editors. A unique search
+    // designator selects the seeded entry unambiguously on both sides.
+    let inputrc = r#""\C-x\C-a": history-expand-line"#;
+    let history = ["echo UNIQUEMARKER alpha"];
+    let expanded = "echo UNIQUEMARKER alpha";
+    for (typed, expected) in [
+        ("\"!?UNIQUEMARKER?\"", format!("\"{expanded}\"")),
+        ("echo \"!?UNIQUEMARKER?\"", format!("echo \"{expanded}\"")),
+        ("echo 'a'!?UNIQUEMARKER?", format!("echo 'a'{expanded}")),
+        (
+            "echo a\"!?UNIQUEMARKER?\"b",
+            format!("echo a\"{expanded}\"b"),
+        ),
+        ("\"!?UNIQUEMARKER?\":q", format!("\"{expanded}\":q")),
+        (
+            "'!?UNIQUEMARKER?' !?UNIQUEMARKER?",
+            format!("'!?UNIQUEMARKER?' {expanded}"),
+        ),
+        (
+            "echo \\!?UNIQUEMARKER?",
+            "echo \\!?UNIQUEMARKER?".to_string(),
+        ),
+    ] {
+        let keys = format!("{typed}\x18\x01\r");
+        let bash = run_bash_prompt_with_history(keys.as_bytes(), inputrc, &history);
+        let sushline =
+            run_sushline_harness_with_inputrc_and_history(keys.as_bytes(), inputrc, &history);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected.as_str()),
+            "{typed}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected.as_str()),
+            "{typed}: {sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_history_x_modifier_preserves_separators_and_empty_fields() {
     // Runtime observations through Bash 5.3's history -p/GNU History path;
     // compare raw bytes so tabs, newlines, and CR/FF remain distinguishable.

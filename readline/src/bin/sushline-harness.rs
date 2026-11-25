@@ -56,10 +56,11 @@ impl Hooks for HarnessApplication {
 // The harness embeds Sushline in a shell-like prompt, so it installs the same
 // narrow expansion inhibitions Bash 5.3 uses for shell syntax. A completed
 // `[!...]` or `${!...}` outside single quotes suppresses every history event
-// on the line, including events before it; inside single quotes it is not an
-// expansion candidate, so other events still expand. Incomplete delimiters and
-// backslash-escaped `!` are left to ordinary expansion. `$!` suppresses only
-// its own `!`.
+// on the line, including events before it. A pattern inside single quotes,
+// after a word-start `#` comment, or with a no-expand byte after its `!` is
+// not an expansion candidate, so other events still expand. Incomplete
+// delimiters and backslash-escaped `!` are left to ordinary expansion. `$!`
+// suppresses only its own `!`.
 fn inhibits_history_expansion(line: &[u8], idx: usize) -> bool {
     if has_unquoted_shell_context(line) {
         return true;
@@ -68,39 +69,46 @@ fn inhibits_history_expansion(line: &[u8], idx: usize) -> bool {
 }
 
 fn has_unquoted_shell_context(line: &[u8]) -> bool {
+    const NO_EXPAND: &[u8] = b" \t\n\r=;&|()<>";
     let mut quote = None;
+    let mut at_word_start = true;
     for (i, byte) in line.iter().enumerate() {
-        match quote {
-            Some(b'\'') => {
-                if *byte == b'\'' {
-                    quote = None;
-                }
-                continue;
+        let escaped = is_escaped(line, i);
+        if quote == Some(b'\'') {
+            if *byte == b'\'' {
+                quote = None;
             }
+            at_word_start = false;
+            continue;
+        }
+        if quote.is_none() && *byte == b'#' && at_word_start {
+            break;
+        }
+        match quote {
             Some(b'"') => {
-                if *byte == b'"' && !is_escaped(line, i) {
+                if *byte == b'"' && !escaped {
                     quote = None;
                 }
             }
             None => {
-                if (*byte == b'\'' || *byte == b'"') && !is_escaped(line, i) {
+                if (*byte == b'\'' || *byte == b'"') && !escaped {
                     quote = Some(*byte);
-                    continue;
                 }
             }
             _ => unreachable!(),
         }
-        if *byte != b'!' || is_escaped(line, i) {
-            continue;
-        }
-        if (i > 0 && line[i - 1] == b'[' && line[i + 1..].contains(&b']'))
-            || (i > 1
-                && line[i - 1] == b'{'
-                && line[i - 2] == b'$'
-                && line[i + 1..].contains(&b'}'))
+        if *byte == b'!'
+            && !escaped
+            && !line.get(i + 1).is_some_and(|next| NO_EXPAND.contains(next))
+            && ((i > 0 && line[i - 1] == b'[' && line[i + 1..].contains(&b']'))
+                || (i > 1
+                    && line[i - 1] == b'{'
+                    && line[i - 2] == b'$'
+                    && line[i + 1..].contains(&b'}')))
         {
             return true;
         }
+        at_word_start = byte.is_ascii_whitespace() || NO_EXPAND.contains(byte);
     }
     false
 }

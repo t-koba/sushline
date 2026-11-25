@@ -2512,6 +2512,31 @@ fn bash_readline_and_sushline_inhibit_shell_history_expansion() {
             "echo '[!ab]!' !UNIQUEMARKER",
             "echo '[!ab]!' UNIQUEMARKER alpha",
         ),
+        (
+            "echo [! ab] !UNIQUEMARKER",
+            "echo [! ab] UNIQUEMARKER alpha",
+        ),
+        (
+            "echo [!=ab] !UNIQUEMARKER",
+            "echo [!=ab] UNIQUEMARKER alpha",
+        ),
+        (
+            "echo [!;ab] !UNIQUEMARKER",
+            "echo [!;ab] UNIQUEMARKER alpha",
+        ),
+        (
+            "echo !UNIQUEMARKER # [!ab]",
+            "echo UNIQUEMARKER alpha # [!ab]",
+        ),
+        (
+            "echo !UNIQUEMARKER # ${!ab}",
+            "echo UNIQUEMARKER alpha # ${!ab}",
+        ),
+        ("echo !UNIQUEMARKER x#[!ab]", "echo !UNIQUEMARKER x#[!ab]"),
+        (
+            "echo !UNIQUEMARKER #'[!ab]'",
+            "echo UNIQUEMARKER alpha #'[!ab]'",
+        ),
         ("echo !UNIQUEMARKER", "echo UNIQUEMARKER alpha"),
     ] {
         let keys = format!("{typed}\x18\x01\r");

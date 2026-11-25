@@ -53,24 +53,36 @@ impl Hooks for HarnessApplication {
     }
 }
 
-// The harness embeds Sushline in a shell-like prompt, so it installs the same
-// narrow expansion inhibitions Bash 5.3 uses for shell syntax. A completed
-// `[!...]` or `${!...}` outside single quotes suppresses every history event
-// on the line, including events before it. A pattern inside single quotes,
-// after a word-start `#` comment, or with a no-expand byte after its `!` is
-// not an expansion candidate, so other events still expand. Incomplete
-// delimiters and backslash-escaped `!` are left to ordinary expansion. `$!`
-// suppresses only its own `!`.
-fn inhibits_history_expansion(line: &[u8], idx: usize) -> bool {
-    if has_unquoted_shell_context(line) {
-        return true;
-    }
-    idx > 1 && line[idx - 1] == b'$' && line[idx] == b'!'
+// The harness embeds Sushline in a shell-like prompt, so it installs the
+// narrow history inhibitions Bash 5.3 uses. Bash's candidate scan suppresses
+// `[!...]`, `${!...}` and `$!`, but its expansion pass re-checks a bracket or
+// indirect `!` against the output built so far, which no longer contains the
+// closing delimiter. When another ordinary event is available, the harness
+// therefore lets the single Sushline pass reprocess that `!`, matching Bash's
+// accepted lines. `$!` stays inhibited at its own index.
+#[derive(Clone, Copy)]
+enum ShellBang {
+    Plain,
+    Dollar,
+    Bracket,
 }
 
-fn has_unquoted_shell_context(line: &[u8]) -> bool {
+fn inhibits_history_expansion(line: &[u8], idx: usize) -> bool {
+    let bangs = classify_shell_bangs(line);
+    match bangs.get(idx).copied().flatten() {
+        Some(ShellBang::Dollar) => true,
+        Some(ShellBang::Bracket) => !bangs
+            .iter()
+            .any(|bang| matches!(bang, Some(ShellBang::Plain))),
+        _ => false,
+    }
+}
+
+fn classify_shell_bangs(line: &[u8]) -> Vec<Option<ShellBang>> {
     const NO_EXPAND: &[u8] = b" \t\n\r=;&|()<>";
+    let mut bangs = vec![None; line.len()];
     let mut quote = None;
+    const WORD_DELIMITERS: &[u8] = b" \t\n;&()|<>";
     let mut at_word_start = true;
     for (i, byte) in line.iter().enumerate() {
         let escaped = is_escaped(line, i);
@@ -100,17 +112,30 @@ fn has_unquoted_shell_context(line: &[u8]) -> bool {
         if *byte == b'!'
             && !escaped
             && !line.get(i + 1).is_some_and(|next| NO_EXPAND.contains(next))
-            && ((i > 0 && line[i - 1] == b'[' && line[i + 1..].contains(&b']'))
-                || (i > 1
-                    && line[i - 1] == b'{'
-                    && line[i - 2] == b'$'
-                    && line[i + 1..].contains(&b'}')))
         {
-            return true;
+            bangs[i] = Some(if idx_is_dollar_bang(line, i) {
+                ShellBang::Dollar
+            } else if idx_is_bracket_bang(line, i) {
+                ShellBang::Bracket
+            } else {
+                ShellBang::Plain
+            });
         }
-        at_word_start = byte.is_ascii_whitespace() || NO_EXPAND.contains(byte);
+        at_word_start = WORD_DELIMITERS.contains(byte);
     }
-    false
+    bangs
+}
+
+fn idx_is_dollar_bang(line: &[u8], idx: usize) -> bool {
+    idx > 1 && line[idx - 1] == b'$' && line[idx] == b'!'
+}
+
+fn idx_is_bracket_bang(line: &[u8], idx: usize) -> bool {
+    (idx > 0 && line[idx - 1] == b'[' && line[idx + 1..].contains(&b']'))
+        || (idx > 1
+            && line[idx - 1] == b'{'
+            && line[idx - 2] == b'$'
+            && line[idx + 1..].contains(&b'}'))
 }
 
 fn is_escaped(line: &[u8], idx: usize) -> bool {

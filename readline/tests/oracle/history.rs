@@ -2472,7 +2472,7 @@ fn bash_readline_and_sushline_inhibit_shell_history_expansion() {
     // harness installs the same narrow policy in its Hooks implementation.
     // The pure History library keeps the neutral per-call predicate.
     let inputrc = r#""\C-x\C-a": history-expand-line"#;
-    let history = ["UNIQUEMARKER alpha"];
+    let history = ["UNIQUEMARKER alpha", "BRACKETMATCH beta"];
     for (typed, expected) in [
         ("$!UNIQUEMARKER", "$UNIQUEMARKER alpha"),
         ("echo $!UNIQUEMARKER", "echo $!UNIQUEMARKER"),
@@ -2524,6 +2524,11 @@ fn bash_readline_and_sushline_inhibit_shell_history_expansion() {
             "echo [!;ab] !UNIQUEMARKER",
             "echo [!;ab] UNIQUEMARKER alpha",
         ),
+        ("echo =#[!BRACKETMATCH ]", "echo =#[!BRACKETMATCH ]"),
+        (
+            "echo !UNIQUEMARKER =#[!BRACKETMATCH ]",
+            "echo UNIQUEMARKER alpha =#[BRACKETMATCH beta ]",
+        ),
         (
             "echo !UNIQUEMARKER # [!ab]",
             "echo UNIQUEMARKER alpha # [!ab]",
@@ -2537,6 +2542,19 @@ fn bash_readline_and_sushline_inhibit_shell_history_expansion() {
             "echo !UNIQUEMARKER #'[!ab]'",
             "echo UNIQUEMARKER alpha #'[!ab]'",
         ),
+        (
+            "echo !UNIQUEMARKER [!BRACKETMATCH ]",
+            "echo UNIQUEMARKER alpha [BRACKETMATCH beta ]",
+        ),
+        (
+            "echo [!BRACKETMATCH ] !UNIQUEMARKER",
+            "echo [BRACKETMATCH beta ] UNIQUEMARKER alpha",
+        ),
+        (
+            "echo !UNIQUEMARKER ${!BRACKETMATCH }",
+            "echo UNIQUEMARKER alpha ${BRACKETMATCH beta }",
+        ),
+        ("echo [!BRACKETMATCH ]", "echo [!BRACKETMATCH ]"),
         ("echo !UNIQUEMARKER", "echo UNIQUEMARKER alpha"),
     ] {
         let keys = format!("{typed}\x18\x01\r");

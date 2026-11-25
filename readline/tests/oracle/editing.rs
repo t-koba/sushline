@@ -15535,6 +15535,11 @@ fn bash_readline_and_sushline_keep_a_literal_tab_in_the_search_query() {
                 .any(|window| window == fragment),
             "{editor} must write the raw query TAB and three cursor moves: {output:?}"
         );
+        assert_eq!(
+            bell_count(&output[..pre_enter_end]),
+            1,
+            "{editor} must emit exactly one bell before Enter: {output:?}"
+        );
         // The response is measured byte-for-byte, so a redraw emitted after
         // Enter was queued cannot hide in an ambiguous response prefix.
         let enter_response: &[u8] = if editor == "Bash" {

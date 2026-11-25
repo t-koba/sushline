@@ -54,19 +54,63 @@ impl Hooks for HarnessApplication {
 }
 
 // The harness embeds Sushline in a shell-like prompt, so it installs the same
-// narrow expansion inhibitions Bash 5.3 uses for shell syntax: `[!...]`
-// pattern negation, `${!...}` indirect expansion and `$!` process ID.
-// Incomplete delimiters are left to ordinary history expansion, matching the
-// pinned oracle.
+// narrow expansion inhibitions Bash 5.3 uses for shell syntax. A completed
+// `[!...]` or `${!...}` outside single quotes suppresses every history event
+// on the line, including events before it; inside single quotes it is not an
+// expansion candidate, so other events still expand. Incomplete delimiters and
+// backslash-escaped `!` are left to ordinary expansion. `$!` suppresses only
+// its own `!`.
 fn inhibits_history_expansion(line: &[u8], idx: usize) -> bool {
-    let prev = idx.checked_sub(1).and_then(|i| line.get(i));
-    if prev == Some(&b'[') && line[idx + 1..].contains(&b']') {
+    if has_unquoted_shell_context(line) {
         return true;
     }
-    if idx > 1 && prev == Some(&b'{') && line[idx - 2] == b'$' && line[idx + 1..].contains(&b'}') {
-        return true;
+    idx > 1 && line[idx - 1] == b'$' && line[idx] == b'!'
+}
+
+fn has_unquoted_shell_context(line: &[u8]) -> bool {
+    let mut quote = None;
+    for (i, byte) in line.iter().enumerate() {
+        match quote {
+            Some(b'\'') => {
+                if *byte == b'\'' {
+                    quote = None;
+                }
+                continue;
+            }
+            Some(b'"') => {
+                if *byte == b'"' && !is_escaped(line, i) {
+                    quote = None;
+                }
+            }
+            None => {
+                if (*byte == b'\'' || *byte == b'"') && !is_escaped(line, i) {
+                    quote = Some(*byte);
+                    continue;
+                }
+            }
+            _ => unreachable!(),
+        }
+        if *byte != b'!' || is_escaped(line, i) {
+            continue;
+        }
+        if (i > 0 && line[i - 1] == b'[' && line[i + 1..].contains(&b']'))
+            || (i > 1
+                && line[i - 1] == b'{'
+                && line[i - 2] == b'$'
+                && line[i + 1..].contains(&b'}'))
+        {
+            return true;
+        }
     }
-    idx > 1 && prev == Some(&b'$') && line[idx] == b'!'
+    false
+}
+
+fn is_escaped(line: &[u8], idx: usize) -> bool {
+    let mut start = idx;
+    while start > 0 && line[start - 1] == b'\\' {
+        start -= 1;
+    }
+    (idx - start) % 2 == 1
 }
 
 fn command_name_bytes(name: &std::ffi::OsStr) -> Option<Vec<u8>> {

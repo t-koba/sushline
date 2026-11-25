@@ -1,5 +1,6 @@
 use readline::{
-    Config, Editor, History, Hooks, Prompt, PromptEscapes, ReadlineResult, SigintPolicy, Terminal,
+    Config, Editor, History, HistoryExpansion, HistoryExpansionContext, Hooks, Prompt,
+    PromptEscapes, ReadlineResult, SigintPolicy, Terminal, expand_history_with_status_with_state,
 };
 use std::ffi::OsString;
 use std::process::ExitCode;
@@ -34,6 +35,38 @@ impl Hooks for HarnessApplication {
     fn variable_names(&mut self) -> Vec<Vec<u8>> {
         environment_variable_names(std::env::vars_os())
     }
+
+    fn expand_history(
+        &mut self,
+        context: HistoryExpansionContext<'_>,
+    ) -> Result<HistoryExpansion, String> {
+        let line = context.line;
+        expand_history_with_status_with_state(
+            line,
+            context.history,
+            context.histchars,
+            context.policy,
+            context.expansion_state,
+            |idx| inhibits_history_expansion(line, idx),
+        )
+        .map_err(|err| err.message())
+    }
+}
+
+// The harness embeds Sushline in a shell-like prompt, so it installs the same
+// narrow expansion inhibitions Bash 5.3 uses for shell syntax: `[!...]`
+// pattern negation, `${!...}` indirect expansion and `$!` process ID.
+// Incomplete delimiters are left to ordinary history expansion, matching the
+// pinned oracle.
+fn inhibits_history_expansion(line: &[u8], idx: usize) -> bool {
+    let prev = idx.checked_sub(1).and_then(|i| line.get(i));
+    if prev == Some(&b'[') && line[idx + 1..].contains(&b']') {
+        return true;
+    }
+    if idx > 1 && prev == Some(&b'{') && line[idx - 2] == b'$' && line[idx + 1..].contains(&b'}') {
+        return true;
+    }
+    idx > 1 && prev == Some(&b'$') && line[idx] == b'!'
 }
 
 fn command_name_bytes(name: &std::ffi::OsStr) -> Option<Vec<u8>> {

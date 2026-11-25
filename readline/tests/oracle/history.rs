@@ -2467,6 +2467,43 @@ fn bash_readline_and_sushline_expand_quoted_search_designators() {
 }
 
 #[test]
+fn bash_readline_and_sushline_inhibit_shell_history_expansion() {
+    // Bash's prompt installs a shell-specific inhibit predicate; Sushline's
+    // harness installs the same narrow policy in its Hooks implementation.
+    // The pure History library keeps the neutral per-call predicate.
+    let inputrc = r#""\C-x\C-a": history-expand-line"#;
+    let history = ["UNIQUEMARKER alpha"];
+    for (typed, expected) in [
+        ("$!UNIQUEMARKER", "$UNIQUEMARKER alpha"),
+        ("echo $!UNIQUEMARKER", "echo $!UNIQUEMARKER"),
+        ("echo x$!UNIQUEMARKER", "echo x$!UNIQUEMARKER"),
+        ("echo [!UNIQUEMARKER]", "echo [!UNIQUEMARKER]"),
+        ("echo [!UNIQUEMARKER ]", "echo [!UNIQUEMARKER ]"),
+        ("echo a[!UNIQUEMARKER ]b", "echo a[!UNIQUEMARKER ]b"),
+        ("echo ${!UNIQUEMARKER}", "echo ${!UNIQUEMARKER}"),
+        ("echo ${!UNIQUEMARKER }", "echo ${!UNIQUEMARKER }"),
+        ("echo [!UNIQUEMARKER", "echo [UNIQUEMARKER alpha"),
+        ("echo ${!UNIQUEMARKER", "echo ${UNIQUEMARKER alpha"),
+        ("echo !UNIQUEMARKER", "echo UNIQUEMARKER alpha"),
+    ] {
+        let keys = format!("{typed}\x18\x01\r");
+        let bash = run_bash_prompt_with_history(keys.as_bytes(), inputrc, &history);
+        let sushline =
+            run_sushline_harness_with_inputrc_and_history(keys.as_bytes(), inputrc, &history);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected),
+            "{typed}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected),
+            "{typed}: {sushline}"
+        );
+    }
+}
+
+#[test]
 fn bash_history_x_modifier_preserves_separators_and_empty_fields() {
     // Runtime observations through Bash 5.3's history -p/GNU History path;
     // compare raw bytes so tabs, newlines, and CR/FF remain distinguishable.

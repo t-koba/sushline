@@ -2524,6 +2524,18 @@ fn bash_readline_and_sushline_inhibit_shell_history_expansion() {
             "echo [!;ab] !UNIQUEMARKER",
             "echo [!;ab] UNIQUEMARKER alpha",
         ),
+        ("echo !UNIQUEMARKER [!]", "echo UNIQUEMARKER alpha [!]"),
+        ("echo !UNIQUEMARKER ${!}", "echo UNIQUEMARKER alpha ${!}"),
+        (
+            "echo !UNIQUEMARKER [!]!UNIQUEMARKER",
+            "echo UNIQUEMARKER alpha [!]UNIQUEMARKER alpha",
+        ),
+        ("echo [!]!UNIQUEMARKER", "echo [!]UNIQUEMARKER alpha"),
+        ("echo [!] !UNIQUEMARKER", "echo [!] UNIQUEMARKER alpha"),
+        (
+            "echo !UNIQUEMARKER ${!}!UNIQUEMARKER",
+            "echo UNIQUEMARKER alpha ${!}UNIQUEMARKER alpha",
+        ),
         ("echo =#[!BRACKETMATCH ]", "echo =#[!BRACKETMATCH ]"),
         (
             "echo !UNIQUEMARKER =#[!BRACKETMATCH ]",

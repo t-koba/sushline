@@ -55,25 +55,32 @@ impl Hooks for HarnessApplication {
 
 // The harness embeds Sushline in a shell-like prompt, so it installs the
 // narrow history inhibitions Bash 5.3 uses. Bash's candidate scan suppresses
-// `[!...]`, `${!...}` and `$!`, but its expansion pass re-checks a bracket or
-// indirect `!` against the output built so far, which no longer contains the
-// closing delimiter. When another ordinary event is available, the harness
-// therefore lets the single Sushline pass reprocess that `!`, matching Bash's
-// accepted lines. `$!` stays inhibited at its own index.
+// `[!...]`, `${!...}` and `$!`. With another ordinary event on the line its
+// expansion pass re-checks a bracket or indirect `!` against the output built
+// so far plus one byte, so the bang stays literal there only when that byte is
+// its closing delimiter. Sushline's single pass approximates those accepted
+// lines here. `$!` stays inhibited at its own index.
 #[derive(Clone, Copy)]
 enum ShellBang {
     Plain,
     Dollar,
-    Bracket,
+    Bracket(u8),
 }
 
 fn inhibits_history_expansion(line: &[u8], idx: usize) -> bool {
     let bangs = classify_shell_bangs(line);
     match bangs.get(idx).copied().flatten() {
         Some(ShellBang::Dollar) => true,
-        Some(ShellBang::Bracket) => !bangs
-            .iter()
-            .any(|bang| matches!(bang, Some(ShellBang::Plain))),
+        Some(ShellBang::Bracket(close)) => {
+            if bangs
+                .iter()
+                .any(|bang| matches!(bang, Some(ShellBang::Plain)))
+            {
+                line.get(idx + 1) == Some(&close)
+            } else {
+                true
+            }
+        }
         _ => false,
     }
 }
@@ -115,8 +122,8 @@ fn classify_shell_bangs(line: &[u8]) -> Vec<Option<ShellBang>> {
         {
             bangs[i] = Some(if idx_is_dollar_bang(line, i) {
                 ShellBang::Dollar
-            } else if idx_is_bracket_bang(line, i) {
-                ShellBang::Bracket
+            } else if let Some(close) = bracket_bang_delimiter(line, i) {
+                ShellBang::Bracket(close)
             } else {
                 ShellBang::Plain
             });
@@ -130,12 +137,18 @@ fn idx_is_dollar_bang(line: &[u8], idx: usize) -> bool {
     idx > 1 && line[idx - 1] == b'$' && line[idx] == b'!'
 }
 
-fn idx_is_bracket_bang(line: &[u8], idx: usize) -> bool {
-    (idx > 0 && line[idx - 1] == b'[' && line[idx + 1..].contains(&b']'))
-        || (idx > 1
-            && line[idx - 1] == b'{'
-            && line[idx - 2] == b'$'
-            && line[idx + 1..].contains(&b'}'))
+fn bracket_bang_delimiter(line: &[u8], idx: usize) -> Option<u8> {
+    if idx > 0 && line[idx - 1] == b'[' && line[idx + 1..].contains(&b']') {
+        Some(b']')
+    } else if idx > 1
+        && line[idx - 1] == b'{'
+        && line[idx - 2] == b'$'
+        && line[idx + 1..].contains(&b'}')
+    {
+        Some(b'}')
+    } else {
+        None
+    }
 }
 
 fn is_escaped(line: &[u8], idx: usize) -> bool {

@@ -66,6 +66,7 @@ enum ShellBang {
     Dollar,
     Bracket(u8),
     BareColon,
+    Replacement,
 }
 
 fn inhibits_history_expansion(line: &[u8], idx: usize) -> bool {
@@ -96,7 +97,7 @@ fn inhibits_history_expansion(line: &[u8], idx: usize) -> bool {
         }
     }
     match bangs.get(idx).copied().flatten() {
-        Some(ShellBang::Dollar) | Some(ShellBang::BareColon) => true,
+        Some(ShellBang::Dollar) | Some(ShellBang::BareColon) | Some(ShellBang::Replacement) => true,
         Some(ShellBang::Bracket(close)) => {
             if bangs
                 .iter()
@@ -113,24 +114,135 @@ fn inhibits_history_expansion(line: &[u8], idx: usize) -> bool {
 }
 
 /// A colon right after the event designator with no word designator leaves
-/// the leading bang literal in the measured shell prompt. The scan stops at
-/// whitespace or a quote so it does not reach into later words.
+/// the leading bang literal in the measured shell prompt. A `!?...?` search
+/// designator ends at its closing unescaped `?`, so a colon or whitespace
+/// inside the needle is not the selector. The scan stops at whitespace or a
+/// quote after the event boundary so it does not reach into later words.
+/// A colon followed by a non-whitespace designator or modifier token is
+/// consumed and scanning continues, so a trailing bare colon after a measured
+/// word designator still fails the whole line. A colon immediately preceded
+/// by a backslash is never the selector, whether the run before it is odd or
+/// even and even in later tokens; any backslash after the event designator
+/// ends the selector scan and the rest of that word stays literal.
+/// A measured substitution modifier (`s` with
+/// an optional `g`/`a`/`G` prefix) consumes its old text to the matching
+/// delimiter and an unterminated replacement to end of line, so a colon
+/// inside the measured replacement is not the selector; after the measured
+/// substitution the scan continues only on a following colon, otherwise the
+/// trailing text ends the scan as expandable. A closed measured substitution
+/// followed by a bare colon still fails the whole line. In the paired
+/// fixture, bare `!$:` and numeric `!$:0` stay literal while plain `!$` and
+/// measured alphabetic modifier starts (including `gs`, `as`, and `s`)
+/// expand; this is fixture evidence only, not a general modifier grammar
+/// claim. The same scan reports the measured substitution extent for bangs
+/// that own the colon.
 fn bang_has_bare_colon(line: &[u8], idx: usize) -> bool {
+    bang_colon_scan(line, idx).0
+}
+
+fn bang_colon_scan(line: &[u8], idx: usize) -> (bool, Option<usize>) {
+    let mut substitution = None;
     let mut cursor = idx + 1;
+    if line.get(cursor) == Some(&b'?') {
+        cursor += 1;
+        loop {
+            match line.get(cursor) {
+                None => return (false, substitution),
+                Some(&b'?') if !is_escaped(line, cursor) => {
+                    cursor += 1;
+                    break;
+                }
+                _ => cursor += 1,
+            }
+        }
+    }
+    if line.get(idx + 1) == Some(&b'$')
+        && line.get(idx + 2) == Some(&b':')
+        && !line.get(idx + 3).is_some_and(u8::is_ascii_alphabetic)
+    {
+        return (true, substitution);
+    }
     while let Some(&byte) = line.get(cursor) {
+        if byte == b'\\' {
+            return (false, substitution);
+        }
         if byte.is_ascii_whitespace() || byte == b'\'' || byte == b'"' {
-            return false;
+            return (false, substitution);
         }
         if byte == b':' {
-            return line
+            if line
                 .get(cursor + 1)
-                .is_none_or(|next| next.is_ascii_whitespace());
+                .is_none_or(|next| next.is_ascii_whitespace())
+            {
+                return (true, substitution);
+            }
+            if let Some(end) = substitution_end(line, cursor + 1) {
+                substitution = Some(end);
+                if line.get(end) == Some(&b':') {
+                    cursor = end;
+                    continue;
+                }
+                return (false, substitution);
+            }
+            cursor += 1;
+            continue;
         }
         cursor += 1;
     }
-    false
+    (false, substitution)
 }
 
+fn substitution_end(line: &[u8], start: usize) -> Option<usize> {
+    let mut pos = start;
+    if matches!(line.get(pos), Some(b'g' | b'a' | b'G')) && line.get(pos + 1) == Some(&b's') {
+        pos += 2;
+    } else if line.get(pos) == Some(&b's') {
+        pos += 1;
+    } else {
+        return None;
+    }
+    let delimiter = line.get(pos).copied()?;
+    pos += 1;
+    loop {
+        match line.get(pos).copied() {
+            None => return Some(pos),
+            Some(b'\\') => {
+                pos += 1;
+                if line.get(pos).is_some() {
+                    pos += 1;
+                }
+            }
+            Some(byte) if byte == delimiter => {
+                pos += 1;
+                break;
+            }
+            _ => pos += 1,
+        }
+    }
+    loop {
+        match line.get(pos).copied() {
+            None => return Some(pos),
+            Some(b'\\') => {
+                pos += 1;
+                if line.get(pos).is_some() {
+                    pos += 1;
+                }
+            }
+            Some(byte) if byte == delimiter => {
+                pos += 1;
+                break;
+            }
+            _ => pos += 1,
+        }
+    }
+    Some(pos)
+}
+
+/// Bangs inside a measured substitution replacement are literal replacement
+/// text: each stays inhibited at its own index but is not a candidate for the
+/// whole-line bare-colon failure. The extent is anchored to a bang that owns
+/// the colon, using the same scan as the bare-colon check, so a literal
+/// `:s/...` in ordinary text cannot swallow a later history event.
 fn classify_shell_bangs(line: &[u8]) -> Vec<Option<ShellBang>> {
     const NO_EXPAND: &[u8] = b" \t\n\r=;&|()<>";
     let mut bangs = vec![None; line.len()];
@@ -181,6 +293,25 @@ fn classify_shell_bangs(line: &[u8]) -> Vec<Option<ShellBang>> {
             });
         }
         at_word_start = WORD_DELIMITERS.contains(byte);
+    }
+    let candidates: Vec<usize> = bangs
+        .iter()
+        .enumerate()
+        .filter_map(|(at, bang)| bang.is_some().then_some(at))
+        .collect();
+    let mut covered_until = 0;
+    for at in candidates {
+        if at < covered_until {
+            continue;
+        }
+        if let Some(end) = bang_colon_scan(line, at).1 {
+            for bang in bangs.iter_mut().take(end).skip(at + 1) {
+                if bang.is_some() {
+                    *bang = Some(ShellBang::Replacement);
+                }
+            }
+            covered_until = covered_until.max(end);
+        }
     }
     bangs
 }

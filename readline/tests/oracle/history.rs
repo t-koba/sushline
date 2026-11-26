@@ -2509,7 +2509,12 @@ fn bash_readline_and_sushline_terminate_bare_history_designators_at_active_quote
 fn bash_readline_and_sushline_inhibit_history_expansion_after_backslash_runs() {
     let inputrc = r#""\C-x\C-a": history-expand-line"#;
     let setup = r#"p=RDP; IFS= read -r -e -p "${p}>" line; m=SUSHLINE_ACCEPT; printf "${m}ED:%s\n" "$line""#;
-    let history = ["UNIQUEMARKER alpha", "BRACKETMATCH beta", setup];
+    let history = [
+        "UNIQUEMARKER alpha",
+        "BRACKETMATCH beta",
+        "FIND: suffix",
+        setup,
+    ];
     for (typed, expected) in [
         (r#"echo \!UNIQUEMARKER"#, r#"echo \!UNIQUEMARKER"#),
         (r#"echo \!!"#, r#"echo \!!"#),
@@ -2537,6 +2542,18 @@ fn bash_readline_and_sushline_inhibit_history_expansion_after_backslash_runs() {
         (r#"echo !!:"#, r#"echo !!:"#),
         (r#"echo !UNIQUEMARKER:"#, r#"echo !UNIQUEMARKER:"#),
         (r#"echo !$:"#, r#"echo !$:"#),
+        (r#"echo !$:0"#, r#"echo !$:0"#),
+        (r#"echo !$:gs/l/L/"#, r#"echo "$Line""#),
+        (r#"echo !$:as/l/L/"#, r#"echo "$Line""#),
+        (r#"echo !$:s/l/L/"#, r#"echo "$Line""#),
+        (r#"echo !!\:"#, r#"echo {setup}\:"#),
+        (r#"echo !!\:s/a/x:"#, r#"echo {setup}\:s/a/x:"#),
+        (r#"echo !!\!x:"#, r#"echo {setup}\!x:"#),
+        (r#"echo !!\!:0:"#, r#"echo {setup}\!:0:"#),
+        (r#"echo !!:h\!:"#, r#"echo {setup}\!:"#),
+        (r#"echo !!\\a:"#, r#"echo {setup}\\a:"#),
+        (r#"echo !!\\:"#, r#"echo {setup}\\:"#),
+        (r#"echo !!::"#, r#"echo !!::"#),
         (r#"echo !!:0"#, r#"echo p=RDP"#),
         (r#"echo !UNIQUEMARKER:0"#, r#"echo UNIQUEMARKER"#),
         (r#"echo !: !UNIQUEMARKER"#, r#"echo !: !UNIQUEMARKER"#),
@@ -2555,6 +2572,93 @@ fn bash_readline_and_sushline_inhibit_history_expansion_after_backslash_runs() {
             r#"echo p=RDP UNIQUEMARKER alpha"#,
         ),
         (r#"echo !:; !UNIQUEMARKER"#, r#"echo !:; !UNIQUEMARKER"#),
+        (r#"echo !?FIND: suffix?:0"#, r#"echo FIND:"#),
+        (r#"echo !?FIND: suffix?:"#, r#"echo !?FIND: suffix?:"#),
+        (r#"echo !?FIND: suffix?:0:"#, r#"echo !?FIND: suffix?:0:"#),
+        (r#"echo !?FIND: suffix?:1:"#, r#"echo !?FIND: suffix?:1:"#),
+        (r#"echo !?FIND: suffix?:^:"#, r#"echo !?FIND: suffix?:^:"#),
+        (
+            r#"echo !!:s/a/x:"#,
+            r#"echo p=RDP; IFS= rex:d -r -e -p "${p}>" line; m=SUSHLINE_ACCEPT; printf "${m}ED:%s\n" "$line""#,
+        ),
+        (
+            r#"echo !!:s/a/b:"#,
+            r#"echo p=RDP; IFS= reb:d -r -e -p "${p}>" line; m=SUSHLINE_ACCEPT; printf "${m}ED:%s\n" "$line""#,
+        ),
+        (
+            r#"echo !!:s/a/x/y:"#,
+            r#"echo p=RDP; IFS= rexd -r -e -p "${p}>" line; m=SUSHLINE_ACCEPT; printf "${m}ED:%s\n" "$line"y:"#,
+        ),
+        (
+            r#"echo !!:s/a/x::"#,
+            r#"echo p=RDP; IFS= rex::d -r -e -p "${p}>" line; m=SUSHLINE_ACCEPT; printf "${m}ED:%s\n" "$line""#,
+        ),
+        (
+            r#"echo !!:h:s/a/x:"#,
+            r#"echo p=RDP; IFS= rex:d -r -e -p "${p}>" line; m=SUSHLINE_ACCEPT; printf "${m}ED:%s\n" "$line""#,
+        ),
+        (
+            r#"echo !UNIQUEMARKER:s/a/x:"#,
+            r#"echo UNIQUEMARKER x:lpha"#,
+        ),
+        (
+            r#"echo !!:gs/a/x:"#,
+            r#"echo p=RDP; IFS= rex:d -r -e -p "${p}>" line; m=SUSHLINE_ACCEPT; printf "${m}ED:%s\n" "$line""#,
+        ),
+        (
+            r#"echo !!:as/a/x:"#,
+            r#"echo p=RDP; IFS= rex:d -r -e -p "${p}>" line; m=SUSHLINE_ACCEPT; printf "${m}ED:%s\n" "$line""#,
+        ),
+        (
+            r#"echo !!:s/a/x:0:"#,
+            r#"echo p=RDP; IFS= rex:0:d -r -e -p "${p}>" line; m=SUSHLINE_ACCEPT; printf "${m}ED:%s\n" "$line""#,
+        ),
+        (
+            r#"echo !!:s/a/x: !UNIQUEMARKER"#,
+            r#"echo p=RDP; IFS= rex: !UNIQUEMARKERd -r -e -p "${p}>" line; m=SUSHLINE_ACCEPT; printf "${m}ED:%s\n" "$line""#,
+        ),
+        (
+            r#"echo !!:s/a/x: !UNIQUEMARKER:"#,
+            r#"echo p=RDP; IFS= rex: !UNIQUEMARKER:d -r -e -p "${p}>" line; m=SUSHLINE_ACCEPT; printf "${m}ED:%s\n" "$line""#,
+        ),
+        (
+            r#"echo !!:s/a/x: !:"#,
+            r#"echo p=RDP; IFS= rex: !:d -r -e -p "${p}>" line; m=SUSHLINE_ACCEPT; printf "${m}ED:%s\n" "$line""#,
+        ),
+        (
+            r#"echo !!:gs/a/x: !BRACKETMATCH:"#,
+            r#"echo p=RDP; IFS= rex: !BRACKETMATCH:d -r -e -p "${p}>" line; m=SUSHLINE_ACCEPT; printf "${m}ED:%s\n" "$line""#,
+        ),
+        (
+            r#"echo !!:s/a/!UNIQUEMARKER:"#,
+            r#"echo p=RDP; IFS= re!UNIQUEMARKER:d -r -e -p "${p}>" line; m=SUSHLINE_ACCEPT; printf "${m}ED:%s\n" "$line""#,
+        ),
+        (
+            r#"echo !!:s/a/x: !?FIND: suffix?:"#,
+            r#"echo p=RDP; IFS= rex: !?FIND: suffix?:d -r -e -p "${p}>" line; m=SUSHLINE_ACCEPT; printf "${m}ED:%s\n" "$line""#,
+        ),
+        (
+            r#"echo foo:s/a/b !UNIQUEMARKER"#,
+            r#"echo foo:s/a/b UNIQUEMARKER alpha"#,
+        ),
+        (r#"echo x:s/a/b !!"#, r#"echo x:s/a/b {setup}"#),
+        (
+            r#"echo \!:s/a/b !UNIQUEMARKER"#,
+            r#"echo \!:s/a/b UNIQUEMARKER alpha"#,
+        ),
+        (
+            r#"echo foo:s/a/b !UNIQUEMARKER !BRACKETMATCH"#,
+            r#"echo foo:s/a/b UNIQUEMARKER alpha BRACKETMATCH beta"#,
+        ),
+        (
+            r#"echo foo:s/a/b/ !UNIQUEMARKER"#,
+            r#"echo foo:s/a/b/ UNIQUEMARKER alpha"#,
+        ),
+        (r#"echo !!:s/a/x/:"#, r#"echo !!:s/a/x/:"#),
+        (
+            r#"echo !!:s/a/b:c:d"#,
+            r#"echo p=RDP; IFS= reb:c:dd -r -e -p "${p}>" line; m=SUSHLINE_ACCEPT; printf "${m}ED:%s\n" "$line""#,
+        ),
     ] {
         let expected = expected.replace("{setup}", setup);
         let keys = format!("{typed}\x18\x01\r");

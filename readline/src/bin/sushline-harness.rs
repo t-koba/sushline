@@ -65,9 +65,20 @@ enum ShellBang {
     Plain,
     Dollar,
     Bracket(u8),
+    BareColon,
 }
 
 fn inhibits_history_expansion(line: &[u8], idx: usize) -> bool {
+    let bangs = classify_shell_bangs(line);
+    // GNU history_expand fails the whole line when any unescaped, unquoted,
+    // non-comment event ends in a bare colon with no word designator, so the
+    // paired fixture pins that coexistence line as fully literal.
+    if bangs.iter().enumerate().any(|(at, bang)| {
+        matches!(bang, Some(ShellBang::BareColon))
+            || matches!(bang, Some(ShellBang::Plain) if bang_has_bare_colon(line, at))
+    }) {
+        return true;
+    }
     // Bash's quote-aware pre-scan consumes a bang after any backslash run.
     // Its expansion pass uses backslash parity, so an even run becomes a
     // live candidate again when another ordinary event triggers that pass.
@@ -76,7 +87,7 @@ fn inhibits_history_expansion(line: &[u8], idx: usize) -> bool {
         while cursor > 0 && line[cursor - 1] == b'\\' {
             cursor -= 1;
         }
-        let other_event = classify_shell_bangs(line)
+        let other_event = bangs
             .iter()
             .enumerate()
             .any(|(at, bang)| at.abs_diff(idx) > 1 && matches!(bang, Some(ShellBang::Plain)));
@@ -84,9 +95,8 @@ fn inhibits_history_expansion(line: &[u8], idx: usize) -> bool {
             return true;
         }
     }
-    let bangs = classify_shell_bangs(line);
     match bangs.get(idx).copied().flatten() {
-        Some(ShellBang::Dollar) => true,
+        Some(ShellBang::Dollar) | Some(ShellBang::BareColon) => true,
         Some(ShellBang::Bracket(close)) => {
             if bangs
                 .iter()
@@ -97,8 +107,28 @@ fn inhibits_history_expansion(line: &[u8], idx: usize) -> bool {
                 true
             }
         }
-        _ => false,
+        Some(ShellBang::Plain) => bang_has_bare_colon(line, idx),
+        None => false,
     }
+}
+
+/// A colon right after the event designator with no word designator leaves
+/// the leading bang literal in the measured shell prompt. The scan stops at
+/// whitespace or a quote so it does not reach into later words.
+fn bang_has_bare_colon(line: &[u8], idx: usize) -> bool {
+    let mut cursor = idx + 1;
+    while let Some(&byte) = line.get(cursor) {
+        if byte.is_ascii_whitespace() || byte == b'\'' || byte == b'"' {
+            return false;
+        }
+        if byte == b':' {
+            return line
+                .get(cursor + 1)
+                .is_none_or(|next| next.is_ascii_whitespace());
+        }
+        cursor += 1;
+    }
+    false
 }
 
 fn classify_shell_bangs(line: &[u8]) -> Vec<Option<ShellBang>> {
@@ -142,6 +172,10 @@ fn classify_shell_bangs(line: &[u8]) -> Vec<Option<ShellBang>> {
                 ShellBang::Dollar
             } else if let Some(close) = bracket_bang_delimiter(line, i) {
                 ShellBang::Bracket(close)
+            } else if line.get(i + 1) == Some(&b':')
+                && line.get(i + 2).is_none_or(|next| b" \t\n\r".contains(next))
+            {
+                ShellBang::BareColon
             } else {
                 ShellBang::Plain
             });

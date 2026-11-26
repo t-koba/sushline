@@ -2521,9 +2521,40 @@ fn bash_readline_and_sushline_inhibit_history_expansion_after_backslash_runs() {
         (r#"echo a\\!b!UNIQUEMARKER"#, r#"echo a\\!b!UNIQUEMARKER"#),
         (r#"echo \\!! "!""#, r#"echo \\!! "!""#),
         (r#"echo \\!! "a!""#, r#"echo \\!! "a!""#),
+        (r#"echo !:"#, r#"echo !:"#),
+        (r#"echo \\!UNIQUEMARKER !:"#, r#"echo \\!UNIQUEMARKER !:"#),
+        (
+            r#"echo \\!UNIQUEMARKER !:0"#,
+            r#"echo \\UNIQUEMARKER alpha p=RDP"#,
+        ),
+        (
+            r#"echo \\!UNIQUEMARKER !BRACKETMATCH"#,
+            r#"echo \\UNIQUEMARKER alpha BRACKETMATCH beta"#,
+        ),
         (r#"echo \\!UNIQUEMARKER !"#, r#"echo \\!UNIQUEMARKER !"#),
         (r#"echo \\!UNIQUEMARKER ! "#, r#"echo \\!UNIQUEMARKER ! "#),
         (r#"echo \\!! !!"#, r#"echo \\{setup} {setup}"#),
+        (r#"echo !!:"#, r#"echo !!:"#),
+        (r#"echo !UNIQUEMARKER:"#, r#"echo !UNIQUEMARKER:"#),
+        (r#"echo !$:"#, r#"echo !$:"#),
+        (r#"echo !!:0"#, r#"echo p=RDP"#),
+        (r#"echo !UNIQUEMARKER:0"#, r#"echo UNIQUEMARKER"#),
+        (r#"echo !: !UNIQUEMARKER"#, r#"echo !: !UNIQUEMARKER"#),
+        (r#"echo !: !!"#, r#"echo !: !!"#),
+        (r#"echo !: !:0"#, r#"echo !: !:0"#),
+        (r#"echo !: !BRACKETMATCH"#, r#"echo !: !BRACKETMATCH"#),
+        (r#"echo !: !?UNIQUEMARKER?"#, r#"echo !: !?UNIQUEMARKER?"#),
+        (r#"echo !: !-1"#, r#"echo !: !-1"#),
+        (r#"echo !:  !UNIQUEMARKER"#, r#"echo !:  !UNIQUEMARKER"#),
+        (
+            r#"echo \\!UNIQUEMARKER !: !BRACKETMATCH"#,
+            r#"echo \\!UNIQUEMARKER !: !BRACKETMATCH"#,
+        ),
+        (
+            r#"echo !:0 !UNIQUEMARKER"#,
+            r#"echo p=RDP UNIQUEMARKER alpha"#,
+        ),
+        (r#"echo !:; !UNIQUEMARKER"#, r#"echo !:; !UNIQUEMARKER"#),
     ] {
         let expected = expected.replace("{setup}", setup);
         let keys = format!("{typed}\x18\x01\r");

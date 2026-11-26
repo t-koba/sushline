@@ -139,10 +139,17 @@ enum HistoryQuoteMode {
     EachWord,
 }
 
+#[derive(Clone, Copy)]
+enum HistorySubstitutionMode {
+    Global,
+    EachWord,
+}
+
 #[derive(Default)]
 struct HistoryModifierStatus {
     print_only: bool,
     quote_mode: Option<HistoryQuoteMode>,
+    substitution_mode: Option<HistorySubstitutionMode>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -291,6 +298,7 @@ pub fn expand_history_with_status_with_state(
         let mut event = substituted;
         let mut next = next_after_fields;
         modifier_status.quote_mode = None;
+        modifier_status.substitution_mode = None;
         while line.get(next) == Some(&b':') {
             next += 1;
             let (modified, next_after_modifier) = apply_history_modifier(
@@ -363,6 +371,7 @@ pub fn expand_history_with_status_with_state(
         let word_specifier_consumed = state.word_specifier_consumed;
         did_expand = true;
         modifier_status.quote_mode = None;
+        modifier_status.substitution_mode = None;
         if line.get(next) == Some(&b':') {
             next += 1;
             let designator_start = next;
@@ -958,6 +967,21 @@ fn apply_history_modifier(
     policy: &HistoryExpansionPolicy,
     status: &mut HistoryModifierStatus,
 ) -> Result<(Vec<u8>, usize), HistoryExpansionError> {
+    // GNU accepts `g`, `G` and `a` before the non-substitution modifiers that
+    // act on the selected text. The prefix has no visible effect there; the
+    // measured exceptions are `p`, `u` and unknown modifiers, which stay
+    // invalid. Substitution prefixes keep their own branches below.
+    let idx = match (input.get(idx), input.get(idx + 1)) {
+        (Some(b'g' | b'G' | b'a'), Some(b'h' | b't' | b'r' | b'e' | b'x' | b'q')) => {
+            status.substitution_mode = Some(if input[idx] == b'G' {
+                HistorySubstitutionMode::EachWord
+            } else {
+                HistorySubstitutionMode::Global
+            });
+            idx + 1
+        }
+        _ => idx,
+    };
     Ok(match input.get(idx).copied() {
         Some(b'h') => (history_head(line), idx + 1),
         Some(b't') => (history_tail(line), idx + 1),
@@ -975,17 +999,41 @@ fn apply_history_modifier(
             status.print_only = true;
             (line.to_vec(), idx + 1)
         }
-        Some(b's') => {
-            let (line, idx) = apply_substitution_modifier(
-                line,
-                input,
-                idx + 1,
-                false,
-                last_substitution,
-                last_event_search,
-            )?;
-            (line, idx)
-        }
+        Some(b's') => match status.substitution_mode.take() {
+            Some(HistorySubstitutionMode::Global) => {
+                let (line, idx) = apply_substitution_modifier(
+                    line,
+                    input,
+                    idx + 1,
+                    true,
+                    last_substitution,
+                    last_event_search,
+                )?;
+                (line, idx)
+            }
+            Some(HistorySubstitutionMode::EachWord) => {
+                let (line, idx) = apply_substitution_modifier_each_word(
+                    line,
+                    input,
+                    idx + 1,
+                    last_substitution,
+                    last_event_search,
+                    policy,
+                )?;
+                (line, idx)
+            }
+            None => {
+                let (line, idx) = apply_substitution_modifier(
+                    line,
+                    input,
+                    idx + 1,
+                    false,
+                    last_substitution,
+                    last_event_search,
+                )?;
+                (line, idx)
+            }
+        },
         Some(b'g') if input.get(idx + 1) == Some(&b's') => {
             let (line, idx) = apply_substitution_modifier(
                 line,

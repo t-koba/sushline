@@ -4930,6 +4930,67 @@ fn history_quote_modifiers_apply_once_after_the_modifier_chain() {
 }
 
 #[test]
+fn history_prefix_modifiers_accept_non_substitution_modifiers() {
+    let mut history = History::new();
+    history.push("echo one two");
+    let policy = HistoryExpansionPolicy::default();
+    for (typed, expected) in [
+        ("!!:gx", b"'echo' 'one' 'two'".as_slice()),
+        ("!!:gq", b"'echo one two'".as_slice()),
+        ("!!:Gx", b"'echo' 'one' 'two'".as_slice()),
+        ("!!:ax", b"'echo' 'one' 'two'".as_slice()),
+        ("!!:gx:q", b"'echo one two'".as_slice()),
+        ("!!:gx:s/o/O/", b"'echO' 'One' 'twO'".as_slice()),
+    ] {
+        assert_eq!(
+            expand_history(
+                typed.as_bytes(),
+                &history,
+                HistoryChars::parse("!^#"),
+                &policy,
+                |_| false,
+            )
+            .unwrap(),
+            expected,
+            "{typed}"
+        );
+    }
+    history.clear();
+    history.push("echo foo foo");
+    for (typed, expected) in [
+        ("!!:Gx:s/o/O/", b"'echO' 'fOo' 'fOo'".as_slice()),
+        ("!!:gx:s/o/O/", b"'echO' 'fOO' 'fOO'".as_slice()),
+        ("!!:gx:s/o/O/:s/O/Q/", b"'echQ' 'fOO' 'fOO'".as_slice()),
+    ] {
+        assert_eq!(
+            expand_history(
+                typed.as_bytes(),
+                &history,
+                HistoryChars::parse("!^#"),
+                &policy,
+                |_| false,
+            )
+            .unwrap(),
+            expected,
+            "{typed}"
+        );
+    }
+    for typed in ["!!:gp", "!!:gu", "!!:g"] {
+        assert!(
+            expand_history(
+                typed.as_bytes(),
+                &history,
+                HistoryChars::parse("!^#"),
+                &policy,
+                |_| false,
+            )
+            .is_err(),
+            "{typed}"
+        );
+    }
+}
+
+#[test]
 fn history_x_modifier_preserves_separators_empty_fields_and_other_whitespace() {
     let mut history = History::new();
     let policy = HistoryExpansionPolicy::default();

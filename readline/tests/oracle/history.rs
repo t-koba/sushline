@@ -1959,6 +1959,7 @@ fn bash_readline_and_sushline_expand_same_history_words_and_modifiers() {
         // GNU keeps `g`/`a` one-shot and `G` sticky for the rest of an
         // event; when both are pending the global substitution wins once.
         ("!!:Gs/o/O/:s/O/Q/", "echQ /tmp/fQo.txt alpha beta"),
+        ("!!:Gs/o/x/:&", "echx /tmp/fxx.txt alpha beta"),
         (
             "!!:s/o/x/ !!:G&:s/x/Q/",
             "echx /tmp/foo.txt alpha beta echQ /tmp/fQo.txt alpha beta",

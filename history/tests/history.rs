@@ -4969,6 +4969,7 @@ fn history_prefix_modifiers_accept_non_substitution_modifiers() {
         // GNU keeps `g`/`a` one-shot and `G` sticky per event: a later
         // substitution sees `G` unless a global flag was still pending.
         ("!!:Gs/o/O/:s/O/Q/", b"echQ fQo fQo".as_slice()),
+        ("!!:Gs/o/x/:&", b"echx fxx fxx".as_slice()),
         (
             "!!:s/o/x/ !!:G&:s/x/Q/",
             b"echx foo foo echQ fQo fQo".as_slice(),

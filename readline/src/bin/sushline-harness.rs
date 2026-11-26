@@ -68,6 +68,22 @@ enum ShellBang {
 }
 
 fn inhibits_history_expansion(line: &[u8], idx: usize) -> bool {
+    // Bash's quote-aware pre-scan consumes a bang after any backslash run.
+    // Its expansion pass uses backslash parity, so an even run becomes a
+    // live candidate again when another ordinary event triggers that pass.
+    if line.get(idx) == Some(&b'!') && idx > 0 && line[idx - 1] == b'\\' {
+        let mut cursor = idx;
+        while cursor > 0 && line[cursor - 1] == b'\\' {
+            cursor -= 1;
+        }
+        let other_event = classify_shell_bangs(line)
+            .iter()
+            .enumerate()
+            .any(|(at, bang)| at.abs_diff(idx) > 1 && matches!(bang, Some(ShellBang::Plain)));
+        if (idx - cursor) % 2 == 1 || !other_event {
+            return true;
+        }
+    }
     let bangs = classify_shell_bangs(line);
     match bangs.get(idx).copied().flatten() {
         Some(ShellBang::Dollar) => true,
@@ -117,8 +133,9 @@ fn classify_shell_bangs(line: &[u8]) -> Vec<Option<ShellBang>> {
             _ => unreachable!(),
         }
         if *byte == b'!'
-            && !escaped
+            && !(i > 0 && line[i - 1] == b'\\')
             && !line.get(i + 1).is_some_and(|next| NO_EXPAND.contains(next))
+            && !(quote == Some(b'"') && line.get(i + 1) == Some(&b'"'))
         {
             bangs[i] = Some(if idx_is_dollar_bang(line, i) {
                 ShellBang::Dollar

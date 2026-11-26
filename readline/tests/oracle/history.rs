@@ -2500,6 +2500,47 @@ fn bash_readline_and_sushline_terminate_bare_history_designators_at_active_quote
     }
 }
 
+/// Bash's shell prompt suppresses a lone history designator after any
+/// immediately preceding backslash, including an even-length run. An even run
+/// becomes expandable again when another separated ordinary event drives the
+/// expansion pass. These rows pin that behavior for the measured forms; the
+/// pure History library keeps its own escape policy.
+#[test]
+fn bash_readline_and_sushline_inhibit_history_expansion_after_backslash_runs() {
+    let inputrc = r#""\C-x\C-a": history-expand-line"#;
+    let setup = r#"p=RDP; IFS= read -r -e -p "${p}>" line; m=SUSHLINE_ACCEPT; printf "${m}ED:%s\n" "$line""#;
+    let history = ["UNIQUEMARKER alpha", "BRACKETMATCH beta", setup];
+    for (typed, expected) in [
+        (r#"echo \!UNIQUEMARKER"#, r#"echo \!UNIQUEMARKER"#),
+        (r#"echo \!!"#, r#"echo \!!"#),
+        (r#"echo "\\!UNIQUEMARKER""#, r#"echo "\\!UNIQUEMARKER""#),
+        (r#"echo \\!UNIQUEMARKER"#, r#"echo \\!UNIQUEMARKER"#),
+        (r#"echo \\\\!UNIQUEMARKER"#, r#"echo \\\\!UNIQUEMARKER"#),
+        (r#"echo \\\!UNIQUEMARKER"#, r#"echo \\\!UNIQUEMARKER"#),
+        (r#"echo "\\!!""#, r#"echo "\\!!""#),
+        (r#"echo a\\!b!UNIQUEMARKER"#, r#"echo a\\!b!UNIQUEMARKER"#),
+        (r#"echo \\!! "!""#, r#"echo \\!! "!""#),
+        (r#"echo \\!! "a!""#, r#"echo \\!! "a!""#),
+        (r#"echo \\!! !!"#, r#"echo \\{setup} {setup}"#),
+    ] {
+        let expected = expected.replace("{setup}", setup);
+        let keys = format!("{typed}\x18\x01\r");
+        let bash = run_bash_prompt_with_history(keys.as_bytes(), inputrc, &history);
+        let sushline =
+            run_sushline_harness_with_inputrc_and_history(keys.as_bytes(), inputrc, &history);
+        assert_eq!(
+            accepted_line(&bash).as_deref(),
+            Some(expected.as_str()),
+            "{typed}: {bash}"
+        );
+        assert_eq!(
+            accepted_line(&sushline).as_deref(),
+            Some(expected.as_str()),
+            "{typed}: {sushline}"
+        );
+    }
+}
+
 #[test]
 fn bash_readline_and_sushline_inhibit_shell_history_expansion() {
     // Bash's prompt installs a shell-specific inhibit predicate; Sushline's

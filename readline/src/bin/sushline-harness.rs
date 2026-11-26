@@ -67,6 +67,7 @@ enum ShellBang {
     Bracket(u8),
     BareColon,
     Replacement,
+    Quoted,
 }
 
 fn inhibits_history_expansion(line: &[u8], idx: usize) -> bool {
@@ -97,7 +98,10 @@ fn inhibits_history_expansion(line: &[u8], idx: usize) -> bool {
         }
     }
     match bangs.get(idx).copied().flatten() {
-        Some(ShellBang::Dollar) | Some(ShellBang::BareColon) | Some(ShellBang::Replacement) => true,
+        Some(ShellBang::Dollar)
+        | Some(ShellBang::BareColon)
+        | Some(ShellBang::Replacement)
+        | Some(ShellBang::Quoted) => true,
         Some(ShellBang::Bracket(close)) => {
             if bangs
                 .iter()
@@ -242,7 +246,9 @@ fn substitution_end(line: &[u8], start: usize) -> Option<usize> {
 /// text: each stays inhibited at its own index but is not a candidate for the
 /// whole-line bare-colon failure. The extent is anchored to a bang that owns
 /// the colon, using the same scan as the bare-colon check, so a literal
-/// `:s/...` in ordinary text cannot swallow a later history event.
+/// `:s/...` in ordinary text cannot swallow a later history event. A bang
+/// inside a single quote stays literal at its own index, including a quote
+/// opened inside a measured substitution.
 fn classify_shell_bangs(line: &[u8]) -> Vec<Option<ShellBang>> {
     const NO_EXPAND: &[u8] = b" \t\n\r=;&|()<>";
     let mut bangs = vec![None; line.len()];
@@ -254,6 +260,8 @@ fn classify_shell_bangs(line: &[u8]) -> Vec<Option<ShellBang>> {
         if quote == Some(b'\'') {
             if *byte == b'\'' {
                 quote = None;
+            } else if *byte == b'!' {
+                bangs[i] = Some(ShellBang::Quoted);
             }
             at_word_start = false;
             continue;
@@ -297,7 +305,11 @@ fn classify_shell_bangs(line: &[u8]) -> Vec<Option<ShellBang>> {
     let candidates: Vec<usize> = bangs
         .iter()
         .enumerate()
-        .filter_map(|(at, bang)| bang.is_some().then_some(at))
+        .filter_map(|(at, bang)| match bang {
+            Some(ShellBang::Replacement | ShellBang::Quoted) => None,
+            Some(_) => Some(at),
+            None => None,
+        })
         .collect();
     let mut covered_until = 0;
     for at in candidates {

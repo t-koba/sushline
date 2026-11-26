@@ -2654,6 +2654,22 @@ fn bash_readline_and_sushline_inhibit_history_expansion_after_backslash_runs() {
             r#"echo foo:s/a/b/ !UNIQUEMARKER"#,
             r#"echo foo:s/a/b/ UNIQUEMARKER alpha"#,
         ),
+        (
+            r#"echo !!:s/a/'x/ !UNIQUEMARKER"#,
+            r#"echo p=RDP; IFS= re'xd -r -e -p "${p}>" line; m=SUSHLINE_ACCEPT; printf "${m}ED:%s\n" "$line" !UNIQUEMARKER"#,
+        ),
+        (
+            r#"echo !!:s/a/'x/ !UNIQUEMARKER:"#,
+            r#"echo p=RDP; IFS= re'xd -r -e -p "${p}>" line; m=SUSHLINE_ACCEPT; printf "${m}ED:%s\n" "$line" !UNIQUEMARKER:"#,
+        ),
+        (
+            r#"echo !!:s/a/x'/ !UNIQUEMARKER"#,
+            r#"echo p=RDP; IFS= rex'd -r -e -p "${p}>" line; m=SUSHLINE_ACCEPT; printf "${m}ED:%s\n" "$line" !UNIQUEMARKER"#,
+        ),
+        (
+            r#"echo !!:s/a/'x'/ !UNIQUEMARKER"#,
+            r#"echo p=RDP; IFS= re'x'd -r -e -p "${p}>" line; m=SUSHLINE_ACCEPT; printf "${m}ED:%s\n" "$line" UNIQUEMARKER alpha"#,
+        ),
         (r#"echo !!:s/a/x/:"#, r#"echo !!:s/a/x/:"#),
         (
             r#"echo !!:s/a/b:c:d"#,

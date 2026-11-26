@@ -2521,6 +2521,8 @@ fn bash_readline_and_sushline_inhibit_history_expansion_after_backslash_runs() {
         (r#"echo a\\!b!UNIQUEMARKER"#, r#"echo a\\!b!UNIQUEMARKER"#),
         (r#"echo \\!! "!""#, r#"echo \\!! "!""#),
         (r#"echo \\!! "a!""#, r#"echo \\!! "a!""#),
+        (r#"echo \\!UNIQUEMARKER !"#, r#"echo \\!UNIQUEMARKER !"#),
+        (r#"echo \\!UNIQUEMARKER ! "#, r#"echo \\!UNIQUEMARKER ! "#),
         (r#"echo \\!! !!"#, r#"echo \\{setup} {setup}"#),
     ] {
         let expected = expected.replace("{setup}", setup);

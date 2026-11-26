@@ -133,6 +133,7 @@ fn classify_shell_bangs(line: &[u8]) -> Vec<Option<ShellBang>> {
             _ => unreachable!(),
         }
         if *byte == b'!'
+            && i + 1 < line.len()
             && !(i > 0 && line[i - 1] == b'\\')
             && !line.get(i + 1).is_some_and(|next| NO_EXPAND.contains(next))
             && !(quote == Some(b'"') && line.get(i + 1) == Some(&b'"'))

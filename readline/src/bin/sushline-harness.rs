@@ -282,6 +282,11 @@ fn shell_quote_states(line: &[u8], substitution_quotes: &[usize]) -> Vec<Option<
     for (i, byte) in line.iter().enumerate() {
         states[i] = quote;
         if substitution_quotes.contains(&i) {
+            // A delimiter quote is syntax: it does not open a shell quote,
+            // but it can close a real quote that was already open.
+            if quote == Some(*byte) && !is_escaped(line, i) {
+                quote = None;
+            }
             continue;
         }
         if quote.is_none() && *byte == b'#' && at_word_start {
@@ -322,7 +327,8 @@ fn bang_is_candidate(line: &[u8], idx: usize, quotes: &[Option<u8>]) -> bool {
 /// `:s/...` in ordinary text cannot swallow a later history event. A bang
 /// inside a single quote stays literal at its own index, including a quote
 /// opened inside a measured substitution; a quote consumed as the
-/// substitution delimiter is syntax, not an open shell quote.
+/// substitution delimiter does not open shell quote state, but it closes a
+/// real single quote already open before it.
 fn classify_shell_bangs(line: &[u8]) -> Vec<Option<ShellBang>> {
     let preliminary = shell_quote_states(line, &[]);
     let mut substitution_quotes = Vec::new();
@@ -337,8 +343,9 @@ fn classify_shell_bangs(line: &[u8]) -> Vec<Option<ShellBang>> {
     for (i, byte) in line.iter().enumerate() {
         let quote = quotes[i];
         if quote == Some(b'\'') {
-            // A delimiter quote was skipped while building the quote states,
-            // so only an ordinary opening quote can reach this branch.
+            // A delimiter quote that closed an earlier real quote still
+            // reports that earlier quote state at its own index; it is not
+            // an opening quote and cannot contain a bang.
             if *byte != b'\'' && *byte == b'!' {
                 bangs[i] = Some(ShellBang::Quoted);
             }

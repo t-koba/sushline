@@ -2769,6 +2769,18 @@ fn bash_readline_and_sushline_inhibit_history_expansion_after_backslash_runs() {
             r#"echo {setup_s_a_b} UNIQUEMARKER alpha"#,
         ),
         (
+            r#"echo '!!:s'a'b' !UNIQUEMARKER"#,
+            r#"echo '!!:s'a'b' UNIQUEMARKER alpha"#,
+        ),
+        (
+            r#"echo 'foo !!:s'a'b' !UNIQUEMARKER"#,
+            r#"echo 'foo !!:s'a'b' UNIQUEMARKER alpha"#,
+        ),
+        (
+            r#"echo 'abc' !UNIQUEMARKER"#,
+            r#"echo 'abc' UNIQUEMARKER alpha"#,
+        ),
+        (
             r##"echo !!:s"a"b" !UNIQUEMARKER"##,
             r#"echo {setup_s_a_b} UNIQUEMARKER alpha"#,
         ),

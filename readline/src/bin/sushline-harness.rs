@@ -149,14 +149,15 @@ fn bang_has_bare_colon(line: &[u8], idx: usize) -> bool {
     bang_colon_scan(line, idx).0
 }
 
-fn bang_colon_scan(line: &[u8], idx: usize) -> (bool, Option<usize>) {
+fn bang_colon_scan(line: &[u8], idx: usize) -> (bool, Option<usize>, Vec<usize>) {
     let mut substitution = None;
+    let mut quote_positions = Vec::new();
     let mut cursor = idx + 1;
     if line.get(cursor) == Some(&b'?') {
         cursor += 1;
         loop {
             match line.get(cursor) {
-                None => return (false, substitution),
+                None => return (false, substitution, quote_positions),
                 Some(&b'?') if !is_escaped(line, cursor) => {
                     cursor += 1;
                     break;
@@ -169,7 +170,7 @@ fn bang_colon_scan(line: &[u8], idx: usize) -> (bool, Option<usize>) {
         && line.get(idx + 2) == Some(&b':')
         && !line.get(idx + 3).is_some_and(u8::is_ascii_alphabetic)
     {
-        return (true, substitution);
+        return (true, substitution, quote_positions);
     }
     while let Some(&byte) = line.get(cursor) {
         if byte == b'\\' {
@@ -182,38 +183,39 @@ fn bang_colon_scan(line: &[u8], idx: usize) -> (bool, Option<usize>) {
                     !NO_EXPAND.contains(next) && !matches!(next, b'\'' | b'\"' | b'\\')
                 });
             if (run - cursor) % 2 == 1 || !live_bang {
-                return (false, substitution);
+                return (false, substitution, quote_positions);
             }
             cursor = run;
             continue;
         }
         if byte.is_ascii_whitespace() || byte == b'\'' || byte == b'"' {
-            return (false, substitution);
+            return (false, substitution, quote_positions);
         }
         if byte == b':' {
             if line
                 .get(cursor + 1)
                 .is_none_or(|next| next.is_ascii_whitespace())
             {
-                return (true, substitution);
+                return (true, substitution, quote_positions);
             }
-            if let Some(end) = substitution_end(line, cursor + 1) {
+            if let Some((end, quotes)) = substitution_end(line, cursor + 1) {
                 substitution = Some(end);
+                quote_positions.extend(quotes);
                 if line.get(end) == Some(&b':') {
                     cursor = end;
                     continue;
                 }
-                return (false, substitution);
+                return (false, substitution, quote_positions);
             }
             cursor += 1;
             continue;
         }
         cursor += 1;
     }
-    (false, substitution)
+    (false, substitution, quote_positions)
 }
 
-fn substitution_end(line: &[u8], start: usize) -> Option<usize> {
+fn substitution_end(line: &[u8], start: usize) -> Option<(usize, Vec<usize>)> {
     let mut pos = start;
     if matches!(line.get(pos), Some(b'g' | b'a' | b'G')) && line.get(pos + 1) == Some(&b's') {
         pos += 2;
@@ -223,10 +225,14 @@ fn substitution_end(line: &[u8], start: usize) -> Option<usize> {
         return None;
     }
     let delimiter = line.get(pos).copied()?;
+    let mut quote_positions = Vec::new();
+    if delimiter == b'\'' {
+        quote_positions.push(pos);
+    }
     pos += 1;
     loop {
         match line.get(pos).copied() {
-            None => return Some(pos),
+            None => return Some((pos, quote_positions)),
             Some(b'\\') => {
                 pos += 1;
                 if line.get(pos).is_some() {
@@ -234,6 +240,9 @@ fn substitution_end(line: &[u8], start: usize) -> Option<usize> {
                 }
             }
             Some(byte) if byte == delimiter => {
+                if delimiter == b'\'' {
+                    quote_positions.push(pos);
+                }
                 pos += 1;
                 break;
             }
@@ -242,7 +251,7 @@ fn substitution_end(line: &[u8], start: usize) -> Option<usize> {
     }
     loop {
         match line.get(pos).copied() {
-            None => return Some(pos),
+            None => return Some((pos, quote_positions)),
             Some(b'\\') => {
                 pos += 1;
                 if line.get(pos).is_some() {
@@ -250,13 +259,60 @@ fn substitution_end(line: &[u8], start: usize) -> Option<usize> {
                 }
             }
             Some(byte) if byte == delimiter => {
+                if delimiter == b'\'' {
+                    quote_positions.push(pos);
+                }
                 pos += 1;
                 break;
             }
             _ => pos += 1,
         }
     }
-    Some(pos)
+    Some((pos, quote_positions))
+}
+
+const WORD_DELIMITERS: &[u8] = b" \t\n;&()|<>";
+
+/// Quote state before each byte. Quotes consumed as substitution delimiters
+/// are skipped, so a shell quote is not opened for the substitution syntax.
+fn shell_quote_states(line: &[u8], substitution_quotes: &[usize]) -> Vec<Option<u8>> {
+    let mut quote = None;
+    let mut states = vec![None; line.len()];
+    let mut at_word_start = true;
+    for (i, byte) in line.iter().enumerate() {
+        states[i] = quote;
+        if substitution_quotes.contains(&i) {
+            continue;
+        }
+        if quote.is_none() && *byte == b'#' && at_word_start {
+            break;
+        }
+        match quote {
+            Some(open @ (b'\'' | b'"')) => {
+                if *byte == open && !is_escaped(line, i) {
+                    quote = None;
+                }
+            }
+            None => {
+                if (*byte == b'\'' || *byte == b'"') && !is_escaped(line, i) {
+                    quote = Some(*byte);
+                }
+            }
+            _ => unreachable!(),
+        }
+        at_word_start = WORD_DELIMITERS.contains(byte);
+    }
+    states
+}
+
+fn bang_is_candidate(line: &[u8], idx: usize, quotes: &[Option<u8>]) -> bool {
+    line.get(idx) == Some(&b'!')
+        && idx + 1 < line.len()
+        && !(idx > 0 && line[idx - 1] == b'\\')
+        && !line
+            .get(idx + 1)
+            .is_some_and(|next| NO_EXPAND.contains(next))
+        && !(quotes[idx] == Some(b'"') && line.get(idx + 1) == Some(&b'"'))
 }
 
 /// Bangs inside a measured substitution replacement are literal replacement
@@ -265,18 +321,25 @@ fn substitution_end(line: &[u8], start: usize) -> Option<usize> {
 /// the colon, using the same scan as the bare-colon check, so a literal
 /// `:s/...` in ordinary text cannot swallow a later history event. A bang
 /// inside a single quote stays literal at its own index, including a quote
-/// opened inside a measured substitution.
+/// opened inside a measured substitution; a quote consumed as the
+/// substitution delimiter is syntax, not an open shell quote.
 fn classify_shell_bangs(line: &[u8]) -> Vec<Option<ShellBang>> {
+    let preliminary = shell_quote_states(line, &[]);
+    let mut substitution_quotes = Vec::new();
+    for idx in 0..line.len() {
+        if bang_is_candidate(line, idx, &preliminary) {
+            substitution_quotes.extend(bang_colon_scan(line, idx).2);
+        }
+    }
+    let quotes = shell_quote_states(line, &substitution_quotes);
     let mut bangs = vec![None; line.len()];
-    let mut quote = None;
-    const WORD_DELIMITERS: &[u8] = b" \t\n;&()|<>";
     let mut at_word_start = true;
     for (i, byte) in line.iter().enumerate() {
-        let escaped = is_escaped(line, i);
+        let quote = quotes[i];
         if quote == Some(b'\'') {
-            if *byte == b'\'' {
-                quote = None;
-            } else if *byte == b'!' {
+            // A delimiter quote was skipped while building the quote states,
+            // so only an ordinary opening quote can reach this branch.
+            if *byte != b'\'' && *byte == b'!' {
                 bangs[i] = Some(ShellBang::Quoted);
             }
             at_word_start = false;
@@ -285,25 +348,7 @@ fn classify_shell_bangs(line: &[u8]) -> Vec<Option<ShellBang>> {
         if quote.is_none() && *byte == b'#' && at_word_start {
             break;
         }
-        match quote {
-            Some(b'"') => {
-                if *byte == b'"' && !escaped {
-                    quote = None;
-                }
-            }
-            None => {
-                if (*byte == b'\'' || *byte == b'"') && !escaped {
-                    quote = Some(*byte);
-                }
-            }
-            _ => unreachable!(),
-        }
-        if *byte == b'!'
-            && i + 1 < line.len()
-            && !(i > 0 && line[i - 1] == b'\\')
-            && !line.get(i + 1).is_some_and(|next| NO_EXPAND.contains(next))
-            && !(quote == Some(b'"') && line.get(i + 1) == Some(&b'"'))
-        {
+        if bang_is_candidate(line, i, &quotes) {
             bangs[i] = Some(if idx_is_dollar_bang(line, i) {
                 ShellBang::Dollar
             } else if let Some(close) = bracket_bang_delimiter(line, i) {

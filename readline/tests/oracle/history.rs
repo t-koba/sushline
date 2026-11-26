@@ -2521,6 +2521,8 @@ fn bash_readline_and_sushline_inhibit_history_expansion_after_backslash_runs() {
         "FIND: suffix",
         setup,
     ];
+    let setup_s_a_b = setup.replace("read", "rebd");
+    let setup_s_a_bc = setup.replace("read", "rebcd");
     for (typed, expected) in [
         (r#"echo \!UNIQUEMARKER"#, r#"echo \!UNIQUEMARKER"#),
         (r#"echo \!!"#, r#"echo \!!"#),
@@ -2698,8 +2700,36 @@ fn bash_readline_and_sushline_inhibit_history_expansion_after_backslash_runs() {
             r#"echo !!:s/a/b:c:d"#,
             r#"echo p=RDP; IFS= reb:c:dd -r -e -p "${p}>" line; m=SUSHLINE_ACCEPT; printf "${m}ED:%s\n" "$line""#,
         ),
+        (
+            r#"echo !!:s'a'b' !UNIQUEMARKER"#,
+            r#"echo {setup_s_a_b} UNIQUEMARKER alpha"#,
+        ),
+        (
+            r#"echo !!:s'a'b' !UNIQUEMARKER !BRACKETMATCH"#,
+            r#"echo {setup_s_a_b} UNIQUEMARKER alpha BRACKETMATCH beta"#,
+        ),
+        (
+            r#"echo !!:gs'a'b' !UNIQUEMARKER"#,
+            r#"echo {setup_s_a_b} UNIQUEMARKER alpha"#,
+        ),
+        (
+            r#"echo !!:s'a'bc' !UNIQUEMARKER"#,
+            r#"echo {setup_s_a_bc} UNIQUEMARKER alpha"#,
+        ),
+        (
+            r#"echo !!:s'a'b' !?FIND?"#,
+            r#"echo {setup_s_a_b} FIND: suffix"#,
+        ),
+        (r#"echo !!:s'a'b' !!:0"#, r#"echo {setup_s_a_b} p=RDP"#),
+        (
+            r#"echo !!:s'a'b' !UNIQUEMARKER:s/a/b"#,
+            r#"echo {setup_s_a_b} UNIQUEMARKER blpha"#,
+        ),
     ] {
-        let expected = expected.replace("{setup}", setup);
+        let expected = expected
+            .replace("{setup_s_a_b}", &setup_s_a_b)
+            .replace("{setup_s_a_bc}", &setup_s_a_bc)
+            .replace("{setup}", setup);
         let keys = format!("{typed}\x18\x01\r");
         let bash = run_bash_prompt_with_history(keys.as_bytes(), inputrc, &history);
         let sushline =

@@ -117,6 +117,8 @@ fn inhibits_history_expansion(line: &[u8], idx: usize) -> bool {
     }
 }
 
+const NO_EXPAND: &[u8] = b" \t\n\r=;&|()<>";
+
 /// A colon right after the event designator with no word designator leaves
 /// the leading bang literal in the measured shell prompt. A `!?...?` search
 /// designator ends at its closing unescaped `?`, so a colon or whitespace
@@ -126,9 +128,11 @@ fn inhibits_history_expansion(line: &[u8], idx: usize) -> bool {
 /// consumed and scanning continues, so a trailing bare colon after a measured
 /// word designator still fails the whole line. A colon immediately preceded
 /// by a backslash is never the selector, whether the run before it is odd or
-/// even. An odd backslash run, or an even run not followed by a bang, ends the
-/// selector scan; an even run followed by a bang reaches that live event, so
-/// its trailing bare colon still fails the whole line.
+/// even. An odd backslash run, or an even run not followed by a bang that
+/// starts a live event, ends the selector scan; an even run followed by a
+/// valid event bang reaches that event, so its trailing bare colon still
+/// fails the whole line. A bang followed by a no-expand character, quote or
+/// backslash is not such an event.
 /// A measured substitution modifier (`s` with
 /// an optional `g`/`a`/`G` prefix) consumes its old text to the matching
 /// delimiter and an unterminated replacement to end of line, so a colon
@@ -173,7 +177,11 @@ fn bang_colon_scan(line: &[u8], idx: usize) -> (bool, Option<usize>) {
             while line.get(run) == Some(&b'\\') {
                 run += 1;
             }
-            if (run - cursor) % 2 == 1 || line.get(run) != Some(&b'!') {
+            let live_bang = line.get(run) == Some(&b'!')
+                && line.get(run + 1).is_some_and(|next| {
+                    !NO_EXPAND.contains(next) && !matches!(next, b'\'' | b'\"' | b'\\')
+                });
+            if (run - cursor) % 2 == 1 || !live_bang {
                 return (false, substitution);
             }
             cursor = run;
@@ -259,7 +267,6 @@ fn substitution_end(line: &[u8], start: usize) -> Option<usize> {
 /// inside a single quote stays literal at its own index, including a quote
 /// opened inside a measured substitution.
 fn classify_shell_bangs(line: &[u8]) -> Vec<Option<ShellBang>> {
-    const NO_EXPAND: &[u8] = b" \t\n\r=;&|()<>";
     let mut bangs = vec![None; line.len()];
     let mut quote = None;
     const WORD_DELIMITERS: &[u8] = b" \t\n;&()|<>";

@@ -2769,6 +2769,10 @@ fn bash_readline_and_sushline_inhibit_history_expansion_after_backslash_runs() {
             r#"echo {setup_s_a_b} UNIQUEMARKER alpha"#,
         ),
         (
+            r##"echo !!:s"a"b" !UNIQUEMARKER"##,
+            r#"echo {setup_s_a_b} UNIQUEMARKER alpha"#,
+        ),
+        (
             r#"echo !!:s'a'b' !UNIQUEMARKER !BRACKETMATCH"#,
             r#"echo {setup_s_a_b} UNIQUEMARKER alpha BRACKETMATCH beta"#,
         ),

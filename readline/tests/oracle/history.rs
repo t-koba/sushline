@@ -1956,6 +1956,29 @@ fn bash_readline_and_sushline_expand_same_history_words_and_modifiers() {
         ("!!:s/o/O/:g&", "echO /tmp/fOO.txt alpha beta"),
         ("!!:Gs/o/O/", "echO /tmp/fOo.txt alpha beta"),
         ("!!:s/o/O/:G&", "echO /tmp/fOo.txt alpha beta"),
+        // GNU keeps `g`/`a` one-shot and `G` sticky for the rest of an
+        // event; when both are pending the global substitution wins once.
+        ("!!:Gs/o/O/:s/O/Q/", "echQ /tmp/fQo.txt alpha beta"),
+        (
+            "!!:s/o/x/ !!:G&:s/x/Q/",
+            "echx /tmp/foo.txt alpha beta echQ /tmp/fQo.txt alpha beta",
+        ),
+        ("!!:s/o/x/:gx:&", "'echx' '/tmp/fxx.txt' 'alpha' 'beta'"),
+        ("!!:s/o/x/:ax:&", "'echx' '/tmp/fxx.txt' 'alpha' 'beta'"),
+        ("!!:as/o/O/:s/O/Q/", "echQ /tmp/fOO.txt alpha beta"),
+        (
+            "!!:gx:Gs/o/O/:s/O/Q/",
+            "'echQ' '/tmp/fQO.txt' 'alpha' 'beta'",
+        ),
+        (
+            "!!:gx:Gx:s/o/O/:s/O/Q/",
+            "'echQ' '/tmp/fQO.txt' 'alpha' 'beta'",
+        ),
+        (
+            "!!:Gx:gx:s/o/O/:s/O/Q/",
+            "'echQ' '/tmp/fQO.txt' 'alpha' 'beta'",
+        ),
+        ("!!:gs/o/O/:s/O/Q/", "echQ /tmp/fOO.txt alpha beta"),
         ("!!:s/\\//_/", "echo _tmp/foo.txt alpha beta"),
         ("!!:gs#/#_#", "echo _tmp_foo.txt alpha beta"),
     ] {

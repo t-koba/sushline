@@ -139,17 +139,23 @@ enum HistoryQuoteMode {
     EachWord,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum HistorySubstitutionMode {
-    Global,
-    EachWord,
-}
-
 #[derive(Default)]
 struct HistoryModifierStatus {
     print_only: bool,
     quote_mode: Option<HistoryQuoteMode>,
-    substitution_mode: Option<HistorySubstitutionMode>,
+    // GNU keeps two independent per-event substitution flags: `g`/`a` is
+    // consumed by one global substitution, while `G` stays set for every
+    // later substitution in the same event. When both are set, the global
+    // one wins for that substitution and only it is cleared.
+    global_substitution: bool,
+    each_word_substitution: bool,
+}
+
+impl HistoryModifierStatus {
+    fn reset_substitutions(&mut self) {
+        self.global_substitution = false;
+        self.each_word_substitution = false;
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -298,7 +304,7 @@ pub fn expand_history_with_status_with_state(
         let mut event = substituted;
         let mut next = next_after_fields;
         modifier_status.quote_mode = None;
-        modifier_status.substitution_mode = None;
+        modifier_status.reset_substitutions();
         while line.get(next) == Some(&b':') {
             next += 1;
             let (modified, next_after_modifier) = apply_history_modifier(
@@ -371,7 +377,7 @@ pub fn expand_history_with_status_with_state(
         let word_specifier_consumed = state.word_specifier_consumed;
         did_expand = true;
         modifier_status.quote_mode = None;
-        modifier_status.substitution_mode = None;
+        modifier_status.reset_substitutions();
         if line.get(next) == Some(&b':') {
             next += 1;
             let designator_start = next;
@@ -961,27 +967,30 @@ fn read_history_designator(input: &[u8], mut idx: usize) -> (Vec<u8>, usize) {
 fn apply_history_modifier(
     line: &[u8],
     input: &[u8],
-    idx: usize,
+    mut idx: usize,
     last_substitution: &mut Option<HistorySubstitution>,
     last_event_search: Option<&[u8]>,
     policy: &HistoryExpansionPolicy,
     status: &mut HistoryModifierStatus,
 ) -> Result<(Vec<u8>, usize), HistoryExpansionError> {
-    // GNU accepts `g`, `G` and `a` before the non-substitution modifiers that
-    // act on the selected text. The prefix has no visible effect there; only
-    // `u` and unknown modifiers stay invalid. Substitution prefixes keep
-    // their own branches below.
-    let idx = match (input.get(idx), input.get(idx + 1)) {
-        (Some(b'g' | b'G' | b'a'), Some(b'h' | b't' | b'r' | b'e' | b'x' | b'q' | b'p')) => {
-            status.substitution_mode = Some(if input[idx] == b'G' {
-                HistorySubstitutionMode::EachWord
-            } else {
-                HistorySubstitutionMode::Global
-            });
-            idx + 1
+    // GNU accepts a `g`, `G` or `a` prefix before every modifier that acts
+    // on the selected text, including `s` and `&`. The prefix records a
+    // substitution mode; it has no other visible effect on non-substitution
+    // modifiers. Only `u` and unknown modifiers stay invalid.
+    if let (Some(prefix @ (b'g' | b'G' | b'a')), Some(next)) =
+        (input.get(idx).copied(), input.get(idx + 1).copied())
+        && matches!(
+            next,
+            b'h' | b't' | b'r' | b'e' | b'x' | b'q' | b'p' | b's' | b'&'
+        )
+    {
+        if prefix == b'G' {
+            status.each_word_substitution = true;
+        } else {
+            status.global_substitution = true;
         }
-        _ => idx,
-    };
+        idx += 1;
+    }
     Ok(match input.get(idx).copied() {
         Some(b'h') => (history_head(line), idx + 1),
         Some(b't') => (history_tail(line), idx + 1),
@@ -999,9 +1008,10 @@ fn apply_history_modifier(
             status.print_only = true;
             (line.to_vec(), idx + 1)
         }
-        Some(b's') => match status.substitution_mode {
-            Some(HistorySubstitutionMode::Global) => {
-                status.substitution_mode = None;
+        Some(b's') => {
+            let global = status.global_substitution;
+            status.global_substitution = false;
+            if global {
                 let (line, idx) = apply_substitution_modifier(
                     line,
                     input,
@@ -1011,8 +1021,7 @@ fn apply_history_modifier(
                     last_event_search,
                 )?;
                 (line, idx)
-            }
-            Some(HistorySubstitutionMode::EachWord) => {
+            } else if status.each_word_substitution {
                 let (line, idx) = apply_substitution_modifier_each_word(
                     line,
                     input,
@@ -1022,8 +1031,7 @@ fn apply_history_modifier(
                     policy,
                 )?;
                 (line, idx)
-            }
-            None => {
+            } else {
                 let (line, idx) = apply_substitution_modifier(
                     line,
                     input,
@@ -1034,83 +1042,20 @@ fn apply_history_modifier(
                 )?;
                 (line, idx)
             }
-        },
-        Some(b'g') if input.get(idx + 1) == Some(&b's') => {
-            let (line, idx) = apply_substitution_modifier(
-                line,
-                input,
-                idx + 2,
-                true,
-                last_substitution,
-                last_event_search,
-            )?;
-            (line, idx)
-        }
-        Some(b'G') if input.get(idx + 1) == Some(&b's') => {
-            let (line, idx) = apply_substitution_modifier_each_word(
-                line,
-                input,
-                idx + 2,
-                last_substitution,
-                last_event_search,
-                policy,
-            )?;
-            (line, idx)
-        }
-        Some(b'a') if input.get(idx + 1) == Some(&b's') => {
-            let (line, idx) = apply_substitution_modifier(
-                line,
-                input,
-                idx + 2,
-                true,
-                last_substitution,
-                last_event_search,
-            )?;
-            (line, idx)
         }
         Some(b'&') => {
+            let global = status.global_substitution;
+            status.global_substitution = false;
             if let Some((old, new)) = last_substitution.as_ref() {
-                let replaced =
-                    if status.substitution_mode == Some(HistorySubstitutionMode::EachWord) {
-                        replace_each_word_once_checked(line, old, new, policy)
-                    } else {
-                        replace_once_checked(line, old, new)
-                    }
-                    .ok_or(HistoryExpansionError::SubstitutionFailed)?;
-                (replaced, idx + 1)
-            } else {
-                return Err(HistoryExpansionError::SubstitutionFailed);
-            }
-        }
-        Some(b'g') if input.get(idx + 1) == Some(&b'&') => {
-            if let Some((old, new)) = last_substitution.as_ref() {
-                (
+                let replaced = if global {
                     replace_all_checked(line, old, new)
-                        .ok_or(HistoryExpansionError::SubstitutionFailed)?,
-                    idx + 2,
-                )
-            } else {
-                return Err(HistoryExpansionError::SubstitutionFailed);
-            }
-        }
-        Some(b'G') if input.get(idx + 1) == Some(&b'&') => {
-            if let Some((old, new)) = last_substitution.as_ref() {
-                (
+                } else if status.each_word_substitution {
                     replace_each_word_once_checked(line, old, new, policy)
-                        .ok_or(HistoryExpansionError::SubstitutionFailed)?,
-                    idx + 2,
-                )
-            } else {
-                return Err(HistoryExpansionError::SubstitutionFailed);
-            }
-        }
-        Some(b'a') if input.get(idx + 1) == Some(&b'&') => {
-            if let Some((old, new)) = last_substitution.as_ref() {
-                (
-                    replace_all_checked(line, old, new)
-                        .ok_or(HistoryExpansionError::SubstitutionFailed)?,
-                    idx + 2,
-                )
+                } else {
+                    replace_once_checked(line, old, new)
+                }
+                .ok_or(HistoryExpansionError::SubstitutionFailed)?;
+                (replaced, idx + 1)
             } else {
                 return Err(HistoryExpansionError::SubstitutionFailed);
             }

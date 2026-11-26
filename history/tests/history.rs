@@ -4966,6 +4966,22 @@ fn history_prefix_modifiers_accept_non_substitution_modifiers() {
         ("!!:Gx:s/o/x/:&", b"'echx' 'fxx' 'fxx'".as_slice()),
         ("!!:Gh:s/o/x/:&", b"echx fxx fxx".as_slice()),
         ("!!:gh:s/o/O/:s/O/Q/", b"echQ fOO fOO".as_slice()),
+        // GNU keeps `g`/`a` one-shot and `G` sticky per event: a later
+        // substitution sees `G` unless a global flag was still pending.
+        ("!!:Gs/o/O/:s/O/Q/", b"echQ fQo fQo".as_slice()),
+        (
+            "!!:s/o/x/ !!:G&:s/x/Q/",
+            b"echx foo foo echQ fQo fQo".as_slice(),
+        ),
+        ("!!:s/o/x/:gx:&", b"'echx' 'fxx' 'fxx'".as_slice()),
+        ("!!:s/o/x/:ax:&", b"'echx' 'fxx' 'fxx'".as_slice()),
+        ("!!:as/o/O/:s/O/Q/", b"echQ fOO fOO".as_slice()),
+        ("!!:gx:Gs/o/O/:s/O/Q/", b"'echQ' 'fQO' 'fQO'".as_slice()),
+        ("!!:gx:Gx:s/o/O/:s/O/Q/", b"'echQ' 'fQO' 'fQO'".as_slice()),
+        ("!!:Gx:gx:s/o/O/:s/O/Q/", b"'echQ' 'fQO' 'fQO'".as_slice()),
+        ("!!:gs/o/O/:s/O/Q/", b"echQ fOO fOO".as_slice()),
+        // `g&` has no `x` prefix, so GNU leaves the result unquoted.
+        ("!!:s/o/x/:g&", b"echx fxx fxx".as_slice()),
     ] {
         assert_eq!(
             expand_history(

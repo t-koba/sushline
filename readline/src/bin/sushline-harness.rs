@@ -126,8 +126,9 @@ fn inhibits_history_expansion(line: &[u8], idx: usize) -> bool {
 /// consumed and scanning continues, so a trailing bare colon after a measured
 /// word designator still fails the whole line. A colon immediately preceded
 /// by a backslash is never the selector, whether the run before it is odd or
-/// even and even in later tokens; any backslash after the event designator
-/// ends the selector scan and the rest of that word stays literal.
+/// even. An odd backslash run, or an even run not followed by a bang, ends the
+/// selector scan; an even run followed by a bang reaches that live event, so
+/// its trailing bare colon still fails the whole line.
 /// A measured substitution modifier (`s` with
 /// an optional `g`/`a`/`G` prefix) consumes its old text to the matching
 /// delimiter and an unterminated replacement to end of line, so a colon
@@ -168,7 +169,15 @@ fn bang_colon_scan(line: &[u8], idx: usize) -> (bool, Option<usize>) {
     }
     while let Some(&byte) = line.get(cursor) {
         if byte == b'\\' {
-            return (false, substitution);
+            let mut run = cursor;
+            while line.get(run) == Some(&b'\\') {
+                run += 1;
+            }
+            if (run - cursor) % 2 == 1 || line.get(run) != Some(&b'!') {
+                return (false, substitution);
+            }
+            cursor = run;
+            continue;
         }
         if byte.is_ascii_whitespace() || byte == b'\'' || byte == b'"' {
             return (false, substitution);

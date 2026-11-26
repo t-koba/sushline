@@ -968,11 +968,11 @@ fn apply_history_modifier(
     status: &mut HistoryModifierStatus,
 ) -> Result<(Vec<u8>, usize), HistoryExpansionError> {
     // GNU accepts `g`, `G` and `a` before the non-substitution modifiers that
-    // act on the selected text. The prefix has no visible effect there; the
-    // measured exceptions are `p`, `u` and unknown modifiers, which stay
-    // invalid. Substitution prefixes keep their own branches below.
+    // act on the selected text. The prefix has no visible effect there; only
+    // `u` and unknown modifiers stay invalid. Substitution prefixes keep
+    // their own branches below.
     let idx = match (input.get(idx), input.get(idx + 1)) {
-        (Some(b'g' | b'G' | b'a'), Some(b'h' | b't' | b'r' | b'e' | b'x' | b'q')) => {
+        (Some(b'g' | b'G' | b'a'), Some(b'h' | b't' | b'r' | b'e' | b'x' | b'q' | b'p')) => {
             status.substitution_mode = Some(if input[idx] == b'G' {
                 HistorySubstitutionMode::EachWord
             } else {

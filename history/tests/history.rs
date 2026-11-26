@@ -4980,7 +4980,19 @@ fn history_prefix_modifiers_accept_non_substitution_modifiers() {
             "{typed}"
         );
     }
-    for typed in ["!!:gp", "!!:gu", "!!:g"] {
+    for typed in ["!!:gp", "!!:Gp", "!!:ap"] {
+        let printed = expand_history_with_status(
+            typed.as_bytes(),
+            &history,
+            HistoryChars::parse("!^#"),
+            &policy,
+            |_| false,
+        )
+        .unwrap();
+        assert_eq!(printed.line, b"echo foo foo", "{typed}");
+        assert_eq!(printed.status, HistoryExpansionStatus::PrintOnly, "{typed}");
+    }
+    for typed in ["!!:gu", "!!:g"] {
         assert!(
             expand_history(
                 typed.as_bytes(),

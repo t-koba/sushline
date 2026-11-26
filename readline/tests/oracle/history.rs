@@ -4,7 +4,10 @@
 
 use super::host::require_oracle_host;
 use super::pty::*;
-use history::expansion::{HistoryChars, HistoryExpansionPolicy, expand_history};
+use history::expansion::{
+    HistoryChars, HistoryExpansionPolicy, HistoryExpansionStatus, expand_history,
+    expand_history_with_status,
+};
 use readline::History;
 use std::fs;
 use std::process::Command;
@@ -1966,6 +1969,56 @@ fn bash_readline_and_sushline_expand_same_history_words_and_modifiers() {
             accepted_line(&sushline),
             Some(expected.to_string()),
             "{typed}: {sushline}"
+        );
+    }
+}
+
+/// GNU `history -p` accepts `p` after the measured `g`, `G` and `a`
+/// prefixes. Sushline's library exposes the same expanded text and print-only
+/// status; this fixture does not claim prompt-line replacement for `:p`.
+#[test]
+fn bash_history_and_sushline_accept_print_modifier_after_prefixes() {
+    let history = ["echo /tmp/foo.txt alpha beta"];
+    let mut sushline_history = History::new();
+    sushline_history.push(history[0]);
+    let policy = HistoryExpansionPolicy::default();
+    for typed in ["!!:gp", "!!:Gp", "!!:ap", "!!:p"] {
+        let gnu = run_bash_history_expand(typed, &history);
+        let expanded = expand_history(
+            typed.as_bytes(),
+            &sushline_history,
+            HistoryChars::parse("!^#"),
+            &policy,
+            |_| false,
+        )
+        .unwrap();
+        assert_eq!(String::from_utf8(expanded).unwrap(), gnu, "{typed}");
+        let with_status = expand_history_with_status(
+            typed.as_bytes(),
+            &sushline_history,
+            HistoryChars::parse("!^#"),
+            &policy,
+            |_| false,
+        )
+        .unwrap();
+        assert_eq!(
+            with_status.status,
+            HistoryExpansionStatus::PrintOnly,
+            "{typed}"
+        );
+    }
+    for typed in ["!!:gu", "!!:g"] {
+        run_bash_history_expand_failure(typed, &history);
+        assert!(
+            expand_history(
+                typed.as_bytes(),
+                &sushline_history,
+                HistoryChars::parse("!^#"),
+                &policy,
+                |_| false,
+            )
+            .is_err(),
+            "{typed}"
         );
     }
 }

@@ -1932,6 +1932,17 @@ fn bash_readline_and_sushline_expand_same_history_words_and_modifiers() {
         ("!!:ax", "'echo' '/tmp/foo.txt' 'alpha' 'beta'"),
         ("!!:gx:q", "'echo /tmp/foo.txt alpha beta'"),
         ("!!:gx:s/o/O/", "'echO' '/tmp/fOO.txt' 'alpha' 'beta'"),
+        ("!!:Gh:s/o/O/:s/O/Q/", "echQ /tmp"),
+        (
+            "!!:Gx:s/o/O/:s/O/Q/",
+            "'echQ' '/tmp/fQo.txt' 'alpha' 'beta'",
+        ),
+        ("!!:Gx:s/o/x/:&", "'echx' '/tmp/fxx.txt' 'alpha' 'beta'"),
+        (
+            "!!:gx:s/o/O/:s/O/Q/",
+            "'echQ' '/tmp/fOO.txt' 'alpha' 'beta'",
+        ),
+        ("!!:gh:s/o/O/:s/O/Q/", "echQ /tmp"),
         ("!!:1:q", "'/tmp/foo.txt'"),
         ("!!:1:x", "'/tmp/foo.txt'"),
         ("!?foo?:%", "/tmp/foo.txt"),

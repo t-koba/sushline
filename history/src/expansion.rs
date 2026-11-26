@@ -139,7 +139,7 @@ enum HistoryQuoteMode {
     EachWord,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum HistorySubstitutionMode {
     Global,
     EachWord,
@@ -999,8 +999,9 @@ fn apply_history_modifier(
             status.print_only = true;
             (line.to_vec(), idx + 1)
         }
-        Some(b's') => match status.substitution_mode.take() {
+        Some(b's') => match status.substitution_mode {
             Some(HistorySubstitutionMode::Global) => {
+                status.substitution_mode = None;
                 let (line, idx) = apply_substitution_modifier(
                     line,
                     input,
@@ -1069,11 +1070,14 @@ fn apply_history_modifier(
         }
         Some(b'&') => {
             if let Some((old, new)) = last_substitution.as_ref() {
-                (
-                    replace_once_checked(line, old, new)
-                        .ok_or(HistoryExpansionError::SubstitutionFailed)?,
-                    idx + 1,
-                )
+                let replaced =
+                    if status.substitution_mode == Some(HistorySubstitutionMode::EachWord) {
+                        replace_each_word_once_checked(line, old, new, policy)
+                    } else {
+                        replace_once_checked(line, old, new)
+                    }
+                    .ok_or(HistoryExpansionError::SubstitutionFailed)?;
+                (replaced, idx + 1)
             } else {
                 return Err(HistoryExpansionError::SubstitutionFailed);
             }

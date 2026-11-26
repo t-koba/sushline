@@ -4961,6 +4961,11 @@ fn history_prefix_modifiers_accept_non_substitution_modifiers() {
         ("!!:Gx:s/o/O/", b"'echO' 'fOo' 'fOo'".as_slice()),
         ("!!:gx:s/o/O/", b"'echO' 'fOO' 'fOO'".as_slice()),
         ("!!:gx:s/o/O/:s/O/Q/", b"'echQ' 'fOO' 'fOO'".as_slice()),
+        ("!!:Gh:s/o/O/:s/O/Q/", b"echQ fQo fQo".as_slice()),
+        ("!!:Gx:s/o/O/:s/O/Q/", b"'echQ' 'fQo' 'fQo'".as_slice()),
+        ("!!:Gx:s/o/x/:&", b"'echx' 'fxx' 'fxx'".as_slice()),
+        ("!!:Gh:s/o/x/:&", b"echx fxx fxx".as_slice()),
+        ("!!:gh:s/o/O/:s/O/Q/", b"echQ fOO fOO".as_slice()),
     ] {
         assert_eq!(
             expand_history(

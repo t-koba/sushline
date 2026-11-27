@@ -18001,6 +18001,82 @@ fn bash_readline_and_sushline_search_delete_to_earlier_match() {
     }
 }
 
+/// GNU's failed-search re-search is direction-independent: a forward search
+/// whose extension fails re-searches strictly above the retained last-found
+/// index when the query is deleted back. Forward-search-history is bound to
+/// \C-t because the PTY reserves Ctrl-S for IXON flow control, and three
+/// Ctrl-P presses start the search at the oldest entry. Measurement scope is
+/// these exact key traces and histories; accepted lines are paired too.
+#[test]
+fn bash_readline_and_sushline_forward_search_delete_to_earlier_match() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!("Forward search delete behavior was measured on Readline 8.3");
+        return;
+    }
+    let bindings = r#""\C-t": forward-search-history"#;
+    let first: &[&str] = &["alpha one", "beta two", "alpha three"];
+    let newest: &[&str] = &["alpha one", "alpha three", "beta two"];
+    let oldest: &[&str] = &["beta two", "alpha one", "alpha three"];
+    let disc: &[&str] = &["beta one", "alpha two", "beta three"];
+    for (name, history, keys, accepted, bells) in [
+        (
+            "del",
+            first,
+            b"\x10\x10\x10\x14ba\x08\r".as_slice(),
+            "beta two",
+            2,
+        ),
+        (
+            "newest_match",
+            newest,
+            b"\x10\x10\x10\x14ba\x08\r".as_slice(),
+            "beta two",
+            2,
+        ),
+        (
+            "two_deletes",
+            first,
+            b"\x10\x10\x10\x14baxx\x08\x08\r".as_slice(),
+            "beta two",
+            5,
+        ),
+        (
+            "oldest_match",
+            oldest,
+            b"\x10\x10\x10\x14ba\x08\r".as_slice(),
+            "beta two",
+            3,
+        ),
+        (
+            "offset_zero_stale",
+            disc,
+            b"\x10\x10\x10\x14ba\x08\r".as_slice(),
+            "beta three",
+            2,
+        ),
+    ] {
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(keys, bindings, history),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, bindings, history),
+            ),
+        ] {
+            let context = format!("{editor} {name} keys={keys:?}: {output:?}");
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(accepted),
+                "{context}"
+            );
+            assert_eq!(bell_count(&output), bells, "{context}");
+        }
+    }
+}
+
 /// On the measured GNU Readline 8.3 host, Ctrl-U in an incremental search
 /// ends the search, establishes the selected line and then applies
 /// unix-line-discard from the match start. A typed key after Ctrl-U exposes

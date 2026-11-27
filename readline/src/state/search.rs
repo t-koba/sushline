@@ -308,6 +308,17 @@ pub(crate) fn update_reverse_search_match(
                         .original_history_pos
                         .saturating_add(1)
                         .min(history.entries().len())
+                } else if stale_line.is_some() && search.match_index.is_some() {
+                    // After a failed forward extension GNU re-searches
+                    // strictly above the retained last-found index. Unlike a
+                    // backward scan, forward exhaustion leaves the stale line
+                    // at the newest entry, so its offset 0 is not the
+                    // synthetic index-0 line the backward branch re-probes.
+                    search
+                        .match_index
+                        .unwrap_or(0)
+                        .saturating_add(1)
+                        .min(history.entries().len())
                 } else {
                     search
                         .match_index

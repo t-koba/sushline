@@ -2001,6 +2001,10 @@ fn bash_readline_and_sushline_expand_same_history_words_and_modifiers() {
 /// fixtures pin only the measured designator results for their histories.
 #[test]
 fn bash_readline_and_sushline_select_arithmetic_expansion_words() {
+    if !super::host_readline::host_carries(super::host_readline::MEASURED_RELEASE) {
+        eprintln!("Arithmetic-expansion tokenization was measured on Readline 8.3");
+        return;
+    }
     let inputrc = r#""\C-x\C-a": history-expand-line"#;
     for (history, typed, expected) in [
         (&["printf $((1+2)) tail"][..], "!!:1", "$((1+2))"),

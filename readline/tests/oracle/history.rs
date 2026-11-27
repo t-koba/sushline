@@ -1997,6 +1997,38 @@ fn bash_readline_and_sushline_expand_same_history_words_and_modifiers() {
     }
 }
 
+/// GNU 8.3 changed arithmetic-expansion word tokenization. These paired
+/// fixtures pin only the measured designator results for their histories.
+#[test]
+fn bash_readline_and_sushline_select_arithmetic_expansion_words() {
+    let inputrc = r#""\C-x\C-a": history-expand-line"#;
+    for (history, typed, expected) in [
+        (&["printf $((1+2)) tail"][..], "!!:1", "$((1+2))"),
+        (&["printf $((1+2)) tail"][..], "!!:2", "tail"),
+        (&["echo a$((1+2))b tail"][..], "!!:1", "a$((1+2))b"),
+        (&["echo a$((1+2))b tail"][..], "!!:2", "tail"),
+        (&["echo $(((1+2))) tail"][..], "!!:1", "$(((1+2)))"),
+        (&["echo $(((1+2))) tail"][..], "!!:2", "tail"),
+        (
+            &["echo $((1+2)) \"quoted tail\""][..],
+            "!!:2",
+            "\"quoted tail\"",
+        ),
+    ] {
+        let keys = format!("{typed}\x18\x01\r");
+        let bash = run_bash_history_expand(typed, history);
+        let sushline =
+            run_sushline_harness_with_inputrc_and_history(keys.as_bytes(), inputrc, history);
+
+        assert_eq!(bash, expected, "{typed}");
+        assert_eq!(
+            accepted_line(&sushline),
+            Some(expected.to_string()),
+            "{typed}: {sushline}"
+        );
+    }
+}
+
 /// GNU `history -p` accepts `p` after the measured `g`, `G` and `a`
 /// prefixes. Sushline's library exposes the same expanded text and print-only
 /// status; this fixture does not claim prompt-line replacement for `:p`.

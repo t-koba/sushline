@@ -2463,10 +2463,11 @@ where
                 // twice, unless the previous match was in that line and ran
                 // out of in-line occurrences (Bash 5.3 PTY oracle). A repeat
                 // after any failed search also cannot advance, so it rings
-                // twice (GNU 8.3 PTY oracle). A direction switch resets
-                // GNU's `sline_index` for the new direction, so neither extra
-                // bell applies there; only the failure bell rings (paired
-                // switch-after-failed-reverse cases).
+                // twice (GNU 8.3 PTY oracle). GNU's case -2 (a direction
+                // switch) has no in-line advance check at all, so neither
+                // extra bell applies there: only the failed re-search bell
+                // rings, from a stored cursor or an unsaved line alike
+                // (GNU 8.3 source and paired PTY oracle).
                 let unsaved_line = search.original_history_entry_index.is_none()
                     && search.original_history_pos >= self.history.entries().len()
                     && !search.unsaved_line_match;

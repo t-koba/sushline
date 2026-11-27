@@ -18100,8 +18100,9 @@ fn bash_readline_and_sushline_forward_search_delete_to_earlier_match() {
 /// bound to `C-t` because the PTY reserves Ctrl-S for IXON flow control, and
 /// three Ctrl-P presses start the search at the oldest entry. Successful
 /// repeats stay silent, and a repeat after a successful match then a failure
-/// rings only on the failed repeat. Backward failed repeats and non-repeat
-/// deletions are unchanged controls. Both editors are asserted to the same
+/// rings only on the failed repeat. A repeat that switches direction after a
+/// failed search rings only the failed re-search bell. Backward failed repeats
+/// and non-repeat deletions are unchanged controls. Both editors are asserted to the same
 /// GNU-measured accepted lines and bell counts for these exact key traces.
 #[test]
 fn bash_readline_and_sushline_forward_repeat_after_failed_extension() {
@@ -18175,12 +18176,26 @@ fn bash_readline_and_sushline_forward_repeat_after_failed_extension() {
         (
             "switch_after_failed_reverse",
             zzzb,
+            b"\x10\x10\x10\x12bq\x14\r".as_slice(),
+            "beta one",
+            2,
+        ),
+        (
+            "switch_then_same_direction_repeat",
+            zzzb,
+            b"\x10\x10\x10\x12bq\x14\x14\r".as_slice(),
+            "beta one",
+            4,
+        ),
+        (
+            "switch_from_unsaved_line",
+            zzzb,
             b"\x12bq\x14\r".as_slice(),
             "zzzb",
             2,
         ),
         (
-            "switch_then_same_direction_repeat",
+            "switch_from_unsaved_line_then_repeat",
             zzzb,
             b"\x12bq\x14\x14\r".as_slice(),
             "zzzb",

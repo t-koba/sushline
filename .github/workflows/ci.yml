@@ -1398,18 +1398,22 @@ jobs:
             for kind in leading gap; do
               for mode in 0 1; do
                 report="/tmp/history_full_blank_${kind}_mode${mode}.out"
-                /tmp/history_full_probe "/tmp/history_full_blank_${kind}" --mode "$mode" | tee "$report"
+                /tmp/history_full_probe "/tmp/history_full_blank_${kind}" --mode "$mode" --timestamp --comment | tee "$report"
                 grep -qx "readline_release=$READLINE_ORACLE_VERSION" "$report"
                 grep -qx 'read_history_status=ok' "$report"
                 grep -qx "history_multiline_entries=$mode" "$report"
+                grep -qx 'history_comment_char=35' "$report"
               done
             done
             for mode in 0 1; do
               grep -qx 'entry_count=2' "/tmp/history_full_blank_leading_mode${mode}.out"
               grep -qx 'entry_0=A' "/tmp/history_full_blank_leading_mode${mode}.out"
               grep -qx 'entry_1=B' "/tmp/history_full_blank_leading_mode${mode}.out"
+              grep -qx 'timestamp_0_hex=2331373030303030303030' "/tmp/history_full_blank_leading_mode${mode}.out"
+              grep -qx 'timestamp_1_hex=2331373030303030303031' "/tmp/history_full_blank_leading_mode${mode}.out"
               grep -qx 'entry_count=1' "/tmp/history_full_blank_gap_mode${mode}.out"
               grep -qx 'entry_0=B' "/tmp/history_full_blank_gap_mode${mode}.out"
+              grep -qx 'timestamp_0_hex=2331373030303030303031' "/tmp/history_full_blank_gap_mode${mode}.out"
             done
             # CRLF bytes: compare every deterministic entry line, while leaving
             # GNU's generated timestamps unpinned. Explicit timestamps are hex.

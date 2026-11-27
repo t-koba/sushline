@@ -17936,6 +17936,8 @@ fn bash_readline_and_sushline_search_delete_to_earlier_match() {
     let reordered: &[&str] = &["beta two", "alpha one", "alpha three"];
     let fourth: &[&str] = &["alpha one", "beta two", "gamma three", "beta four"];
     let three: &[&str] = &["alpha one", "beta two", "beta three"];
+    let retained_index0: &[&str] = &["abzeta", "beta two"];
+    let retained_index0_offset0: &[&str] = &["bzeta", "beta two"];
     for (name, history, keys, accepted, bells) in [
         (
             "ctrl_h_earlier_match",
@@ -17977,6 +17979,20 @@ fn bash_readline_and_sushline_search_delete_to_earlier_match() {
             three,
             b"\x12bq\x08\r".as_slice(),
             "beta two",
+            1,
+        ),
+        (
+            "retained_index0_at_offset",
+            retained_index0,
+            b"\x12bzz\x08\r".as_slice(),
+            "abzeta",
+            2,
+        ),
+        (
+            "retained_index0_at_offset0_control",
+            retained_index0_offset0,
+            b"\x12bzz\x08\r".as_slice(),
+            "bzeta",
             1,
         ),
     ] {

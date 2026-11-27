@@ -267,13 +267,14 @@ pub(crate) fn update_reverse_search_match(
                         .match_index
                         .unwrap_or(search.original_history_pos)
                         .saturating_add(1);
-                    // After a failed edit GNU re-searches below the retained
-                    // last-found index, not from the retained match itself.
-                    // The stale line's offset 0 was already checked above;
-                    // a match at the oldest entry stays reachable because the
-                    // bound never drops below 1.
+                    // After a failed edit GNU re-searches strictly below the
+                    // retained last-found index, not from the retained match
+                    // itself. The stale line's offset 0 was already checked
+                    // above; GNU never re-scans the retained entry at other
+                    // offsets, so the bound may drop to zero. `None`, not
+                    // `Some(0)`, is the full-range case in the search helper.
                     let end = if stale_line.is_some() && search.match_index.is_some() {
-                        search.match_index.unwrap_or(0).max(1)
+                        search.match_index.unwrap_or(0)
                     } else {
                         found_end
                     };

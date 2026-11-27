@@ -4627,6 +4627,10 @@ jobs:
             /tmp/history_full_blank_timestamped_mode1.out \
             /tmp/history_full_blank_plain_mode0.out \
             /tmp/history_full_blank_plain_mode1.out \
+            /tmp/history_full_blank_leading_mode0.out \
+            /tmp/history_full_blank_leading_mode1.out \
+            /tmp/history_full_blank_gap_mode0.out \
+            /tmp/history_full_blank_gap_mode1.out \
             /tmp/history_full_crlf_plain_mode0.out \
             /tmp/history_full_crlf_plain_mode1.out \
             /tmp/history_full_crlf_timestamped_mode0.out \

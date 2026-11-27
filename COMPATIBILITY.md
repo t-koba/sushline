@@ -117,7 +117,10 @@ line still follows the retained match, successful repeats stay silent, and a
 repeat after a successful match only rings on the later failed repeat.
 `bash_readline_and_sushline_forward_repeat_after_failed_extension` pins these
 accepted lines and bell counts for the measured keys and histories; backward
-failed repeats and non-repeat deletions are unchanged controls.
+failed repeats and non-repeat deletions are unchanged controls. A repeat that
+switches direction after a failed reverse search rings only the failure bell
+because GNU resets the scan index for the new direction; the same fixture pins
+the switch-after-failed-reverse cases.
 
 ### Reverse incremental search point
 

@@ -18172,6 +18172,20 @@ fn bash_readline_and_sushline_forward_repeat_after_failed_extension() {
             "zzzb",
             2,
         ),
+        (
+            "switch_after_failed_reverse",
+            zzzb,
+            b"\x12bq\x14\r".as_slice(),
+            "zzzb",
+            2,
+        ),
+        (
+            "switch_then_same_direction_repeat",
+            zzzb,
+            b"\x12bq\x14\x14\r".as_slice(),
+            "zzzb",
+            4,
+        ),
     ] {
         for (editor, output) in [
             (

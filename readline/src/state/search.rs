@@ -58,6 +58,13 @@ pub(crate) struct ReverseSearchState {
     /// A query extension failed after a match was displayed. Enter then
     /// accepts that displayed line; Ctrl-G still restores the original line.
     pub(crate) retain_failed_query_line: bool,
+    /// GNU resets `history_pos` to `last_found_line` on a failed query edit
+    /// but leaves `sline` at the exhausted oldest line with `sline_index` 0.
+    /// The next edit first re-checks the query at offset 0 of that stale line
+    /// (keeping the retained match line), then searches below the retained
+    /// index. This reproduces the extra SF_FAILED bell and the match selected
+    /// when a failed extension is deleted.
+    pub(crate) failed_search_line: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone)]
@@ -128,6 +135,7 @@ pub(crate) fn update_reverse_search_match(
     // forward search from the end of history also sees that virtual entry
     // (Bash 5.3 PTY oracle).
     let from_end = matches!(search.direction, SearchDirection::Backward);
+    let stale_line = search.failed_search_line.clone();
     // A failed query edit keeps the reached index so the next extension
     // continues from the same match, even though its displayed line is
     // dropped for accept and point handling.
@@ -217,6 +225,35 @@ pub(crate) fn update_reverse_search_match(
             )
             .map(|(idx, line)| (Some(idx), line)),
             (SearchDirection::Backward, _, _) => {
+                // A failed edit leaves GNU's `sline` on the exhausted oldest
+                // line with `sline_index` clamped to 0. The next edit first
+                // checks the query at that line's offset 0; a hit there is
+                // found at the retained `last_found_line`, so the displayed
+                // and accepted line stays the retained match and no bell
+                // rings. Only when this check fails does GNU step below the
+                // retained index and eventually ding.
+                if !repeat
+                    && !search.query.is_empty()
+                    && let (Some(stale), Some(idx)) = (&stale_line, search.match_index)
+                    && search_bytes_offset(
+                        stale,
+                        &search.query,
+                        ignore_case,
+                        locale_lowercase,
+                        false,
+                    ) == Some(0)
+                    && let Some(line) = history.entries().get(idx)
+                {
+                    // GNU finds the query on the stale line but then redisplays
+                    // `lines[history_pos]`, the retained last-found line, and
+                    // keeps that index. Restore the retained line and offset so
+                    // accept and the retained-line Ctrl-Y bell still see a match.
+                    search.match_line = Some(line.line_bytes.clone());
+                    search.match_offset = Some(0);
+                    search.unsaved_line_match = false;
+                    search.failed_search_line = None;
+                    return true;
+                }
                 // An ordinary query edit continues from the displayed match
                 // instead of restarting at the cursor: after a repeat reached
                 // an older entry, a longer query must not jump to a newer one.
@@ -226,11 +263,21 @@ pub(crate) fn update_reverse_search_match(
                 let end = if search.exclude_cursor {
                     search.original_history_pos.min(history.entries().len())
                 } else {
-                    search
+                    let found_end = search
                         .match_index
                         .unwrap_or(search.original_history_pos)
-                        .saturating_add(1)
-                        .min(history.entries().len())
+                        .saturating_add(1);
+                    // After a failed edit GNU re-searches below the retained
+                    // last-found index, not from the retained match itself.
+                    // The stale line's offset 0 was already checked above;
+                    // a match at the oldest entry stays reachable because the
+                    // bound never drops below 1.
+                    let end = if stale_line.is_some() && search.match_index.is_some() {
+                        search.match_index.unwrap_or(0).max(1)
+                    } else {
+                        found_end
+                    };
+                    end.min(history.entries().len())
                 };
                 // GNU skips a short line only when moving to another entry.
                 // Exempt the entry the search actually starts on: a displayed
@@ -336,6 +383,7 @@ pub(crate) fn update_reverse_search_match(
         search.match_line = Some(line);
         search.match_offset = Some(offset);
         search.unsaved_line_match = idx.is_none();
+        search.failed_search_line = None;
         return true;
     }
     if !had_match {
@@ -354,6 +402,10 @@ pub(crate) fn update_reverse_search_match(
         }
         search.unsaved_line_match = false;
     }
+    // GNU leaves `sline` at the line where the scan exhausted. A backward
+    // scan over the history fails after examining the oldest entry, so that
+    // is the stale line the next edit re-checks at offset 0.
+    search.failed_search_line = history.entries().first().map(|e| e.line_bytes.clone());
     false
 }
 
@@ -1069,6 +1121,7 @@ mod tests {
             nul_failed: false,
             retain_match_on_failure: false,
             retain_failed_query_line: false,
+            failed_search_line: None,
         }
     }
 
@@ -1095,6 +1148,7 @@ mod tests {
             nul_failed: false,
             retain_match_on_failure: false,
             retain_failed_query_line: false,
+            failed_search_line: None,
         }
     }
 

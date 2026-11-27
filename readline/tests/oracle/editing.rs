@@ -17919,27 +17919,30 @@ fn bash_readline_and_sushline_delete_unmatched_search_query() {
     }
 }
 
-/// One measured bell deviation remains: after a failed extension, deleting
-/// back to a match whose entry sits behind the displayed one leaves Sushline
-/// one bell short. The accepted line and deletion granularity are the same.
+/// Deleting a failed extension back to a shorter query reproduces GNU's
+/// stale-search-line behavior: the re-search first probes the query at offset
+/// zero of the exhausted oldest entry, then steps below the retained match.
+/// Both the extra SF_FAILED bell and the selected entry are paired, including
+/// the case where the retained match is not the newest match for the shorter
+/// query. Measurement scope is those exact key traces and histories.
 #[test]
-fn bash_readline_and_sushline_bell_deviation_on_search_delete_to_earlier_match() {
+fn bash_readline_and_sushline_search_delete_to_earlier_match() {
     require_oracle_host();
     if !host_carries_measured_release() {
-        eprintln!("Search delete bell behavior was measured on Readline 8.3");
+        eprintln!("Search delete behavior was measured on Readline 8.3");
         return;
     }
     let first: &[&str] = &["alpha one", "beta two", "alpha three"];
     let reordered: &[&str] = &["beta two", "alpha one", "alpha three"];
     let fourth: &[&str] = &["alpha one", "beta two", "gamma three", "beta four"];
-    for (name, history, keys, accepted, bash_bells, sushline_bells) in [
+    let three: &[&str] = &["alpha one", "beta two", "beta three"];
+    for (name, history, keys, accepted, bells) in [
         (
             "ctrl_h_earlier_match",
             first,
             b"\x12ba\x08\r".as_slice(),
             "beta two",
             2,
-            1,
         ),
         (
             "del_earlier_match",
@@ -17947,14 +17950,12 @@ fn bash_readline_and_sushline_bell_deviation_on_search_delete_to_earlier_match()
             b"\x12ba\x7f\r".as_slice(),
             "beta two",
             2,
-            1,
         ),
         (
             "ctrl_h_first_entry",
             reordered,
             b"\x12ba\x08\r".as_slice(),
             "beta two",
-            1,
             1,
         ),
         (
@@ -17963,7 +17964,6 @@ fn bash_readline_and_sushline_bell_deviation_on_search_delete_to_earlier_match()
             b"\x12gax\x08\r".as_slice(),
             "gamma three",
             2,
-            1,
         ),
         (
             "two_deletes_to_last_match",
@@ -17971,19 +17971,23 @@ fn bash_readline_and_sushline_bell_deviation_on_search_delete_to_earlier_match()
             b"\x12baxx\x08\x08\r".as_slice(),
             "beta four",
             5,
-            5,
+        ),
+        (
+            "newer_match_shorter_query",
+            three,
+            b"\x12bq\x08\r".as_slice(),
+            "beta two",
+            1,
         ),
     ] {
-        for (editor, output, bells) in [
+        for (editor, output) in [
             (
                 "Bash",
                 run_bash_readline_with_bindings_and_history(keys, "", history),
-                bash_bells,
             ),
             (
                 "Sushline",
                 run_sushline_harness_with_inputrc_and_history(keys, "", history),
-                sushline_bells,
             ),
         ] {
             let context = format!("{editor} {name} keys={keys:?}: {output:?}");

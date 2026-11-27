@@ -6256,12 +6256,33 @@ fn timestamped_reads_strip_leading_blanks_and_drop_blank_only_gaps() {
             (Some("#1700000001"), "bar".to_string()),
         ]
     );
+    let joined = History::read_file_with_multiline(&path, HistoryMultiline::Joined).unwrap();
+    assert_eq!(
+        joined
+            .entries()
+            .iter()
+            .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
+            .collect::<Vec<_>>(),
+        vec![
+            (Some("#1700000000"), "foo".to_string()),
+            (Some("#1700000001"), "bar".to_string()),
+        ]
+    );
 
     // A gap of only blank lines between timestamps drops the phantom entry.
     std::fs::write(&path, "#1700000000\n\n\n#1700000001\nfoo\n").unwrap();
     let loaded = History::read_file(&path).unwrap();
     assert_eq!(
         loaded
+            .entries()
+            .iter()
+            .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))
+            .collect::<Vec<_>>(),
+        vec![(Some("#1700000001"), "foo".to_string()),]
+    );
+    let joined = History::read_file_with_multiline(&path, HistoryMultiline::Joined).unwrap();
+    assert_eq!(
+        joined
             .entries()
             .iter()
             .map(|entry| (entry.timestamp.as_deref(), entry.line().into_owned()))

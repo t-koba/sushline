@@ -1006,7 +1006,11 @@ Evidence: [write](.github/scripts/history-write-mode.expected).
   truncation fixtures and does not synthesize GNU run-dependent timestamps. Evidence:
   [NUL per-line](.github/scripts/history-full-nul-eof.expected), [NUL joined](.github/scripts/history-full-nul-eof-joined.expected).
 - Per-line imports skip blanks and apply timestamp records to following commands;
-  `Joined` retains interior blanks.
+  `Joined` retains interior blanks. In the pinned timestamped blank-line fixtures,
+  both modes skip a leading blank after a timestamp and drop a blank-only gap:
+  `#1700000000\n\nA\n#1700000001\nB\n` imports `A` and `B` with their explicit
+  timestamps, while `#1700000000\n\n\n#1700000001\nB\n` imports only `B` at
+  `#1700000001`. Evidence: [full-file blank-line probe](.github/workflows/ci.yml).
 - The pinned plain joined-EOF pair produces one `A\nB` entry without the final LF and
   one `A\nB\nunterminated` entry with it; no broader unterminated-line rule is claimed.
   Evidence: [joined EOF](.github/scripts/history-joined-eof.expected).

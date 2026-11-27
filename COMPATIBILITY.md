@@ -110,6 +110,15 @@ pins the measured C-r to C-t points and bells. The
 pin the accepted lines, point placements and bells for the measured keys only;
 searches from a mid-history cursor and redisplay bytes are not claimed.
 
+With the same `C-t` binding, a forward repeat after a failed extension rings
+twice: once because the failure left the scan at the end of the displayed line
+so the repeat cannot advance, and once for the failed re-search. The accepted
+line still follows the retained match, successful repeats stay silent, and a
+repeat after a successful match only rings on the later failed repeat.
+`bash_readline_and_sushline_forward_repeat_after_failed_extension` pins these
+accepted lines and bell counts for the measured keys and histories; backward
+failed repeats and non-repeat deletions are unchanged controls.
+
 ### Reverse incremental search point
 
 Paired Bash 5.3 and Sushline fixtures pin that a reverse search starting at

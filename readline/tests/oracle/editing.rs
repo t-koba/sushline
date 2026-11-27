@@ -18093,6 +18093,107 @@ fn bash_readline_and_sushline_forward_search_delete_to_earlier_match() {
     }
 }
 
+/// GNU's forward isearch repeat after a failed extension rings twice: once
+/// because the prior failure left the scan at the end of the displayed line
+/// (the repeat cannot advance there) and once for the failed re-search. The
+/// accepted line still follows the retained match. Forward-search-history is
+/// bound to `C-t` because the PTY reserves Ctrl-S for IXON flow control, and
+/// three Ctrl-P presses start the search at the oldest entry. Successful
+/// repeats stay silent, and a repeat after a successful match then a failure
+/// rings only on the failed repeat. Backward failed repeats and non-repeat
+/// deletions are unchanged controls. Both editors are asserted to the same
+/// GNU-measured accepted lines and bell counts for these exact key traces.
+#[test]
+fn bash_readline_and_sushline_forward_repeat_after_failed_extension() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!("Forward repeat behavior was measured on Readline 8.3");
+        return;
+    }
+    let bindings = r#""\C-t": forward-search-history"#;
+    let zzzb: &[&str] = &["beta one", "gamma", "zzzb"];
+    let disc: &[&str] = &["beta one", "alpha two", "beta three"];
+    let succ: &[&str] = &["beta one", "beta two", "beta three"];
+    let succ_fail: &[&str] = &["alpha", "beta one", "zzz"];
+    for (name, history, keys, accepted, bells) in [
+        (
+            "repeat_after_failed_extension",
+            zzzb,
+            b"\x10\x10\x10\x14bz\x14\x08\r".as_slice(),
+            "zzzb",
+            4,
+        ),
+        (
+            "other_history",
+            disc,
+            b"\x10\x10\x10\x14bz\x14\x08\r".as_slice(),
+            "beta three",
+            4,
+        ),
+        (
+            "two_repeats",
+            zzzb,
+            b"\x10\x10\x10\x14bz\x14\x14\x08\r".as_slice(),
+            "zzzb",
+            6,
+        ),
+        (
+            "longer_failed_extension",
+            zzzb,
+            b"\x10\x10\x10\x14bzbz\x14\x08\r".as_slice(),
+            "zzzb",
+            6,
+        ),
+        (
+            "repeat_without_delete",
+            zzzb,
+            b"\x10\x10\x10\x14bz\x14\r".as_slice(),
+            "zzzb",
+            3,
+        ),
+        (
+            "successful_repeat",
+            succ,
+            b"\x10\x10\x10\x14b\x14\r".as_slice(),
+            "beta three",
+            0,
+        ),
+        (
+            "repeat_after_success_then_fail",
+            succ_fail,
+            b"\x10\x10\x10\x14b\x14\x14\r".as_slice(),
+            "beta one",
+            3,
+        ),
+        (
+            "non_repeat_control",
+            zzzb,
+            b"\x10\x10\x10\x14bz\x08\r".as_slice(),
+            "zzzb",
+            2,
+        ),
+    ] {
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(keys, bindings, history),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, bindings, history),
+            ),
+        ] {
+            let context = format!("{editor} {name} keys={keys:?}: {output:?}");
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(accepted),
+                "{context}"
+            );
+            assert_eq!(bell_count(&output), bells, "{context}");
+        }
+    }
+}
+
 /// On the measured GNU Readline 8.3 host, Ctrl-U in an incremental search
 /// ends the search, establishes the selected line and then applies
 /// unix-line-discard from the match start. A typed key after Ctrl-U exposes

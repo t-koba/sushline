@@ -2449,19 +2449,27 @@ where
         {
             search.query = previous;
         }
+        // A failed search leaves GNU's `sline` at the exhausted line with
+        // `sline_index` clamped to its end. Repeating cannot advance that
+        // index, so GNU rings before the re-search fails and rings again for
+        // the failure. Capture this before the re-search clears the marker.
+        let prior_failure = search.failed_search_line.is_some();
         let found = self.refresh_reverse_search_match(&mut search, true);
         self.apply_search_match(state, &search);
         if !found && !search.query.is_empty() {
             self.ding()?;
-            // A failed forward repeat from an unsaved current line rings
-            // twice, unless the previous match was in that line and ran out
-            // of in-line occurrences (Bash 5.3 PTY oracle).
-            if matches!(search.direction, SearchDirection::Forward)
-                && search.original_history_entry_index.is_none()
-                && search.original_history_pos >= self.history.entries().len()
-                && !search.unsaved_line_match
-            {
-                self.ding()?;
+            if matches!(search.direction, SearchDirection::Forward) {
+                // A failed forward repeat from an unsaved current line rings
+                // twice, unless the previous match was in that line and ran
+                // out of in-line occurrences (Bash 5.3 PTY oracle). A repeat
+                // after any failed search also cannot advance, so it rings
+                // twice (GNU 8.3 PTY oracle).
+                let unsaved_line = search.original_history_entry_index.is_none()
+                    && search.original_history_pos >= self.history.entries().len()
+                    && !search.unsaved_line_match;
+                if unsaved_line || prior_failure {
+                    self.ding()?;
+                }
             }
         }
         state.search.reverse_search = Some(search);

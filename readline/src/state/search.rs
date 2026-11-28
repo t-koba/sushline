@@ -1174,6 +1174,7 @@ mod tests {
             retain_failed_query_line: false,
             failed_search_line: None,
             match_survived_switch: false,
+            edited_entry_at_start: false,
         }
     }
 
@@ -1202,6 +1203,7 @@ mod tests {
             retain_failed_query_line: false,
             failed_search_line: None,
             match_survived_switch: false,
+            edited_entry_at_start: false,
         }
     }
 

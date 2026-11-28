@@ -18270,6 +18270,21 @@ fn bash_readline_and_sushline_direction_switch_keeps_successful_match() {
             "zzzb",
             0,
         ),
+        // A switch that keeps a live match confirms it for GNU case -2, so a
+        // later switch back keeps it too rather than re-searching: the
+        // displayed "beta one" is live in both directions at its point.
+        (
+            "stored_rev_fwd_rev",
+            b"\x10\x10\x10\x12b\x14\x12\r".as_slice(),
+            "beta one",
+            0,
+        ),
+        (
+            "stored_rev_fwd_rev_fwd",
+            b"\x10\x10\x10\x12b\x14\x12\x14\r".as_slice(),
+            "beta one",
+            0,
+        ),
         // Failed-extension switches must still re-search and ring.
         (
             "stored_fwd_fail_then_rev",

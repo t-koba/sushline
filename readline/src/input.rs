@@ -1589,6 +1589,10 @@ where
     }
 
     fn refresh_reverse_search_match(&self, search: &mut ReverseSearchState, repeat: bool) -> bool {
+        // A query edit or a re-search re-establishes the match, so a match
+        // previously confirmed by a direction switch is no longer presumed
+        // live in both directions.
+        search.match_survived_switch = false;
         let ignore_case = self.flag(BoolVariable::SearchIgnoreCase);
         let locale_lowercase = self.search_locale_lowercase(ignore_case);
         let displayed = search.match_line.is_some() || search.retain_match_on_failure;
@@ -2447,9 +2451,10 @@ where
         let forward_query_failed = self.search_query_failed(state, &search, true);
         let has_live_match = search.match_line.is_some()
             && search.failed_search_line.is_none()
-            && !forward_query_failed;
+            && (search.match_survived_switch || !forward_query_failed);
         search.direction = direction;
         if switched && (was_unsaved || has_live_match) {
+            search.match_survived_switch = true;
             if search.query.is_empty()
                 && let Some(previous) = state.search.last_incremental_search.clone()
             {

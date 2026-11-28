@@ -126,10 +126,13 @@ keeps the currently displayed entry and rings nothing: GNU's case -2 only
 flips the direction and re-checks the query at the unchanged `sline_index`, so
 the match re-matches without advancing in line or stepping into history. This
 holds for a stored cursor and for the unsaved line; a same-direction repeat
-after the switch still advances or keeps as GNU does.
-`bash_readline_and_sushline_direction_switch_keeps_successful_match` pins the
-stored-cursor switch shapes in both directions, their following repeats, and
-failed-extension switch controls, for the measured keys and history only. A
+after the switch still advances or keeps as GNU does. A match confirmed by one
+switch stays live for later switches in either direction, so repeated flips
+keep the same entry until a query edit or same-direction repeat re-establishes
+it. `bash_readline_and_sushline_direction_switch_keeps_successful_match` pins
+the stored-cursor switch shapes in both directions, their following repeats,
+repeated flips that keep the match, and failed-extension switch controls, for
+the measured keys and history only. A
 forward query that rings a bell per byte and falls back to the cursor entry is
 not a successful match for GNU even though a match line stays displayed: the
 switch re-searches to the older matching entry instead of keeping the displayed

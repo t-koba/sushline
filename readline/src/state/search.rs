@@ -65,6 +65,11 @@ pub(crate) struct ReverseSearchState {
     /// index. This reproduces the extra SF_FAILED bell and the match selected
     /// when a failed extension is deleted.
     pub(crate) failed_search_line: Option<Vec<u8>>,
+    /// A direction switch kept the displayed match (GNU case -2): the query
+    /// re-matched at the unchanged sline_index, so the match is confirmed
+    /// live and later direction switches keep it too. Cleared by a query edit
+    /// or a re-search, which can establish a new forward-failed fallback.
+    pub(crate) match_survived_switch: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -1134,6 +1139,7 @@ mod tests {
             retain_match_on_failure: false,
             retain_failed_query_line: false,
             failed_search_line: None,
+            match_survived_switch: false,
         }
     }
 
@@ -1161,6 +1167,7 @@ mod tests {
             retain_match_on_failure: false,
             retain_failed_query_line: false,
             failed_search_line: None,
+            match_survived_switch: false,
         }
     }
 

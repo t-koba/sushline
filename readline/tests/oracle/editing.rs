@@ -16934,9 +16934,9 @@ fn bash_readline_and_sushline_isearch_termination_after_shortened_live_edit_one_
     }
 }
 
-/// A second repeat exhausts the three stored occurrences: GNU accepts the
-/// buffer at byte 0 and rings once, while Sushline's older bell model rings
-/// zero times. Only the accepted line and the measured bell counts are pinned.
+/// A second repeat exhausts the occurrences in the history entry committed
+/// at search entry: both hosts accept the buffer at byte 0 and ring once.
+/// Only the accepted line and the measured bell counts are pinned.
 #[test]
 fn bash_readline_and_sushline_isearch_termination_after_shortened_live_edit_two_repeats() {
     require_oracle_host();
@@ -16955,7 +16955,7 @@ fn bash_readline_and_sushline_isearch_termination_after_shortened_live_edit_two_
         (
             "Sushline",
             run_sushline_harness_with_inputrc_and_history(keys, "", &history),
-            0,
+            1,
         ),
     ] {
         let context = format!("{editor} keys={keys:?}: {output:?}");

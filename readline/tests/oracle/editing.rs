@@ -18644,7 +18644,7 @@ fn bash_readline_and_sushline_honor_ctrl_y_binding_in_isearch() {
     let keys = b"abc\x12b\x19\r".as_slice();
     let history = &["alpha beta", "xyz"][..];
     for (label, inputrc, bash_accepted, sushline_accepted) in [
-        ("macro", "\"\\C-y\": \"XY\"\n", "aXYbc", "abcXY"),
+        ("macro", "\"\\C-y\": \"XY\"\n", "aXYbc", "aXYbc"),
         ("forward-char", r#""\C-y": forward-char"#, "abc", "abc"),
         ("yank-pop", r#""\C-y": yank-pop"#, "abc", "abc"),
         ("yank", r#""\C-y": yank"#, "abc", "abc"),
@@ -18674,6 +18674,62 @@ fn bash_readline_and_sushline_honor_ctrl_y_binding_in_isearch() {
             assert_eq!(
                 accepted_line(&output).as_deref(),
                 Some(accepted),
+                "{context}"
+            );
+        }
+    }
+}
+
+/// An ordinary Readline command that terminates a successful incremental
+/// search runs at the stored match offset in GNU Readline: _rl_isearch_fini
+/// restores rl_point = sline_index after executing the command. These paired
+/// fixtures pin that point for forward-char and end-of-line insertions in both
+/// directions and after a direction switch; they do not establish a general
+/// bound-command point rule.
+#[test]
+fn bash_readline_and_sushline_bound_command_keeps_isearch_match_point() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        return;
+    }
+    let bindings = r#""\C-t": forward-search-history"#;
+    let history: &[&str] = &["other", "beta one", "zzzb"];
+    let cases: &[(&str, &[u8], &str)] = &[
+        (
+            "switch then forward insert",
+            b"\x10\x12b\x12\x14\x06Q\r",
+            "bQeta one",
+        ),
+        (
+            "switch then end insert",
+            b"\x10\x12b\x12\x14\x05Q\r",
+            "beta oneQ",
+        ),
+        ("switch then enter", b"\x10\x12b\x12\x14\r", "beta one"),
+        ("reverse then forward insert", b"\x10\x12b\x06Q\r", "zzzbQ"),
+        (
+            "forward then forward insert",
+            b"\x10\x12b\x14\x06Q\r",
+            "zzzbQ",
+        ),
+        ("reverse then enter", b"\x10\x12b\r", "zzzb"),
+    ];
+    for (label, keys, accepted) in cases {
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(keys, bindings, history),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, bindings, history),
+            ),
+        ] {
+            let context = format!("{label} {editor} keys={keys:?}: {output:?}");
+            assert_eq!(bell_count(&output), 0, "{context}");
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(*accepted),
                 "{context}"
             );
         }

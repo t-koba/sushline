@@ -155,6 +155,18 @@ accepted lines and bell counts, including two, three and four repeated flips,
 the forward mirror control and a same-direction repeat after flip-back, for
 the measured keys and histories only.
 
+When an ordinary Readline command terminates a successful incremental search,
+the command runs at the match offset rather than at the end of the accepted
+line: GNU's `_rl_isearch_fini` restores `rl_point` to the stored `sline_index`
+after dispatching that command. Sushline restores the stored offset for both
+search directions and after a direction switch; the no-match path is unchanged.
+A `C-y` macro bound during a reverse search therefore inserts inside the match
+(`aXYbc` from `abc` with a `b` query), as does a `Ctrl-F` followed by an
+insert. `bash_readline_and_sushline_honor_ctrl_y_binding_in_isearch` and
+`bash_readline_and_sushline_bound_command_keeps_isearch_match_point` pin the
+measured keys, histories, accepted lines and bell counts only; they claim no
+general rule for every bound command or for the not-found path.
+
 ### Reverse incremental search point
 
 Paired Bash 5.3 and Sushline fixtures pin that a reverse search starting at

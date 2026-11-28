@@ -2362,12 +2362,23 @@ where
             let accepted = accept_search_line(state, &search, false);
             let current_point = state.buffer.point();
             state.buffer = LineBuffer::from_bytes(accepted);
-            if raw_meta && search.match_line.is_some() {
-                // Like explicit termination, raw-meta exit leaves point at
-                // the selected match start before dispatching the ordinary
-                // input.
-                let point =
-                    self.isearch_terminate_point(state.buffer.as_bytes(), &search, current_point);
+            if search.match_line.is_some() {
+                // Any bound command terminating a successful isearch leaves
+                // point at the stored match offset: GNU's _rl_isearch_fini
+                // restores rl_point = sline_index after executing the command.
+                let point = search
+                    .match_line
+                    .as_deref()
+                    .filter(|line| *line == state.buffer.as_bytes())
+                    .zip(search.match_offset)
+                    .map(|(_, offset)| offset)
+                    .unwrap_or_else(|| {
+                        self.isearch_terminate_point(
+                            state.buffer.as_bytes(),
+                            &search,
+                            current_point,
+                        )
+                    });
                 state.buffer.set_point(point);
             }
             if search.match_line.is_none() {

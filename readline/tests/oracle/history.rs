@@ -775,6 +775,26 @@ set revert-all-at-newline off
 }
 
 #[test]
+fn bash_readline_and_sushline_prefix_search_reverts_edit_when_enabled() {
+    let inputrc = r#"set editing-mode emacs
+set keymap emacs-standard
+set revert-all-at-newline on
+"\e[5~": history-search-backward
+"#;
+    let history = ["alpha old", "beta", "alpha new"];
+    // With the opt-out enabled, the same traversal that otherwise commits
+    // the edit instead leaves the saved history entry unmodified.
+    let keys = b"\x10\x05 EDIT\x01\x06\x06\x06\x1b[5~\r";
+    assert_saved_history_projection(
+        keys,
+        inputrc,
+        &history,
+        "alpha old",
+        b"alpha old\nbeta\nalpha new\n",
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_prefix_search_saves_partial_edit() {
     let inputrc = r#""\e[5~": history-search-backward"#;
     // Seed the history state of the report's second prompt: the final

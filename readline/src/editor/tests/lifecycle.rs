@@ -2473,9 +2473,12 @@ fn isearch_termination_keeps_an_overlapping_occurrence_at_the_point() {
 /// at or before the point, not the first occurrence or a later start.
 #[test]
 fn isearch_termination_selects_the_last_overlap_at_or_before_the_point() {
+    // The edited recalled entry is committed to history at isearch entry,
+    // matching GNU; the overlap is therefore searched in the edited line and
+    // these two edited cases place the later occurrence inside it.
     let cases: &[(&str, &[u8], &[u8])] = &[
-        ("ababab", b"\x10X\x01\x06\x12abab\n", b"!abababX"),
-        ("abababa", b"\x10X\x01\x06\x12aba\n", b"!abababaX"),
+        ("ababab", b"\x10X\x01\x06\x12abab\n", b"ab!ababX"),
+        ("abababa", b"\x10X\x01\x06\x12aba\n", b"abab!abaX"),
         ("ababab", b"\x10X\x01\x06\x06\x06\x12abab\n", b"ab!ababX"),
     ];
     for (entry, keys, expected) in cases {

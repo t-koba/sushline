@@ -139,6 +139,21 @@ switch re-searches to the older matching entry instead of keeping the displayed
 one. `bash_readline_and_sushline_direction_switch_after_failed_forward_query`
 pins that case, a genuine newer-entry match control, the following repeat and
 the backward mirror, for the measured keys and history only.
+A direction switch with an empty query rings exactly one bell: GNU's search
+loop fails immediately when `search_string_index == 0`, so case -2's
+re-search dings even with no typed query. Deleting a typed query down to empty
+keeps that bell on top of the bells already rung. A failed backward repeat
+whose match is the oldest history entry keeps that entry across the switch,
+because GNU's failed search left `sline` on the matched entry and case -2
+re-matches there; once older entries were examined before the failure, `sline`
+is left on the exhausted oldest line and the switch re-searches forward from
+there. Once the switch has confirmed that kept match, later flips in either
+direction stay silent on it until a query edit or same-direction repeat
+re-establishes the search; GNU's case -2 re-matches at the unchanged point.
+`bash_readline_and_sushline_isearch_switch_bell_and_failed_repeat` pins these
+accepted lines and bell counts, including two, three and four repeated flips,
+the forward mirror control and a same-direction repeat after flip-back, for
+the measured keys and histories only.
 
 ### Reverse incremental search point
 

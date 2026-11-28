@@ -2438,6 +2438,12 @@ where
             (SearchDirection::Forward, SearchDirection::Forward)
                 | (SearchDirection::Backward, SearchDirection::Backward)
         );
+        // GNU's search loop fails immediately when the query is empty
+        // (`search_string_index == 0`), so a direction switch that re-searches
+        // rings exactly once (Bash 5.3 PTY oracle, GNU 8.3 `isearch.c`).
+        if switched && search.query.is_empty() {
+            self.ding()?;
+        }
         let was_unsaved = search.unsaved_line_match;
         // A forward query edit can ring a bell per byte yet leave a
         // `match_line` displayed when the scan falls back to the cursor
@@ -2449,8 +2455,18 @@ where
         // forward case. A genuine match (including one in a newer entry) is
         // silent and keeps the match (Bash 5.3 / Readline 8.3 PTY oracle).
         let forward_query_failed = self.search_query_failed(state, &search, true);
+        // A failed backward repeat leaves GNU's `sline` on the matched entry
+        // only when no older history line was examined, which happens exactly
+        // when the match is the oldest entry. Case -2 then re-matches there and
+        // keeps it. Once older lines were examined, `sline` is left on the
+        // exhausted oldest line and the switch re-searches forward from there.
+        let failed_repeat_at_oldest = search.failed_search_line.is_some()
+            && matches!(search.direction, SearchDirection::Backward)
+            && search.match_index == Some(0);
         let has_live_match = search.match_line.is_some()
-            && search.failed_search_line.is_none()
+            && (search.failed_search_line.is_none()
+                || search.match_survived_switch
+                || failed_repeat_at_oldest)
             && (search.match_survived_switch || !forward_query_failed);
         search.direction = direction;
         if switched && (was_unsaved || has_live_match) {

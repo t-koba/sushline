@@ -19483,3 +19483,146 @@ fn gnu_prompt_above_wrap_limit_aborts_while_sushline_accepts() {
         "Sushline must complete the long-prompt edit: {sushline:?}"
     );
 }
+
+/// GNU's isearch search loop fails as soon as the query is empty
+/// (`search_string_index == 0`), so a direction switch (case -2) that
+/// re-searches rings exactly one bell, even with no typed query. Deleting a
+/// typed query down to empty before the switch keeps that bell on top of the
+/// bells already rung. A failed backward repeat whose match is the oldest
+/// history entry leaves GNU's `sline` on that entry, so the switch re-matches
+/// and keeps it; when older entries were examined before failure, `sline` is
+/// left on the exhausted oldest line and the switch re-searches forward. Each
+/// case is paired on the same GNU 8.3 host with `C-t` bound to
+/// `forward-search-history`; these pin accepted lines and bell counts for the
+/// measured keys and histories only.
+#[test]
+fn bash_readline_and_sushline_isearch_switch_bell_and_failed_repeat() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!("Direction-switch bell behavior was measured on Readline 8.3");
+        return;
+    }
+    let bindings = r#""\C-t": forward-search-history"#;
+    let zzzb: &[&str] = &["beta one", "gamma", "zzzb"];
+    let five: &[&str] = &["aa", "bX", "ab", "cc", "ab2"];
+    let oldest_b: &[&str] = &["bX", "gamma", "zzzb"];
+    for (name, keys, history, accepted, bells) in [
+        (
+            "empty_rev_then_fwd",
+            b"\x10\x10\x10\x12\x14\r".as_slice(),
+            zzzb,
+            "beta one",
+            1,
+        ),
+        (
+            "empty_fwd_then_rev",
+            b"\x10\x10\x10\x14\x12\r".as_slice(),
+            zzzb,
+            "beta one",
+            1,
+        ),
+        (
+            "empty_twice_rev_fwd_rev",
+            b"\x10\x10\x10\x12\x14\x12\r".as_slice(),
+            zzzb,
+            "beta one",
+            2,
+        ),
+        (
+            "delete_then_rev_then_fwd",
+            b"\x10\x10\x10\x12b\x08\x14\r".as_slice(),
+            zzzb,
+            "beta one",
+            3,
+        ),
+        (
+            "delete_then_fwd_then_rev",
+            b"\x10\x10\x10\x14b\x08\x12\r".as_slice(),
+            zzzb,
+            "zzzb",
+            3,
+        ),
+        (
+            "failed_repeat_oldest_rev_then_fwd",
+            b"\x10\x10\x10\x12b\x12\x14\r".as_slice(),
+            zzzb,
+            "beta one",
+            1,
+        ),
+        (
+            "failed_repeat_two_flips",
+            b"\x10\x10\x10\x12b\x12\x14\x12\r".as_slice(),
+            zzzb,
+            "beta one",
+            1,
+        ),
+        (
+            "failed_repeat_three_flips",
+            b"\x10\x10\x10\x12b\x12\x14\x12\x14\r".as_slice(),
+            zzzb,
+            "beta one",
+            1,
+        ),
+        (
+            "failed_repeat_four_flips",
+            b"\x10\x10\x10\x12b\x12\x14\x12\x14\x12\r".as_slice(),
+            zzzb,
+            "beta one",
+            1,
+        ),
+        (
+            "failed_repeat_flip_back_then_repeat",
+            b"\x10\x10\x10\x12b\x12\x14\x12\x12\r".as_slice(),
+            zzzb,
+            "beta one",
+            2,
+        ),
+        (
+            "failed_repeat_two_flips_bx",
+            b"\x10\x10\x10\x12b\x12\x14\x12\r".as_slice(),
+            oldest_b,
+            "bX",
+            1,
+        ),
+        (
+            "failed_repeat_middle_rev_then_fwd",
+            b"\x10\x10\x10\x12ab\x12\x14\r".as_slice(),
+            five,
+            "ab2",
+            1,
+        ),
+        (
+            "failed_repeat_oldest_b_rev_then_fwd",
+            b"\x10\x10\x10\x12b\x12\x14\r".as_slice(),
+            oldest_b,
+            "bX",
+            1,
+        ),
+        (
+            "failed_repeat_fwd_then_rev_control",
+            b"\x10\x10\x10\x14b\x14\x12\r".as_slice(),
+            zzzb,
+            "beta one",
+            1,
+        ),
+    ] {
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(keys, bindings, history),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, bindings, history),
+            ),
+        ] {
+            let context = format!("{editor} {name} keys={keys:?}: {output:?}");
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(accepted),
+                "{context}"
+            );
+            assert_eq!(bell_count(&output), bells, "{context}");
+        }
+    }
+}

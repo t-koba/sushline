@@ -813,6 +813,21 @@ fn bash_readline_and_sushline_midline_isearch_entry_saves_edited_history() {
 }
 
 #[test]
+fn bash_readline_and_sushline_isearch_query_rubout_keeps_older_match() {
+    let inputrc = "set revert-all-at-newline off\n";
+    let history = ["alpha old", "beta", "alpha new"];
+    // Deleting the last query byte after the match moved off the edited
+    // starting entry keeps the older match under GNU.
+    assert_saved_history_projection(
+        b"\x10\x05 EDIT\x12alp\x12\x7f\x0aZ\r",
+        inputrc,
+        &history,
+        "Zalpha old",
+        b"alpha old\nbeta\nalpha new EDIT\n",
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_isearch_failed_extension_keeps_older_match() {
     let inputrc = "set revert-all-at-newline off\n";
     let history = ["alpha old", "beta", "alpha new"];

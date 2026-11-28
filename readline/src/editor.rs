@@ -984,31 +984,30 @@ where
         }
     }
 
-    /// GNU's _rl_isearch_init calls _rl_maybe_replace_line before copying
-    /// the history list. Measured traces commit an edited recalled entry when
-    /// the search starts at end of line; searches starting inside the line
-    /// keep the stored entry for match selection, so only the end-of-line
-    /// shape is changed here. Keep the entry's undo state with the edit.
-    pub(crate) fn commit_history_edit_before_search(&mut self, state: &mut EditorState) {
+    /// GNU's _rl_isearch_init calls _rl_maybe_replace_line before copying the
+    /// history list. Commit an edited recalled entry with its undo state. The
+    /// point-aware first match still belongs to the displayed line, which the
+    /// caller records for the search state.
+    pub(crate) fn commit_history_edit_before_search(&mut self, state: &mut EditorState) -> bool {
         if self.flag(BoolVariable::RevertAllAtNewline) {
-            return;
+            return false;
         }
         let Some(index) = state.history_entry_index else {
-            return;
+            return false;
         };
         if self
             .history
             .get(index)
             .is_none_or(|entry| entry.line_bytes == state.buffer.as_bytes())
-            || state.buffer.point() != state.buffer.as_bytes().len()
         {
-            return;
+            return false;
         }
         state.commit_pending_undo();
         self.history
             .set_line_bytes(index, state.buffer.as_bytes().to_vec());
         self.history
             .set_undo_list(index, state.undo_snapshot_lines());
+        true
     }
 
     pub(crate) fn is_isearch_terminator(&self, bytes: &[u8]) -> bool {

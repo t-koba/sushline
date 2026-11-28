@@ -798,6 +798,36 @@ fn bash_readline_and_sushline_isearch_entry_saves_edited_history() {
 }
 
 #[test]
+fn bash_readline_and_sushline_midline_isearch_entry_saves_edited_history() {
+    let inputrc = "set revert-all-at-newline off\n";
+    let history = ["alpha old", "beta", "alpha new"];
+    // The edit is appended at end of line, but the search starts from byte 1.
+    // GNU still commits the edit before choosing the match.
+    assert_saved_history_projection(
+        b"\x10\x05 EDIT\x01\x06\x12alp\r\r",
+        inputrc,
+        &history,
+        "alpha new EDIT",
+        b"alpha old\nbeta\nalpha new EDIT\n",
+    );
+}
+
+#[test]
+fn bash_readline_and_sushline_midline_isearch_skips_no_longer_matching_entry() {
+    let inputrc = "set revert-all-at-newline off\n";
+    let history = ["alpha old", "beta", "alpha new"];
+    // Inserting X inside `alpha` removes the query from the edited entry;
+    // GNU commits the edit and steps to the older match.
+    assert_saved_history_projection(
+        b"\x10\x01\x06X\x12alp\r\r",
+        inputrc,
+        &history,
+        "alpha old",
+        b"alpha old\nbeta\naXlpha new\n",
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_prefix_search_reverts_edit_when_enabled() {
     let inputrc = r#"set editing-mode emacs
 set keymap emacs-standard

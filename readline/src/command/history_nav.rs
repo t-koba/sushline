@@ -228,7 +228,7 @@ where
                 }
                 state.search.quoted_pending = false;
                 state.search.non_incremental_search = None;
-                self.commit_history_edit_before_search(state);
+                let edited_entry = self.commit_history_edit_before_search(state);
                 let original_point = state.buffer.point();
                 let original_history_pos = self.history.where_history();
                 state.search.reverse_search = Some(ReverseSearchState {
@@ -238,6 +238,7 @@ where
                     original_history_pos,
                     original_history_entry_index: state.history_entry_index,
                     original_undo: state.undo.clone(),
+                    edited_entry_at_start: edited_entry,
                     ..Default::default()
                 });
                 state.kill.last_was_kill = false;
@@ -339,7 +340,7 @@ where
                 }
                 state.search.quoted_pending = false;
                 state.search.non_incremental_search = None;
-                self.commit_history_edit_before_search(state);
+                let edited_entry = self.commit_history_edit_before_search(state);
                 let original_point = state.buffer.point();
                 let original_history_pos = self.history.where_history();
                 state.search.reverse_search = Some(ReverseSearchState {
@@ -349,6 +350,7 @@ where
                     original_history_pos,
                     original_history_entry_index: state.history_entry_index,
                     original_undo: state.undo.clone(),
+                    edited_entry_at_start: edited_entry,
                     ..Default::default()
                 });
                 state.kill.last_was_kill = false;

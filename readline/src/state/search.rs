@@ -70,6 +70,10 @@ pub(crate) struct ReverseSearchState {
     /// live and later direction switches keep it too. Cleared by a query edit
     /// or a re-search, which can establish a new forward-failed fallback.
     pub(crate) match_survived_switch: bool,
+    /// The search began on a recalled entry whose edit was committed to
+    /// history at entry; its first match still uses the displayed line and
+    /// the point the user searched from.
+    pub(crate) edited_entry_at_start: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -200,6 +204,31 @@ pub(crate) fn update_reverse_search_match(
             return true;
         }
     }
+    // A committed edit still belongs to the entry the search started on, so
+    // its first reverse match is chosen from the displayed line and the
+    // original point, not from the last occurrence in the stored entry.
+    let edited_start = search.edited_entry_at_start
+        && !repeat
+        && from_end
+        && !search.exclude_cursor
+        && !search.query.is_empty()
+        && search.original_history_pos < history.entries().len();
+    if edited_start {
+        if let Some(offset) = unsaved_initial_match_offset(
+            &search.original_line,
+            &search.query,
+            search.original_point,
+            ignore_case,
+            locale_lowercase,
+        ) {
+            search.match_index = Some(search.original_history_pos);
+            search.match_line = Some(search.original_line.clone());
+            search.match_offset = Some(offset);
+            search.unsaved_line_match = false;
+            search.failed_search_line = None;
+            return true;
+        }
+    }
     let mut in_line = None;
     let found: Option<(Option<usize>, Vec<u8>)> = if let Some((idx, line, offset)) = repeated {
         in_line = Some(offset);
@@ -265,7 +294,12 @@ pub(crate) fn update_reverse_search_match(
                 // Only a fresh search without a prior match uses the
                 // cursor-based bound; query edits, including deletion after
                 // a match, continue from the reached index.
-                let end = if search.exclude_cursor {
+                let end = if edited_start {
+                    // No occurrence at or before the point in the displayed
+                    // entry: continue below it instead of re-finding a later
+                    // occurrence in the same entry.
+                    search.original_history_pos.min(history.entries().len())
+                } else if search.exclude_cursor {
                     search.original_history_pos.min(history.entries().len())
                 } else {
                     let found_end = search

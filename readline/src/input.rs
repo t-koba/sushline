@@ -2421,17 +2421,23 @@ where
         mut search: ReverseSearchState,
         direction: SearchDirection,
     ) -> Result<EditorOutcome, ReadlineError> {
-        // A repeat that switches direction from the unsaved line keeps the
-        // current occurrence: GNU does not advance in-line nor step into
-        // history, staying silent (Bash 5.3 PTY oracle).
+        // A repeat that switches direction keeps the current occurrence when
+        // a match is displayed: GNU's case -2 only flips the direction and
+        // re-checks the query at the unchanged sline_index, so a successful
+        // match re-matches there and GNU stays silent without advancing in
+        // line or stepping into history (Bash 5.3 PTY oracle and GNU 8.3
+        // isearch.c). That holds for a match on the unsaved line and for a
+        // stored history entry alike. A failed search (no displayed match,
+        // failed_search_line set) instead re-searches and rings, handled below.
         let switched = !matches!(
             (&search.direction, &direction),
             (SearchDirection::Forward, SearchDirection::Forward)
                 | (SearchDirection::Backward, SearchDirection::Backward)
         );
         let was_unsaved = search.unsaved_line_match;
+        let has_live_match = search.match_line.is_some() && search.failed_search_line.is_none();
         search.direction = direction;
-        if switched && was_unsaved {
+        if switched && (was_unsaved || has_live_match) {
             if search.query.is_empty()
                 && let Some(previous) = state.search.last_incremental_search.clone()
             {

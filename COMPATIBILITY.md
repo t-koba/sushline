@@ -121,7 +121,15 @@ cursor is stored or the line is unsaved.
 `bash_readline_and_sushline_forward_repeat_after_failed_extension` pins these
 accepted lines and bell counts for the measured keys and histories, including
 both switch origins; backward failed repeats and non-repeat deletions are
-unchanged controls.
+unchanged controls. A direction switch that follows a successful match instead
+keeps the currently displayed entry and rings nothing: GNU's case -2 only
+flips the direction and re-checks the query at the unchanged `sline_index`, so
+the match re-matches without advancing in line or stepping into history. This
+holds for a stored cursor and for the unsaved line; a same-direction repeat
+after the switch still advances or keeps as GNU does.
+`bash_readline_and_sushline_direction_switch_keeps_successful_match` pins the
+stored-cursor switch shapes in both directions, their following repeats, and
+failed-extension switch controls, for the measured keys and history only.
 
 ### Reverse incremental search point
 

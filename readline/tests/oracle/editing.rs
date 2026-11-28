@@ -18223,6 +18223,88 @@ fn bash_readline_and_sushline_forward_repeat_after_failed_extension() {
     }
 }
 
+/// On the measured GNU Readline 8.3 host, a direction-switch repeat that
+/// follows a successful match keeps the currently displayed entry: GNU's
+/// case -2 flips the search direction and re-checks the query at the unchanged
+/// sline_index, so the match re-matches immediately without advancing in line
+/// or stepping into history, and it rings nothing. This holds whether the
+/// match came from a stored cursor or the unsaved line. A switch after a
+/// failed extension instead re-searches and rings, already pinned by
+/// `bash_readline_and_sushline_forward_repeat_after_failed_extension`; those
+/// controls are repeated here to keep the distinction discriminating. Each
+/// case is paired on the same oracle host with `C-t` bound to
+/// `forward-search-history`.
+#[test]
+fn bash_readline_and_sushline_direction_switch_keeps_successful_match() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!("Direction-switch match behavior was measured on Readline 8.3");
+        return;
+    }
+    let bindings = r#""\C-t": forward-search-history"#;
+    let zzzb: &[&str] = &["beta one", "gamma", "zzzb"];
+    for (name, keys, accepted, bells) in [
+        // Stored cursor at the oldest entry; forward "b" matches "zzzb".
+        (
+            "stored_fwd_then_rev",
+            b"\x10\x10\x10\x14b\x12\r".as_slice(),
+            "zzzb",
+            0,
+        ),
+        (
+            "stored_rev_then_fwd",
+            b"\x10\x10\x10\x12b\x14\r".as_slice(),
+            "beta one",
+            0,
+        ),
+        // A same-direction repeat after the switch still advances/keeps as GNU.
+        (
+            "stored_fwd_then_rev_repeat",
+            b"\x10\x10\x10\x14b\x12\x12\r".as_slice(),
+            "beta one",
+            0,
+        ),
+        (
+            "stored_rev_then_fwd_repeat",
+            b"\x10\x10\x10\x12b\x14\x14\r".as_slice(),
+            "zzzb",
+            0,
+        ),
+        // Failed-extension switches must still re-search and ring.
+        (
+            "stored_fwd_fail_then_rev",
+            b"\x10\x10\x10\x14bq\x12\r".as_slice(),
+            "zzzb",
+            2,
+        ),
+        (
+            "stored_rev_fail_then_fwd",
+            b"\x10\x10\x10\x12bq\x14\r".as_slice(),
+            "beta one",
+            2,
+        ),
+    ] {
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(keys, bindings, zzzb),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, bindings, zzzb),
+            ),
+        ] {
+            let context = format!("{editor} {name} keys={keys:?}: {output:?}");
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(accepted),
+                "{context}"
+            );
+            assert_eq!(bell_count(&output), bells, "{context}");
+        }
+    }
+}
+
 /// On the measured GNU Readline 8.3 host, Ctrl-U in an incremental search
 /// ends the search, establishes the selected line and then applies
 /// unix-line-discard from the match start. A typed key after Ctrl-U exposes

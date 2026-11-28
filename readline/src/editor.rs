@@ -985,8 +985,10 @@ where
     }
 
     /// GNU's _rl_isearch_init calls _rl_maybe_replace_line before copying
-    /// the history list, so an edited recalled entry is committed even when
-    /// the search ends without moving away. Keep its undo state with it.
+    /// the history list. Measured traces commit an edited recalled entry when
+    /// the search starts at end of line; searches starting inside the line
+    /// keep the stored entry for match selection, so only the end-of-line
+    /// shape is changed here. Keep the entry's undo state with the edit.
     pub(crate) fn commit_history_edit_before_search(&mut self, state: &mut EditorState) {
         if self.flag(BoolVariable::RevertAllAtNewline) {
             return;
@@ -998,6 +1000,7 @@ where
             .history
             .get(index)
             .is_none_or(|entry| entry.line_bytes == state.buffer.as_bytes())
+            || state.buffer.point() != state.buffer.as_bytes().len()
         {
             return;
         }

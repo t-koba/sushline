@@ -18305,6 +18305,79 @@ fn bash_readline_and_sushline_direction_switch_keeps_successful_match() {
     }
 }
 
+/// A forward search that exhausts the newer entries and falls back to the
+/// cursor entry still rings one bell per query byte: GNU treats that query as
+/// failed even though a `match_line` stays displayed. A direction switch from
+/// that state must re-search, stepping back to the older matching entry, not
+/// keep the displayed cursor entry. The control switches from a forward
+/// search that genuinely matched a newer entry and must keep that match.
+/// Both are paired on the same GNU 8.3 host with `C-t` bound to
+/// `forward-search-history`.
+#[test]
+fn bash_readline_and_sushline_direction_switch_after_failed_forward_query() {
+    require_oracle_host();
+    if !host_carries_measured_release() {
+        eprintln!("Direction-switch match behavior was measured on Readline 8.3");
+        return;
+    }
+    let bindings = r#""\C-t": forward-search-history"#;
+    let history: &[&str] = &["abcabc", "abcabc2"];
+    for (name, keys, accepted, bells) in [
+        // One C-p leaves the cursor on "abcabc2"; forward "abc" has no
+        // occurrence at or after the end point, so GNU rings per byte and
+        // falls back to the cursor entry. C-r then steps back to "abcabc".
+        (
+            "bell_yet_live_fwd_then_rev",
+            b"\x10\x14abc\x12\r".as_slice(),
+            "abcabc",
+            3,
+        ),
+        // Two C-p leave the cursor on "abcabc"; forward "abcabc2" genuinely
+        // matches the newer entry, so C-r keeps that match and rings nothing.
+        (
+            "genuine_newer_match_fwd_then_rev",
+            b"\x10\x10\x14abcabc2\x12\r".as_slice(),
+            "abcabc2",
+            0,
+        ),
+        // The re-search after the switch steps back once, then a same-direction
+        // repeat stays on that older entry with no further bells.
+        (
+            "bell_yet_live_fwd_then_rev_repeat",
+            b"\x10\x14abc\x12\x12\r".as_slice(),
+            "abcabc",
+            3,
+        ),
+        // The mirror switch from the oldest entry keeps the displayed entry:
+        // search_query_failed is a forward-search state only.
+        (
+            "bwd_cursor_oldest_fallback_then_fwd",
+            b"\x10\x10\x12abc\x14\r".as_slice(),
+            "abcabc",
+            0,
+        ),
+    ] {
+        for (editor, output) in [
+            (
+                "Bash",
+                run_bash_readline_with_bindings_and_history(keys, bindings, history),
+            ),
+            (
+                "Sushline",
+                run_sushline_harness_with_inputrc_and_history(keys, bindings, history),
+            ),
+        ] {
+            let context = format!("{editor} {name} keys={keys:?}: {output:?}");
+            assert_eq!(
+                accepted_line(&output).as_deref(),
+                Some(accepted),
+                "{context}"
+            );
+            assert_eq!(bell_count(&output), bells, "{context}");
+        }
+    }
+}
+
 /// On the measured GNU Readline 8.3 host, Ctrl-U in an incremental search
 /// ends the search, establishes the selected line and then applies
 /// unix-line-discard from the match start. A typed key after Ctrl-U exposes

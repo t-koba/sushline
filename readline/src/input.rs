@@ -2435,7 +2435,19 @@ where
                 | (SearchDirection::Backward, SearchDirection::Backward)
         );
         let was_unsaved = search.unsaved_line_match;
-        let has_live_match = search.match_line.is_some() && search.failed_search_line.is_none();
+        // A forward query edit can ring a bell per byte yet leave a
+        // `match_line` displayed when the scan falls back to the cursor
+        // entry: no occurrence starts at or after `original_point`, but no
+        // newer entry matches either, so the cursor line stays shown. GNU
+        // still treats that query as failed, and case -2 re-searches to an
+        // older entry instead of keeping the displayed line. Measure this
+        // on the pre-switch direction: search_query_failed only reports the
+        // forward case. A genuine match (including one in a newer entry) is
+        // silent and keeps the match (Bash 5.3 / Readline 8.3 PTY oracle).
+        let forward_query_failed = self.search_query_failed(state, &search, true);
+        let has_live_match = search.match_line.is_some()
+            && search.failed_search_line.is_none()
+            && !forward_query_failed;
         search.direction = direction;
         if switched && (was_unsaved || has_live_match) {
             if search.query.is_empty()

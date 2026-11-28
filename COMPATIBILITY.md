@@ -129,7 +129,13 @@ holds for a stored cursor and for the unsaved line; a same-direction repeat
 after the switch still advances or keeps as GNU does.
 `bash_readline_and_sushline_direction_switch_keeps_successful_match` pins the
 stored-cursor switch shapes in both directions, their following repeats, and
-failed-extension switch controls, for the measured keys and history only.
+failed-extension switch controls, for the measured keys and history only. A
+forward query that rings a bell per byte and falls back to the cursor entry is
+not a successful match for GNU even though a match line stays displayed: the
+switch re-searches to the older matching entry instead of keeping the displayed
+one. `bash_readline_and_sushline_direction_switch_after_failed_forward_query`
+pins that case, a genuine newer-entry match control, the following repeat and
+the backward mirror, for the measured keys and history only.
 
 ### Reverse incremental search point
 

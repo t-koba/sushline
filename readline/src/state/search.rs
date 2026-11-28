@@ -213,21 +213,21 @@ pub(crate) fn update_reverse_search_match(
         && !search.exclude_cursor
         && !search.query.is_empty()
         && search.original_history_pos < history.entries().len();
-    if edited_start {
-        if let Some(offset) = unsaved_initial_match_offset(
+    if edited_start
+        && let Some(offset) = unsaved_initial_match_offset(
             &search.original_line,
             &search.query,
             search.original_point,
             ignore_case,
             locale_lowercase,
-        ) {
-            search.match_index = Some(search.original_history_pos);
-            search.match_line = Some(search.original_line.clone());
-            search.match_offset = Some(offset);
-            search.unsaved_line_match = false;
-            search.failed_search_line = None;
-            return true;
-        }
+        )
+    {
+        search.match_index = Some(search.original_history_pos);
+        search.match_line = Some(search.original_line.clone());
+        search.match_offset = Some(offset);
+        search.unsaved_line_match = false;
+        search.failed_search_line = None;
+        return true;
     }
     let mut in_line = None;
     let found: Option<(Option<usize>, Vec<u8>)> = if let Some((idx, line, offset)) = repeated {

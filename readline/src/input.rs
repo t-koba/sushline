@@ -1618,6 +1618,11 @@ where
         if !found && !repeat && displayed && query_or_displayed_line_is_valid {
             search.retain_failed_query_line = true;
         }
+        // Once a query edit fails, later resolutions follow the ordinary
+        // match rules; the edited-entry rule no longer applies.
+        if !found {
+            search.edited_entry_at_start = false;
+        }
         found
     }
 

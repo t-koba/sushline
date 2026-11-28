@@ -435,6 +435,9 @@ pub(crate) fn update_reverse_search_match(
         search.match_offset = Some(offset);
         search.unsaved_line_match = idx.is_none();
         search.failed_search_line = None;
+        // Leaving the starting entry ends the edited-entry rule: later query
+        // edits and failed extensions use the ordinary match rules.
+        search.edited_entry_at_start = false;
         return true;
     }
     if !had_match {

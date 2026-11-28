@@ -813,6 +813,28 @@ fn bash_readline_and_sushline_midline_isearch_entry_saves_edited_history() {
 }
 
 #[test]
+fn bash_readline_and_sushline_isearch_failed_extension_keeps_older_match() {
+    let inputrc = "set revert-all-at-newline off\n";
+    let history = ["alpha old", "beta", "alpha new"];
+    // A failed extension after stepping to the older match must not fall back
+    // to the entry the search started on.
+    assert_saved_history_projection(
+        b"\x10\x05 EDIT\x12alp\x12X\x7f\r\r",
+        inputrc,
+        &history,
+        "alpha old",
+        b"alpha old\nbeta\nalpha new EDIT\n",
+    );
+    assert_saved_history_projection(
+        b"\x10\x05 EDIT\x12zz\x7f\x7falp\x12X\x7f\r\r",
+        inputrc,
+        &history,
+        "alpha old",
+        b"alpha old\nbeta\nalpha new EDIT\n",
+    );
+}
+
+#[test]
 fn bash_readline_and_sushline_midline_isearch_skips_no_longer_matching_entry() {
     let inputrc = "set revert-all-at-newline off\n";
     let history = ["alpha old", "beta", "alpha new"];

@@ -984,6 +984,30 @@ where
         }
     }
 
+    /// GNU's _rl_isearch_init calls _rl_maybe_replace_line before copying
+    /// the history list, so an edited recalled entry is committed even when
+    /// the search ends without moving away. Keep its undo state with it.
+    pub(crate) fn commit_history_edit_before_search(&mut self, state: &mut EditorState) {
+        if self.flag(BoolVariable::RevertAllAtNewline) {
+            return;
+        }
+        let Some(index) = state.history_entry_index else {
+            return;
+        };
+        if self
+            .history
+            .get(index)
+            .is_none_or(|entry| entry.line_bytes == state.buffer.as_bytes())
+        {
+            return;
+        }
+        state.commit_pending_undo();
+        self.history
+            .set_line_bytes(index, state.buffer.as_bytes().to_vec());
+        self.history
+            .set_undo_list(index, state.undo_snapshot_lines());
+    }
+
     pub(crate) fn is_isearch_terminator(&self, bytes: &[u8]) -> bool {
         let terminators = self
             .variables

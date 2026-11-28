@@ -228,6 +228,7 @@ where
                 }
                 state.search.quoted_pending = false;
                 state.search.non_incremental_search = None;
+                self.commit_history_edit_before_search(state);
                 let original_point = state.buffer.point();
                 let original_history_pos = self.history.where_history();
                 state.search.reverse_search = Some(ReverseSearchState {
@@ -338,6 +339,7 @@ where
                 }
                 state.search.quoted_pending = false;
                 state.search.non_incremental_search = None;
+                self.commit_history_edit_before_search(state);
                 let original_point = state.buffer.point();
                 let original_history_pos = self.history.where_history();
                 state.search.reverse_search = Some(ReverseSearchState {
